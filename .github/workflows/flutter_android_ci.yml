@@ -1,0 +1,258 @@
+name: Flutter Android CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      upload_debug_artifact:
+        description: 'Upload debug APK artifact. Keep false to save artifact quota.'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      enable_private_cloud_invoice_lab:
+        description: 'Enable the compile-time-gated private cloud invoice LAB in a manual debug build'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-test-build-apk:
+    name: Analyze, Test, Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect changed files
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_heavy=false
+          reason="docs-only change"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            run_heavy=true
+            reason="manual workflow_dispatch"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+            git diff --name-only "$base_sha" "$head_sha" > changed_files.txt
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            before_sha="${{ github.event.before }}"
+            head_sha="${{ github.sha }}"
+            if [[ "$before_sha" =~ ^0+$ ]]; then
+              run_heavy=true
+              reason="initial public-root push"
+            else
+              git diff --name-only "$before_sha" "$head_sha" > changed_files.txt
+            fi
+          else
+            run_heavy=true
+            reason="unknown event"
+          fi
+
+          if [[ "$run_heavy" != "true" ]]; then
+            echo "Changed files:"
+            cat changed_files.txt || true
+
+            if [[ ! -s changed_files.txt ]]; then
+              run_heavy=true
+              reason="changed file list unavailable"
+            elif grep -Ev '^(docs/|.*\.md$|\.gitignore$)' changed_files.txt | grep -q .; then
+              run_heavy=true
+              reason="non-docs files changed"
+            fi
+          fi
+
+          echo "run_heavy=$run_heavy" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "Heavy Flutter path: $run_heavy ($reason)"
+
+      - name: Docs-only change summary
+        if: ${{ steps.changes.outputs.run_heavy != 'true' }}
+        run: |
+          echo "Docs-only change detected."
+          echo "Skipping Flutter setup, analyze, tests, and APK build."
+          echo "Reason: ${{ steps.changes.outputs.reason }}"
+
+      - name: Setup Java
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show Flutter doctor
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        run: flutter doctor -v
+
+      - name: Ensure Android platform files exist
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        run: flutter create --platforms=android .
+
+      - name: Patch Android permissions and desugaring
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          permissions = [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+          ]
+          missing = [permission for permission in permissions if permission not in text]
+          if missing:
+              text = text.replace(
+                  marker,
+                  marker + ''.join(f'\n    {permission}' for permission in missing),
+                  1,
+              )
+          manifest.write_text(text)
+
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+
+          def patch_compile_options(source: str) -> str:
+              if 'isCoreLibraryDesugaringEnabled = true' in source:
+                  return source
+              lines = source.splitlines()
+              output = []
+              i = 0
+              patched = False
+              while i < len(lines):
+                  line = lines[i]
+                  output.append(line)
+                  if line.strip() == 'compileOptions {':
+                      block_start_indent = line[: len(line) - len(line.lstrip())]
+                      inner_indent = block_start_indent + '    '
+                      i += 1
+                      block_lines = []
+                      depth = 1
+                      while i < len(lines):
+                          current = lines[i]
+                          stripped = current.strip()
+                          if stripped.endswith('{'):
+                              depth += stripped.count('{')
+                          if stripped == '}':
+                              depth -= 1
+                              if depth == 0:
+                                  if not any(
+                                      'isCoreLibraryDesugaringEnabled = true' in item
+                                      for item in block_lines
+                                  ):
+                                      block_lines.append(
+                                          inner_indent
+                                          + 'isCoreLibraryDesugaringEnabled = true'
+                                      )
+                                  output.extend(block_lines)
+                                  output.append(current)
+                                  patched = True
+                                  break
+                          block_lines.append(current)
+                          i += 1
+                  i += 1
+
+              if patched:
+                  return '\n'.join(output) + ('\n' if source.endswith('\n') else '')
+
+              android_marker = 'android {'
+              if android_marker not in source:
+                  raise SystemExit('Unable to patch desugaring: android block not found')
+              replacement = (
+                  'android {\n'
+                  '    compileOptions {\n'
+                  '        sourceCompatibility = JavaVersion.VERSION_11\n'
+                  '        targetCompatibility = JavaVersion.VERSION_11\n'
+                  '        isCoreLibraryDesugaringEnabled = true\n'
+                  '    }'
+              )
+              return source.replace(android_marker, replacement, 1)
+
+          text = patch_compile_options(text)
+
+          dependency = (
+              'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          )
+          if dependency not in text:
+              marker = 'dependencies {'
+              if marker in text:
+                  text = text.replace(marker, marker + '\n    ' + dependency, 1)
+              else:
+                  text += '\n\ndependencies {\n    ' + dependency + '\n}\n'
+          gradle.write_text(text)
+          PY
+
+      - name: Get dependencies
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        run: flutter pub get
+
+      - name: Analyze Dart code
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        run: flutter analyze
+
+      - name: Run tests
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        run: flutter test
+
+      - name: Build debug APK
+        if: >-
+          ${{ steps.changes.outputs.run_heavy == 'true' &&
+              github.event_name != 'workflow_dispatch' }}
+        run: >-
+          flutter build apk --debug
+          --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false
+
+      - name: Build manual debug APK
+        if: >-
+          ${{ steps.changes.outputs.run_heavy == 'true' &&
+              github.event_name == 'workflow_dispatch' }}
+        env:
+          ENABLE_PRIVATE_CLOUD_INVOICE_LAB: ${{ inputs.enable_private_cloud_invoice_lab }}
+        run: >-
+          flutter build apk --debug
+          --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB="$ENABLE_PRIVATE_CLOUD_INVOICE_LAB"
+
+      - name: Upload debug APK artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_debug_artifact == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-finance-app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 1

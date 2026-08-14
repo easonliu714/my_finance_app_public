@@ -1,0 +1,26 @@
+# Android / release signing material
+**/*.jks
+**/*.keystore
+**/key.properties
+**/upload-keystore.base64.txt
+**/*.p12
+**/*.pfx
+
+# Local secrets
+.env
+.env.*
+!.env.example
+**/*.pem
+**/*.key
+
+# Local finance databases and install artifacts
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.apk
+**/*.aab
+
+# Common generated output
+.dart_tool/
+build/
+android/.gradle/

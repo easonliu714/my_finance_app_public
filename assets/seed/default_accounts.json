@@ -1,0 +1,7 @@
+[
+  {"name":"現金","type":"cash","initial_balance":0},
+  {"name":"銀行帳戶","type":"bank","initial_balance":0},
+  {"name":"信用卡","type":"credit_card","initial_balance":0},
+  {"name":"一卡通 Money","type":"ewallet","initial_balance":0},
+  {"name":"悠遊卡","type":"stored_value","initial_balance":0}
+]
