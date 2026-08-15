@@ -168,12 +168,14 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
         run: |
           set -euo pipefail
           test -n "$ANDROID_KEYSTORE_BASE64"
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           test -n "$ANDROID_KEY_ALIAS"
           test -n "$ANDROID_KEY_PASSWORD"
+          test -n "$ANDROID_SIGNING_CERT_SHA256"
           mkdir -p android/app
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           cat > android/key.properties <<EOF
@@ -182,6 +184,25 @@ jobs:
           keyAlias=$ANDROID_KEY_ALIAS
           storeFile=upload-keystore.jks
           EOF
+
+      - name: Verify configured signing certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          actual="$({ keytool -exportcert -rfc \
+            -keystore android/app/upload-keystore.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            -keypass "$ANDROID_KEY_PASSWORD"; } | \
+            openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          expected="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test -n "$actual"
+          test "$actual" = "$expected"
+          printf 'Configured signing certificate SHA-256: %s\n' "$actual"
 
       - name: Patch release signing and ML Kit R8 boundary
         run: |
@@ -229,13 +250,18 @@ jobs:
       - name: Build signed release APK
         run: flutter build apk --release --no-pub --build-number=424
 
-      - name: Inspect merged APK manifest boundary
+      - name: Inspect signed APK boundary
         shell: bash
+        env:
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
         run: |
           set -euo pipefail
           apk='build/app/outputs/flutter-apk/app-release.apk'
           apkanalyzer_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer 2>/dev/null | sort -V | tail -n 1)"
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$apkanalyzer_bin"
+          test -n "$apksigner_bin"
+
           permissions="$($apkanalyzer_bin manifest permissions "$apk")"
           printf '%s\n' "$permissions"
           grep -Fq 'android.permission.CAMERA' <<< "$permissions"
@@ -246,6 +272,12 @@ jobs:
           ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
           test "$($apkanalyzer_bin manifest version-name "$apk")" = '4.17.2'
           test "$($apkanalyzer_bin manifest version-code "$apk")" = '424'
+
+          actual_cert="$($apksigner_bin verify --print-certs "$apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {print $2; exit}' | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          expected_cert="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test -n "$actual_cert"
+          test "$actual_cert" = "$expected_cert"
+          printf 'APK signing certificate SHA-256: %s\n' "$actual_cert"
 
       - name: Generate checksum
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_17_2_public_signed_canary.sha256
