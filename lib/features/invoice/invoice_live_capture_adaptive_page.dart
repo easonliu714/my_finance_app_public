@@ -27,16 +27,24 @@ double resolveInvoiceAdaptiveCameraZoom({
   required InvoiceReceiptFrameMode mode,
   required double minZoom,
   required double maxZoom,
-  double narrowTarget = 1.30,
 }) {
   final safeMin = minZoom.isFinite && minZoom > 0 ? minZoom : 1.0;
   final safeMax = maxZoom.isFinite && maxZoom >= safeMin ? maxZoom : safeMin;
-  final requested = mode == InvoiceReceiptFrameMode.narrowTall &&
-          narrowTarget.isFinite &&
-          narrowTarget > 0
-      ? narrowTarget
-      : 1.0;
-  return requested.clamp(safeMin, safeMax).toDouble();
+  final guideOnlyNeutralZoom = switch (mode) {
+    InvoiceReceiptFrameMode.wide => 1.0,
+    InvoiceReceiptFrameMode.narrowTall => 1.0,
+  };
+  return guideOnlyNeutralZoom.clamp(safeMin, safeMax).toDouble();
+}
+
+bool isExactFrozenSellerTaxEvidence({
+  required String expectedSellerTaxId,
+  required TraditionalSellerTaxIdEvidence? evidence,
+}) {
+  final expected = expectedSellerTaxId.trim();
+  return expected.isNotEmpty &&
+      evidence?.acceptedForLive == true &&
+      evidence!.value == expected;
 }
 
 class AdaptiveInvoiceLiveCapturePage extends StatefulWidget {
@@ -83,6 +91,8 @@ class _AdaptiveInvoiceLiveCapturePageState
 
   final text.TextRecognizer _textRecognizer =
       text.TextRecognizer(script: text.TextRecognitionScript.chinese);
+  final text.TextRecognizer _latinTextRecognizer =
+      text.TextRecognizer(script: text.TextRecognitionScript.latin);
   final barcode.BarcodeScanner _barcodeScanner = barcode.BarcodeScanner(
     formats: const <barcode.BarcodeFormat>[barcode.BarcodeFormat.all],
   );
@@ -129,6 +139,7 @@ class _AdaptiveInvoiceLiveCapturePageState
     _camera = null;
     unawaited(controller?.dispose());
     unawaited(_textRecognizer.close());
+    unawaited(_latinTextRecognizer.close());
     unawaited(_barcodeScanner.close());
     super.dispose();
   }
@@ -279,6 +290,7 @@ class _AdaptiveInvoiceLiveCapturePageState
           'targetZoom': target,
           'minZoom': minZoom,
           'maxZoom': maxZoom,
+          'guideOnlyFieldOfView': true,
           'recognitionDecisionUnchanged': true,
         },
       );
@@ -288,6 +300,7 @@ class _AdaptiveInvoiceLiveCapturePageState
         details: <String, Object?>{
           'frameMode': mode.name,
           'errorCode': error.code,
+          'guideOnlyFieldOfView': true,
           'recognitionDecisionUnchanged': true,
         },
       );
@@ -297,6 +310,7 @@ class _AdaptiveInvoiceLiveCapturePageState
         details: <String, Object?>{
           'frameMode': mode.name,
           'errorType': error.runtimeType.toString(),
+          'guideOnlyFieldOfView': true,
           'recognitionDecisionUnchanged': true,
         },
       );
@@ -429,11 +443,13 @@ class _AdaptiveInvoiceLiveCapturePageState
         );
       }
 
-      final taxEvidence = extractTraditionalSellerTaxIdEvidence(
+      var taxEvidence = extractTraditionalSellerTaxIdEvidence(
         lines,
         invoiceNumber: parsedText.invoiceNumber,
         positionedLines: positionedLines,
       );
+      var sellerTaxEvidenceSource = taxEvidence?.source ?? '';
+      var sellerTaxVisualLines = visualLines;
       final invoiceNumber =
           validQr?.invoiceNumber ?? parsedText.invoiceNumber ?? '';
       final invoiceVisualRect = parsedText.invoiceNumber?.isNotEmpty == true
@@ -469,6 +485,69 @@ class _AdaptiveInvoiceLiveCapturePageState
           'affectsReadinessProfile': true,
         },
       );
+
+      if (!electronicWide &&
+          invoiceNumber.isNotEmpty &&
+          taxEvidence?.acceptedForLive != true) {
+        final latinRecognized =
+            await _latinTextRecognizer.processImage(frame.inputImage);
+        if (!mounted || _freezing) return;
+        final latinPositionedLines = <LocalOcrTextLine>[
+          for (final block in latinRecognized.blocks)
+            for (final line in block.lines)
+              if (line.text.trim().isNotEmpty)
+                LocalOcrTextLine(
+                  text: line.text.trim(),
+                  left: line.boundingBox.left,
+                  top: line.boundingBox.top,
+                  right: line.boundingBox.right,
+                  bottom: line.boundingBox.bottom,
+                ),
+        ];
+        final latinLines = latinPositionedLines
+            .map((line) => line.text)
+            .toList(growable: false);
+        final latinParsed = _textParser.parse(
+          LocalOcrTextDocument(
+            fullText: latinRecognized.text.trim(),
+            lines: List<String>.unmodifiable(latinLines),
+            positionedLines:
+                List<LocalOcrTextLine>.unmodifiable(latinPositionedLines),
+          ),
+        );
+        final latinTaxEvidence = extractTraditionalSellerTaxIdEvidence(
+          latinLines,
+          invoiceNumber: invoiceNumber.isNotEmpty
+              ? invoiceNumber
+              : latinParsed.invoiceNumber,
+          positionedLines: latinPositionedLines,
+        );
+        final latinAccepted = latinTaxEvidence?.acceptedForLive == true;
+        _recordCameraEvent(
+          'LIVE_LATIN_SELLER_TAX_FALLBACK',
+          details: <String, Object?>{
+            'invoiceNumber': invoiceNumber,
+            'candidate': latinTaxEvidence?.value ?? '',
+            'checksumValid': latinTaxEvidence?.checksumValid,
+            'strongContext': latinTaxEvidence?.strongContext,
+            'accepted': latinAccepted,
+            'rawLineCount': latinLines.length,
+            'fullFrameInput': true,
+          },
+        );
+        if (latinAccepted) {
+          taxEvidence = latinTaxEvidence;
+          sellerTaxEvidenceSource = 'latin_${latinTaxEvidence!.source}';
+          sellerTaxVisualLines = <InvoiceOcrVisualLine>[
+            for (final line in latinPositionedLines)
+              InvoiceOcrVisualLine(
+                text: line.text,
+                imageRect:
+                    Rect.fromLTRB(line.left, line.top, line.right, line.bottom),
+              ),
+          ];
+        }
+      }
 
       final date = validQr?.invoiceDate ?? parsedText.invoiceDate;
       final invoiceDate = date == null ? '' : _formatDate(date);
@@ -553,7 +632,10 @@ class _AdaptiveInvoiceLiveCapturePageState
       final sellerTaxVisualValue =
           validQr?.sellerIdentifier ?? taxEvidence?.value ?? '';
       final sellerTaxEvidenceRect = sellerTaxVisualValue.isNotEmpty
-          ? findSellerTaxTextEvidenceRect(visualLines, sellerTaxVisualValue)
+          ? findSellerTaxTextEvidenceRect(
+              sellerTaxVisualLines,
+              sellerTaxVisualValue,
+            )
           : null;
       final sellerTaxVisualCandidate = sellerTaxEvidenceRect == null
           ? findSellerTaxVisualCandidate(
@@ -602,6 +684,7 @@ class _AdaptiveInvoiceLiveCapturePageState
                   ? 'traditional_first'
                   : 'initial_wide_hold',
           'affectsRecognitionDecision': false,
+          'guideOnlyFieldOfView': true,
         },
       );
       if (nextFrameState.mode != previousFrameMode) {
@@ -614,6 +697,7 @@ class _AdaptiveInvoiceLiveCapturePageState
             'electronicWideReasons': electronicWideEvidence.reasons,
             'geometrySignalDiagnosticOnly': geometry.signal.name,
             'affectsRecognitionDecision': false,
+            'guideOnlyFieldOfView': true,
           },
         );
       }
@@ -659,7 +743,7 @@ class _AdaptiveInvoiceLiveCapturePageState
           snapshot: next,
           rawLines: List<String>.unmodifiable(lines),
           sellerTaxIdCandidate: sellerTaxIdCandidate,
-          sellerTaxIdSource: validQr != null ? 'qr' : taxEvidence?.source ?? '',
+          sellerTaxIdSource: validQr != null ? 'qr' : sellerTaxEvidenceSource,
           sellerTaxIdChecksumValid:
               validQr != null ? true : taxEvidence?.checksumValid,
         ),
@@ -727,7 +811,10 @@ class _AdaptiveInvoiceLiveCapturePageState
     _recordCameraEvent('THREE_A_UNLOCKED');
   }
 
-  Future<_FrozenIdentityProbe> _probeFrozenIdentity(String filePath) async {
+  Future<_FrozenIdentityProbe> _probeFrozenIdentity(
+    String filePath, {
+    required String expectedSellerTaxId,
+  }) async {
     final input = mlkit.InputImage.fromFilePath(filePath);
     final recognized = await _textRecognizer.processImage(input);
     final codes = await _barcodeScanner.processImage(input);
@@ -772,11 +859,82 @@ class _AdaptiveInvoiceLiveCapturePageState
       invoiceNumber: parsed.invoiceNumber,
       positionedLines: positionedLines,
     );
+    var frozenInvoiceNumber = parsed.invoiceNumber ?? '';
+    var frozenSellerTaxId = taxEvidence?.acceptedForLive == true
+        ? taxEvidence!.value
+        : '';
+    var rawLineCount = lines.length;
+
+    if (expectedSellerTaxId.trim().isNotEmpty &&
+        !isExactFrozenSellerTaxEvidence(
+          expectedSellerTaxId: expectedSellerTaxId,
+          evidence: taxEvidence,
+        )) {
+      final latinInput = mlkit.InputImage.fromFilePath(filePath);
+      final latinRecognized = await _latinTextRecognizer.processImage(latinInput);
+      final latinPositionedLines = <LocalOcrTextLine>[
+        for (final block in latinRecognized.blocks)
+          for (final line in block.lines)
+            if (line.text.trim().isNotEmpty)
+              LocalOcrTextLine(
+                text: line.text.trim(),
+                left: line.boundingBox.left,
+                top: line.boundingBox.top,
+                right: line.boundingBox.right,
+                bottom: line.boundingBox.bottom,
+              ),
+      ];
+      final latinLines = latinPositionedLines
+          .map((line) => line.text)
+          .toList(growable: false);
+      final latinParsed = _textParser.parse(
+        LocalOcrTextDocument(
+          fullText: latinRecognized.text.trim(),
+          lines: List<String>.unmodifiable(latinLines),
+          positionedLines:
+              List<LocalOcrTextLine>.unmodifiable(latinPositionedLines),
+        ),
+      );
+      final latinTaxEvidence = extractTraditionalSellerTaxIdEvidence(
+        latinLines,
+        invoiceNumber: frozenInvoiceNumber.isNotEmpty
+            ? frozenInvoiceNumber
+            : latinParsed.invoiceNumber,
+        positionedLines: latinPositionedLines,
+      );
+      final exactLatinMatch = isExactFrozenSellerTaxEvidence(
+        expectedSellerTaxId: expectedSellerTaxId,
+        evidence: latinTaxEvidence,
+      );
+      _recordCameraEvent(
+        'FROZEN_LATIN_SELLER_TAX_FALLBACK',
+        details: <String, Object?>{
+          'expectedSellerTaxId': expectedSellerTaxId,
+          'candidate': latinTaxEvidence?.value ?? '',
+          'checksumValid': latinTaxEvidence?.checksumValid,
+          'strongContext': latinTaxEvidence?.strongContext,
+          'acceptedExact': exactLatinMatch,
+          'rawLineCount': latinLines.length,
+          'fullFrameInput': true,
+          'fuzzyGuessingUsed': false,
+        },
+      );
+      if (frozenInvoiceNumber.isEmpty &&
+          latinParsed.invoiceNumber?.isNotEmpty == true) {
+        frozenInvoiceNumber = latinParsed.invoiceNumber!;
+      }
+      if (exactLatinMatch) {
+        frozenSellerTaxId = expectedSellerTaxId.trim();
+      } else if (frozenSellerTaxId != expectedSellerTaxId.trim()) {
+        frozenSellerTaxId = '';
+      }
+      rawLineCount = math.max(rawLineCount, latinLines.length);
+    }
+
     return _FrozenIdentityProbe(
-      invoiceNumber: parsed.invoiceNumber ?? '',
-      sellerTaxId:
-          taxEvidence?.acceptedForLive == true ? taxEvidence!.value : '',
-      rawLineCount: lines.length,
+      invoiceNumber: frozenInvoiceNumber,
+      sellerTaxId: frozenSellerTaxId,
+      rawLineCount: rawLineCount,
       hasValidQr: false,
     );
   }
@@ -817,7 +975,11 @@ class _AdaptiveInvoiceLiveCapturePageState
         'fileName': file.name,
       });
 
-      final frozenProbe = await _probeFrozenIdentity(file.path);
+      final frozenProbe = await _probeFrozenIdentity(
+        file.path,
+        expectedSellerTaxId:
+            _traditionalExplicitTaxRequired ? _snapshot.sellerTaxId : '',
+      );
       final identityMatches = isFrozenInvoiceIdentityConsistent(
         liveInvoiceNumber: _snapshot.invoiceNumber,
         frozenInvoiceNumber: frozenProbe.invoiceNumber,
@@ -839,6 +1001,7 @@ class _AdaptiveInvoiceLiveCapturePageState
         'frozenHasValidQr': frozenProbe.hasValidQr,
         'classificationAdvisoryOnly': true,
         'adaptiveGuidanceAffectsAcceptance': false,
+        'guidanceFrameCropsRecognitionInput': false,
         'traditionalExplicitTaxRequired': _traditionalExplicitTaxRequired,
         'accepted': finalAccepted,
       });
@@ -853,7 +1016,7 @@ class _AdaptiveInvoiceLiveCapturePageState
         if (mounted) {
           setState(() {
             _error = _traditionalExplicitTaxRequired && !sellerTaxMatches
-                ? '凍結影像未重現剛才穩定的 8 碼賣方統編，已取消本次自動凍結。請讓統編區保持清晰後再試一次。'
+                ? '凍結影像未重現剛才穩定的 8 碼賣方統編，已取消本次自動凍結。請保持完整發票入鏡並讓統編清晰後再試一次。'
                 : '凍結影像與剛才穩定的 Live identity 不一致，已自動取消本次凍結。請保持手機與發票不動後再試一次。';
           });
         }
@@ -970,7 +1133,7 @@ class _AdaptiveInvoiceLiveCapturePageState
           : '傳統發票的發票號碼＋8 碼賣方統編已跨 frame 穩定；凍結後會再次驗證兩項 identity。';
     }
     if (invoiceNumber.isEmpty) {
-      return '預設以寬版尋找電子發票；請讓發票號碼與主要版面完整入框。';
+      return '預設以寬版尋找電子發票；外框僅供定位，辨識仍使用完整相機畫面。';
     }
     if (electronicWideEvidence) {
       if (classification == InvoiceLiveClassification.electronic &&
@@ -983,14 +1146,14 @@ class _AdaptiveInvoiceLiveCapturePageState
       return '電子發票證據完整，請保持不動等待欄位 identity 穩定。';
     }
     if (sellerTaxId.isEmpty) {
-      return '未符合電子發票 wide evidence，優先切換細長取景。自動凍結必須取得發票號碼與可靠的 8 碼賣方統編；電話／地址等數字不算統編。';
+      return '未符合電子發票 wide evidence，改用細長定位框提示；外框不裁切辨識畫面。自動凍結仍必須取得發票號碼與可靠的 8 碼賣方統編。';
     }
     if (!hasSellerIdentityContext) {
       return '已取得 8 碼統編，但商家區仍不穩定；請保持統編與發票號碼清晰。';
     }
     return stableObservations > 0
         ? '發票號碼＋賣方統編已接近門檻，請保持不動等待第二次穩定取樣。'
-        : '傳統發票候選：細長取景，等待發票號碼與 8 碼賣方統編穩定。';
+        : '傳統發票候選：細長框僅供定位，完整畫面持續辨識，等待發票號碼與 8 碼賣方統編穩定。';
   }
 
   String _formatDate(DateTime value) {
@@ -1144,7 +1307,7 @@ class _AdaptiveReceiptGuidanceOverlay extends StatelessWidget {
                       child: Text(
                         wide
                             ? '寬版取景｜電子發票 evidence 優先'
-                            : '細長取景｜傳統發票優先',
+                            : '細長定位框｜傳統發票優先・完整畫面辨識',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 11,
@@ -1196,7 +1359,7 @@ class _BottomControls extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             title: const Text('欄位 identity 穩定後自動凍結'),
             subtitle: const Text(
-              '電子發票 evidence 維持寬版；其他發票優先細長取景。傳統發票自動凍結至少需要發票號碼＋8 碼賣方統編，並保留 3A lock 與 Frozen identity Gate。',
+              '外框僅供定位，辨識永遠使用完整相機畫面；電子發票維持寬框、傳統發票可提示細長框。自動凍結仍保留發票號碼＋8 碼賣方統編、3A lock 與 Frozen identity Gate。',
             ),
             value: autoFreeze,
             onChanged: onAutoFreezeChanged,
