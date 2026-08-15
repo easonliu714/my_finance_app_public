@@ -139,13 +139,13 @@ TraditionalSellerTaxIdEvidence? extractTraditionalSellerTaxIdEvidence(
       .toList(growable: false);
 
   final explicit = RegExp(
-    r'(?:賣方(?:統編|統一編號)?|統編|統一編號)\s*[:：.]?\s*([0-9０-９OIl|]{8})',
+    r'(?:賣方(?:統編|統一編號)?|統編|統一編號)\s*[:：.]?\s*([0-9０-９OIl|S]{8})',
     caseSensitive: false,
   );
   for (final line in lines) {
     final match = explicit.firstMatch(line);
     if (match == null) continue;
-    final value = _normalizeEightDigits(match.group(1)!);
+    final value = _normalizeLabeledEightDigits(match.group(1)!);
     if (!isTaiwanTaxIdFormat(value)) continue;
     return TraditionalSellerTaxIdEvidence(
       value: value,
@@ -156,13 +156,13 @@ TraditionalSellerTaxIdEvidence? extractTraditionalSellerTaxIdEvidence(
   }
 
   final noPattern = RegExp(
-    r'^\s*NO\.?\s*[:：.]?\s*([0-9０-９OIl|]{8})\s*$',
+    r'^\s*(?:NO|N0|HO|H0)\.?\s*[:：.]?\s*([0-9０-９OIl|S]{8})\s*$',
     caseSensitive: false,
   );
   for (var index = 0; index < lines.length && index < 10; index += 1) {
     final match = noPattern.firstMatch(lines[index]);
     if (match == null) continue;
-    final value = _normalizeEightDigits(match.group(1)!);
+    final value = _normalizeLabeledEightDigits(match.group(1)!);
     if (!isTaiwanTaxIdFormat(value) ||
         !hasValidTaiwanTaxIdChecksum(value) ||
         !_hasMerchantHeaderContext(lines, index)) {
@@ -257,6 +257,12 @@ TraditionalSellerTaxIdEvidence? _extractPositionalHeaderTaxId(
     source: 'positional_header_8digit',
     checksumValid: true,
     strongContext: true,
+  );
+}
+
+String _normalizeLabeledEightDigits(String value) {
+  return _normalizeEightDigits(
+    value.replaceAll(RegExp(r'[ＳｓS]'), '5'),
   );
 }
 
