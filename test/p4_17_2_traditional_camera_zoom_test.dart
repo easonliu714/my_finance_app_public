@@ -3,7 +3,7 @@ import 'package:my_finance_app/features/invoice/invoice_live_adaptive_overlay.da
 import 'package:my_finance_app/features/invoice/invoice_live_capture_adaptive_page.dart';
 
 void main() {
-  test('wide mode returns the neutral camera zoom when supported', () {
+  test('wide guide preserves neutral camera field of view', () {
     expect(
       resolveInvoiceAdaptiveCameraZoom(
         mode: InvoiceReceiptFrameMode.wide,
@@ -14,36 +14,36 @@ void main() {
     );
   });
 
-  test('narrow Traditional mode applies only the bounded 1.30x target', () {
+  test('narrow Traditional guide is visual-only and preserves neutral zoom', () {
     expect(
       resolveInvoiceAdaptiveCameraZoom(
         mode: InvoiceReceiptFrameMode.narrowTall,
         minZoom: 1,
         maxZoom: 8,
       ),
-      1.30,
+      1,
     );
   });
 
-  test('narrow target is capped by the physical camera max zoom', () {
+  test('guide-only neutral target respects a physical camera minimum', () {
     expect(
       resolveInvoiceAdaptiveCameraZoom(
         mode: InvoiceReceiptFrameMode.narrowTall,
-        minZoom: 1,
-        maxZoom: 1.15,
-      ),
-      1.15,
-    );
-  });
-
-  test('wide target never requests a zoom below the physical minimum', () {
-    expect(
-      resolveInvoiceAdaptiveCameraZoom(
-        mode: InvoiceReceiptFrameMode.wide,
         minZoom: 1.2,
         maxZoom: 4,
       ),
       1.2,
+    );
+  });
+
+  test('guide-only neutral target respects a physical camera maximum', () {
+    expect(
+      resolveInvoiceAdaptiveCameraZoom(
+        mode: InvoiceReceiptFrameMode.narrowTall,
+        minZoom: 0.5,
+        maxZoom: 0.8,
+      ),
+      0.8,
     );
   });
 }
