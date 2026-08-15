@@ -97,7 +97,7 @@ jobs:
             p4-17-2-public-gradle-${{ runner.os }}-
             gradle-${{ runner.os }}-
 
-      - name: Patch Android permission and build boundaries
+      - name: Patch Android build boundary
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -112,12 +112,11 @@ jobs:
           elif 'xmlns:tools="http://schemas.android.com/tools"' not in text:
               raise SystemExit('Unable to add Android tools namespace')
           marker = new_root
-          additions = [
+          for node in [
               '<uses-permission android:name="android.permission.INTERNET" />',
               '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
               '<uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />',
-          ]
-          for node in additions:
+          ]:
               if node not in text:
                   text = text.replace(marker, marker + '\n    ' + node, 1)
           manifest.write_text(text)
@@ -177,7 +176,7 @@ jobs:
           test -n "$ANDROID_KEY_PASSWORD"
           test -n "$ANDROID_SIGNING_CERT_SHA256"
           mkdir -p android/app
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           cat > android/key.properties <<EOF
           storePassword=$ANDROID_KEYSTORE_PASSWORD
           keyPassword=$ANDROID_KEY_PASSWORD
@@ -263,21 +262,28 @@ jobs:
           test -n "$apksigner_bin"
 
           permissions="$($apkanalyzer_bin manifest permissions "$apk")"
+          version_name="$($apkanalyzer_bin manifest version-name "$apk")"
+          version_code="$($apkanalyzer_bin manifest version-code "$apk")"
+          signer_output="$($apksigner_bin verify --print-certs "$apk")"
+          expected_cert="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          normalized_signer="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+
           printf '%s\n' "$permissions"
+          printf 'APK versionName: %s\n' "$version_name"
+          printf 'APK versionCode: %s\n' "$version_code"
+          printf '%s\n' "$signer_output"
+
           grep -Fq 'android.permission.CAMERA' <<< "$permissions"
           grep -Fq 'android.permission.INTERNET' <<< "$permissions"
           grep -Fq 'android.permission.POST_NOTIFICATIONS' <<< "$permissions"
           ! grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
-          test "$($apkanalyzer_bin manifest version-name "$apk")" = '4.17.2'
-          test "$($apkanalyzer_bin manifest version-code "$apk")" = '424'
-
-          actual_cert="$($apksigner_bin verify --print-certs "$apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {print $2; exit}' | tr -d ':' | tr '[:lower:]' '[:upper:]')"
-          expected_cert="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
-          test -n "$actual_cert"
-          test "$actual_cert" = "$expected_cert"
-          printf 'APK signing certificate SHA-256: %s\n' "$actual_cert"
+          test "$version_name" = '4.17.2'
+          test "$version_code" = '424'
+          test -n "$expected_cert"
+          grep -Fq "$expected_cert" <<< "$normalized_signer"
+          printf 'APK signing certificate pin: PASS\n'
 
       - name: Generate checksum
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_17_2_public_signed_canary.sha256
