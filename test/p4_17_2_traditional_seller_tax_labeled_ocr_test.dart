@@ -22,6 +22,58 @@ void main() {
     }
   });
 
+  test('weak label may use bounded header geometry when merchant text is absent', () {
+    final evidence = extractTraditionalSellerTaxIdEvidence(
+      const <String>['ZZ00000001', 'H0.00000058'],
+      invoiceNumber: 'ZZ00000001',
+      positionedLines: const <LocalOcrTextLine>[
+        LocalOcrTextLine(
+          text: 'ZZ00000001',
+          left: 100,
+          top: 100,
+          right: 300,
+          bottom: 120,
+        ),
+        LocalOcrTextLine(
+          text: 'H0.00000058',
+          left: 110,
+          top: 150,
+          right: 280,
+          bottom: 170,
+        ),
+      ],
+    );
+
+    expect(evidence?.value, '00000058');
+    expect(evidence?.checksumValid, isTrue);
+    expect(evidence?.acceptedForLive, isTrue);
+  });
+
+  test('weak-label geometry rejects a far-away checksum-valid candidate', () {
+    final evidence = extractTraditionalSellerTaxIdEvidence(
+      const <String>['ZZ00000001', 'H0.00000058'],
+      invoiceNumber: 'ZZ00000001',
+      positionedLines: const <LocalOcrTextLine>[
+        LocalOcrTextLine(
+          text: 'ZZ00000001',
+          left: 100,
+          top: 100,
+          right: 300,
+          bottom: 120,
+        ),
+        LocalOcrTextLine(
+          text: 'H0.00000058',
+          left: 110,
+          top: 500,
+          right: 280,
+          bottom: 520,
+        ),
+      ],
+    );
+
+    expect(evidence, isNull);
+  });
+
   test('S-to-5 repair is allowed only behind a seller-tax label', () {
     final labeled = extractTraditionalSellerTaxIdEvidence(const <String>[
       'ZZ00000001',

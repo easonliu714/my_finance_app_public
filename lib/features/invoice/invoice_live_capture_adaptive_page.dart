@@ -23,6 +23,22 @@ import 'invoice_live_field_readiness.dart';
 import 'invoice_qr_parser.dart';
 import 'invoice_total_evidence.dart';
 
+double resolveInvoiceAdaptiveCameraZoom({
+  required InvoiceReceiptFrameMode mode,
+  required double minZoom,
+  required double maxZoom,
+  double narrowTarget = 1.30,
+}) {
+  final safeMin = minZoom.isFinite && minZoom > 0 ? minZoom : 1.0;
+  final safeMax = maxZoom.isFinite && maxZoom >= safeMin ? maxZoom : safeMin;
+  final requested = mode == InvoiceReceiptFrameMode.narrowTall &&
+          narrowTarget.isFinite &&
+          narrowTarget > 0
+      ? narrowTarget
+      : 1.0;
+  return requested.clamp(safeMin, safeMax).toDouble();
+}
+
 class AdaptiveInvoiceLiveCapturePage extends StatefulWidget {
   const AdaptiveInvoiceLiveCapturePage({super.key});
 
@@ -93,6 +109,7 @@ class _AdaptiveInvoiceLiveCapturePageState
   bool _cameraInitializing = false;
   bool _traditionalExplicitTaxRequired = false;
   bool _electronicWideEvidenceActive = false;
+  double? _appliedZoomLevel;
   int _cameraGeneration = 0;
   int _captureSequence = 0;
   String? _error;
@@ -148,6 +165,7 @@ class _AdaptiveInvoiceLiveCapturePageState
           'deviceOrientation': controller?.value.deviceOrientation.name,
           'streamingImages': controller?.value.isStreamingImages,
           'captureSequence': _captureSequence,
+          'appliedZoomLevel': _appliedZoomLevel,
           ...details,
         },
       ),
@@ -194,7 +212,9 @@ class _AdaptiveInvoiceLiveCapturePageState
       _camera = controller;
       _cameraDescription = selected;
       _flashEnabled = false;
+      _appliedZoomLevel = null;
       await previous?.dispose();
+      await _applyFrameModeZoom(_frameState.mode);
       await controller.startImageStream(_onCameraImage);
       _recordCameraEvent('CAMERA_INITIALIZE_DONE', details: <String, Object?>{
         'generation': generation,
@@ -227,10 +247,60 @@ class _AdaptiveInvoiceLiveCapturePageState
     });
     _camera = null;
     _cameraDescription = null;
+    _appliedZoomLevel = null;
     if (mounted) setState(() {});
     try {
       await controller?.dispose();
     } catch (_) {}
+  }
+
+  Future<void> _applyFrameModeZoom(InvoiceReceiptFrameMode mode) async {
+    final controller = _camera;
+    if (controller == null || !controller.value.isInitialized || _freezing) {
+      return;
+    }
+    try {
+      final minZoom = await controller.getMinZoomLevel();
+      final maxZoom = await controller.getMaxZoomLevel();
+      final target = resolveInvoiceAdaptiveCameraZoom(
+        mode: mode,
+        minZoom: minZoom,
+        maxZoom: maxZoom,
+      );
+      final previous = _appliedZoomLevel;
+      if (previous != null && (previous - target).abs() < 0.01) return;
+      await controller.setZoomLevel(target);
+      _appliedZoomLevel = target;
+      _recordCameraEvent(
+        'GUIDANCE_ZOOM_CHANGED',
+        details: <String, Object?>{
+          'frameMode': mode.name,
+          'previousZoom': previous,
+          'targetZoom': target,
+          'minZoom': minZoom,
+          'maxZoom': maxZoom,
+          'recognitionDecisionUnchanged': true,
+        },
+      );
+    } on CameraException catch (error) {
+      _recordCameraEvent(
+        'GUIDANCE_ZOOM_FAILED',
+        details: <String, Object?>{
+          'frameMode': mode.name,
+          'errorCode': error.code,
+          'recognitionDecisionUnchanged': true,
+        },
+      );
+    } catch (error) {
+      _recordCameraEvent(
+        'GUIDANCE_ZOOM_FAILED',
+        details: <String, Object?>{
+          'frameMode': mode.name,
+          'errorType': error.runtimeType.toString(),
+          'recognitionDecisionUnchanged': true,
+        },
+      );
+    }
   }
 
   void _onCameraImage(CameraImage image) {
@@ -508,6 +578,7 @@ class _AdaptiveInvoiceLiveCapturePageState
         invoiceNumberObserved: effectiveInvoiceNumber.isNotEmpty,
         electronicWideEvidence: electronicWide,
       );
+      await _applyFrameModeZoom(nextFrameState.mode);
       _recordCameraEvent(
         'GUIDANCE_GEOMETRY_OBSERVED',
         details: <String, Object?>{
@@ -726,6 +797,7 @@ class _AdaptiveInvoiceLiveCapturePageState
       'guidanceFrameMode': _frameState.mode.name,
       'electronicWideEvidence': _electronicWideEvidenceActive,
       'traditionalExplicitTaxRequired': _traditionalExplicitTaxRequired,
+      'appliedZoomLevel': _appliedZoomLevel,
     });
     if (mounted) setState(() {});
     try {
@@ -738,6 +810,7 @@ class _AdaptiveInvoiceLiveCapturePageState
       _recordCameraEvent('TAKE_PICTURE_START', details: <String, Object?>{
         'focusLocked': lock.focusLocked,
         'exposureLocked': lock.exposureLocked,
+        'appliedZoomLevel': _appliedZoomLevel,
       });
       final file = await controller.takePicture();
       _recordCameraEvent('TAKE_PICTURE_DONE', details: <String, Object?>{
