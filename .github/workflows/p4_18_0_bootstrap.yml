@@ -12,184 +12,34 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ github.actor == 'easonliu714' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: p4-18-0-incomplete-local-mandatory-gemini-review
           fetch-depth: 0
-      - name: Apply P4.18.0 product patch
+      - name: Apply staged product payload
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if text.count(old) != 1:
-                  raise SystemExit(f'{path}: expected exactly one match, got {text.count(old)}')
-              p.write_text(text.replace(old, new, 1))
-
-          replace_once('pubspec.yaml', 'version: 4.17.4+426', 'version: 4.18.0+427')
-          replace_once('lib/features/invoice/lab/private_cloud_invoice_lab_config.dart', "validationVersion = '4.17.4+426'", "validationVersion = '4.18.0+427'")
-          replace_once('test/p4_12_34_1_version_contract_test.dart', 'version: 4.17.4+426', 'version: 4.18.0+427')
-          replace_once('test/p4_12_34_1_version_contract_test.dart', "'4.17.4+426'", "'4.18.0+427'")
-
-          Path('lib/features/invoice/invoice_local_completeness_policy.dart').write_text(r'''import 'invoice_automatic_recognition_coordinator.dart';
-
-enum InvoiceLocalCompletenessField { invoiceNumber, invoiceDate, invoiceTime, sellerTaxId, sellerName, totalAmount }
-
-class InvoiceLocalCompletenessDecision {
-  const InvoiceLocalCompletenessDecision({required this.requiresGeminiReview, required this.missingFields, required this.reason, required this.isElectronic});
-  final bool requiresGeminiReview;
-  final List<InvoiceLocalCompletenessField> missingFields;
-  final String reason;
-  final bool isElectronic;
-}
-
-String extractStrictInvoiceTime(String rawText) {
-  final normalized = rawText.replaceAll('：', ':');
-  final matches = RegExp(r'(?<!\d)([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?(?!\d)').allMatches(normalized).map((match) => match.group(0)!).toSet();
-  if (matches.length != 1) return '';
-  return matches.single;
-}
-
-class InvoiceLocalCompletenessPolicy {
-  const InvoiceLocalCompletenessPolicy();
-  InvoiceLocalCompletenessDecision evaluate(InvoiceAutomaticRecognitionResult result) {
-    if (result.status == InvoiceAutomaticRecognitionStatus.qrReviewCandidate) return _electronic(result);
-    if (result.status == InvoiceAutomaticRecognitionStatus.ocrReviewCandidate) return _traditional(result);
-    return InvoiceLocalCompletenessDecision(
-      requiresGeminiReview: result.status != InvoiceAutomaticRecognitionStatus.invalidInput,
-      missingFields: const <InvoiceLocalCompletenessField>[],
-      reason: result.status == InvoiceAutomaticRecognitionStatus.invalidInput ? '本機輸入無效，不應送出影像。' : '本機尚未建立完整覆核候選，需要 Gemini 或人工覆核。',
-      isElectronic: false,
-    );
-  }
-  InvoiceLocalCompletenessDecision _electronic(InvoiceAutomaticRecognitionResult result) {
-    final pairs = result.qrResult?.routingResult?.pairs;
-    final parsed = pairs == null || pairs.isEmpty ? null : pairs.first.left.leftParseResult;
-    final supplemental = result.ocrResult?.candidate;
-    final rawText = supplemental?.rawText ?? result.ocrResult?.rawRecognition?.rawText ?? '';
-    final missing = <InvoiceLocalCompletenessField>[
-      if ((parsed?.invoiceNumber ?? '').trim().isEmpty) InvoiceLocalCompletenessField.invoiceNumber,
-      if (parsed?.invoiceDate == null) InvoiceLocalCompletenessField.invoiceDate,
-      if (extractStrictInvoiceTime(rawText).isEmpty) InvoiceLocalCompletenessField.invoiceTime,
-      if ((parsed?.sellerIdentifier ?? '').trim().isEmpty) InvoiceLocalCompletenessField.sellerTaxId,
-      if ((supplemental?.sellerName ?? '').trim().isEmpty) InvoiceLocalCompletenessField.sellerName,
-      if (parsed?.totalAmount == null) InvoiceLocalCompletenessField.totalAmount,
-    ];
-    return InvoiceLocalCompletenessDecision(requiresGeminiReview: missing.isNotEmpty, missingFields: List.unmodifiable(missing), reason: missing.isEmpty ? '電子發票 Local 關鍵欄位完整，不需強制 Gemini。' : '電子發票 Local 缺少${_labels(missing).join('、')}，需要 Gemini 覆核後由使用者確認。', isElectronic: true);
-  }
-  InvoiceLocalCompletenessDecision _traditional(InvoiceAutomaticRecognitionResult result) {
-    final candidate = result.ocrResult?.candidate;
-    final missing = <InvoiceLocalCompletenessField>[
-      if ((candidate?.invoiceNumber ?? '').trim().isEmpty) InvoiceLocalCompletenessField.invoiceNumber,
-      if (candidate?.invoiceDate == null) InvoiceLocalCompletenessField.invoiceDate,
-      if ((candidate?.sellerTaxId ?? '').trim().isEmpty) InvoiceLocalCompletenessField.sellerTaxId,
-      if ((candidate?.sellerName ?? '').trim().isEmpty) InvoiceLocalCompletenessField.sellerName,
-      if (candidate?.totalAmount == null) InvoiceLocalCompletenessField.totalAmount,
-    ];
-    return InvoiceLocalCompletenessDecision(requiresGeminiReview: missing.isNotEmpty, missingFields: List.unmodifiable(missing), reason: missing.isEmpty ? '傳統發票 Local 關鍵欄位完整。' : '傳統發票 Local 缺少${_labels(missing).join('、')}，需要 Gemini 或人工覆核。', isElectronic: false);
-  }
-  static List<String> _labels(List<InvoiceLocalCompletenessField> fields) => fields.map((field) => switch (field) {
-    InvoiceLocalCompletenessField.invoiceNumber => '發票號碼',
-    InvoiceLocalCompletenessField.invoiceDate => '交易日期',
-    InvoiceLocalCompletenessField.invoiceTime => '交易時間',
-    InvoiceLocalCompletenessField.sellerTaxId => '賣方統編',
-    InvoiceLocalCompletenessField.sellerName => '商家名稱',
-    InvoiceLocalCompletenessField.totalAmount => '總金額',
-  }).toList(growable: false);
-}
-''')
-
-          p = Path('lib/features/invoice/invoice_automatic_recognition_coordinator.dart')
-          text = p.read_text()
-          old = """      case InvoiceLocalRecognitionStatus.qrCandidate:\n        return InvoiceAutomaticRecognitionResult(\n          status: InvoiceAutomaticRecognitionStatus.qrReviewCandidate,\n          message: qrResult.message,\n          selectedRouteReason: '找到有效電子發票 QR，優先使用 QR 覆核路徑。',\n          requestedRoute: InvoiceRecognitionRequestedRoute.automatic,\n          qrResult: qrResult,\n        );"""
-          new = """      case InvoiceLocalRecognitionStatus.qrCandidate:\n        return _runQrWithSupplementalOcr(\n          validImages: validImages,\n          qrResult: qrResult,\n          requestedRoute: InvoiceRecognitionRequestedRoute.automatic,\n          selectedRouteReason: '找到有效電子發票 QR，QR 維持 identity authority；另執行一次本機 OCR 補充時間與商家欄位。',\n        );"""
-          if text.count(old) != 1: raise SystemExit('auto qr block mismatch')
-          text = text.replace(old, new, 1)
-          old = """      case InvoiceLocalRecognitionStatus.qrCandidate:\n        return InvoiceAutomaticRecognitionResult(\n          status: InvoiceAutomaticRecognitionStatus.qrReviewCandidate,\n          message: qrResult.message,\n          selectedRouteReason: '使用者改用電子發票 QR 覆核路徑。',\n          requestedRoute:\n              InvoiceRecognitionRequestedRoute.electronicInvoiceQr,\n          qrResult: qrResult,\n        );"""
-          new = """      case InvoiceLocalRecognitionStatus.qrCandidate:\n        return _runQrWithSupplementalOcr(\n          validImages: validImages,\n          qrResult: qrResult,\n          requestedRoute: InvoiceRecognitionRequestedRoute.electronicInvoiceQr,\n          selectedRouteReason: '使用者指定電子發票 QR；QR 維持 identity authority，另執行一次本機 OCR 補充時間與商家欄位。',\n        );"""
-          if text.count(old) != 1: raise SystemExit('qr-only block mismatch')
-          text = text.replace(old, new, 1)
-          marker = '  Future<InvoiceAutomaticRecognitionResult> _runOcr({' 
-          helper = """  Future<InvoiceAutomaticRecognitionResult> _runQrWithSupplementalOcr({\n    required List<ImageCaptureStagingItem> validImages,\n    required InvoiceLocalRecognitionResult qrResult,\n    required InvoiceRecognitionRequestedRoute requestedRoute,\n    required String selectedRouteReason,\n  }) async {\n    TraditionalInvoiceOcrResult? supplemental;\n    try { supplemental = await ocrRunner(validImages.first.localReference.trim()); } catch (_) { supplemental = null; }\n    return InvoiceAutomaticRecognitionResult(\n      status: InvoiceAutomaticRecognitionStatus.qrReviewCandidate,\n      message: supplemental == null ? '${qrResult.message}；本機 OCR 補充失敗，QR 候選仍保留。' : '${qrResult.message}；已完成本機 OCR 補充讀取。',\n      selectedRouteReason: selectedRouteReason, requestedRoute: requestedRoute, qrResult: qrResult, ocrResult: supplemental,\n    );\n  }\n\n"""
-          if text.count(marker) != 1: raise SystemExit('ocr marker mismatch')
-          p.write_text(text.replace(marker, helper + marker, 1))
-
-          p = Path('lib/features/invoice/invoice_review_form_view_model.dart')
-          text = p.read_text()
-          text = text.replace("import 'invoice_review_handoff_contract.dart';", "import 'invoice_local_completeness_policy.dart';\nimport 'invoice_review_handoff_contract.dart';", 1)
-          text = text.replace('  invoiceDate,\n  sellerTaxId,', '  invoiceDate,\n  invoiceTime,\n  sellerTaxId,', 1)
-          text = text.replace("    final parsed = pair?.left.leftParseResult;\n    final fields", "    final parsed = pair?.left.leftParseResult;\n    final supplemental = state.automaticResult?.ocrResult?.candidate;\n    final supplementalRawText = supplemental?.rawText ?? state.automaticResult?.ocrResult?.rawRecognition?.rawText ?? '';\n    final fields", 1)
-          old = """      InvoiceReviewFieldViewModel(\n        key: InvoiceReviewFieldKey.sellerName,\n        label: '\\u5546\\u5bb6',\n        value: _sellerLabel(parsed?.sellerIdentifier),\n        editable: true,\n        requiredForReview: false,\n        confidenceLabel: parsed?.sellerIdentifier == null\n            ? '\\u672a\\u8fa8\\u8b58'\n            : 'QR \\u89e3\\u6790',\n      ),"""
-          new = """      InvoiceReviewFieldViewModel(key: InvoiceReviewFieldKey.invoiceTime, label: '交易時間', value: extractStrictInvoiceTime(supplementalRawText), editable: true, requiredForReview: true, confidenceLabel: extractStrictInvoiceTime(supplementalRawText).isEmpty ? '未辨識' : '本機 OCR 補充'),\n      InvoiceReviewFieldViewModel(key: InvoiceReviewFieldKey.sellerTaxId, label: '賣方統編', value: parsed?.sellerIdentifier?.trim() ?? '', editable: true, requiredForReview: true, confidenceLabel: parsed?.sellerIdentifier == null ? '未辨識' : 'QR 解析'),\n      InvoiceReviewFieldViewModel(key: InvoiceReviewFieldKey.sellerName, label: '\\u5546\\u5bb6', value: supplemental?.sellerName.trim() ?? '', editable: true, requiredForReview: true, confidenceLabel: supplemental?.sellerName.trim().isNotEmpty == true ? '本機 OCR 補充' : '未辨識'),"""
-          if text.count(old) != 1: raise SystemExit('qr seller block mismatch')
-          text = text.replace(old, new, 1)
-          marker = "      InvoiceReviewFieldViewModel(\n        key: InvoiceReviewFieldKey.sellerName,"
-          insert = """      InvoiceReviewFieldViewModel(key: InvoiceReviewFieldKey.invoiceTime, label: '交易時間', value: extractStrictInvoiceTime(candidate?.rawText ?? ''), editable: true, requiredForReview: false, confidenceLabel: extractStrictInvoiceTime(candidate?.rawText ?? '').isEmpty ? '未辨識' : '本機 OCR'),\n      InvoiceReviewFieldViewModel(key: InvoiceReviewFieldKey.sellerTaxId, label: '賣方統編', value: candidate?.sellerTaxId.trim() ?? '', editable: true, requiredForReview: true, confidenceLabel: _confidenceLabel(candidate?.confidence[TraditionalInvoiceOcrField.sellerTaxId]), warnings: candidate?.fieldWarnings[TraditionalInvoiceOcrField.sellerTaxId] ?? const <String>[]),\n"""
-          if text.count(marker) != 1: raise SystemExit('ocr seller marker mismatch')
-          text = text.replace(marker, insert + marker, 1)
-          start = text.find('  static String _sellerLabel(')
-          if start != -1:
-              end = text.find('  static String _confidenceLabel(', start)
-              text = text[:start] + text[end:]
-          p.write_text(text)
-
-          p = Path('lib/features/invoice/gemini/gemini_invoice_review_coordinator.dart')
-          text = p.read_text().replace("import '../invoice_automatic_recognition_coordinator.dart';", "import '../invoice_automatic_recognition_coordinator.dart';\nimport '../invoice_local_completeness_policy.dart';", 1)
-          old = """      case InvoiceAutomaticRecognitionStatus.qrReviewCandidate:\n        return const GeminiInvoiceEscalationDecision(\n          shouldReview: false,\n          reason: '已有結構化 QR 覆核候選，本階段不自動呼叫 AI。',\n        );"""
-          new = """      case InvoiceAutomaticRecognitionStatus.qrReviewCandidate:\n        final completeness = const InvoiceLocalCompletenessPolicy().evaluate(localResult);\n        return GeminiInvoiceEscalationDecision(shouldReview: completeness.requiresGeminiReview, reason: completeness.reason);"""
-          if text.count(old) != 1: raise SystemExit('gemini qr policy mismatch')
-          text = text.replace(old, new, 1)
-          text = text.replace("      if (candidate.totalAmount == null) '總金額',\n", "      if (candidate.totalAmount == null) '總金額',\n      if (candidate.sellerName.trim().isEmpty) '商家名稱',\n", 1)
-          p.write_text(text)
-
-          p = Path('lib/features/invoice/invoice_frozen_review_page.dart')
-          text = p.read_text()
-          text = text.replace("  static const Key forceGeminiKey", "  static const Key geminiAcknowledgementKey = Key('invoice_frozen_gemini_ack');\n  static const Key forceGeminiKey", 1)
-          text = text.replace('  GeminiInvoiceReviewExecution? _geminiExecution;\n', '  GeminiInvoiceReviewExecution? _geminiExecution;\n  GeminiInvoiceEscalationDecision? _geminiDecision;\n  bool _geminiComparisonAcknowledged = false;\n', 1)
-          old = """      setState(() {\n        _localResult = local;\n        _busy = false;\n      });\n      await _runGemini(local, forceReview: false);"""
-          new = """      final decision = const GeminiInvoiceEscalationPolicy().evaluate(local.recognitionResult);\n      setState(() { _localResult = local; _geminiDecision = decision; _busy = false; });"""
-          if text.count(old) != 1: raise SystemExit('auto Gemini mismatch')
-          text = text.replace(old, new, 1)
-          text = text.replace('      if (forceReview) _geminiExecution = null;', '      if (forceReview) _geminiExecution = null;\n      _geminiComparisonAcknowledged = false;', 1)
-          text = text.replace('先執行本機 QR/OCR；只有欄位缺失、有警告或關鍵信心度不足時才自動 Gemini。強制 Gemini 按鈕永遠保留，AI 不會覆寫 Local。', '先執行本機 QR/OCR。若關鍵欄位不完整，系統會標示 Gemini 必要覆核，但不會自動上傳影像；只有你明確按下按鈕才會送出目前發票影像。AI 不會覆寫 Local。', 1)
-          marker = """            const SizedBox(height: 12),\n            _CandidateCard(\n              title: 'Gemini 第二意見',"""
-          repl = """            const SizedBox(height: 12),\n            if (_geminiDecision != null) Card(child: ListTile(leading: Icon(_geminiDecision!.shouldReview ? Icons.warning_amber_rounded : Icons.verified_outlined), title: Text(_geminiDecision!.shouldReview ? 'Gemini 必要覆核' : 'Local 關鍵欄位完整'), subtitle: Text('${_geminiDecision!.reason}\\n按下 Gemini 按鈕才會將目前發票影像送出。'))),\n            const SizedBox(height: 12),\n            _CandidateCard(\n              title: 'Gemini 第二意見',"""
-          if text.count(marker) != 1: raise SystemExit('policy UI mismatch')
-          text = text.replace(marker, repl, 1)
-          marker = """              ),\n            ],\n            const SizedBox(height: 12),\n            FilledButton.tonalIcon("""
-          repl = """              ),\n              CheckboxListTile(key: InvoiceFrozenReviewPage.geminiAcknowledgementKey, contentPadding: EdgeInsets.zero, value: _geminiComparisonAcknowledged, onChanged: (value) => setState(() => _geminiComparisonAcknowledged = value == true), title: const Text('我已核對 Local 與 Gemini 結果'), subtitle: const Text('Gemini 只提供第二意見，不會自動覆寫本機欄位。')),\n            ],\n            const SizedBox(height: 12),\n            FilledButton.tonalIcon("""
-          if text.count(marker) != 1: raise SystemExit('ack UI mismatch')
-          text = text.replace(marker, repl, 1)
-          old = """              onPressed: _geminiBusy\n                  ? null\n                  : () => _runGemini(local, forceReview: true),\n              icon: const Icon(Icons.auto_awesome_outlined),\n              label: const Text('強制 Gemini 二次覆核'),"""
-          new = """              onPressed: _geminiBusy ? null : () => _runGemini(local, forceReview: _geminiDecision?.shouldReview != true),\n              icon: const Icon(Icons.auto_awesome_outlined),\n              label: Text(_geminiDecision?.shouldReview == true ? '送出至 Gemini 必要覆核' : '強制 Gemini 二次覆核'),"""
-          if text.count(old) != 1: raise SystemExit('Gemini button mismatch')
-          text = text.replace(old, new, 1)
-          text = text.replace("      ('交易時間', '', ai.invoiceTime, false),", "      ('交易時間', local.fieldFor(InvoiceReviewFieldKey.invoiceTime)?.value ?? '', ai.invoiceTime, false),", 1)
-          old = """  final seller =\n      local.formModel.fieldFor(InvoiceReviewFieldKey.sellerName)?.value ?? '';\n  final fallback = RegExp(r'\\b(\\d{8})\\b').firstMatch(seller)?.group(1) ?? '';"""
-          new = """  final explicit = local.formModel.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '';\n  if (explicit.trim().isNotEmpty) return explicit.trim();\n  final seller = local.formModel.fieldFor(InvoiceReviewFieldKey.sellerName)?.value ?? '';\n  final fallback = RegExp(r'\\b(\\d{8})\\b').firstMatch(seller)?.group(1) ?? '';"""
-          if text.count(old) != 1: raise SystemExit('seller tax helper mismatch')
-          p.write_text(text.replace(old, new, 1))
-
-          Path('test/p4_18_0_local_completeness_policy_test.dart').write_text(r'''import 'package:flutter_test/flutter_test.dart';
-import 'package:my_finance_app/features/invoice/invoice_local_completeness_policy.dart';
-void main() {
-  test('strict time parser accepts exact time without inventing seconds', () { expect(extractStrictInvoiceTime('交易時間 09:05'), '09:05'); expect(extractStrictInvoiceTime('23：59：58'), '23:59:58'); });
-  test('strict time parser rejects invalid fuzzy and ambiguous evidence', () { expect(extractStrictInvoiceTime('24:00'), ''); expect(extractStrictInvoiceTime('10:61'), ''); expect(extractStrictInvoiceTime('O9:05'), ''); expect(extractStrictInvoiceTime('09:05 10:06'), ''); });
-}
-''')
-          Path('test/p4_18_0_explicit_gemini_upload_boundary_test.dart').write_text(r'''import 'dart:io';
-import 'package:flutter_test/flutter_test.dart';
-void main() { test('Frozen Review requires explicit Gemini image send', () { final source = File('lib/features/invoice/invoice_frozen_review_page.dart').readAsStringSync(); expect(source, isNot(contains('await _runGemini(local, forceReview: false);'))); expect(source, contains('送出至 Gemini 必要覆核')); expect(source, contains('只有你明確按下按鈕才會送出目前發票影像')); expect(source, contains('我已核對 Local 與 Gemini 結果')); }); }
-''')
+          import textwrap
+          payload = Path('.github/p4_18_0_patch_payload.txt').read_text()
+          marker = "          python3 - <<'PY'\n"
+          start = payload.index(marker) + len(marker)
+          end = payload.index('\n          PY\n', start)
+          script = textwrap.dedent(payload[start:end])
+          exec(compile(script, 'p4_18_0_patch_payload.py', 'exec'))
           PY
-          dart format lib/features/invoice/invoice_local_completeness_policy.dart lib/features/invoice/invoice_automatic_recognition_coordinator.dart lib/features/invoice/invoice_review_form_view_model.dart lib/features/invoice/gemini/gemini_invoice_review_coordinator.dart lib/features/invoice/invoice_frozen_review_page.dart test/p4_18_0_local_completeness_policy_test.dart test/p4_18_0_explicit_gemini_upload_boundary_test.dart
+          dart format \
+            lib/features/invoice/invoice_local_completeness_policy.dart \
+            lib/features/invoice/invoice_automatic_recognition_coordinator.dart \
+            lib/features/invoice/invoice_review_form_view_model.dart \
+            lib/features/invoice/gemini/gemini_invoice_review_coordinator.dart \
+            lib/features/invoice/invoice_frozen_review_page.dart \
+            test/p4_18_0_local_completeness_policy_test.dart \
+            test/p4_18_0_explicit_gemini_upload_boundary_test.dart
           git diff --check
           git config user.name 'easonliu714'
           git config user.email '209346080+easonliu714@users.noreply.github.com'
