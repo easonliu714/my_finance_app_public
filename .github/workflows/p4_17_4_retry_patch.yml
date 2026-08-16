@@ -1,0 +1,93 @@
+name: P4.17.4 Retry Controlled Patch
+
+on:
+  push:
+    branches:
+      - p4-17-2-traditional-seller-tax-stability-followup
+    paths:
+      - '.github/workflows/p4_17_4_retry_patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.repository == 'easonliu714/my_finance_app_public' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v4
+        with:
+          ref: p4-17-2-traditional-seller-tax-stability-followup
+          fetch-depth: 3
+
+      - name: Verify retry boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "f70961eb7ec6cab531624870b962f8b4dd34ca57"
+          test "$(git rev-parse --abbrev-ref HEAD)" = "p4-17-2-traditional-seller-tax-stability-followup"
+          test -f .github/workflows/p4_17_4_one_shot_patch.yml
+          test -f .github/workflows/p4_17_4_retry_patch.yml
+
+      - name: Extract original fail-closed patch payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/p4_17_4_one_shot_patch.yml').read_text()
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "          PY\n\n      - name: Verify patch shape"
+          start = source.find(start_marker)
+          if start < 0:
+              raise SystemExit('original patch python start marker missing')
+          start += len(start_marker)
+          end = source.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('original patch python end marker missing')
+          payload_lines = source[start:end].splitlines()
+          payload = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in payload_lines
+          ) + '\n'
+          Path('/tmp/p4_17_4_apply.py').write_text(payload)
+          compile(payload, '/tmp/p4_17_4_apply.py', 'exec')
+          print('PATCH_PAYLOAD_EXTRACTED_AND_COMPILED')
+          PY
+
+      - name: Remove bootstrap workflows then apply product patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/p4_17_4_one_shot_patch.yml
+          rm -f .github/workflows/p4_17_4_retry_patch.yml
+          python3 /tmp/p4_17_4_apply.py
+
+      - name: Verify final patch shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .github/workflows/p4_17_4_one_shot_patch.yml
+          test ! -e .github/workflows/p4_17_4_retry_patch.yml
+          grep -Fq "version: 4.17.4+426" pubspec.yaml
+          grep -Fq "SELLER_TAX_CAPTURE_ONLY_WINDOW" lib/features/invoice/invoice_live_capture_adaptive_page.dart
+          grep -Fq "captureOnlySellerTaxMayRemainUnresolved" lib/features/invoice/invoice_live_capture_adaptive_page.dart
+          grep -Fq "findSellerTaxStructuralEvidence" lib/features/invoice/invoice_live_adaptive_overlay.dart
+          grep -Fq "sellerTaxCaptureOnlyWindowSize = 7" lib/features/invoice/invoice_seller_tax_capture_policy.dart
+          grep -Fq "sellerTaxCaptureOnlyThreshold = 3" lib/features/invoice/invoice_seller_tax_capture_policy.dart
+          grep -Fq "p4_17_4_seller_tax_capture_only_policy_test.dart" .github/workflows/p4_17_2_signed_canary.yml
+          git diff --check
+
+      - name: Commit P4.17.4 product patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Liu Chia Yi"
+          git config user.email "209346080+easonliu714@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No patch produced'; exit 1; }
+          git commit -m "P4.17.4: add 3-of-7 capture-only seller-tax freeze"
+          git push origin HEAD:p4-17-2-traditional-seller-tax-stability-followup
