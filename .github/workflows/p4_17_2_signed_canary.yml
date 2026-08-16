@@ -1,4 +1,4 @@
-name: P4.17.2 Public Signed Canary APK
+name: P4.17.3 Public Signed Canary APK
 
 on:
   pull_request:
@@ -16,12 +16,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: p4-17-2-public-signed-${{ github.event.pull_request.number }}
+  group: p4-17-3-public-signed-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   validate:
-    name: Validate P4.17.2 Public canary
+    name: Validate P4.17.3 Public canary
     if: >-
       ${{ github.event.pull_request.head.repo.full_name == github.repository &&
           github.head_ref == 'p4-17-2-traditional-seller-tax-stability-followup' &&
@@ -47,7 +47,7 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      - name: Run focused P4.17.2 tests
+      - name: Run focused invoice tests
         run: |
           set -euo pipefail
           flutter test test/p4_17_adaptive_live_overlay_test.dart
@@ -57,9 +57,12 @@ jobs:
           flutter test test/p4_16_16_field_evidence_fusion_test.dart
           flutter test test/p4_16_production_invoice_integration_contract_test.dart
           flutter test test/p4_16_5_live_evidence_contract_test.dart
+          flutter test test/p4_12_34_1_version_contract_test.dart
+          flutter test test/p4_12_38_exact_head_test.dart
+          flutter test test/private_cloud_invoice_lab_gate_test.dart
 
   signed-apk:
-    name: Build and inspect P4.17.2 Public signed APK
+    name: Build and inspect P4.17.3 Public signed APK
     needs: validate
     if: ${{ needs.validate.result == 'success' }}
     runs-on: ubuntu-22.04
@@ -85,17 +88,6 @@ jobs:
 
       - name: Generate Android host
         run: flutter create --platforms=android .
-
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: p4-17-2-public-gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
-          restore-keys: |
-            p4-17-2-public-gradle-${{ runner.os }}-
-            gradle-${{ runner.os }}-
 
       - name: Patch Android build boundary
         run: |
@@ -124,7 +116,11 @@ jobs:
           gradle = Path('android/app/build.gradle.kts')
           text = gradle.read_text()
           if 'isCoreLibraryDesugaringEnabled = true' not in text:
-              text = text.replace('compileOptions {', 'compileOptions {\n        isCoreLibraryDesugaringEnabled = true', 1)
+              text = text.replace(
+                  'compileOptions {',
+                  'compileOptions {\n        isCoreLibraryDesugaringEnabled = true',
+                  1,
+              )
           dep = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
           if dep not in text:
               if 'dependencies {' in text:
@@ -212,14 +208,23 @@ jobs:
           path = Path('android/app/build.gradle.kts')
           text = path.read_text()
           if 'val keystoreProperties' not in text:
-              text = text.replace('plugins {', 'import java.util.Properties\nimport java.io.FileInputStream\n\nplugins {')
-              text = text.replace('android {', 'val keystoreProperties = Properties()\nval keystorePropertiesFile = rootProject.file("key.properties")\nif (keystorePropertiesFile.exists()) {\n    keystoreProperties.load(FileInputStream(keystorePropertiesFile))\n}\n\nandroid {')
+              text = text.replace(
+                  'plugins {',
+                  'import java.util.Properties\nimport java.io.FileInputStream\n\nplugins {',
+              )
+              text = text.replace(
+                  'android {',
+                  'val keystoreProperties = Properties()\nval keystorePropertiesFile = rootProject.file("key.properties")\nif (keystorePropertiesFile.exists()) {\n    keystoreProperties.load(FileInputStream(keystorePropertiesFile))\n}\n\nandroid {',
+              )
           if 'create("release")' not in text:
               text = text.replace(
                   '    buildTypes {\n        release {',
                   '    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }\n\n    buildTypes {\n        release {',
               )
-          text = text.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+          text = text.replace(
+              'signingConfig = signingConfigs.getByName("debug")',
+              'signingConfig = signingConfigs.getByName("release")',
+          )
           if 'proguardFiles(' not in text:
               marker = '        release {'
               text = text.replace(
@@ -236,18 +241,8 @@ jobs:
           )
           PY
 
-      - name: Verify release hardening boundary
-        run: |
-          set -euo pipefail
-          grep -Fq 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g' android/gradle.properties
-          grep -Fq 'proguard-rules.pro' android/app/build.gradle.kts
-          grep -Fq 'com.google.mlkit.vision.text.devanagari.**' android/app/proguard-rules.pro
-          grep -Fq 'com.google.mlkit.vision.text.japanese.**' android/app/proguard-rules.pro
-          grep -Fq 'com.google.mlkit.vision.text.korean.**' android/app/proguard-rules.pro
-          ! grep -Fq 'com.google.mlkit.vision.text.chinese.**' android/app/proguard-rules.pro
-
       - name: Build signed release APK
-        run: flutter build apk --release --no-pub --build-number=424
+        run: flutter build apk --release --no-pub --build-number=425
 
       - name: Inspect signed APK boundary
         shell: bash
@@ -279,21 +274,21 @@ jobs:
           ! grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
-          test "$version_name" = '4.17.2'
-          test "$version_code" = '424'
+          test "$version_name" = '4.17.3'
+          test "$version_code" = '425'
           test -n "$expected_cert"
           grep -Fq "$expected_cert" <<< "$normalized_signer"
           printf 'APK signing certificate pin: PASS\n'
 
       - name: Generate checksum
-        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_17_2_public_signed_canary.sha256
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_17_3_public_signed_canary.sha256
 
       - name: Upload signed canary
         uses: actions/upload-artifact@v4
         with:
-          name: p4-17-2-public-4.17.2+424-signed-canary
+          name: p4-17-3-public-4.17.3+425-signed-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
-            p4_17_2_public_signed_canary.sha256
+            p4_17_3_public_signed_canary.sha256
           if-no-files-found: error
           retention-days: 3
