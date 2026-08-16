@@ -1,4 +1,4 @@
-name: P4.17.3 Public Signed Canary APK
+name: P4.17.4 Public Signed Canary APK
 
 on:
   pull_request:
@@ -16,12 +16,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: p4-17-3-public-signed-${{ github.event.pull_request.number }}
+  group: p4-17-4-public-signed-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   validate:
-    name: Validate P4.17.3 Public canary
+    name: Validate P4.17.4 Public canary
     if: >-
       ${{ github.event.pull_request.head.repo.full_name == github.repository &&
           github.head_ref == 'p4-17-2-traditional-seller-tax-stability-followup' &&
@@ -54,6 +54,7 @@ jobs:
           flutter test test/p4_17_2_traditional_camera_zoom_test.dart
           flutter test test/p4_17_2_traditional_seller_tax_labeled_ocr_test.dart
           flutter test test/p4_17_2_frozen_seller_tax_exact_match_test.dart
+          flutter test test/p4_17_4_seller_tax_capture_only_policy_test.dart
           flutter test test/p4_16_16_field_evidence_fusion_test.dart
           flutter test test/p4_16_production_invoice_integration_contract_test.dart
           flutter test test/p4_16_5_live_evidence_contract_test.dart
@@ -62,7 +63,7 @@ jobs:
           flutter test test/private_cloud_invoice_lab_gate_test.dart
 
   signed-apk:
-    name: Build and inspect P4.17.3 Public signed APK
+    name: Build and inspect P4.17.4 Public signed APK
     needs: validate
     if: ${{ needs.validate.result == 'success' }}
     runs-on: ubuntu-22.04
@@ -242,7 +243,7 @@ jobs:
           PY
 
       - name: Build signed release APK
-        run: flutter build apk --release --no-pub --build-number=425
+        run: flutter build apk --release --no-pub --build-number=426
 
       - name: Inspect signed APK boundary
         shell: bash
@@ -274,21 +275,21 @@ jobs:
           ! grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
-          test "$version_name" = '4.17.3'
-          test "$version_code" = '425'
+          test "$version_name" = '4.17.4'
+          test "$version_code" = '426'
           test -n "$expected_cert"
           grep -Fq "$expected_cert" <<< "$normalized_signer"
           printf 'APK signing certificate pin: PASS\n'
 
       - name: Generate checksum
-        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_17_3_public_signed_canary.sha256
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_17_4_public_signed_canary.sha256
 
       - name: Upload signed canary
         uses: actions/upload-artifact@v4
         with:
-          name: p4-17-3-public-4.17.3+425-signed-canary
+          name: p4-17-4-public-4.17.4+426-signed-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
-            p4_17_3_public_signed_canary.sha256
+            p4_17_4_public_signed_canary.sha256
           if-no-files-found: error
           retention-days: 3
