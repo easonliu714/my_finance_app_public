@@ -1,0 +1,295 @@
+name: P4.17.4 Public Signed Canary APK
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'lib/features/invoice/**'
+      - 'test/p4_17_**'
+      - 'test/p4_16_**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/p4_17_2_signed_canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-17-4-public-signed-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate P4.17.4 Public canary
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository &&
+          github.head_ref == 'p4-17-2-traditional-seller-tax-stability-followup' &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run focused invoice tests
+        run: |
+          set -euo pipefail
+          flutter test test/p4_17_adaptive_live_overlay_test.dart
+          flutter test test/p4_17_2_traditional_camera_zoom_test.dart
+          flutter test test/p4_17_2_traditional_seller_tax_labeled_ocr_test.dart
+          flutter test test/p4_17_2_frozen_seller_tax_exact_match_test.dart
+          flutter test test/p4_17_4_seller_tax_capture_only_policy_test.dart
+          flutter test test/p4_16_16_field_evidence_fusion_test.dart
+          flutter test test/p4_16_production_invoice_integration_contract_test.dart
+          flutter test test/p4_16_5_live_evidence_contract_test.dart
+          flutter test test/p4_12_34_1_version_contract_test.dart
+          flutter test test/p4_12_38_exact_head_test.dart
+          flutter test test/private_cloud_invoice_lab_gate_test.dart
+
+  signed-apk:
+    name: Build and inspect P4.17.4 Public signed APK
+    needs: validate
+    if: ${{ needs.validate.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android host
+        run: flutter create --platforms=android .
+
+      - name: Patch Android build boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          old_root = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          new_root = '<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">'
+          if old_root in text:
+              text = text.replace(old_root, new_root, 1)
+          elif 'xmlns:tools="http://schemas.android.com/tools"' not in text:
+              raise SystemExit('Unable to add Android tools namespace')
+          marker = new_root
+          for node in [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />',
+          ]:
+              if node not in text:
+                  text = text.replace(marker, marker + '\n    ' + node, 1)
+          manifest.write_text(text)
+
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          if 'isCoreLibraryDesugaringEnabled = true' not in text:
+              text = text.replace(
+                  'compileOptions {',
+                  'compileOptions {\n        isCoreLibraryDesugaringEnabled = true',
+                  1,
+              )
+          dep = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          if dep not in text:
+              if 'dependencies {' in text:
+                  text = text.replace('dependencies {', 'dependencies {\n    ' + dep, 1)
+              else:
+                  text += '\n\ndependencies {\n    ' + dep + '\n}\n'
+          gradle.write_text(text)
+
+          properties = Path('android/gradle.properties')
+          current = properties.read_text() if properties.exists() else ''
+          managed = {
+              'org.gradle.jvmargs': '-Xmx4g -XX:MaxMetaspaceSize=1g -XX:ReservedCodeCacheSize=256m -Dfile.encoding=UTF-8',
+              'org.gradle.vfs.watch': 'false',
+              'org.gradle.daemon': 'false',
+              'org.gradle.parallel': 'false',
+              'org.gradle.workers.max': '2',
+              'org.gradle.caching': 'true',
+          }
+          output, seen = [], set()
+          for line in current.splitlines():
+              key = line.split('=', 1)[0].strip() if '=' in line else ''
+              if key in managed:
+                  if key not in seen:
+                      output.append(f'{key}={managed[key]}')
+                      seen.add(key)
+              else:
+                  output.append(line)
+          for key, value in managed.items():
+              if key not in seen:
+                  output.append(f'{key}={value}')
+          properties.write_text('\n'.join(output).rstrip() + '\n')
+          PY
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Prepare signing files
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          test -n "$ANDROID_SIGNING_CERT_SHA256"
+          mkdir -p android/app
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Verify configured signing certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          actual="$({ keytool -exportcert -rfc \
+            -keystore android/app/upload-keystore.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            -keypass "$ANDROID_KEY_PASSWORD"; } | \
+            openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          expected="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test -n "$actual"
+          test "$actual" = "$expected"
+          printf 'Configured signing certificate SHA-256: %s\n' "$actual"
+
+      - name: Patch release signing and ML Kit R8 boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('android/app/build.gradle.kts')
+          text = path.read_text()
+          if 'val keystoreProperties' not in text:
+              text = text.replace(
+                  'plugins {',
+                  'import java.util.Properties\nimport java.io.FileInputStream\n\nplugins {',
+              )
+              text = text.replace(
+                  'android {',
+                  'val keystoreProperties = Properties()\nval keystorePropertiesFile = rootProject.file("key.properties")\nif (keystorePropertiesFile.exists()) {\n    keystoreProperties.load(FileInputStream(keystorePropertiesFile))\n}\n\nandroid {',
+              )
+          if 'create("release")' not in text:
+              text = text.replace(
+                  '    buildTypes {\n        release {',
+                  '    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }\n\n    buildTypes {\n        release {',
+              )
+          text = text.replace(
+              'signingConfig = signingConfigs.getByName("debug")',
+              'signingConfig = signingConfigs.getByName("release")',
+          )
+          if 'proguardFiles(' not in text:
+              marker = '        release {'
+              text = text.replace(
+                  marker,
+                  marker + '\n            proguardFiles(\n                getDefaultProguardFile("proguard-android-optimize.txt"),\n                "proguard-rules.pro",\n            )',
+                  1,
+              )
+          path.write_text(text)
+          Path('android/app/proguard-rules.pro').write_text(
+              '# Optional ML Kit scripts are not selectable by this app.\n'
+              '-dontwarn com.google.mlkit.vision.text.devanagari.**\n'
+              '-dontwarn com.google.mlkit.vision.text.japanese.**\n'
+              '-dontwarn com.google.mlkit.vision.text.korean.**\n'
+          )
+          PY
+
+      - name: Build signed release APK
+        run: flutter build apk --release --no-pub --build-number=426
+
+      - name: Inspect signed APK boundary
+        shell: bash
+        env:
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          apk='build/app/outputs/flutter-apk/app-release.apk'
+          apkanalyzer_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer 2>/dev/null | sort -V | tail -n 1)"
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          test -n "$apkanalyzer_bin"
+          test -n "$apksigner_bin"
+
+          permissions="$($apkanalyzer_bin manifest permissions "$apk")"
+          version_name="$($apkanalyzer_bin manifest version-name "$apk")"
+          version_code="$($apkanalyzer_bin manifest version-code "$apk")"
+          signer_output="$($apksigner_bin verify --print-certs "$apk")"
+          expected_cert="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          normalized_signer="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+
+          printf '%s\n' "$permissions"
+          printf 'APK versionName: %s\n' "$version_name"
+          printf 'APK versionCode: %s\n' "$version_code"
+          printf '%s\n' "$signer_output"
+
+          grep -Fq 'android.permission.CAMERA' <<< "$permissions"
+          grep -Fq 'android.permission.INTERNET' <<< "$permissions"
+          grep -Fq 'android.permission.POST_NOTIFICATIONS' <<< "$permissions"
+          ! grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
+          test "$version_name" = '4.17.4'
+          test "$version_code" = '426'
+          test -n "$expected_cert"
+          grep -Fq "$expected_cert" <<< "$normalized_signer"
+          printf 'APK signing certificate pin: PASS\n'
+
+      - name: Generate checksum
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_17_4_public_signed_canary.sha256
+
+      - name: Upload signed canary
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-17-4-public-4.17.4+426-signed-canary
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            p4_17_4_public_signed_canary.sha256
+          if-no-files-found: error
+          retention-days: 3

@@ -139,13 +139,13 @@ TraditionalSellerTaxIdEvidence? extractTraditionalSellerTaxIdEvidence(
       .toList(growable: false);
 
   final explicit = RegExp(
-    r'(?:賣方(?:統編|統一編號)?|統編|統一編號)\s*[:：.]?\s*([0-9０-９OIl|]{8})',
+    r'(?:賣方(?:統編|統一編號)?|統編|統一編號)\s*[:：.]?\s*([0-9０-９OIl|S]{8})',
     caseSensitive: false,
   );
   for (final line in lines) {
     final match = explicit.firstMatch(line);
     if (match == null) continue;
-    final value = _normalizeEightDigits(match.group(1)!);
+    final value = _normalizeLabeledEightDigits(match.group(1)!);
     if (!isTaiwanTaxIdFormat(value)) continue;
     return TraditionalSellerTaxIdEvidence(
       value: value,
@@ -156,16 +156,23 @@ TraditionalSellerTaxIdEvidence? extractTraditionalSellerTaxIdEvidence(
   }
 
   final noPattern = RegExp(
-    r'^\s*NO\.?\s*[:：.]?\s*([0-9０-９OIl|]{8})\s*$',
+    r'^\s*(?:NO|N0|HO|H0)\.?\s*[:：.]?\s*([0-9０-９OIl|S]{8})\s*$',
     caseSensitive: false,
   );
   for (var index = 0; index < lines.length && index < 10; index += 1) {
     final match = noPattern.firstMatch(lines[index]);
     if (match == null) continue;
-    final value = _normalizeEightDigits(match.group(1)!);
+    final value = _normalizeLabeledEightDigits(match.group(1)!);
+    final strongHeaderContext = _hasMerchantHeaderContext(lines, index) ||
+        _hasWeakLabelHeaderGeometry(
+          lines: lines,
+          positionedLines: positionedLines,
+          candidateIndex: index,
+          invoiceNumber: invoiceNumber,
+        );
     if (!isTaiwanTaxIdFormat(value) ||
         !hasValidTaiwanTaxIdChecksum(value) ||
-        !_hasMerchantHeaderContext(lines, index)) {
+        !strongHeaderContext) {
       continue;
     }
     return TraditionalSellerTaxIdEvidence(
@@ -257,6 +264,58 @@ TraditionalSellerTaxIdEvidence? _extractPositionalHeaderTaxId(
     source: 'positional_header_8digit',
     checksumValid: true,
     strongContext: true,
+  );
+}
+
+bool _hasWeakLabelHeaderGeometry({
+  required List<String> lines,
+  required List<LocalOcrTextLine> positionedLines,
+  required int candidateIndex,
+  required String? invoiceNumber,
+}) {
+  if (positionedLines.length != lines.length ||
+      candidateIndex < 0 ||
+      candidateIndex >= positionedLines.length) {
+    return false;
+  }
+  final normalizedInvoice = (invoiceNumber ?? '')
+      .replaceAll(RegExp(r'[^A-Z0-9]'), '')
+      .toUpperCase();
+  if (normalizedInvoice.length != 10) return false;
+
+  var invoiceIndex = -1;
+  for (var index = 0; index < lines.length; index += 1) {
+    final normalizedLine = lines[index]
+        .replaceAll(RegExp(r'[^A-Z0-9]'), '')
+        .toUpperCase();
+    if (normalizedLine == normalizedInvoice) {
+      invoiceIndex = index;
+      break;
+    }
+  }
+  if (invoiceIndex < 0 ||
+      candidateIndex <= invoiceIndex ||
+      candidateIndex - invoiceIndex > 6) {
+    return false;
+  }
+
+  final invoiceLine = positionedLines[invoiceIndex];
+  final candidateLine = positionedLines[candidateIndex];
+  final invoiceHeight = invoiceLine.height <= 0 ? 1.0 : invoiceLine.height;
+  final verticalGap = candidateLine.top - invoiceLine.bottom;
+  if (verticalGap < -invoiceHeight * 0.3 ||
+      verticalGap > invoiceHeight * 14) {
+    return false;
+  }
+  final horizontalTolerance =
+      (invoiceLine.width + candidateLine.width).clamp(1.0, double.infinity);
+  return (candidateLine.centerX - invoiceLine.centerX).abs() <=
+      horizontalTolerance;
+}
+
+String _normalizeLabeledEightDigits(String value) {
+  return _normalizeEightDigits(
+    value.replaceAll(RegExp(r'[ＳｓSs]'), '5'),
   );
 }
 

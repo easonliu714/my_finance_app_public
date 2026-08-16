@@ -1,0 +1,156 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/invoice/google_mlkit_traditional_invoice_recognizer.dart';
+import 'package:my_finance_app/features/invoice/invoice_live_capture_page.dart';
+import 'package:my_finance_app/features/invoice/invoice_live_field_readiness.dart';
+
+void main() {
+  const merchantHeader = <String>[
+    'ZZ00000001',
+    '測試商店',
+  ];
+
+  test('bounded weak-label OCR variants admit checksum-valid seller tax ID', () {
+    for (final label in <String>['NO', 'N0', 'HO', 'H0']) {
+      final evidence = extractTraditionalSellerTaxIdEvidence(<String>[
+        ...merchantHeader,
+        '$label.00000058',
+      ]);
+      expect(evidence?.value, '00000058', reason: label);
+      expect(evidence?.source, 'contextual_no_header', reason: label);
+      expect(evidence?.checksumValid, isTrue, reason: label);
+      expect(evidence?.acceptedForLive, isTrue, reason: label);
+    }
+  });
+
+  test('weak label may use bounded header geometry when merchant text is absent', () {
+    final evidence = extractTraditionalSellerTaxIdEvidence(
+      const <String>['ZZ00000001', 'H0.00000058'],
+      invoiceNumber: 'ZZ00000001',
+      positionedLines: const <LocalOcrTextLine>[
+        LocalOcrTextLine(
+          text: 'ZZ00000001',
+          left: 100,
+          top: 100,
+          right: 300,
+          bottom: 120,
+        ),
+        LocalOcrTextLine(
+          text: 'H0.00000058',
+          left: 110,
+          top: 150,
+          right: 280,
+          bottom: 170,
+        ),
+      ],
+    );
+
+    expect(evidence?.value, '00000058');
+    expect(evidence?.checksumValid, isTrue);
+    expect(evidence?.acceptedForLive, isTrue);
+  });
+
+  test('weak-label geometry rejects a far-away checksum-valid candidate', () {
+    final evidence = extractTraditionalSellerTaxIdEvidence(
+      const <String>['ZZ00000001', 'H0.00000058'],
+      invoiceNumber: 'ZZ00000001',
+      positionedLines: const <LocalOcrTextLine>[
+        LocalOcrTextLine(
+          text: 'ZZ00000001',
+          left: 100,
+          top: 100,
+          right: 300,
+          bottom: 120,
+        ),
+        LocalOcrTextLine(
+          text: 'H0.00000058',
+          left: 110,
+          top: 500,
+          right: 280,
+          bottom: 520,
+        ),
+      ],
+    );
+
+    expect(evidence, isNull);
+  });
+
+  test('S-to-5 repair is allowed only behind a seller-tax label', () {
+    final labeled = extractTraditionalSellerTaxIdEvidence(const <String>[
+      'ZZ00000001',
+      '測試商店',
+      'NO.000000S8',
+    ]);
+    final unlabeled = extractTraditionalSellerTaxIdEvidence(const <String>[
+      'ZZ00000001',
+      '測試商店',
+      '000000S8',
+    ]);
+
+    expect(labeled?.value, '00000058');
+    expect(labeled?.checksumValid, isTrue);
+    expect(labeled?.acceptedForLive, isTrue);
+    expect(unlabeled, isNull);
+  });
+
+  test('weak-label path still rejects phone-like and checksum-invalid evidence', () {
+    final phoneLike = extractTraditionalSellerTaxIdEvidence(const <String>[
+      'ZZ00000001',
+      '測試商店',
+      'TEL.00000058',
+    ]);
+    final checksumInvalid = extractTraditionalSellerTaxIdEvidence(const <String>[
+      'ZZ00000001',
+      '測試商店',
+      'N0.00000059',
+    ]);
+
+    expect(phoneLike, isNull);
+    expect(checksumInvalid, isNull);
+  });
+
+  test('traditional freezes on first accepted seller tax after invoice is green', () {
+    const greenInvoiceConsensus = TraditionalLiveIdentityConsensus(
+      invoiceNumber: 'ZZ00000001',
+      invoiceObservations: 2,
+      identityContextObservations: 1,
+      currentFrameRelevant: true,
+    );
+
+    final readiness = resolveInvoiceLiveFieldReadiness(
+      consensus: greenInvoiceConsensus,
+      invoiceNumber: 'ZZ00000001',
+      sellerTaxId: '00000058',
+      hasSellerIdentityContext: true,
+      previousSignature: '',
+      previousConsecutiveObservations: 0,
+      profile: InvoiceLiveReadinessProfile.traditionalExplicitSellerTax,
+    );
+
+    expect(readiness.identityEvidenceReady, isTrue);
+    expect(readiness.stableObservations, 2);
+    expect(readiness.canFreeze, isTrue);
+  });
+
+  test('seller tax alone cannot freeze before invoice number is green', () {
+    const oneInvoiceObservation = TraditionalLiveIdentityConsensus(
+      invoiceNumber: 'ZZ00000001',
+      invoiceObservations: 1,
+      identityContextObservations: 1,
+      currentFrameRelevant: true,
+    );
+
+    final readiness = resolveInvoiceLiveFieldReadiness(
+      consensus: oneInvoiceObservation,
+      invoiceNumber: 'ZZ00000001',
+      sellerTaxId: '00000058',
+      hasSellerIdentityContext: true,
+      previousSignature: '',
+      previousConsecutiveObservations: 0,
+      profile: InvoiceLiveReadinessProfile.traditionalExplicitSellerTax,
+    );
+
+    expect(readiness.identityEvidenceReady, isTrue);
+    expect(readiness.stableObservations, 1);
+    expect(readiness.canFreeze, isFalse);
+  });
+}
