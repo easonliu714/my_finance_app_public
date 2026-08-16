@@ -36,11 +36,11 @@ InvoiceLiveFieldReadiness resolveInvoiceLiveFieldReadiness({
       .toUpperCase();
   final seller = sellerTaxId.replaceAll(RegExp(r'[^0-9]'), '');
 
-  // P4.17.2 Traditional-first contract: merchant-name/header context is useful
-  // for OCR diagnosis but is no longer sufficient to auto-freeze a Traditional
-  // candidate. The Live result must carry a real authoritative 8-digit seller
-  // tax ID in addition to the invoice number. Electronic/unresolved receipts
-  // retain the previous identity-context behavior.
+  // Traditional Live is allowed to freeze on the first checksum-accepted
+  // 8-digit seller tax observation once the invoice number itself has already
+  // reached the two-observation green state. This deliberately removes the
+  // previous second seller-tax observation requirement without weakening the
+  // seller-tax format/checksum gate upstream.
   final identityReady = switch (profile) {
     InvoiceLiveReadinessProfile.traditionalExplicitSellerTax =>
       RegExp(r'^\d{8}$').hasMatch(seller),
@@ -48,9 +48,9 @@ InvoiceLiveFieldReadiness resolveInvoiceLiveFieldReadiness({
       seller.isNotEmpty || hasSellerIdentityContext,
   };
 
-  // Preserve the P4.16.16 signature contract. The readiness profile may change
-  // how identityReady is resolved, but it must not change the serialized
-  // signature shape used for consecutive-observation stability.
+  // Preserve the P4.16.16 signature shape for telemetry and the electronic /
+  // unresolved path. Traditional readiness no longer uses seller-tax temporal
+  // repetition as an authorization gate.
   final signature = invoice.isEmpty ? '' : '$invoice|$seller|$identityReady';
 
   var consecutive = 0;
@@ -59,10 +59,25 @@ InvoiceLiveFieldReadiness resolveInvoiceLiveFieldReadiness({
         ? previousConsecutiveObservations + 1
         : 1;
   }
+
+  if (profile == InvoiceLiveReadinessProfile.traditionalExplicitSellerTax) {
+    final invoiceStable = invoice.isNotEmpty &&
+        consensus.invoiceNumber == invoice &&
+        consensus.invoiceObservations >= 2 &&
+        consensus.currentFrameRelevant;
+    final ready = invoiceStable && identityReady;
+    return InvoiceLiveFieldReadiness(
+      signature: signature,
+      consecutiveObservations: consecutive,
+      stableObservations: ready ? 2 : (identityReady ? 1 : 0),
+      identityEvidenceReady: identityReady,
+      canFreeze: ready,
+    );
+  }
+
   final stable = consecutive < consensus.stableObservations
       ? consecutive
       : consensus.stableObservations;
-
   return InvoiceLiveFieldReadiness(
     signature: signature,
     consecutiveObservations: consecutive,
