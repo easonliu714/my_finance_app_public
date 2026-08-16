@@ -24,12 +24,15 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import textwrap
           payload = Path('.github/p4_18_0_patch_payload.txt').read_text()
           marker = "          python3 - <<'PY'\n"
           start = payload.index(marker) + len(marker)
           end = payload.index('\n          PY\n', start)
-          script = textwrap.dedent(payload[start:end])
+          lines = payload[start:end].splitlines()
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in lines
+          )
           exec(compile(script, 'p4_18_0_patch_payload.py', 'exec'))
           PY
           dart format \
