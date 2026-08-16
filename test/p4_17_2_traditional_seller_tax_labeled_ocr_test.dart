@@ -108,47 +108,49 @@ void main() {
     expect(checksumInvalid, isNull);
   });
 
-  test('traditional freeze still needs two identical accepted observations', () {
-    const consensus = TraditionalLiveIdentityConsensus(
+  test('traditional freezes on first accepted seller tax after invoice is green', () {
+    const greenInvoiceConsensus = TraditionalLiveIdentityConsensus(
       invoiceNumber: 'ZZ00000001',
       invoiceObservations: 2,
-      identityContextObservations: 2,
+      identityContextObservations: 1,
       currentFrameRelevant: true,
     );
 
-    final first = resolveInvoiceLiveFieldReadiness(
-      consensus: consensus,
+    final readiness = resolveInvoiceLiveFieldReadiness(
+      consensus: greenInvoiceConsensus,
       invoiceNumber: 'ZZ00000001',
-      sellerTaxId: '00000064',
+      sellerTaxId: '00000058',
       hasSellerIdentityContext: true,
       previousSignature: '',
       previousConsecutiveObservations: 0,
       profile: InvoiceLiveReadinessProfile.traditionalExplicitSellerTax,
     );
-    final changed = resolveInvoiceLiveFieldReadiness(
-      consensus: consensus,
+
+    expect(readiness.identityEvidenceReady, isTrue);
+    expect(readiness.stableObservations, 2);
+    expect(readiness.canFreeze, isTrue);
+  });
+
+  test('seller tax alone cannot freeze before invoice number is green', () {
+    const oneInvoiceObservation = TraditionalLiveIdentityConsensus(
       invoiceNumber: 'ZZ00000001',
-      sellerTaxId: '00000058',
-      hasSellerIdentityContext: true,
-      previousSignature: first.signature,
-      previousConsecutiveObservations: first.consecutiveObservations,
-      profile: InvoiceLiveReadinessProfile.traditionalExplicitSellerTax,
+      invoiceObservations: 1,
+      identityContextObservations: 1,
+      currentFrameRelevant: true,
     );
-    final repeated = resolveInvoiceLiveFieldReadiness(
-      consensus: consensus,
+
+    final readiness = resolveInvoiceLiveFieldReadiness(
+      consensus: oneInvoiceObservation,
       invoiceNumber: 'ZZ00000001',
       sellerTaxId: '00000058',
       hasSellerIdentityContext: true,
-      previousSignature: changed.signature,
-      previousConsecutiveObservations: changed.consecutiveObservations,
+      previousSignature: '',
+      previousConsecutiveObservations: 0,
       profile: InvoiceLiveReadinessProfile.traditionalExplicitSellerTax,
     );
 
-    expect(first.stableObservations, 1);
-    expect(first.canFreeze, isFalse);
-    expect(changed.stableObservations, 1);
-    expect(changed.canFreeze, isFalse);
-    expect(repeated.stableObservations, 2);
-    expect(repeated.canFreeze, isTrue);
+    expect(readiness.identityEvidenceReady, isTrue);
+    expect(readiness.stableObservations, 1);
+    expect(readiness.canFreeze, isFalse);
   });
 }
