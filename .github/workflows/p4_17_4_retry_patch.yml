@@ -20,13 +20,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: p4-17-2-traditional-seller-tax-stability-followup
-          fetch-depth: 3
+          fetch-depth: 4
 
       - name: Verify retry boundary
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "f70961eb7ec6cab531624870b962f8b4dd34ca57"
+          test "$(git rev-parse HEAD^)" = "cf0b22684a94541296a4ab771fbee503fbcc0ba9"
           test "$(git rev-parse --abbrev-ref HEAD)" = "p4-17-2-traditional-seller-tax-stability-followup"
           test -f .github/workflows/p4_17_4_one_shot_patch.yml
           test -f .github/workflows/p4_17_4_retry_patch.yml
@@ -57,7 +57,7 @@ jobs:
           print('PATCH_PAYLOAD_EXTRACTED_AND_COMPILED')
           PY
 
-      - name: Remove bootstrap workflows then apply product patch
+      - name: Apply patch with bootstrap files absent from stale scan
         shell: bash
         run: |
           set -euo pipefail
@@ -65,20 +65,20 @@ jobs:
           rm -f .github/workflows/p4_17_4_retry_patch.yml
           python3 /tmp/p4_17_4_apply.py
 
-      - name: Verify final patch shape
+      - name: Restore workflows and verify product-only patch
         shell: bash
         run: |
           set -euo pipefail
-          test ! -e .github/workflows/p4_17_4_one_shot_patch.yml
-          test ! -e .github/workflows/p4_17_4_retry_patch.yml
+          git restore --source=HEAD -- .github/workflows
           grep -Fq "version: 4.17.4+426" pubspec.yaml
           grep -Fq "SELLER_TAX_CAPTURE_ONLY_WINDOW" lib/features/invoice/invoice_live_capture_adaptive_page.dart
           grep -Fq "captureOnlySellerTaxMayRemainUnresolved" lib/features/invoice/invoice_live_capture_adaptive_page.dart
           grep -Fq "findSellerTaxStructuralEvidence" lib/features/invoice/invoice_live_adaptive_overlay.dart
           grep -Fq "sellerTaxCaptureOnlyWindowSize = 7" lib/features/invoice/invoice_seller_tax_capture_policy.dart
           grep -Fq "sellerTaxCaptureOnlyThreshold = 3" lib/features/invoice/invoice_seller_tax_capture_policy.dart
-          grep -Fq "p4_17_4_seller_tax_capture_only_policy_test.dart" .github/workflows/p4_17_2_signed_canary.yml
+          test -f test/p4_17_4_seller_tax_capture_only_policy_test.dart
           git diff --check
+          test -z "$(git status --short .github/workflows)"
 
       - name: Commit P4.17.4 product patch
         shell: bash
@@ -86,8 +86,8 @@ jobs:
           set -euo pipefail
           git config user.name "Liu Chia Yi"
           git config user.email "209346080+easonliu714@users.noreply.github.com"
-          git add -A
+          git add lib test pubspec.yaml
           git diff --cached --check
-          git diff --cached --quiet && { echo 'No patch produced'; exit 1; }
+          git diff --cached --quiet && { echo 'No product patch produced'; exit 1; }
           git commit -m "P4.17.4: add 3-of-7 capture-only seller-tax freeze"
           git push origin HEAD:p4-17-2-traditional-seller-tax-stability-followup
