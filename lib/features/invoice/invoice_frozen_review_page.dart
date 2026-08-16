@@ -28,6 +28,7 @@ class InvoiceFrozenReviewPage extends StatefulWidget {
 
   static const String routeName = 'invoice-frozen-review';
   static const String routePath = '/invoice-capture/live/review';
+  static const Key geminiAcknowledgementKey = Key('invoice_frozen_gemini_ack');
   static const Key forceGeminiKey = Key('invoice_frozen_force_gemini');
   static const Key exportEvidenceKey = Key('invoice_frozen_export_evidence');
 
@@ -37,7 +38,8 @@ class InvoiceFrozenReviewPage extends StatefulWidget {
   final InvoiceRecognitionEvidenceExporter evidenceExporter;
 
   @override
-  State<InvoiceFrozenReviewPage> createState() => _InvoiceFrozenReviewPageState();
+  State<InvoiceFrozenReviewPage> createState() =>
+      _InvoiceFrozenReviewPageState();
 }
 
 class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
@@ -46,6 +48,8 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
   late final GeminiInvoiceReviewCoordinator _geminiReviewCoordinator;
   InvoiceCaptureReviewFlowResult? _localResult;
   GeminiInvoiceReviewExecution? _geminiExecution;
+  GeminiInvoiceEscalationDecision? _geminiDecision;
+  bool _geminiComparisonAcknowledged = false;
   InvoiceRecognitionEvidenceExportResult? _evidenceResult;
   String? _error;
   bool _busy = true;
@@ -67,7 +71,8 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
       status: ImageCaptureStagingStatus.pendingReview,
       createdAt: DateTime.now(),
     );
-    _reviewFlowCoordinator = widget.reviewFlowCoordinator ??
+    _reviewFlowCoordinator =
+        widget.reviewFlowCoordinator ??
         InvoiceCaptureReviewFlowCoordinator(
           recognitionCoordinator: InvoiceAutomaticRecognitionCoordinator(
             qrRunner: InvoiceLocalRecognitionCoordinator(
@@ -78,7 +83,8 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
             ).recognize,
           ),
         );
-    _geminiReviewCoordinator = widget.geminiReviewCoordinator ??
+    _geminiReviewCoordinator =
+        widget.geminiReviewCoordinator ??
         GeminiInvoiceReviewCoordinator(
           settingsStore: const GeminiInvoiceSettingsRepository(),
           client: GeminiInvoiceReviewClient(),
@@ -88,15 +94,15 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
 
   InvoiceRecognitionRequestedRoute get _requestedRoute =>
       widget.liveResult.origin == InvoiceCaptureOrigin.gallery
-          ? InvoiceRecognitionRequestedRoute.automatic
-          : switch (widget.liveResult.classification) {
-              InvoiceLiveClassification.electronic =>
-                InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
-              InvoiceLiveClassification.traditional =>
-                InvoiceRecognitionRequestedRoute.traditionalInvoiceOcr,
-              InvoiceLiveClassification.searching =>
-                InvoiceRecognitionRequestedRoute.automatic,
-            };
+      ? InvoiceRecognitionRequestedRoute.automatic
+      : switch (widget.liveResult.classification) {
+          InvoiceLiveClassification.electronic =>
+            InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
+          InvoiceLiveClassification.traditional =>
+            InvoiceRecognitionRequestedRoute.traditionalInvoiceOcr,
+          InvoiceLiveClassification.searching =>
+            InvoiceRecognitionRequestedRoute.automatic,
+        };
 
   PositionalTaxIdTemporalRepairResult get _liveTemporalTaxRepair {
     if (widget.liveResult.origin != InvoiceCaptureOrigin.liveCamera ||
@@ -142,11 +148,14 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
         requestedRoute: _requestedRoute,
       );
       if (!mounted) return;
+      final decision = const GeminiInvoiceEscalationPolicy().evaluate(
+        local.recognitionResult,
+      );
       setState(() {
         _localResult = local;
+        _geminiDecision = decision;
         _busy = false;
       });
-      await _runGemini(local, forceReview: false);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -165,6 +174,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
       _geminiBusy = true;
       _error = null;
       if (forceReview) _geminiExecution = null;
+      _geminiComparisonAcknowledged = false;
     });
     try {
       final execution = await _geminiReviewCoordinator.review(
@@ -233,9 +243,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                 children: <Widget>[
                   Text(
                     'Single Image Review',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
+                    style: Theme.of(context).textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 6),
@@ -249,7 +257,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                   ],
                   const SizedBox(height: 8),
                   const Text(
-                    '先執行本機 QR/OCR；只有欄位缺失、有警告或關鍵信心度不足時才自動 Gemini。強制 Gemini 按鈕永遠保留，AI 不會覆寫 Local。',
+                    '先執行本機 QR/OCR。若關鍵欄位不完整，系統會標示 Gemini 必要覆核，但不會自動上傳影像；只有你明確按下按鈕才會送出目前發票影像。AI 不會覆寫 Local。',
                   ),
                 ],
               ),
@@ -261,8 +269,8 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
               semanticsLabel: _evidenceBusy
                   ? '證據包建立中'
                   : _geminiBusy
-                      ? 'Gemini 覆核中'
-                      : '本機辨識中',
+                  ? 'Gemini 覆核中'
+                  : '本機辨識中',
             ),
           ],
           if (_error != null) ...<Widget>[
@@ -286,6 +294,25 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
               ],
             ),
             const SizedBox(height: 12),
+            if (_geminiDecision != null)
+              Card(
+                child: ListTile(
+                  leading: Icon(
+                    _geminiDecision!.shouldReview
+                        ? Icons.warning_amber_rounded
+                        : Icons.verified_outlined,
+                  ),
+                  title: Text(
+                    _geminiDecision!.shouldReview
+                        ? 'Gemini 必要覆核'
+                        : 'Local 關鍵欄位完整',
+                  ),
+                  subtitle: Text(
+                    '${_geminiDecision!.reason}\n按下 Gemini 按鈕才會將目前發票影像送出。',
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
             _CandidateCard(
               title: 'Gemini 第二意見',
               subtitle: execution?.message ?? '尚未執行 Gemini。',
@@ -308,15 +335,32 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                 localTaxId: localTaxId,
                 ai: ai,
               ),
+              CheckboxListTile(
+                key: InvoiceFrozenReviewPage.geminiAcknowledgementKey,
+                contentPadding: EdgeInsets.zero,
+                value: _geminiComparisonAcknowledged,
+                onChanged: (value) => setState(
+                  () => _geminiComparisonAcknowledged = value == true,
+                ),
+                title: const Text('我已核對 Local 與 Gemini 結果'),
+                subtitle: const Text('Gemini 只提供第二意見，不會自動覆寫本機欄位。'),
+              ),
             ],
             const SizedBox(height: 12),
             FilledButton.tonalIcon(
               key: InvoiceFrozenReviewPage.forceGeminiKey,
               onPressed: _geminiBusy
                   ? null
-                  : () => _runGemini(local, forceReview: true),
+                  : () => _runGemini(
+                      local,
+                      forceReview: _geminiDecision?.shouldReview != true,
+                    ),
               icon: const Icon(Icons.auto_awesome_outlined),
-              label: const Text('強制 Gemini 二次覆核'),
+              label: Text(
+                _geminiDecision?.shouldReview == true
+                    ? '送出至 Gemini 必要覆核'
+                    : '強制 Gemini 二次覆核',
+              ),
             ),
             const SizedBox(height: 10),
             FilledButton.icon(
@@ -338,7 +382,9 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                       'Evidence ZIP 已建立',
                       style: TextStyle(fontWeight: FontWeight.w800),
                     ),
-                    Text('Capture SHA-256：${_evidenceResult!.captureImageSha256}'),
+                    Text(
+                      'Capture SHA-256：${_evidenceResult!.captureImageSha256}',
+                    ),
                     Text(
                       'Gemini SHA-256：${_evidenceResult!.geminiInputSha256 ?? '尚未呼叫 Gemini'}',
                     ),
@@ -411,6 +457,9 @@ String _localSellerTaxId(
 }) {
   final ocr = local.recognitionResult.ocrResult?.candidate?.sellerTaxId.trim();
   if (ocr != null && ocr.isNotEmpty) return ocr;
+  final explicit =
+      local.formModel.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '';
+  if (explicit.trim().isNotEmpty) return explicit.trim();
   final seller =
       local.formModel.fieldFor(InvoiceReviewFieldKey.sellerName)?.value ?? '';
   final fallback = RegExp(r'\b(\d{8})\b').firstMatch(seller)?.group(1) ?? '';
@@ -439,9 +488,7 @@ class _CandidateCard extends StatelessWidget {
           children: <Widget>[
             Text(
               title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
+              style: Theme.of(context).textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
@@ -498,7 +545,12 @@ class _ComparisonCard extends StatelessWidget {
         true,
       ),
       ('發票期別', '', ai.invoicePeriod, false),
-      ('交易時間', '', ai.invoiceTime, false),
+      (
+        '交易時間',
+        local.fieldFor(InvoiceReviewFieldKey.invoiceTime)?.value ?? '',
+        ai.invoiceTime,
+        false,
+      ),
     ];
     return Card(
       child: Padding(
@@ -508,9 +560,7 @@ class _ComparisonCard extends StatelessWidget {
           children: <Widget>[
             Text(
               '本機 ↔ Gemini 欄位比較',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
+              style: Theme.of(context).textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.w800),
             ),
             const Text('只比較、不融合。'),
@@ -563,5 +613,5 @@ String _compare(String local, String ai, {required bool numeric}) {
 String _sameImageLabel(bool? value) => value == null
     ? 'N/A'
     : value
-        ? 'YES'
-        : 'NO';
+    ? 'YES'
+    : 'NO';

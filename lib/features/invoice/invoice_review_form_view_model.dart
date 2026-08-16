@@ -1,9 +1,11 @@
+import 'invoice_local_completeness_policy.dart';
 import 'invoice_review_handoff_contract.dart';
 import 'traditional_invoice_ocr_review.dart';
 
 enum InvoiceReviewFieldKey {
   invoiceNumber,
   invoiceDate,
+  invoiceTime,
   sellerTaxId,
   sellerName,
   totalAmount,
@@ -90,8 +92,7 @@ class InvoiceReviewFormViewModel {
   bool get usedNetwork => false;
   bool get canCreateFormalRecord => false;
   bool get canSubmitForReview =>
-      canOpenReview &&
-      (!requiresAcknowledgement || disclaimerAcknowledged);
+      canOpenReview && (!requiresAcknowledgement || disclaimerAcknowledged);
 
   InvoiceReviewFieldViewModel? fieldFor(InvoiceReviewFieldKey key) {
     for (final field in fields) {
@@ -156,9 +157,7 @@ class InvoiceReviewFormViewModel {
 class InvoiceReviewFormPresenter {
   const InvoiceReviewFormPresenter();
 
-  InvoiceReviewFormViewModel fromHandoff(
-    InvoiceReviewHandoffState state,
-  ) {
+  InvoiceReviewFormViewModel fromHandoff(InvoiceReviewHandoffState state) {
     switch (state.action) {
       case InvoiceReviewHandoffAction.reviewQrCandidate:
         return _fromQr(state);
@@ -175,6 +174,11 @@ class InvoiceReviewFormPresenter {
     final pairs = state.automaticResult?.qrResult?.routingResult?.pairs;
     final pair = pairs == null || pairs.isEmpty ? null : pairs.first;
     final parsed = pair?.left.leftParseResult;
+    final supplemental = state.automaticResult?.ocrResult?.candidate;
+    final supplementalRawText =
+        supplemental?.rawText ??
+        state.automaticResult?.ocrResult?.rawRecognition?.rawText ??
+        '';
     final fields = <InvoiceReviewFieldViewModel>[
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.invoiceNumber,
@@ -198,14 +202,32 @@ class InvoiceReviewFormPresenter {
             : 'QR \u89e3\u6790',
       ),
       InvoiceReviewFieldViewModel(
+        key: InvoiceReviewFieldKey.invoiceTime,
+        label: '交易時間',
+        value: extractStrictInvoiceTime(supplementalRawText),
+        editable: true,
+        requiredForReview: true,
+        confidenceLabel: extractStrictInvoiceTime(supplementalRawText).isEmpty
+            ? '未辨識'
+            : '本機 OCR 補充',
+      ),
+      InvoiceReviewFieldViewModel(
+        key: InvoiceReviewFieldKey.sellerTaxId,
+        label: '賣方統編',
+        value: parsed?.sellerIdentifier?.trim() ?? '',
+        editable: true,
+        requiredForReview: true,
+        confidenceLabel: parsed?.sellerIdentifier == null ? '未辨識' : 'QR 解析',
+      ),
+      InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.sellerName,
         label: '\u5546\u5bb6',
-        value: _sellerLabel(parsed?.sellerIdentifier),
+        value: supplemental?.sellerName.trim() ?? '',
         editable: true,
-        requiredForReview: false,
-        confidenceLabel: parsed?.sellerIdentifier == null
-            ? '\u672a\u8fa8\u8b58'
-            : 'QR \u89e3\u6790',
+        requiredForReview: true,
+        confidenceLabel: supplemental?.sellerName.trim().isNotEmpty == true
+            ? '本機 OCR 補充'
+            : '未辨識',
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.totalAmount,
@@ -225,12 +247,10 @@ class InvoiceReviewFormPresenter {
       disclaimer: state.disclaimer,
       fields: List<InvoiceReviewFieldViewModel>.unmodifiable(fields),
       lineItems: const <InvoiceReviewLineItemViewModel>[],
-      warnings: List<String>.unmodifiable(
-        <String>[
-          ...state.warnings,
-          ...?pair?.warnings,
-        ],
-      ),
+      warnings: List<String>.unmodifiable(<String>[
+        ...state.warnings,
+        ...?pair?.warnings,
+      ]),
       availableOverrides: state.availableOverrides,
       canOpenReview: pair?.canCreateReviewCandidate == true,
       requiresAcknowledgement: true,
@@ -250,9 +270,9 @@ class InvoiceReviewFormPresenter {
         confidenceLabel: _confidenceLabel(
           candidate?.confidence[TraditionalInvoiceOcrField.invoiceNumber],
         ),
-        warnings: candidate?.fieldWarnings[
-              TraditionalInvoiceOcrField.invoiceNumber
-            ] ??
+        warnings:
+            candidate?.fieldWarnings[TraditionalInvoiceOcrField
+                .invoiceNumber] ??
             const <String>[],
       ),
       InvoiceReviewFieldViewModel(
@@ -266,7 +286,31 @@ class InvoiceReviewFormPresenter {
         ),
         warnings:
             candidate?.fieldWarnings[TraditionalInvoiceOcrField.invoiceDate] ??
-                const <String>[],
+            const <String>[],
+      ),
+      InvoiceReviewFieldViewModel(
+        key: InvoiceReviewFieldKey.invoiceTime,
+        label: '交易時間',
+        value: extractStrictInvoiceTime(candidate?.rawText ?? ''),
+        editable: true,
+        requiredForReview: false,
+        confidenceLabel:
+            extractStrictInvoiceTime(candidate?.rawText ?? '').isEmpty
+            ? '未辨識'
+            : '本機 OCR',
+      ),
+      InvoiceReviewFieldViewModel(
+        key: InvoiceReviewFieldKey.sellerTaxId,
+        label: '賣方統編',
+        value: candidate?.sellerTaxId.trim() ?? '',
+        editable: true,
+        requiredForReview: true,
+        confidenceLabel: _confidenceLabel(
+          candidate?.confidence[TraditionalInvoiceOcrField.sellerTaxId],
+        ),
+        warnings:
+            candidate?.fieldWarnings[TraditionalInvoiceOcrField.sellerTaxId] ??
+            const <String>[],
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.sellerName,
@@ -279,7 +323,7 @@ class InvoiceReviewFormPresenter {
         ),
         warnings:
             candidate?.fieldWarnings[TraditionalInvoiceOcrField.sellerName] ??
-                const <String>[],
+            const <String>[],
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.totalAmount,
@@ -292,11 +336,12 @@ class InvoiceReviewFormPresenter {
         ),
         warnings:
             candidate?.fieldWarnings[TraditionalInvoiceOcrField.totalAmount] ??
-                const <String>[],
+            const <String>[],
       ),
     ];
 
-    final lineItems = candidate?.visibleLineItems
+    final lineItems =
+        candidate?.visibleLineItems
             .map(
               (item) => InvoiceReviewLineItemViewModel(
                 name: item.name.trim(),
@@ -345,16 +390,7 @@ class InvoiceReviewFormPresenter {
     return '${value.year}-$month-$day';
   }
 
-  static String _sellerLabel(String? sellerIdentifier) {
-    final identifier = sellerIdentifier?.trim() ?? '';
-    return identifier.isEmpty
-        ? ''
-        : '\u8ce3\u65b9\u7d71\u7de8 $identifier';
-  }
-
-  static String _confidenceLabel(
-    TraditionalInvoiceOcrConfidence? confidence,
-  ) {
+  static String _confidenceLabel(TraditionalInvoiceOcrConfidence? confidence) {
     if (confidence == null) return '\u672a\u63d0\u4f9b';
     switch (confidence) {
       case TraditionalInvoiceOcrConfidence.high:
