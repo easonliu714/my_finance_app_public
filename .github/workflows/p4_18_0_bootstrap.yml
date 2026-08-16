@@ -18,6 +18,10 @@ jobs:
         with:
           ref: p4-18-0-incomplete-local-mandatory-gemini-review
           fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
       - name: Apply staged product payload
         shell: bash
         run: |
