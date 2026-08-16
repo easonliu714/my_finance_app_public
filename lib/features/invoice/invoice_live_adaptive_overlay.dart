@@ -84,6 +84,24 @@ class InvoiceSellerTaxVisualCandidate {
   final Rect imageRect;
 }
 
+
+/// Non-authoritative seller-tax structure evidence used only to decide
+/// whether a high-resolution still image is worth capturing.
+///
+/// This evidence never authorizes a seller-tax value. Checksum-valid
+/// seller tax admission remains exclusively in TraditionalSellerTaxIdEvidence.
+class InvoiceSellerTaxStructuralEvidence {
+  const InvoiceSellerTaxStructuralEvidence({
+    required this.rawText,
+    required this.imageRect,
+    required this.source,
+  });
+
+  final String rawText;
+  final Rect imageRect;
+  final String source;
+}
+
 class InvoiceReceiptGeometryObservation {
   const InvoiceReceiptGeometryObservation({
     required this.signal,
@@ -478,11 +496,120 @@ Rect? findSellerTaxTextEvidenceRect(
   return null;
 }
 
+
+InvoiceSellerTaxStructuralEvidence? findSellerTaxStructuralEvidence(
+  List<InvoiceOcrVisualLine> lines, {
+  required String invoiceNumber,
+}) {
+  if (lines.isEmpty) return null;
+  final invoiceTarget = _compactAlphaNumeric(invoiceNumber);
+  if (invoiceTarget.isEmpty) return null;
+
+  var invoiceIndex = -1;
+  for (var index = 0; index < lines.length; index += 1) {
+    if (_compactAlphaNumeric(lines[index].text).contains(invoiceTarget)) {
+      invoiceIndex = index;
+      break;
+    }
+  }
+  if (invoiceIndex < 0) return null;
+
+  final invoiceLine = lines[invoiceIndex];
+  final invoiceDigits = invoiceTarget.length >= 8
+      ? invoiceTarget.substring(invoiceTarget.length - 8)
+      : invoiceTarget;
+  final explicitToken = RegExp(
+    r'(?:賣方(?:統編|統一編號)?|統編|統一編號)\s*[:：.]?\s*([0-9０-９OIl|BDSZGTE]{7,9})(?![0-9０-９OIl|BDSZGTE])',
+    caseSensitive: false,
+  );
+  final weakLabelToken = RegExp(
+    r'^(?:NO|N0|HO|H0)\.?\s*[:：.]?\s*([0-9０-９OIl|BDSZGTE]{7,9})$',
+    caseSensitive: false,
+  );
+  final unlabeledEightDigits = RegExp(r'^[0-9０-９]{8}$');
+  final hardBoundary = RegExp(
+    r'(?:電話|TEL|PHONE|地址|日期|時間|交易明細|商品明細|消費明細|銷售明細|發票明細|交易內容|品項|項目|總計|合計|小計|現金|收現|找零|隨機碼|訂單|交易編號)',
+    caseSensitive: false,
+  );
+
+  final end = (invoiceIndex + 8).clamp(0, lines.length);
+  for (var index = invoiceIndex + 1; index < end; index += 1) {
+    final line = lines[index];
+    final raw = line.text.trim();
+    if (raw.isEmpty) continue;
+    if (hardBoundary.hasMatch(raw)) break;
+
+    String? token;
+    String source = '';
+    final explicit = explicitToken.firstMatch(raw);
+    final weak = weakLabelToken.firstMatch(raw);
+    if (explicit != null) {
+      token = explicit.group(1);
+      source = 'explicit_label_structure';
+    } else if (weak != null) {
+      token = weak.group(1);
+      source = 'weak_label_structure';
+    } else if (unlabeledEightDigits.hasMatch(raw)) {
+      token = raw;
+      source = 'positional_8digit_structure';
+    }
+    if (token == null || !_isMostlyDigitLikeSellerTaxToken(token)) {
+      continue;
+    }
+
+    final normalizedCandidate = _normalizedOcrDigits(token);
+    if (normalizedCandidate == invoiceDigits) continue;
+
+    final invoiceHeight = invoiceLine.imageRect.height <= 0
+        ? 1.0
+        : invoiceLine.imageRect.height;
+    final verticalGap = line.imageRect.top - invoiceLine.imageRect.bottom;
+    if (verticalGap < -invoiceHeight * 0.4 ||
+        verticalGap > invoiceHeight * 14) {
+      continue;
+    }
+    final horizontalTolerance =
+        (invoiceLine.imageRect.width + line.imageRect.width)
+  .clamp(1.0, double.infinity);
+    if ((line.imageRect.center.dx - invoiceLine.imageRect.center.dx).abs() >
+        horizontalTolerance) {
+      continue;
+    }
+
+    return InvoiceSellerTaxStructuralEvidence(
+      rawText: raw,
+      imageRect: line.imageRect,
+      source: source,
+    );
+  }
+  return null;
+}
+
+bool _isMostlyDigitLikeSellerTaxToken(String token) {
+  final compact = token.replaceAll(RegExp(r'[\s:：.]'), '');
+  if (compact.length < 7 || compact.length > 9) return false;
+  final digitLike = RegExp(r'[0-9０-９OIl|]', caseSensitive: false)
+      .allMatches(compact)
+      .length;
+  return digitLike >= 6 && digitLike * 3 >= compact.length * 2;
+}
+
 InvoiceSellerTaxVisualCandidate? findSellerTaxVisualCandidate(
   List<InvoiceOcrVisualLine> lines, {
   required String invoiceNumber,
 }) {
   if (lines.isEmpty) return null;
+
+  final structural = findSellerTaxStructuralEvidence(
+    lines,
+    invoiceNumber: invoiceNumber,
+  );
+  if (structural != null) {
+    return InvoiceSellerTaxVisualCandidate(
+      rawText: structural.rawText,
+      imageRect: structural.imageRect,
+    );
+  }
 
   final explicitLabel = RegExp(
     r'(?:賣方(?:統編|統一編號)?|統編|統一編號)',
