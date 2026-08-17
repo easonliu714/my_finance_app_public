@@ -1,7 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/invoice/invoice_automatic_recognition_coordinator.dart';
 import 'package:my_finance_app/features/invoice/invoice_review_form_view_model.dart';
+import 'package:my_finance_app/features/invoice/invoice_review_handoff_contract.dart';
+import 'package:my_finance_app/features/invoice/traditional_invoice_ocr_review.dart';
 
 void main() {
   test('invoice period extraction canonicalizes equivalent ROC period text', () {
@@ -21,6 +24,50 @@ void main() {
     );
   });
 
+  // P4.18.2 real-device regression: if Frozen ML Kit raw text already
+  // contains one strict time, the Traditional Review form must not drop it.
+  test('traditional OCR form propagates strict raw time into review field', () {
+    final automatic = InvoiceAutomaticRecognitionResult(
+      status: InvoiceAutomaticRecognitionStatus.ocrReviewCandidate,
+      message: 'Traditional OCR candidate',
+      selectedRouteReason: 'Traditional OCR',
+      requestedRoute: InvoiceRecognitionRequestedRoute.traditionalInvoiceOcr,
+      ocrResult: TraditionalInvoiceOcrResult(
+        status: TraditionalInvoiceOcrStatus.success,
+        message: 'OCR ready',
+        candidate: TraditionalInvoiceOcrReviewCandidate(
+          sourceImageReference: '/tmp/xy17859005.jpg',
+          invoiceNumber: 'XY17859005',
+          sellerTaxId: '',
+          sellerTaxIdSource: '',
+          invoiceDate: DateTime.utc(2026, 4, 18),
+          sellerName: '',
+          totalAmount: null,
+          visibleLineItems: const <TraditionalInvoiceOcrLineItem>[],
+          confidence: const <
+            TraditionalInvoiceOcrField,
+            TraditionalInvoiceOcrConfidence
+          >{},
+          fieldWarnings: const <TraditionalInvoiceOcrField, List<String>>{},
+          rawText: '中華民國115年3-4月份\nXY 17859005\n2826 84/18 14:59:52',
+        ),
+      ),
+    );
+    final handoff = const InvoiceReviewHandoffPresenter().fromAutomaticResult(
+      automatic,
+    );
+    final form = const InvoiceReviewFormPresenter().fromHandoff(handoff);
+
+    expect(
+      form.fieldFor(InvoiceReviewFieldKey.invoiceTime)?.value,
+      '14:59:52',
+    );
+    expect(
+      form.fields.any((field) => field.key == InvoiceReviewFieldKey.invoiceTime),
+      isTrue,
+    );
+  });
+
   test('review and evidence contracts propagate Local time and period', () {
     final form = File(
       'lib/features/invoice/invoice_review_form_view_model.dart',
@@ -34,6 +81,7 @@ void main() {
 
     expect(form, contains('extractStrictInvoiceTime(supplementalRawText)'));
     expect(form, contains('extractCanonicalInvoicePeriod(supplementalRawText)'));
+    expect(form, contains('final invoiceTime = extractStrictInvoiceTime(rawText)'));
     expect(form, contains('parsed?.randomCode?.trim()'));
     expect(
       frozen,

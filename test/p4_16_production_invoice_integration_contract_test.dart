@@ -19,7 +19,7 @@ void main() {
     expect(card, contains('測試 Key 並讀取可用模型'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.18.1+428'));
+    expect(pubspec, contains('version: 4.18.2+429'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
@@ -132,7 +132,7 @@ void main() {
     expect(flow, contains('resolveInvoiceTotalEvidence'));
     expect(flow, contains('rawRecognition: source.rawRecognition'));
     expect(flow, isNot(contains('TransactionRepository')));
-    expect(flow, isNot(contains('TaiwanBusinessRegistryService')));
+    expect(flow, isNot(contains('TaiwanBusinessRegistryService'));
 
     expect(total, contains("('total_label', 40)"));
     expect(total, contains("('subtotal_label', 35)"));
