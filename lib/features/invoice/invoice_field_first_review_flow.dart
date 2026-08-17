@@ -5,6 +5,7 @@ import 'invoice_capture_review_flow.dart';
 import 'invoice_field_first_review_form_presenter.dart';
 import 'invoice_live_capture_page.dart';
 import 'invoice_local_recognition_coordinator.dart';
+import 'invoice_review_form_view_model.dart';
 import 'invoice_total_evidence.dart';
 import 'mobile_scanner_invoice_qr_decoder.dart';
 import 'traditional_invoice_ocr_review.dart';
@@ -73,6 +74,7 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
       }
     }
 
+    recognition = _applyLiveFrozenEvidenceContinuity(recognition, image);
     recognition = _applyEffectiveTotalEvidence(recognition);
     recognition = _applyEffectiveTemporalSellerTaxId(recognition);
     final handoff = handoffPresenter.fromAutomaticResult(recognition);
@@ -82,6 +84,145 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
       handoffState: handoff,
       formModel: form,
     );
+  }
+
+  InvoiceAutomaticRecognitionResult _applyLiveFrozenEvidenceContinuity(
+    InvoiceAutomaticRecognitionResult recognition,
+    ImageCaptureStagingItem image,
+  ) {
+    if (recognition.status !=
+            InvoiceAutomaticRecognitionStatus.recognitionFailed ||
+        recognition.hasReviewCandidate ||
+        liveResult.origin != InvoiceCaptureOrigin.liveCamera ||
+        !liveResult.liveSnapshot.canFreeze) {
+      return recognition;
+    }
+
+    final invoiceNumber = _resolveLiveInvoiceNumberConsensus();
+    if (invoiceNumber.isEmpty) return recognition;
+
+    final rawRecognition = recognition.ocrResult?.rawRecognition;
+    final frozenRawText = rawRecognition?.rawText.trim() ?? '';
+    final frozenRawLines = rawRecognition?.rawLines ?? const <String>[];
+    final invoiceDate = _resolveLiveExactDateConsensus(invoiceNumber);
+    final invoiceTime = _resolveLiveExactTimeConsensus(invoiceNumber);
+    final continuityMarker =
+        invoiceTime.isEmpty ? '' : 'LIVE_EXACT_TIME=$invoiceTime';
+    final candidateRawText = <String>[
+      if (frozenRawText.isNotEmpty) frozenRawText,
+      if (continuityMarker.isNotEmpty) continuityMarker,
+    ].join('\n');
+    final candidateRawLines = <String>[
+      ...frozenRawLines,
+      if (continuityMarker.isNotEmpty) continuityMarker,
+    ];
+
+    final confidence = <TraditionalInvoiceOcrField,
+        TraditionalInvoiceOcrConfidence>{
+      TraditionalInvoiceOcrField.invoiceNumber:
+          TraditionalInvoiceOcrConfidence.medium,
+      if (invoiceDate != null)
+        TraditionalInvoiceOcrField.invoiceDate:
+            TraditionalInvoiceOcrConfidence.medium,
+    };
+    final fieldWarnings = <TraditionalInvoiceOcrField, List<String>>{
+      TraditionalInvoiceOcrField.invoiceNumber: const <String>[
+        'P4.18.4 LIVE_CONSENSUS_FALLBACK：Frozen OCR 未建立候選；僅保留已通過 Live Green identity consensus 的發票號碼供人工覆核。',
+      ],
+      if (invoiceDate != null)
+        TraditionalInvoiceOcrField.invoiceDate: const <String>[
+          'P4.18.4 LIVE_EXACT_CONSENSUS_FALLBACK：同一發票的 Green observations 日期完全一致後才保留供人工覆核。',
+        ],
+    };
+    final candidate = TraditionalInvoiceOcrReviewCandidate(
+      sourceImageReference: image.localReference.trim(),
+      invoiceNumber: invoiceNumber,
+      sellerTaxId: '',
+      sellerTaxIdSource: '',
+      invoiceDate: invoiceDate,
+      sellerName: '',
+      totalAmount: null,
+      visibleLineItems: const <TraditionalInvoiceOcrLineItem>[],
+      confidence: Map<TraditionalInvoiceOcrField,
+          TraditionalInvoiceOcrConfidence>.unmodifiable(confidence),
+      fieldWarnings: Map<TraditionalInvoiceOcrField, List<String>>.unmodifiable(
+        fieldWarnings,
+      ),
+      rawText: candidateRawText,
+      rawLines: List<String>.unmodifiable(candidateRawLines),
+    );
+    final fallbackOcr = TraditionalInvoiceOcrResult(
+      status: TraditionalInvoiceOcrStatus.partial,
+      message: invoiceTime.isEmpty
+          ? 'Frozen OCR 未建立候選；已保留 Live Green consensus 的安全欄位供人工覆核。'
+          : 'Frozen OCR 未建立候選；已保留 Live Green identity 與 exact time consensus 的安全欄位供人工覆核。',
+      candidate: candidate,
+      rawRecognition: rawRecognition,
+    );
+
+    return InvoiceAutomaticRecognitionResult(
+      status: InvoiceAutomaticRecognitionStatus.ocrReviewCandidate,
+      message: fallbackOcr.message,
+      selectedRouteReason:
+          'P4.18.4 Live→Frozen evidence continuity：Frozen OCR fail-closed 時只保留已通過 Live consensus 的安全欄位；賣方統編與總金額不由 Live fallback 升格。',
+      requestedRoute: InvoiceRecognitionRequestedRoute.automatic,
+      qrResult: recognition.qrResult,
+      ocrResult: fallbackOcr,
+    );
+  }
+
+  String _resolveLiveInvoiceNumberConsensus() {
+    final finalInvoice = liveResult.liveSnapshot.invoiceNumber.trim();
+    if (finalInvoice.isEmpty || !liveResult.liveSnapshot.canFreeze) return '';
+    final consensus = resolveTraditionalLiveIdentityConsensus(
+      history: liveResult.liveHistory,
+      currentInvoiceNumber: finalInvoice,
+      currentSellerTaxId: liveResult.liveSnapshot.sellerTaxId,
+      currentRawLines: const <String>[],
+    );
+    if (!consensus.canFreeze || consensus.invoiceNumber != finalInvoice) {
+      return '';
+    }
+    return finalInvoice;
+  }
+
+  DateTime? _resolveLiveExactDateConsensus(String invoiceNumber) {
+    final values = <String>[];
+    for (final sample in liveResult.liveHistory) {
+      final snapshot = sample.snapshot;
+      if (!snapshot.canFreeze ||
+          snapshot.invoiceNumber.trim() != invoiceNumber) {
+        continue;
+      }
+      final value = snapshot.invoiceDate.trim();
+      if (value.isNotEmpty) values.add(value);
+    }
+    if (values.length < 2 || values.toSet().length != 1) return null;
+    final value = values.first;
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
+    if (match == null) return null;
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final parsed = DateTime.utc(year, month, day);
+    if (parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+    return parsed;
+  }
+
+  String _resolveLiveExactTimeConsensus(String invoiceNumber) {
+    final values = <String>[];
+    for (final sample in liveResult.liveHistory) {
+      if (!sample.snapshot.canFreeze ||
+          sample.snapshot.invoiceNumber.trim() != invoiceNumber) {
+        continue;
+      }
+      final value = extractStrictInvoiceTime(sample.rawLines.join('\n'));
+      if (value.isNotEmpty) values.add(value);
+    }
+    if (values.length < 2 || values.toSet().length != 1) return '';
+    return values.first;
   }
 
   InvoiceAutomaticRecognitionResult _applyEffectiveTotalEvidence(
