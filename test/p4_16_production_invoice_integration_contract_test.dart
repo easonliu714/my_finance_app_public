@@ -155,7 +155,7 @@ void main() {
     expect(evidence, contains('InvoiceReviewFieldKey.randomCode'));
     expect(evidence, contains("'randomCode': candidate.randomCode"));
     expect(evidence, isNot(contains("('invoicePeriod', '', ai.invoicePeriod")));
-    expect(evidence, isNot(contains('TransactionRepository'));
+    expect(evidence, isNot(contains('TransactionRepository')));
   });
 
   test('4.16.14 registry adapter remains explicit corroboration only', () {
