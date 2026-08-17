@@ -132,7 +132,7 @@ void main() {
     expect(flow, contains('resolveInvoiceTotalEvidence'));
     expect(flow, contains('rawRecognition: source.rawRecognition'));
     expect(flow, isNot(contains('TransactionRepository')));
-    expect(flow, isNot(contains('TaiwanBusinessRegistryService'));
+    expect(flow, isNot(contains('TaiwanBusinessRegistryService')));
 
     expect(total, contains("('total_label', 40)"));
     expect(total, contains("('subtotal_label', 35)"));
