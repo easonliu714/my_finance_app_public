@@ -15,7 +15,7 @@ void main() {
     () async {
       final coordinator = FieldFirstInvoiceCaptureReviewFlowCoordinator(
         liveResult: _liveResult(),
-        recognitionCoordinator: InvoiceAutomaticRecognitionCoordinator(
+        recognitionCoordinator: const InvoiceAutomaticRecognitionCoordinator(
           qrRunner: _qrFallback,
           ocrRunner: _failedFrozenOcr,
         ),
@@ -83,7 +83,7 @@ void main() {
   test('conflicting Green dates remain blank instead of choosing last frame', () async {
     final coordinator = FieldFirstInvoiceCaptureReviewFlowCoordinator(
       liveResult: _liveResult(conflictingDate: true),
-      recognitionCoordinator: InvoiceAutomaticRecognitionCoordinator(
+      recognitionCoordinator: const InvoiceAutomaticRecognitionCoordinator(
         qrRunner: _qrFallback,
         ocrRunner: _failedFrozenOcr,
       ),
