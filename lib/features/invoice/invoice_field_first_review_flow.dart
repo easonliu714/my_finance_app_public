@@ -218,11 +218,24 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
           sample.snapshot.invoiceNumber.trim() != invoiceNumber) {
         continue;
       }
-      final value = extractStrictInvoiceTime(sample.rawLines.join('\n'));
+      final value = _extractStrictLiveTime(sample.rawLines.join('\n'));
       if (value.isNotEmpty) values.add(value);
     }
     if (values.length < 2 || values.toSet().length != 1) return '';
     return values.first;
+  }
+
+  String _extractStrictLiveTime(String rawText) {
+    final matches = RegExp(
+      r'(?:^|[^0-9])((?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)(?!\d)',
+      multiLine: true,
+    ).allMatches(rawText);
+    final values = <String>{};
+    for (final match in matches) {
+      final value = match.group(1);
+      if (value != null && value.isNotEmpty) values.add(value);
+    }
+    return values.length == 1 ? values.single : '';
   }
 
   InvoiceAutomaticRecognitionResult _applyEffectiveTotalEvidence(
