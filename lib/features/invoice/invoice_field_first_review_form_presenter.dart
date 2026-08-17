@@ -70,6 +70,10 @@ class FieldFirstInvoiceReviewFormPresenter extends InvoiceReviewFormPresenter {
       ),
       if (base.fieldFor(InvoiceReviewFieldKey.invoiceDate) case final field?)
         field,
+      // P4.18.3: Field-First decorates the base form but must not drop the
+      // strict Local OCR transaction time already produced by the base presenter.
+      if (base.fieldFor(InvoiceReviewFieldKey.invoiceTime) case final field?)
+        field,
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.sellerTaxId,
         label: '賣方統編',
