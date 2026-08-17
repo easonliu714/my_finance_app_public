@@ -13,6 +13,40 @@ enum InvoiceReviewFieldKey {
   randomCode,
 }
 
+String extractCanonicalInvoicePeriod(String rawText) {
+  final normalized = rawText
+      .replaceAll('－', '-')
+      .replaceAll('—', '-')
+      .replaceAll('–', '-')
+      .replaceAll('〜', '~');
+  final matches = RegExp(
+    r'(?:中華民國)?\s*(\d{2,3})\s*年\s*(\d{1,2})\s*[-~～至]\s*(\d{1,2})\s*月(?:份)?',
+  ).allMatches(normalized);
+  final canonical = <String>{};
+  for (final match in matches) {
+    final year = int.tryParse(match.group(1)!);
+    final startMonth = int.tryParse(match.group(2)!);
+    final endMonth = int.tryParse(match.group(3)!);
+    if (year == null || year < 80 || year > 200) continue;
+    if (startMonth == null || endMonth == null) continue;
+    if (startMonth < 1 || endMonth > 12 || startMonth > endMonth) continue;
+    canonical.add('$year年$startMonth-$endMonth月份');
+  }
+  return canonical.length == 1 ? canonical.single : '';
+}
+
+String normalizeInvoicePeriodForComparison(String value) {
+  final canonical = extractCanonicalInvoicePeriod(value);
+  if (canonical.isEmpty) return '';
+  final match = RegExp(r'^(\d{2,3})年(\d{1,2})-(\d{1,2})月份$')
+      .firstMatch(canonical);
+  if (match == null) return '';
+  final year = match.group(1)!;
+  final startMonth = match.group(2)!.padLeft(2, '0');
+  final endMonth = match.group(3)!.padLeft(2, '0');
+  return '$year-$startMonth-$endMonth';
+}
+
 class InvoiceReviewFieldViewModel {
   const InvoiceReviewFieldViewModel({
     required this.key,
@@ -179,37 +213,41 @@ class InvoiceReviewFormPresenter {
         supplemental?.rawText ??
         state.automaticResult?.ocrResult?.rawRecognition?.rawText ??
         '';
+    final invoiceTime = extractStrictInvoiceTime(supplementalRawText);
+    final invoicePeriod = extractCanonicalInvoicePeriod(supplementalRawText);
     final fields = <InvoiceReviewFieldViewModel>[
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.invoiceNumber,
-        label: '\u767c\u7968\u865f\u78bc',
+        label: '發票號碼',
         value: parsed?.invoiceNumber?.trim() ?? '',
         editable: true,
         requiredForReview: true,
-        confidenceLabel: parsed?.invoiceNumber == null
-            ? '\u672a\u8fa8\u8b58'
-            : 'QR \u89e3\u6790',
+        confidenceLabel: parsed?.invoiceNumber == null ? '未辨識' : 'QR 解析',
         warnings: parsed?.warnings ?? const <String>[],
       ),
       InvoiceReviewFieldViewModel(
+        key: InvoiceReviewFieldKey.invoicePeriod,
+        label: '發票期別',
+        value: invoicePeriod,
+        editable: true,
+        requiredForReview: false,
+        confidenceLabel: invoicePeriod.isEmpty ? '未辨識' : '本機 OCR 補充',
+      ),
+      InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.invoiceDate,
-        label: '\u767c\u7968\u65e5\u671f',
+        label: '發票日期',
         value: _formatDate(parsed?.invoiceDate),
         editable: true,
         requiredForReview: true,
-        confidenceLabel: parsed?.invoiceDate == null
-            ? '\u672a\u8fa8\u8b58'
-            : 'QR \u89e3\u6790',
+        confidenceLabel: parsed?.invoiceDate == null ? '未辨識' : 'QR 解析',
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.invoiceTime,
         label: '交易時間',
-        value: extractStrictInvoiceTime(supplementalRawText),
+        value: invoiceTime,
         editable: true,
         requiredForReview: true,
-        confidenceLabel: extractStrictInvoiceTime(supplementalRawText).isEmpty
-            ? '未辨識'
-            : '本機 OCR 補充',
+        confidenceLabel: invoiceTime.isEmpty ? '未辨識' : '本機 OCR 補充',
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.sellerTaxId,
@@ -221,7 +259,7 @@ class InvoiceReviewFormPresenter {
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.sellerName,
-        label: '\u5546\u5bb6',
+        label: '商家名稱',
         value: supplemental?.sellerName.trim() ?? '',
         editable: true,
         requiredForReview: true,
@@ -231,13 +269,19 @@ class InvoiceReviewFormPresenter {
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.totalAmount,
-        label: '\u7e3d\u91d1\u984d',
+        label: '總金額',
         value: parsed?.totalAmount?.toString() ?? '',
         editable: true,
         requiredForReview: true,
-        confidenceLabel: parsed?.totalAmount == null
-            ? '\u672a\u8fa8\u8b58'
-            : 'QR \u89e3\u6790',
+        confidenceLabel: parsed?.totalAmount == null ? '未辨識' : 'QR 解析',
+      ),
+      InvoiceReviewFieldViewModel(
+        key: InvoiceReviewFieldKey.randomCode,
+        label: '隨機碼',
+        value: parsed?.randomCode?.trim() ?? '',
+        editable: true,
+        requiredForReview: false,
+        confidenceLabel: parsed?.randomCode == null ? '未辨識' : 'QR 解析',
       ),
     ];
 
@@ -260,10 +304,13 @@ class InvoiceReviewFormPresenter {
 
   InvoiceReviewFormViewModel _fromOcr(InvoiceReviewHandoffState state) {
     final candidate = state.automaticResult?.ocrResult?.candidate;
+    final rawText = candidate?.rawText ?? '';
+    final invoiceTime = extractStrictInvoiceTime(rawText);
+    final invoicePeriod = extractCanonicalInvoicePeriod(rawText);
     final fields = <InvoiceReviewFieldViewModel>[
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.invoiceNumber,
-        label: '\u767c\u7968\u865f\u78bc',
+        label: '發票號碼',
         value: candidate?.invoiceNumber.trim() ?? '',
         editable: true,
         requiredForReview: true,
@@ -271,13 +318,20 @@ class InvoiceReviewFormPresenter {
           candidate?.confidence[TraditionalInvoiceOcrField.invoiceNumber],
         ),
         warnings:
-            candidate?.fieldWarnings[TraditionalInvoiceOcrField
-                .invoiceNumber] ??
+            candidate?.fieldWarnings[TraditionalInvoiceOcrField.invoiceNumber] ??
             const <String>[],
       ),
       InvoiceReviewFieldViewModel(
+        key: InvoiceReviewFieldKey.invoicePeriod,
+        label: '發票期別',
+        value: invoicePeriod,
+        editable: true,
+        requiredForReview: false,
+        confidenceLabel: invoicePeriod.isEmpty ? '未辨識' : '本機 OCR',
+      ),
+      InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.invoiceDate,
-        label: '\u767c\u7968\u65e5\u671f',
+        label: '發票日期',
         value: _formatDate(candidate?.invoiceDate),
         editable: true,
         requiredForReview: true,
@@ -291,13 +345,10 @@ class InvoiceReviewFormPresenter {
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.invoiceTime,
         label: '交易時間',
-        value: extractStrictInvoiceTime(candidate?.rawText ?? ''),
+        value: invoiceTime,
         editable: true,
         requiredForReview: false,
-        confidenceLabel:
-            extractStrictInvoiceTime(candidate?.rawText ?? '').isEmpty
-            ? '未辨識'
-            : '本機 OCR',
+        confidenceLabel: invoiceTime.isEmpty ? '未辨識' : '本機 OCR',
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.sellerTaxId,
@@ -314,7 +365,7 @@ class InvoiceReviewFormPresenter {
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.sellerName,
-        label: '\u5546\u5bb6',
+        label: '商家名稱',
         value: candidate?.sellerName.trim() ?? '',
         editable: true,
         requiredForReview: false,
@@ -327,7 +378,7 @@ class InvoiceReviewFormPresenter {
       ),
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.totalAmount,
-        label: '\u7e3d\u91d1\u984d',
+        label: '總金額',
         value: candidate?.totalAmount?.toString() ?? '',
         editable: true,
         requiredForReview: true,
@@ -337,6 +388,14 @@ class InvoiceReviewFormPresenter {
         warnings:
             candidate?.fieldWarnings[TraditionalInvoiceOcrField.totalAmount] ??
             const <String>[],
+      ),
+      const InvoiceReviewFieldViewModel(
+        key: InvoiceReviewFieldKey.randomCode,
+        label: '隨機碼',
+        value: '',
+        editable: true,
+        requiredForReview: false,
+        confidenceLabel: '未辨識',
       ),
     ];
 
@@ -391,16 +450,16 @@ class InvoiceReviewFormPresenter {
   }
 
   static String _confidenceLabel(TraditionalInvoiceOcrConfidence? confidence) {
-    if (confidence == null) return '\u672a\u63d0\u4f9b';
+    if (confidence == null) return '未提供';
     switch (confidence) {
       case TraditionalInvoiceOcrConfidence.high:
-        return '\u9ad8';
+        return '高';
       case TraditionalInvoiceOcrConfidence.medium:
-        return '\u4e2d';
+        return '中';
       case TraditionalInvoiceOcrConfidence.low:
-        return '\u4f4e';
+        return '低';
       case TraditionalInvoiceOcrConfidence.unknown:
-        return '\u672a\u63d0\u4f9b';
+        return '未提供';
     }
   }
 }
