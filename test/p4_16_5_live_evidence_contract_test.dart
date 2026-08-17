@@ -23,7 +23,7 @@ void main() {
     final geminiCandidate = File('lib/features/invoice/gemini/gemini_invoice_review.dart').readAsStringSync();
     final geminiClient = File('lib/features/invoice/gemini/gemini_invoice_review_client.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.17.4+426'));
+    expect(pubspec, contains('version: 4.18.0+427'));
     expect(pubspec, contains('camera: ^0.12.0+1'));
     expect(pubspec, contains('google_mlkit_barcode_scanning: ^0.14.2'));
     expect(pubspec, contains('archive: ^4.0.9'));

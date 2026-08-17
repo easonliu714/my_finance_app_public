@@ -7,6 +7,8 @@ import 'package:my_finance_app/features/invoice/gemini/gemini_invoice_review_coo
 import 'package:my_finance_app/features/invoice/gemini/gemini_invoice_settings.dart';
 import 'package:my_finance_app/features/invoice/gemini/gemini_invoice_settings_repository.dart';
 import 'package:my_finance_app/features/invoice/invoice_automatic_recognition_coordinator.dart';
+import 'package:my_finance_app/features/invoice/invoice_local_recognition_coordinator.dart';
+import 'package:my_finance_app/features/invoice/invoice_recognition_router.dart';
 import 'package:my_finance_app/features/invoice/traditional_invoice_ocr_review.dart';
 
 class _FakeSettingsStore implements GeminiInvoiceSettingsStore {
@@ -172,11 +174,44 @@ void main() {
 }
 
 InvoiceAutomaticRecognitionResult _qrResult() {
-  return const InvoiceAutomaticRecognitionResult(
+  const leftPayload =
+      'AB123456781150609123400000064000000780000000024531234abcdefghijklmnopqrstuvwx';
+  final routing = const InvoiceRecognitionRouter().route(
+    const <InvoiceRecognitionImageInput>[
+      InvoiceRecognitionImageInput(
+        localReference: '/tmp/invoice.jpg',
+        fileName: 'invoice.jpg',
+        payloads: <String>[leftPayload, '**detail'],
+      ),
+    ],
+  );
+  return InvoiceAutomaticRecognitionResult(
     status: InvoiceAutomaticRecognitionStatus.qrReviewCandidate,
-    message: 'QR candidate',
-    selectedRouteReason: 'QR',
+    message: 'QR candidate with Local supplemental OCR',
+    selectedRouteReason: 'QR identity authority',
     requestedRoute: InvoiceRecognitionRequestedRoute.automatic,
+    qrResult: InvoiceLocalRecognitionResult(
+      status: InvoiceLocalRecognitionStatus.qrCandidate,
+      message: 'QR candidate',
+      failedImageReferences: const <String>[],
+      routingResult: routing,
+    ),
+    ocrResult: const TraditionalInvoiceOcrResult(
+      status: TraditionalInvoiceOcrStatus.success,
+      message: 'Supplemental OCR complete',
+      candidate: TraditionalInvoiceOcrReviewCandidate(
+        sourceImageReference: '/tmp/invoice.jpg',
+        invoiceNumber: '',
+        invoiceDate: null,
+        sellerName: '測試商店',
+        totalAmount: null,
+        visibleLineItems: <TraditionalInvoiceOcrLineItem>[],
+        confidence: <TraditionalInvoiceOcrField,
+            TraditionalInvoiceOcrConfidence>{},
+        fieldWarnings: <TraditionalInvoiceOcrField, List<String>>{},
+        rawText: '測試商店\n14:59:52',
+      ),
+    ),
   );
 }
 

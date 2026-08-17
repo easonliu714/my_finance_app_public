@@ -10,7 +10,7 @@ void main() {
   const leftPayload =
       'AB123456781150609123400000064000000780000000024531234abcdefghijklmnopqrstuvwx';
 
-  test('valid QR review candidate wins and OCR is not called', () async {
+  test('valid QR review candidate keeps QR authority and runs supplemental OCR', () async {
     var ocrCallCount = 0;
     final routing = const InvoiceRecognitionRouter().route(
       const <InvoiceRecognitionImageInput>[
@@ -33,9 +33,21 @@ void main() {
       },
       ocrRunner: (reference) async {
         ocrCallCount += 1;
-        return const TraditionalInvoiceOcrResult(
-          status: TraditionalInvoiceOcrStatus.failed,
-          message: 'should not run',
+        return TraditionalInvoiceOcrResult(
+          status: TraditionalInvoiceOcrStatus.success,
+          message: 'Supplemental OCR ready',
+          candidate: TraditionalInvoiceOcrReviewCandidate(
+            sourceImageReference: reference,
+            invoiceNumber: '',
+            invoiceDate: null,
+            sellerName: 'Supplemental merchant',
+            totalAmount: null,
+            visibleLineItems: const <TraditionalInvoiceOcrLineItem>[],
+            confidence: const <TraditionalInvoiceOcrField,
+                TraditionalInvoiceOcrConfidence>{},
+            fieldWarnings: const <TraditionalInvoiceOcrField, List<String>>{},
+            rawText: 'Supplemental merchant\n13:25:41',
+          ),
         );
       },
     );
@@ -46,8 +58,9 @@ void main() {
 
     expect(result.status, InvoiceAutomaticRecognitionStatus.qrReviewCandidate);
     expect(result.hasReviewCandidate, isTrue);
-    expect(result.selectedRouteReason, contains('優先使用 QR'));
-    expect(ocrCallCount, 0);
+    expect(result.selectedRouteReason, contains('QR 維持 identity authority'));
+    expect(ocrCallCount, 1);
+    expect(result.ocrResult?.candidate?.sellerName, 'Supplemental merchant');
     expect(result.usedNetwork, isFalse);
     expect(result.canCreateFormalRecord, isFalse);
   });
