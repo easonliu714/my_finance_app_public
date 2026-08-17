@@ -400,23 +400,15 @@ class InvoiceRecognitionEvidenceExporter {
     final local = result.formModel;
     final localSeller =
         local.fieldFor(InvoiceReviewFieldKey.sellerName)?.value.trim() ?? '';
-    final fieldTaxId =
+    final localTaxId =
         local.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value.trim() ?? '';
-    final ocrTaxId =
-        result.recognitionResult.ocrResult?.candidate?.sellerTaxId.trim() ?? '';
-    final fallbackTax =
-        RegExp(r'\b(\d{8})\b').firstMatch(localSeller)?.group(1) ?? '';
-    final localTaxId = fieldTaxId.isNotEmpty
-        ? fieldTaxId
-        : ocrTaxId.isNotEmpty
-            ? ocrTaxId
-            : fallbackTax;
     final localMerchant = localSeller.startsWith('賣方統編') ? '' : localSeller;
-    final values = <(String, String, String, bool)>[
+    final values = <(String, String, String, bool, bool)>[
       (
         'invoiceNumber',
         local.fieldFor(InvoiceReviewFieldKey.invoiceNumber)?.value ?? '',
         ai.invoiceNumber,
+        false,
         false,
       ),
       (
@@ -424,28 +416,38 @@ class InvoiceRecognitionEvidenceExporter {
         local.fieldFor(InvoiceReviewFieldKey.invoicePeriod)?.value ?? '',
         ai.invoicePeriod,
         false,
+        true,
       ),
       (
         'invoiceDate',
         local.fieldFor(InvoiceReviewFieldKey.invoiceDate)?.value ?? '',
         ai.invoiceDate,
         false,
+        false,
       ),
-      ('merchantName', localMerchant, ai.merchantName, false),
-      ('sellerTaxId', localTaxId, ai.sellerTaxId, false),
+      ('merchantName', localMerchant, ai.merchantName, false, false),
+      ('sellerTaxId', localTaxId, ai.sellerTaxId, false, false),
       (
         'totalAmount',
         local.fieldFor(InvoiceReviewFieldKey.totalAmount)?.value ?? '',
         ai.totalAmount == null ? '' : _amount(ai.totalAmount!),
         true,
+        false,
       ),
       (
         'randomCode',
         local.fieldFor(InvoiceReviewFieldKey.randomCode)?.value ?? '',
         ai.randomCode,
         false,
+        false,
       ),
-      ('invoiceTime', '', ai.invoiceTime, false),
+      (
+        'invoiceTime',
+        local.fieldFor(InvoiceReviewFieldKey.invoiceTime)?.value ?? '',
+        ai.invoiceTime,
+        false,
+        false,
+      ),
     ];
     return <Map<String, Object?>>[
       for (final row in values)
@@ -453,7 +455,12 @@ class InvoiceRecognitionEvidenceExporter {
           'field': row.$1,
           'localValue': row.$2,
           'geminiValue': row.$3,
-          'status': _comparisonStatus(row.$2, row.$3, numeric: row.$4),
+          'status': _comparisonStatus(
+            row.$2,
+            row.$3,
+            numeric: row.$4,
+            invoicePeriod: row.$5,
+          ),
         },
     ];
   }
@@ -462,6 +469,7 @@ class InvoiceRecognitionEvidenceExporter {
     String localValue,
     String aiValue, {
     required bool numeric,
+    bool invoicePeriod = false,
   }) {
     final local = localValue.trim();
     final ai = aiValue.trim();
@@ -472,6 +480,10 @@ class InvoiceRecognitionEvidenceExporter {
       final left = double.tryParse(local.replaceAll(',', ''));
       final right = double.tryParse(ai.replaceAll(',', ''));
       if (left != null && right != null && left == right) return 'AGREE';
+    } else if (invoicePeriod) {
+      final left = normalizeInvoicePeriodForComparison(local);
+      final right = normalizeInvoicePeriodForComparison(ai);
+      if (left.isNotEmpty && left == right) return 'AGREE';
     } else if (local == ai) {
       return 'AGREE';
     }
