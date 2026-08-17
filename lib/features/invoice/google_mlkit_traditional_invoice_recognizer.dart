@@ -110,6 +110,12 @@ class TraditionalSellerTaxIdEvidence {
 
   bool get acceptedForLive =>
       isTaiwanTaxIdFormat(value) && checksumValid && strongContext;
+
+  // Frozen high-resolution OCR is a single observation. A checksum-valid
+  // unlabeled/header-position candidate can still be a digit substitution
+  // collision, so only an explicit seller-tax label may be promoted directly.
+  bool get acceptedForFrozenSingleFrame =>
+      source == 'explicit_label' && acceptedForLive;
 }
 
 bool hasStrongElectronicInvoiceSemanticEvidence(List<String> rawLines) {
@@ -428,7 +434,10 @@ class TraditionalInvoiceTextParser {
       invoiceNumber: invoiceNumber,
       positionedLines: document.positionedLines,
     );
-    final sellerTaxId = taxEvidence?.value;
+    final sellerTaxId = taxEvidence?.acceptedForFrozenSingleFrame == true
+        ? taxEvidence!.value
+        : null;
+    final sellerTaxIdSource = sellerTaxId == null ? '' : taxEvidence!.source;
     final invoiceDate = _parseDate(searchable);
     final totalAmount = _parseTotalAmount(normalizedLines);
     final sellerName = _parseSellerName(
@@ -442,8 +451,11 @@ class TraditionalInvoiceTextParser {
           '未可靠辨識發票號碼，請人工輸入。',
         ],
       if (sellerTaxId == null)
-        TraditionalInvoiceOcrField.sellerTaxId: const <String>[
-          '未取得高可信度賣方統編證據，請人工確認或交由 Gemini 覆核。',
+        TraditionalInvoiceOcrField.sellerTaxId: <String>[
+          if (taxEvidence != null && taxEvidence.acceptedForLive)
+            '單次凍結 OCR 僅取得非明確「賣方統編」標籤的 8 碼候選；checksum 不足以單獨升格，已保持空白，需 Live 多幀、Gemini 或人工覆核。'
+          else
+            '未取得高可信度賣方統編證據，請人工確認或交由 Gemini 覆核。',
         ]
       else if (taxEvidence?.checksumValid == false)
         TraditionalInvoiceOcrField.sellerTaxId: const <String>[
@@ -466,7 +478,7 @@ class TraditionalInvoiceTextParser {
     return TraditionalInvoiceOcrRecognition(
       invoiceNumber: invoiceNumber,
       sellerTaxId: sellerTaxId,
-      sellerTaxIdSource: taxEvidence?.source ?? '',
+      sellerTaxIdSource: sellerTaxIdSource,
       invoiceDate: invoiceDate,
       sellerName: sellerName,
       totalAmount: totalAmount,
@@ -477,9 +489,7 @@ class TraditionalInvoiceTextParser {
             : TraditionalInvoiceOcrConfidence.high,
         TraditionalInvoiceOcrField.sellerTaxId: sellerTaxId == null
             ? TraditionalInvoiceOcrConfidence.low
-            : taxEvidence?.acceptedForLive == true
-                ? TraditionalInvoiceOcrConfidence.high
-                : TraditionalInvoiceOcrConfidence.medium,
+            : TraditionalInvoiceOcrConfidence.high,
         TraditionalInvoiceOcrField.invoiceDate: invoiceDate == null
             ? TraditionalInvoiceOcrConfidence.low
             : TraditionalInvoiceOcrConfidence.medium,
@@ -584,7 +594,8 @@ class TraditionalInvoiceTextParser {
     final candidates = <int>{};
     for (var index = 0; index < normalizedRaw.length; index += 1) {
       if (normalizedRaw[index] != '8') continue;
-      final repaired = '${normalizedRaw.substring(0, index)}0${normalizedRaw.substring(index + 1)}';
+      final repaired =
+          '${normalizedRaw.substring(0, index)}0${normalizedRaw.substring(index + 1)}';
       final value = int.tryParse(repaired);
       if (value != null && value >= 1 && value <= 12) candidates.add(value);
     }
@@ -603,7 +614,8 @@ class TraditionalInvoiceTextParser {
     final candidates = <int>{};
     for (var index = 0; index < normalizedRaw.length; index += 1) {
       if (normalizedRaw[index] != '8') continue;
-      final repaired = '${normalizedRaw.substring(0, index)}0${normalizedRaw.substring(index + 1)}';
+      final repaired =
+          '${normalizedRaw.substring(0, index)}0${normalizedRaw.substring(index + 1)}';
       final value = int.tryParse(repaired);
       if (value == null || value < 1 || value > 31) continue;
       if (_safeDate(year, month, value) != null) candidates.add(value);
@@ -618,8 +630,10 @@ class TraditionalInvoiceTextParser {
   }
 
   String _normalizeFuzzyNumericDateEvidence(String value) {
-    return _normalizeNumericDateEvidence(value)
-        .replaceAll(RegExp(r'[ＢｂB]'), '8');
+    return _normalizeNumericDateEvidence(value).replaceAll(
+      RegExp(r'[ＢｂB]'),
+      '8',
+    );
   }
 
   double? _parseTotalAmount(List<String> lines) {
@@ -651,8 +665,7 @@ class TraditionalInvoiceTextParser {
 
     double? findFor(List<String> keywords) {
       for (final line in evidenceLines.reversed) {
-        final compactUpper =
-            line.toUpperCase().replaceAll(RegExp(r'\s+'), '');
+        final compactUpper = line.toUpperCase().replaceAll(RegExp(r'\s+'), '');
         if (!keywords.any(compactUpper.contains)) continue;
         final matches = _amountPattern.allMatches(line).toList(growable: false);
         if (matches.isEmpty) continue;

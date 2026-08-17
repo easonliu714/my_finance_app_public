@@ -1,4 +1,4 @@
-name: P4.18.0 Public Signed Canary APK
+name: P4.18.1 Public Signed Canary APK
 
 on:
   pull_request:
@@ -16,12 +16,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: p4-18-0-public-signed-${{ github.event.pull_request.number }}
+  group: p4-18-1-public-signed-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   validate:
-    name: Validate P4.18.0 Public canary
+    name: Validate P4.18.1 Public canary
     if: >-
       ${{ github.head_ref == 'p4-18-0-incomplete-local-mandatory-gemini-review' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
@@ -44,13 +44,15 @@ jobs:
           set -euo pipefail
           flutter test test/p4_18_0_local_completeness_policy_test.dart
           flutter test test/p4_18_0_explicit_gemini_upload_boundary_test.dart
+          flutter test test/p4_18_1_review_value_propagation_test.dart
+          flutter test test/p4_18_1_traditional_seller_tax_safety_test.dart
           flutter test test/p4_17_4_seller_tax_capture_only_policy_test.dart
           flutter test test/p4_17_2_frozen_seller_tax_exact_match_test.dart
           flutter test test/p4_16_production_invoice_integration_contract_test.dart
           flutter test test/p4_12_34_1_version_contract_test.dart
 
   signed-apk:
-    name: Build and inspect P4.18.0 Public signed APK
+    name: Build and inspect P4.18.1 Public signed APK
     needs: validate
     if: ${{ needs.validate.result == 'success' }}
     runs-on: ubuntu-22.04
@@ -153,7 +155,7 @@ jobs:
           Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
           PY
       - name: Build signed release APK
-        run: flutter build apk --release --no-pub --build-number=427
+        run: flutter build apk --release --no-pub --build-number=428
       - name: Inspect signed APK boundary
         env:
           ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
@@ -176,17 +178,17 @@ jobs:
           ! grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
-          test "$version_name" = '4.18.0'
-          test "$version_code" = '427'
+          test "$version_name" = '4.18.1'
+          test "$version_code" = '428'
           grep -Fq "$expected" <<< "$normalized"
           printf 'APK signing certificate pin: PASS\n'
       - name: Generate checksum
-        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_18_0_public_signed_canary.sha256
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_18_1_public_signed_canary.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: p4-18-0-public-4.18.0+427-signed-canary
+          name: p4-18-1-public-4.18.1+428-signed-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
-            p4_18_0_public_signed_canary.sha256
+            p4_18_1_public_signed_canary.sha256
           if-no-files-found: error
           retention-days: 3

@@ -284,7 +284,8 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
               subtitle: local.recognitionResult.message,
               fields: <(String, String)>[
                 for (final field in local.formModel.fields)
-                  (field.label, field.value),
+                  if (field.key != InvoiceReviewFieldKey.sellerTaxId)
+                    (field.label, field.value),
                 ('賣方統編', localTaxId),
                 if (repair.accepted)
                   (
@@ -455,15 +456,11 @@ String _localSellerTaxId(
   InvoiceCaptureReviewFlowResult local, {
   String temporalRepair = '',
 }) {
-  final ocr = local.recognitionResult.ocrResult?.candidate?.sellerTaxId.trim();
-  if (ocr != null && ocr.isNotEmpty) return ocr;
+  // The form value has already passed the frozen-candidate promotion policy.
+  // Never re-promote raw OCR or a seller-name 8-digit fallback here.
   final explicit =
       local.formModel.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '';
   if (explicit.trim().isNotEmpty) return explicit.trim();
-  final seller =
-      local.formModel.fieldFor(InvoiceReviewFieldKey.sellerName)?.value ?? '';
-  final fallback = RegExp(r'\b(\d{8})\b').firstMatch(seller)?.group(1) ?? '';
-  if (fallback.isNotEmpty) return fallback;
   return temporalRepair.trim();
 }
 
@@ -544,7 +541,12 @@ class _ComparisonCard extends StatelessWidget {
         _amount(ai.totalAmount),
         true,
       ),
-      ('發票期別', '', ai.invoicePeriod, false),
+      (
+        '發票期別',
+        local.fieldFor(InvoiceReviewFieldKey.invoicePeriod)?.value ?? '',
+        ai.invoicePeriod,
+        false,
+      ),
       (
         '交易時間',
         local.fieldFor(InvoiceReviewFieldKey.invoiceTime)?.value ?? '',
@@ -574,7 +576,16 @@ class _ComparisonCard extends StatelessWidget {
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
-                  Chip(label: Text(_compare(row.$2, row.$3, numeric: row.$4))),
+                  Chip(
+                    label: Text(
+                      _compare(
+                        row.$2,
+                        row.$3,
+                        numeric: row.$4,
+                        invoicePeriod: row.$1 == '發票期別',
+                      ),
+                    ),
+                  ),
                 ],
               ),
               Text('本機：${row.$2.trim().isEmpty ? '—' : row.$2}'),
@@ -594,7 +605,12 @@ String _amount(double? value) {
       : value.toString();
 }
 
-String _compare(String local, String ai, {required bool numeric}) {
+String _compare(
+  String local,
+  String ai, {
+  required bool numeric,
+  bool invoicePeriod = false,
+}) {
   final left = local.trim();
   final right = ai.trim();
   if (left.isEmpty && right.isEmpty) return 'BOTH_MISSING';
@@ -604,6 +620,10 @@ String _compare(String local, String ai, {required bool numeric}) {
     final a = double.tryParse(left.replaceAll(',', ''));
     final b = double.tryParse(right.replaceAll(',', ''));
     if (a != null && b != null && a == b) return 'AGREE';
+  } else if (invoicePeriod) {
+    final a = normalizeInvoicePeriodForComparison(left);
+    final b = normalizeInvoicePeriodForComparison(right);
+    if (a.isNotEmpty && a == b) return 'AGREE';
   } else if (left == right) {
     return 'AGREE';
   }
