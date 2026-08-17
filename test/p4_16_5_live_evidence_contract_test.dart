@@ -65,13 +65,13 @@ void main() {
     expect(live, contains('resolveInvoiceLiveFieldReadiness'));
     expect(live, contains('classificationAdvisoryOnly'));
     expect(live, contains('final accepted = !auto || identityMatches'));
-    expect(live, isNot(contains('electronicQrMatches'));
+    expect(live, isNot(contains('electronicQrMatches')));
     expect(live, contains('左 QR（選填加強）'));
     expect(live, contains('賣方統編／商家 identity（必要）'));
     expect(live, contains('resolveInvoiceTotalEvidence'));
     expect(readiness, contains('consensus.canFreeze && stable >= 2'));
-    expect(readiness, isNot(contains('InvoiceLiveClassification'));
-    expect(readiness, isNot(contains('hasValidLeftQr'));
+    expect(readiness, isNot(contains('InvoiceLiveClassification')));
+    expect(readiness, isNot(contains('hasValidLeftQr')));
 
     expect(totalEvidence, contains("('total_label', 40)"));
     expect(totalEvidence, contains("('subtotal_label', 35)"));
@@ -89,20 +89,20 @@ void main() {
     expect(repair, contains('single_8_to_0_checksum'));
     expect(repair, contains('family.length < 2'));
     expect(repair, contains('targets.length != 1'));
-    expect(repair, isNot(contains('9_to_0'));
-    expect(repair, isNot(contains('http'));
-    expect(repair, isNot(contains('data.gcis.nat.gov.tw'));
+    expect(repair, isNot(contains('9_to_0')));
+    expect(repair, isNot(contains('http')));
+    expect(repair, isNot(contains('data.gcis.nat.gov.tw')));
     expect(fieldFirst, contains('_resolveLiveFrozenTemporalTaxRepair'));
     expect(fieldFirst, contains('frozenRawCandidate'));
     expect(fieldFirst, contains('currentRawCandidate: frozenRawCandidate'));
     expect(fieldFirst, contains('resolveInvoiceTotalEvidence'));
     expect(fieldFirst, contains('rawRecognition: source.rawRecognition'));
-    expect(fieldFirst, isNot(contains('TransactionRepository'));
+    expect(fieldFirst, isNot(contains('TransactionRepository')));
     expect(fieldFirst, isNot(contains('TaiwanBusinessRegistryService'));
 
     expect(frozen, contains('positionalTaxIdTemporalRepairSource'));
     expect(frozen, contains('extractUnverifiedPositionalHeaderTaxIdFromLines'));
-    expect(frozen, isNot(contains('data.gcis.nat.gov.tw'));
+    expect(frozen, isNot(contains('data.gcis.nat.gov.tw')));
 
     expect(fieldEvidence, contains('invoicePeriod'));
     expect(fieldEvidence, contains('randomCode'));
@@ -111,6 +111,10 @@ void main() {
     expect(formPresenter, contains('requiredForReview: true'));
     expect(formPresenter, contains("label: '發票期別'"));
     expect(formPresenter, contains("label: '隨機碼'"));
+    expect(
+      formPresenter,
+      contains('base.fieldFor(InvoiceReviewFieldKey.invoiceTime)'),
+    );
 
     expect(evidenceExporter, contains('InvoiceReviewFieldKey.sellerTaxId'));
     expect(evidenceExporter, contains('InvoiceReviewFieldKey.invoicePeriod'));
@@ -141,8 +145,8 @@ void main() {
     expect(frozen, contains('image: _item'));
     expect(coordinator, contains('bytes: await file.readAsBytes()'));
     expect(client, contains('base64Encode(imageBytes)'));
-    expect(client, isNot(contains('copyResize'));
-    expect(client, isNot(contains('cropImage'));
+    expect(client, isNot(contains('copyResize')));
+    expect(client, isNot(contains('cropImage')));
   });
 
   test('Evidence v4 keeps provenance and safety boundaries', () {
@@ -163,7 +167,7 @@ void main() {
     expect(evidence, contains("'apiKeyIncluded': false"));
     expect(evidence, contains("'automaticUploadPerformed': false"));
     expect(evidence, contains("'productionDatabaseWritePerformed': false"));
-    expect(evidence, isNot(contains('x-goog-api-key'));
-    expect(evidence, isNot(contains('TransactionRepository'));
+    expect(evidence, isNot(contains('x-goog-api-key')));
+    expect(evidence, isNot(contains('TransactionRepository')));
   });
 }
