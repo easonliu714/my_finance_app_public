@@ -164,7 +164,7 @@ class GeminiInvoiceReviewCandidate {
 
     return GeminiInvoiceReviewCandidate(
       invoiceNumber: invoiceNumber,
-      invoicePeriod: _text(json['invoicePeriod']),
+      invoicePeriod: _normalizeInvoicePeriod(json['invoicePeriod']),
       randomCode: randomCode,
       sellerTaxId: sellerTaxId,
       invoiceDate: invoiceDate,
@@ -203,6 +203,45 @@ String _text(Object? value) => value?.toString().trim() ?? '';
 String _compactInvoiceNumber(Object? value) => _text(value)
     .toUpperCase()
     .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+
+String _normalizeInvoicePeriod(Object? value) {
+  final raw = _text(value);
+  if (raw.isEmpty) return '';
+  final compact = raw.replaceAll(RegExp(r'\s+'), '');
+
+  final full = RegExp(r'^(\d{2,3})(\d{2})-(\d{2,3})(\d{2})$')
+      .firstMatch(compact);
+  if (full != null) {
+    final startYear = int.parse(full.group(1)!);
+    final startMonth = int.parse(full.group(2)!);
+    final endYear = int.parse(full.group(3)!);
+    final endMonth = int.parse(full.group(4)!);
+    if (startYear == endYear &&
+        startYear >= 80 &&
+        startYear <= 200 &&
+        startMonth >= 1 &&
+        endMonth <= 12 &&
+        startMonth <= endMonth) {
+      return '$startYear年$startMonth-$endMonth月份';
+    }
+  }
+
+  final short = RegExp(r'^(\d{2,3})(\d{2})-(\d{2})$').firstMatch(compact);
+  if (short != null) {
+    final year = int.parse(short.group(1)!);
+    final startMonth = int.parse(short.group(2)!);
+    final endMonth = int.parse(short.group(3)!);
+    if (year >= 80 &&
+        year <= 200 &&
+        startMonth >= 1 &&
+        endMonth <= 12 &&
+        startMonth <= endMonth) {
+      return '$year年$startMonth-$endMonth月份';
+    }
+  }
+
+  return raw;
+}
 
 String _digits(Object? value) =>
     _text(value).replaceAll(RegExp(r'[^0-9]'), '');
