@@ -23,7 +23,7 @@ void main() {
     final geminiCandidate = File('lib/features/invoice/gemini/gemini_invoice_review.dart').readAsStringSync();
     final geminiClient = File('lib/features/invoice/gemini/gemini_invoice_review_client.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.18.2+429'));
+    expect(pubspec, contains('version: 4.18.3+430'));
     expect(pubspec, contains('camera: ^0.12.0+1'));
     expect(pubspec, contains('google_mlkit_barcode_scanning: ^0.14.2'));
     expect(pubspec, contains('archive: ^4.0.9'));
@@ -111,6 +111,10 @@ void main() {
     expect(formPresenter, contains('requiredForReview: true'));
     expect(formPresenter, contains("label: '發票期別'"));
     expect(formPresenter, contains("label: '隨機碼'"));
+    expect(
+      formPresenter,
+      contains('base.fieldFor(InvoiceReviewFieldKey.invoiceTime)'),
+    );
 
     expect(evidenceExporter, contains('InvoiceReviewFieldKey.sellerTaxId'));
     expect(evidenceExporter, contains('InvoiceReviewFieldKey.invoicePeriod'));
