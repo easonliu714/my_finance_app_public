@@ -48,9 +48,13 @@ void main() {
     expect(coordinator, contains('qrReviewCandidate'));
     expect(coordinator, contains('InvoiceLocalCompletenessPolicy().evaluate'));
     expect(coordinator, contains('shouldReview: completeness.requiresGeminiReview'));
-    expect(frozen, contains('forceReview: false'));
-    expect(frozen, contains('forceReview: true'));
+    expect(
+      frozen,
+      contains('forceReview: _geminiDecision?.shouldReview != true'),
+    );
+    expect(frozen, contains('送出至 Gemini 必要覆核'));
     expect(frozen, contains('強制 Gemini 二次覆核'));
+    expect(frozen, contains('只有你明確按下按鈕才會送出目前發票影像'));
     expect(frozen, contains('AI 不會覆寫 Local'));
     expect(frozen, isNot(contains('TransactionRepository')));
   });
