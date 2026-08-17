@@ -19,7 +19,7 @@ void main() {
     expect(card, contains('測試 Key 並讀取可用模型'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.17.4+426'));
+    expect(pubspec, contains('version: 4.18.0+427'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
@@ -46,7 +46,8 @@ void main() {
     expect(coordinator, contains("if (candidate.sellerTaxId.isEmpty) '賣方統編'"));
     expect(coordinator, contains('TraditionalInvoiceOcrField.sellerTaxId'));
     expect(coordinator, contains('qrReviewCandidate'));
-    expect(coordinator, contains('本階段不自動呼叫 AI'));
+    expect(coordinator, contains('InvoiceLocalCompletenessPolicy().evaluate'));
+    expect(coordinator, contains('shouldReview: completeness.requiresGeminiReview'));
     expect(frozen, contains('forceReview: false'));
     expect(frozen, contains('forceReview: true'));
     expect(frozen, contains('強制 Gemini 二次覆核'));
@@ -154,7 +155,7 @@ void main() {
     expect(evidence, contains('InvoiceReviewFieldKey.randomCode'));
     expect(evidence, contains("'randomCode': candidate.randomCode"));
     expect(evidence, isNot(contains("('invoicePeriod', '', ai.invoicePeriod")));
-    expect(evidence, isNot(contains('TransactionRepository')));
+    expect(evidence, isNot(contains('TransactionRepository'));
   });
 
   test('4.16.14 registry adapter remains explicit corroboration only', () {
