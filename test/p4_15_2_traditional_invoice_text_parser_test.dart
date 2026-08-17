@@ -68,7 +68,9 @@ AA90000002
     expect(result.sellerName, '一品現泡茶店');
   });
 
-  test('contextual NO tax ID near merchant header is accepted only with checksum', () {
+  // P4.18.1: a checksum-valid contextual NO. value remains useful Live
+  // evidence, but one frozen OCR frame is not authoritative seller identity.
+  test('contextual NO tax ID stays non-authoritative in frozen OCR', () {
     final result = parser.parse(
       const LocalOcrTextDocument(
         fullText: '''
@@ -93,8 +95,9 @@ NO.30340553
         ],
       ),
     );
-    expect(result.sellerTaxId, '30340553');
-    expect(result.sellerTaxIdSource, 'contextual_no_header');
+    expect(result.sellerTaxId, isNull);
+    expect(result.sellerTaxIdSource, isEmpty);
+    expect(result.rawText, contains('NO.30340553'));
     expect(result.invoiceDate, DateTime.utc(2026, 6, 19));
     expect(result.sellerName, '一品現泡茶店');
     expect(result.totalAmount, 110);
