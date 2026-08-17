@@ -19,7 +19,7 @@ void main() {
     expect(card, contains('測試 Key 並讀取可用模型'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.18.2+429'));
+    expect(pubspec, contains('version: 4.18.3+430'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
@@ -149,14 +149,20 @@ void main() {
     expect(form, contains('sellerTaxId'));
     expect(form, contains('invoicePeriod'));
     expect(form, contains('randomCode'));
+    expect(form, contains('invoiceTime'));
     expect(presenter, contains("label: '賣方統編'"));
     expect(presenter, contains("label: '發票期別'"));
     expect(presenter, contains("label: '隨機碼'"));
     expect(presenter, contains('requiredForReview: true'));
+    expect(
+      presenter,
+      contains('base.fieldFor(InvoiceReviewFieldKey.invoiceTime)'),
+    );
 
     expect(evidence, contains('InvoiceReviewFieldKey.sellerTaxId'));
     expect(evidence, contains('InvoiceReviewFieldKey.invoicePeriod'));
     expect(evidence, contains('InvoiceReviewFieldKey.randomCode'));
+    expect(evidence, contains('InvoiceReviewFieldKey.invoiceTime'));
     expect(evidence, contains("'randomCode': candidate.randomCode"));
     expect(evidence, isNot(contains("('invoicePeriod', '', ai.invoicePeriod")));
     expect(evidence, isNot(contains('TransactionRepository')));
