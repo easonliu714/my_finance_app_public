@@ -98,7 +98,7 @@ void main() {
     expect(fieldFirst, contains('resolveInvoiceTotalEvidence'));
     expect(fieldFirst, contains('rawRecognition: source.rawRecognition'));
     expect(fieldFirst, isNot(contains('TransactionRepository')));
-    expect(fieldFirst, isNot(contains('TaiwanBusinessRegistryService'));
+    expect(fieldFirst, isNot(contains('TaiwanBusinessRegistryService')));
 
     expect(frozen, contains('positionalTaxIdTemporalRepairSource'));
     expect(frozen, contains('extractUnverifiedPositionalHeaderTaxIdFromLines'));
@@ -131,9 +131,9 @@ void main() {
     expect(registry, contains('data.gcis.nat.gov.tw'));
     expect(registry, contains('authorizesTaxIdRepair => false'));
     expect(registry, contains('authorizesFormalWrite => false'));
-    expect(live, isNot(contains('TaiwanBusinessRegistryService'));
-    expect(adaptive, isNot(contains('TaiwanBusinessRegistryService'));
-    expect(frozen, isNot(contains('TaiwanBusinessRegistryService'));
+    expect(live, isNot(contains('TaiwanBusinessRegistryService')));
+    expect(adaptive, isNot(contains('TaiwanBusinessRegistryService')));
+    expect(frozen, isNot(contains('TaiwanBusinessRegistryService')));
   });
 
   test('single image is the Local and Gemini source', () {
