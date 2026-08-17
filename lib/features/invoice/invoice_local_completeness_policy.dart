@@ -36,10 +36,12 @@ class InvoiceLocalCompletenessPolicy {
   InvoiceLocalCompletenessDecision evaluate(
     InvoiceAutomaticRecognitionResult result,
   ) {
-    if (result.status == InvoiceAutomaticRecognitionStatus.qrReviewCandidate)
+    if (result.status == InvoiceAutomaticRecognitionStatus.qrReviewCandidate) {
       return _electronic(result);
-    if (result.status == InvoiceAutomaticRecognitionStatus.ocrReviewCandidate)
+    }
+    if (result.status == InvoiceAutomaticRecognitionStatus.ocrReviewCandidate) {
       return _traditional(result);
+    }
     return InvoiceLocalCompletenessDecision(
       requiresGeminiReview:
           result.status != InvoiceAutomaticRecognitionStatus.invalidInput,
