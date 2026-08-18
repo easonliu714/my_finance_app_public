@@ -63,7 +63,9 @@ class InvoiceRecognitionEvidenceExporter {
     }
 
     final captureSha = await _sha256(captureBytes);
-    final geminiAttempted = geminiExecution?.usedNetwork == true;
+    final geminiAttempted = (geminiExecution?.requestCount ?? 0) > 0;
+    final automaticUploadPerformed =
+        geminiExecution?.automaticUploadPerformed == true;
     final geminiSha = geminiAttempted ? captureSha : null;
     final sameBytes = geminiAttempted ? true : null;
 
@@ -157,7 +159,7 @@ class InvoiceRecognitionEvidenceExporter {
     }
 
     final diagnostics = <String, Object?>{
-      'schemaVersion': 'invoice-recognition-evidence-v4',
+      'schemaVersion': 'invoice-recognition-evidence-v5',
       'appVersion': appVersion,
       'createdAtUtc': createdAt.toIso8601String(),
       'evidenceId': evidenceId,
@@ -170,7 +172,7 @@ class InvoiceRecognitionEvidenceExporter {
         'containsLocalOcrDerivativeImages': false,
         'containsLiveSnapshotHistory': liveHistoryIncluded,
         'apiKeyIncluded': false,
-        'automaticUploadPerformed': false,
+        'automaticUploadPerformed': automaticUploadPerformed,
         'productionDatabaseWritePerformed': false,
       },
       'capture': <String, Object?>{
@@ -222,7 +224,7 @@ class InvoiceRecognitionEvidenceExporter {
       'manifest.txt',
       <String>[
         'my_finance_app invoice recognition evidence package',
-        'schema=invoice-recognition-evidence-v4',
+        'schema=invoice-recognition-evidence-v5',
         'app_version=$appVersion',
         'evidence_id=$evidenceId',
         'created_at_utc=${createdAt.toIso8601String()}',
@@ -231,13 +233,16 @@ class InvoiceRecognitionEvidenceExporter {
         'gemini_input_sha256=${geminiSha ?? 'NOT_AVAILABLE'}',
         'gemini_input_is_exact_request_bytes=$geminiAttempted',
         'gemini_input_matches_capture_sha256=${sameBytes ?? 'NOT_AVAILABLE'}',
+        'gemini_invocation_mode=${geminiExecution?.invocationMode.name ?? 'none'}',
+        'gemini_request_count=${geminiExecution?.requestCount ?? 0}',
+        'automatic_review_setting_enabled=${geminiExecution?.automaticReviewSettingEnabled ?? false}',
         'local_ocr_raw_included=$rawOcrAvailable',
         'local_ocr_variant_diagnostics_included=$variantDiagnosticsIncluded',
         'local_ocr_derivative_images_included=false',
         'live_snapshot_history_included=$liveHistoryIncluded',
         'live_snapshot_history_count=${liveHistory.length}',
         'api_key_included=false',
-        'automatic_upload_performed=false',
+        'automatic_upload_performed=$automaticUploadPerformed',
         'production_database_write_performed=false',
         '',
       ].join('\n'),
@@ -260,7 +265,7 @@ class InvoiceRecognitionEvidenceExporter {
       file: zipFile,
       subject: '發票辨識證據包 $evidenceId',
       text:
-          '包含實際影像、Local/Gemini 候選、Live 判讀歷程、原始 OCR（若有）與 SHA-256；不含 API Key，且不會自動上傳。',
+          '包含實際影像、Local/AI 候選、Live 判讀歷程、原始 OCR（若有）與 SHA-256；不含 API Key，AI 呼叫模式會記錄於 manifest。',
     );
     unawaited(
       Future<void>.delayed(const Duration(minutes: 30), () async {
@@ -386,6 +391,10 @@ class InvoiceRecognitionEvidenceExporter {
       'message': execution.message,
       'decision': execution.decision.reason,
       'model': execution.model,
+      'invocationMode': execution.invocationMode.name,
+      'automaticReviewSettingEnabled': execution.automaticReviewSettingEnabled,
+      'requestCount': execution.requestCount,
+      'automaticUploadPerformed': execution.automaticUploadPerformed,
       'attempts': <Object?>[
         for (final attempt in execution.attempts)
           <String, Object?>{
