@@ -13,13 +13,15 @@ void main() {
 
     expect(center, contains('GeminiInvoiceSettingsCard'));
     expect(settings, contains("defaultModel = 'gemini-3.6-flash'"));
+    expect(settings, contains('autoReviewLowConfidenceEnabled'));
     expect(repository, contains('FlutterSecureStorage'));
     expect(repository, contains('encryptedSharedPreferences: true'));
     expect(card, contains('obscureText: _obscureKeys'));
     expect(card, contains('測試 Key 並讀取可用模型'));
+    expect(card, contains('OCR 信心不足時自動 AI 辨識'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.18.6+434'));
+    expect(pubspec, contains('version: 4.19.0+435'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
@@ -39,7 +41,7 @@ void main() {
     expect(router, contains('AdaptiveInvoiceLiveCapturePage'));
   });
 
-  test('Local-first review auto-escalates weak evidence and keeps force Gemini', () {
+  test('Local-first review auto-escalates weak evidence and keeps manual AI', () {
     final coordinator = File('lib/features/invoice/gemini/gemini_invoice_review_coordinator.dart').readAsStringSync();
     final frozen = File('lib/features/invoice/invoice_frozen_review_page.dart').readAsStringSync();
 
@@ -48,14 +50,17 @@ void main() {
     expect(coordinator, contains('qrReviewCandidate'));
     expect(coordinator, contains('InvoiceLocalCompletenessPolicy().evaluate'));
     expect(coordinator, contains('shouldReview: completeness.requiresGeminiReview'));
+    expect(coordinator, contains('reviewAutomatically'));
+    expect(coordinator, contains('autoReviewLowConfidenceEnabled'));
+    expect(frozen, contains('_automaticGeminiAttempted'));
+    expect(frozen, contains('reviewAutomatically'));
     expect(
       frozen,
       contains('forceReview: _geminiDecision?.shouldReview != true'),
     );
-    expect(frozen, contains('送出至 Gemini 必要覆核'));
-    expect(frozen, contains('強制 Gemini 二次覆核'));
-    expect(frozen, contains('只有你明確按下按鈕才會送出目前發票影像'));
-    expect(frozen, contains('AI 不會覆寫 Local'));
+    expect(frozen, contains('AI 覆核'));
+    expect(frozen, contains('重新 AI 覆核'));
+    expect(frozen, isNot(contains('只有你明確按下按鈕才會送出目前發票影像')));
     expect(frozen, isNot(contains('TransactionRepository')));
   });
 
