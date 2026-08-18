@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/daily_capture_entry_shell.dart';
+import 'package:my_finance_app/features/invoice/gemini/gemini_invoice_review.dart';
 import 'package:my_finance_app/features/invoice/google_mlkit_traditional_invoice_recognizer.dart';
 import 'package:my_finance_app/features/invoice/image_capture_staging.dart';
 import 'package:my_finance_app/features/invoice/invoice_automatic_recognition_coordinator.dart';
@@ -48,6 +49,35 @@ void main() {
       110,
     );
     expect(result.formModel.canCreateFormalRecord, isFalse);
+  });
+
+  test('Gemini compact ROC period 1150506 canonicalizes to May-June', () {
+    final candidate = GeminiInvoiceReviewCandidate.fromJson(
+      const <String, Object?>{'invoicePeriod': '1150506'},
+    );
+
+    expect(candidate.invoicePeriod, '115年5-6月份');
+  });
+
+  test('separator-free ROC period normalization is strictly bimonthly', () {
+    for (final raw in <String>[
+      '1150505',
+      '1150607',
+      '1150512',
+      '1151213',
+      '0790102',
+      '2010102',
+    ]) {
+      final candidate = GeminiInvoiceReviewCandidate.fromJson(
+        <String, Object?>{'invoicePeriod': raw},
+      );
+      expect(candidate.invoicePeriod, raw, reason: 'must not normalize $raw');
+    }
+
+    final priorCompact = GeminiInvoiceReviewCandidate.fromJson(
+      const <String, Object?>{'invoicePeriod': '11503-11504'},
+    );
+    expect(priorCompact.invoicePeriod, '115年3-4月份');
   });
 
   test('total merge fills only when parser is missing and semantic evidence exists', () {
