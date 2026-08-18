@@ -22,8 +22,11 @@ void main() {
     final evidenceExporter = File('lib/features/invoice/invoice_recognition_evidence_exporter.dart').readAsStringSync();
     final geminiCandidate = File('lib/features/invoice/gemini/gemini_invoice_review.dart').readAsStringSync();
     final geminiClient = File('lib/features/invoice/gemini/gemini_invoice_review_client.dart').readAsStringSync();
+    final multiVariant = File(
+      'lib/features/invoice/traditional_invoice_multi_variant_recognizer.dart',
+    ).readAsStringSync();
 
-    expect(pubspec, contains('version: 4.18.4+431'));
+    expect(pubspec, contains('version: 4.18.5+432'));
     expect(pubspec, contains('camera: ^0.12.0+1'));
     expect(pubspec, contains('google_mlkit_barcode_scanning: ^0.14.2'));
     expect(pubspec, contains('archive: ^4.0.9'));
@@ -78,6 +81,7 @@ void main() {
     expect(totalEvidence, contains("('payable_label', 30)"));
     expect(totalEvidence, contains("('cash_tender_label', 10)"));
     expect(totalEvidence, contains("previous.startsWith('小')"));
+    expect(totalEvidence, contains('P4_18_5_TOTAL_DECISION_LOCK='));
 
     expect(parser, contains('LocalOcrTextLine'));
     expect(parser, contains('positionedLines'));
@@ -97,8 +101,24 @@ void main() {
     expect(fieldFirst, contains('currentRawCandidate: frozenRawCandidate'));
     expect(fieldFirst, contains('resolveInvoiceTotalEvidence'));
     expect(fieldFirst, contains('rawRecognition: source.rawRecognition'));
+    expect(
+      fieldFirst,
+      contains('GoogleMlKitMultiVariantTraditionalInvoiceRecognizer'),
+    );
     expect(fieldFirst, isNot(contains('TransactionRepository')));
     expect(fieldFirst, isNot(contains('TaiwanBusinessRegistryService')));
+
+    expect(
+      multiVariant,
+      contains('FlutterTraditionalInvoiceContrastVariantProvider'),
+    );
+    expect(multiVariant, contains('contrast_moderate'));
+    expect(multiVariant, contains('grayscale_contrast'));
+    expect(multiVariant, contains('grayscale_high_contrast'));
+    expect(multiVariant, contains('multi_variant_explicit_label_consensus'));
+    expect(multiVariant, contains('P4_18_5_TOTAL_DECISION_LOCK='));
+    expect(multiVariant, isNot(contains('GeminiInvoiceReviewClient')));
+    expect(multiVariant, isNot(contains('TransactionRepository')));
 
     expect(frozen, contains('positionalTaxIdTemporalRepairSource'));
     expect(frozen, contains('extractUnverifiedPositionalHeaderTaxIdFromLines'));
