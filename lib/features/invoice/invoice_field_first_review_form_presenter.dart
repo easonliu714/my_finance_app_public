@@ -55,6 +55,11 @@ class FieldFirstInvoiceReviewFormPresenter extends InvoiceReviewFormPresenter {
         : baseMerchant.startsWith('賣方統編')
             ? ''
             : baseMerchant;
+    final liveTimeFallback = ocr?.rawLines.any(
+          (line) => line.trim().startsWith('LIVE_EXACT_TIME='),
+        ) ==
+        true;
+    final baseInvoiceTime = base.fieldFor(InvoiceReviewFieldKey.invoiceTime);
 
     final fields = <InvoiceReviewFieldViewModel>[
       if (base.fieldFor(InvoiceReviewFieldKey.invoiceNumber) case final field?)
@@ -70,6 +75,20 @@ class FieldFirstInvoiceReviewFormPresenter extends InvoiceReviewFormPresenter {
       ),
       if (base.fieldFor(InvoiceReviewFieldKey.invoiceDate) case final field?)
         field,
+      // P4.18.3: Field-First decorates the base form but must not drop the
+      // strict Local OCR transaction time already produced by the base presenter.
+      if (baseInvoiceTime != null)
+        liveTimeFallback
+            ? InvoiceReviewFieldViewModel(
+                key: baseInvoiceTime.key,
+                label: baseInvoiceTime.label,
+                value: baseInvoiceTime.value,
+                editable: baseInvoiceTime.editable,
+                requiredForReview: baseInvoiceTime.requiredForReview,
+                confidenceLabel: 'Live exact consensus fallback',
+                warnings: baseInvoiceTime.warnings,
+              )
+            : baseInvoiceTime,
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.sellerTaxId,
         label: '賣方統編',

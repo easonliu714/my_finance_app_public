@@ -123,13 +123,19 @@ void main() {
     expect(entry, isNot(contains('Gemini 獨立驗證')));
   });
 
-  test('post-freeze is Local-first with automatic and forced Gemini paths', () {
+  test('post-freeze is Local-first with explicit completeness-gated Gemini paths', () {
     final frozen = File('lib/features/invoice/invoice_frozen_review_page.dart').readAsStringSync();
     final policy = File('lib/features/invoice/gemini/gemini_invoice_review_coordinator.dart').readAsStringSync();
 
-    expect(frozen, contains('await _runGemini(local, forceReview: false)'));
-    expect(frozen, contains('forceReview: true'));
+    expect(
+      frozen,
+      contains('forceReview: _geminiDecision?.shouldReview != true'),
+    );
+    expect(frozen, contains('送出至 Gemini 必要覆核'));
     expect(frozen, contains('強制 Gemini 二次覆核'));
+    expect(frozen, contains('只有你明確按下按鈕才會送出目前發票影像'));
+    expect(policy, contains('InvoiceLocalCompletenessPolicy().evaluate'));
+    expect(policy, contains('shouldReview: completeness.requiresGeminiReview'));
     expect(policy, contains("if (candidate.sellerTaxId.isEmpty) '賣方統編'"));
     expect(policy, contains('TraditionalInvoiceOcrField.sellerTaxId'));
   });

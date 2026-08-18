@@ -122,6 +122,8 @@ InvoiceCaptureReviewFlowCoordinator _reviewFlow() {
           candidate: TraditionalInvoiceOcrReviewCandidate(
             sourceImageReference: localReference,
             invoiceNumber: 'AB12345678',
+            sellerTaxId: '30340553',
+            sellerTaxIdSource: 'test_fixture',
             invoiceDate: DateTime.utc(2026, 7, 6),
             sellerName: 'Test merchant',
             totalAmount: 120,

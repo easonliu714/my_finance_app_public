@@ -16,14 +16,14 @@ enum InvoiceRecognitionRequestedRoute {
   traditionalInvoiceOcr,
 }
 
-typedef InvoiceQrRecognitionRunner = Future<InvoiceLocalRecognitionResult>
-    Function({
-  required List<ImageCaptureStagingItem> images,
-  required InvoiceLocalRecognitionRequestMode mode,
-});
+typedef InvoiceQrRecognitionRunner =
+    Future<InvoiceLocalRecognitionResult> Function({
+      required List<ImageCaptureStagingItem> images,
+      required InvoiceLocalRecognitionRequestMode mode,
+    });
 
-typedef TraditionalInvoiceOcrRunner = Future<TraditionalInvoiceOcrResult>
-    Function(String localReference);
+typedef TraditionalInvoiceOcrRunner =
+    Future<TraditionalInvoiceOcrResult> Function(String localReference);
 
 class InvoiceAutomaticRecognitionResult {
   const InvoiceAutomaticRecognitionResult({
@@ -114,12 +114,12 @@ class InvoiceAutomaticRecognitionCoordinator {
 
     switch (qrResult.status) {
       case InvoiceLocalRecognitionStatus.qrCandidate:
-        return InvoiceAutomaticRecognitionResult(
-          status: InvoiceAutomaticRecognitionStatus.qrReviewCandidate,
-          message: qrResult.message,
-          selectedRouteReason: '找到有效電子發票 QR，優先使用 QR 覆核路徑。',
-          requestedRoute: InvoiceRecognitionRequestedRoute.automatic,
+        return _runQrWithSupplementalOcr(
+          validImages: validImages,
           qrResult: qrResult,
+          requestedRoute: InvoiceRecognitionRequestedRoute.automatic,
+          selectedRouteReason:
+              '找到有效電子發票 QR，QR 維持 identity authority；另執行一次本機 OCR 補充時間與商家欄位。',
         );
       case InvoiceLocalRecognitionStatus.manualQrDesignation:
         return InvoiceAutomaticRecognitionResult(
@@ -165,13 +165,12 @@ class InvoiceAutomaticRecognitionCoordinator {
 
     switch (qrResult.status) {
       case InvoiceLocalRecognitionStatus.qrCandidate:
-        return InvoiceAutomaticRecognitionResult(
-          status: InvoiceAutomaticRecognitionStatus.qrReviewCandidate,
-          message: qrResult.message,
-          selectedRouteReason: '使用者改用電子發票 QR 覆核路徑。',
-          requestedRoute:
-              InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
+        return _runQrWithSupplementalOcr(
+          validImages: validImages,
           qrResult: qrResult,
+          requestedRoute: InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
+          selectedRouteReason:
+              '使用者指定電子發票 QR；QR 維持 identity authority，另執行一次本機 OCR 補充時間與商家欄位。',
         );
       case InvoiceLocalRecognitionStatus.manualQrDesignation:
       case InvoiceLocalRecognitionStatus.ocrFallback:
@@ -179,8 +178,7 @@ class InvoiceAutomaticRecognitionCoordinator {
           status: InvoiceAutomaticRecognitionStatus.manualQrDesignation,
           message: qrResult.message,
           selectedRouteReason: '使用者指定 QR 路徑，但仍需人工指定或補拍 QR。',
-          requestedRoute:
-              InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
+          requestedRoute: InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
           qrResult: qrResult,
         );
       case InvoiceLocalRecognitionStatus.decoderFailed:
@@ -188,8 +186,7 @@ class InvoiceAutomaticRecognitionCoordinator {
           status: InvoiceAutomaticRecognitionStatus.recognitionFailed,
           message: qrResult.message,
           selectedRouteReason: '使用者指定 QR 路徑，但本機 QR 解碼失敗。',
-          requestedRoute:
-              InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
+          requestedRoute: InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
           qrResult: qrResult,
         );
       case InvoiceLocalRecognitionStatus.invalidInput:
@@ -197,11 +194,34 @@ class InvoiceAutomaticRecognitionCoordinator {
           status: InvoiceAutomaticRecognitionStatus.invalidInput,
           message: qrResult.message,
           selectedRouteReason: '使用者指定 QR 路徑，但輸入影像無效。',
-          requestedRoute:
-              InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
+          requestedRoute: InvoiceRecognitionRequestedRoute.electronicInvoiceQr,
           qrResult: qrResult,
         );
     }
+  }
+
+  Future<InvoiceAutomaticRecognitionResult> _runQrWithSupplementalOcr({
+    required List<ImageCaptureStagingItem> validImages,
+    required InvoiceLocalRecognitionResult qrResult,
+    required InvoiceRecognitionRequestedRoute requestedRoute,
+    required String selectedRouteReason,
+  }) async {
+    TraditionalInvoiceOcrResult? supplemental;
+    try {
+      supplemental = await ocrRunner(validImages.first.localReference.trim());
+    } catch (_) {
+      supplemental = null;
+    }
+    return InvoiceAutomaticRecognitionResult(
+      status: InvoiceAutomaticRecognitionStatus.qrReviewCandidate,
+      message: supplemental == null
+          ? '${qrResult.message}；本機 OCR 補充失敗，QR 候選仍保留。'
+          : '${qrResult.message}；已完成本機 OCR 補充讀取。',
+      selectedRouteReason: selectedRouteReason,
+      requestedRoute: requestedRoute,
+      qrResult: qrResult,
+      ocrResult: supplemental,
+    );
   }
 
   Future<InvoiceAutomaticRecognitionResult> _runOcr({
@@ -227,8 +247,8 @@ class InvoiceAutomaticRecognitionCoordinator {
           ? InvoiceAutomaticRecognitionStatus.invalidInput
           : InvoiceAutomaticRecognitionStatus.recognitionFailed,
       message: ocrResult.message,
-      selectedRouteReason: requestedRoute ==
-              InvoiceRecognitionRequestedRoute.automatic
+      selectedRouteReason:
+          requestedRoute == InvoiceRecognitionRequestedRoute.automatic
           ? '未找到有效 QR，且本機 OCR 未建立覆核候選。'
           : '使用者指定 OCR 路徑，但本機 OCR 未建立覆核候選。',
       requestedRoute: requestedRoute,

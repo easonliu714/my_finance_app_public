@@ -24,6 +24,8 @@ void main() {
           candidate: TraditionalInvoiceOcrReviewCandidate(
             sourceImageReference: '/tmp/ready.jpg',
             invoiceNumber: '',
+            sellerTaxId: '30340553',
+            sellerTaxIdSource: 'test_fixture',
             invoiceDate: DateTime.utc(2026, 7, 6),
             sellerName: '',
             totalAmount: 100,

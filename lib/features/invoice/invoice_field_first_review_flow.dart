@@ -1,4 +1,3 @@
-import 'google_mlkit_traditional_invoice_recognizer.dart';
 import 'image_capture_staging.dart';
 import 'invoice_automatic_recognition_coordinator.dart';
 import 'invoice_capture_review_flow.dart';
@@ -7,6 +6,7 @@ import 'invoice_live_capture_page.dart';
 import 'invoice_local_recognition_coordinator.dart';
 import 'invoice_total_evidence.dart';
 import 'mobile_scanner_invoice_qr_decoder.dart';
+import 'traditional_invoice_multi_variant_recognizer.dart';
 import 'traditional_invoice_ocr_review.dart';
 import 'traditional_tax_id_temporal_repair.dart';
 
@@ -29,7 +29,7 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
           decoder: NativeInvoiceQrDecoder(),
         ).recognize,
         ocrRunner: const TraditionalInvoiceOcrCoordinator(
-          recognizer: GoogleMlKitTraditionalInvoiceRecognizer(),
+          recognizer: GoogleMlKitMultiVariantTraditionalInvoiceRecognizer(),
         ).recognize,
       ),
     );
@@ -73,6 +73,7 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
       }
     }
 
+    recognition = _applyLiveFrozenEvidenceContinuity(recognition, image);
     recognition = _applyEffectiveTotalEvidence(recognition);
     recognition = _applyEffectiveTemporalSellerTaxId(recognition);
     final handoff = handoffPresenter.fromAutomaticResult(recognition);
@@ -84,6 +85,160 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
     );
   }
 
+  InvoiceAutomaticRecognitionResult _applyLiveFrozenEvidenceContinuity(
+    InvoiceAutomaticRecognitionResult recognition,
+    ImageCaptureStagingItem image,
+  ) {
+    if (recognition.status !=
+            InvoiceAutomaticRecognitionStatus.recognitionFailed ||
+        recognition.hasReviewCandidate ||
+        liveResult.origin != InvoiceCaptureOrigin.liveCamera ||
+        !liveResult.liveSnapshot.canFreeze) {
+      return recognition;
+    }
+
+    final invoiceNumber = _resolveLiveInvoiceNumberConsensus();
+    if (invoiceNumber.isEmpty) return recognition;
+
+    final rawRecognition = recognition.ocrResult?.rawRecognition;
+    final frozenRawText = rawRecognition?.rawText.trim() ?? '';
+    final frozenRawLines = rawRecognition?.rawLines ?? const <String>[];
+    final invoiceDate = _resolveLiveExactDateConsensus(invoiceNumber);
+    final invoiceTime = _resolveLiveExactTimeConsensus(invoiceNumber);
+    final continuityMarker =
+        invoiceTime.isEmpty ? '' : 'LIVE_EXACT_TIME=$invoiceTime';
+    final candidateRawText = <String>[
+      if (frozenRawText.isNotEmpty) frozenRawText,
+      if (continuityMarker.isNotEmpty) continuityMarker,
+    ].join('\n');
+    final candidateRawLines = <String>[
+      ...frozenRawLines,
+      if (continuityMarker.isNotEmpty) continuityMarker,
+    ];
+
+    final confidence = <TraditionalInvoiceOcrField,
+        TraditionalInvoiceOcrConfidence>{
+      TraditionalInvoiceOcrField.invoiceNumber:
+          TraditionalInvoiceOcrConfidence.medium,
+      if (invoiceDate != null)
+        TraditionalInvoiceOcrField.invoiceDate:
+            TraditionalInvoiceOcrConfidence.medium,
+    };
+    final fieldWarnings = <TraditionalInvoiceOcrField, List<String>>{
+      TraditionalInvoiceOcrField.invoiceNumber: const <String>[
+        'P4.18.4 LIVE_CONSENSUS_FALLBACK：Frozen OCR 未建立候選；僅保留已通過 Live Green identity consensus 的發票號碼供人工覆核。',
+      ],
+      if (invoiceDate != null)
+        TraditionalInvoiceOcrField.invoiceDate: const <String>[
+          'P4.18.4 LIVE_EXACT_CONSENSUS_FALLBACK：同一發票的 Green observations 日期完全一致後才保留供人工覆核。',
+        ],
+    };
+    final candidate = TraditionalInvoiceOcrReviewCandidate(
+      sourceImageReference: image.localReference.trim(),
+      invoiceNumber: invoiceNumber,
+      sellerTaxId: '',
+      sellerTaxIdSource: '',
+      invoiceDate: invoiceDate,
+      sellerName: '',
+      totalAmount: null,
+      visibleLineItems: const <TraditionalInvoiceOcrLineItem>[],
+      confidence: Map<TraditionalInvoiceOcrField,
+          TraditionalInvoiceOcrConfidence>.unmodifiable(confidence),
+      fieldWarnings: Map<TraditionalInvoiceOcrField, List<String>>.unmodifiable(
+        fieldWarnings,
+      ),
+      variantDiagnostics: rawRecognition?.variantDiagnostics ??
+          const <TraditionalInvoiceOcrVariantDiagnostic>[],
+      rawText: candidateRawText,
+      rawLines: List<String>.unmodifiable(candidateRawLines),
+    );
+    final fallbackOcr = TraditionalInvoiceOcrResult(
+      status: TraditionalInvoiceOcrStatus.partial,
+      message: invoiceTime.isEmpty
+          ? 'Frozen OCR 未建立候選；已保留 Live Green consensus 的安全欄位供人工覆核。'
+          : 'Frozen OCR 未建立候選；已保留 Live Green identity 與 exact time consensus 的安全欄位供人工覆核。',
+      candidate: candidate,
+      rawRecognition: rawRecognition,
+    );
+
+    return InvoiceAutomaticRecognitionResult(
+      status: InvoiceAutomaticRecognitionStatus.ocrReviewCandidate,
+      message: fallbackOcr.message,
+      selectedRouteReason:
+          'P4.18.4 Live→Frozen evidence continuity：Frozen OCR fail-closed 時只保留已通過 Live consensus 的安全欄位；賣方統編與總金額不由 Live fallback 升格。',
+      requestedRoute: InvoiceRecognitionRequestedRoute.automatic,
+      qrResult: recognition.qrResult,
+      ocrResult: fallbackOcr,
+    );
+  }
+
+  String _resolveLiveInvoiceNumberConsensus() {
+    final finalInvoice = liveResult.liveSnapshot.invoiceNumber.trim();
+    if (finalInvoice.isEmpty || !liveResult.liveSnapshot.canFreeze) return '';
+    final consensus = resolveTraditionalLiveIdentityConsensus(
+      history: liveResult.liveHistory,
+      currentInvoiceNumber: finalInvoice,
+      currentSellerTaxId: liveResult.liveSnapshot.sellerTaxId,
+      currentRawLines: const <String>[],
+    );
+    if (!consensus.canFreeze || consensus.invoiceNumber != finalInvoice) {
+      return '';
+    }
+    return finalInvoice;
+  }
+
+  DateTime? _resolveLiveExactDateConsensus(String invoiceNumber) {
+    final values = <String>[];
+    for (final sample in liveResult.liveHistory) {
+      final snapshot = sample.snapshot;
+      if (!snapshot.canFreeze ||
+          snapshot.invoiceNumber.trim() != invoiceNumber) {
+        continue;
+      }
+      final value = snapshot.invoiceDate.trim();
+      if (value.isNotEmpty) values.add(value);
+    }
+    if (values.length < 2 || values.toSet().length != 1) return null;
+    final value = values.first;
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
+    if (match == null) return null;
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final parsed = DateTime.utc(year, month, day);
+    if (parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+    return parsed;
+  }
+
+  String _resolveLiveExactTimeConsensus(String invoiceNumber) {
+    final values = <String>[];
+    for (final sample in liveResult.liveHistory) {
+      if (!sample.snapshot.canFreeze ||
+          sample.snapshot.invoiceNumber.trim() != invoiceNumber) {
+        continue;
+      }
+      final value = _extractStrictLiveTime(sample.rawLines.join('\n'));
+      if (value.isNotEmpty) values.add(value);
+    }
+    if (values.length < 2 || values.toSet().length != 1) return '';
+    return values.first;
+  }
+
+  String _extractStrictLiveTime(String rawText) {
+    final matches = RegExp(
+      r'(?:^|[^0-9])((?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)(?!\d)',
+      multiLine: true,
+    ).allMatches(rawText);
+    final values = <String>{};
+    for (final match in matches) {
+      final value = match.group(1);
+      if (value != null && value.isNotEmpty) values.add(value);
+    }
+    return values.length == 1 ? values.single : '';
+  }
+
   InvoiceAutomaticRecognitionResult _applyEffectiveTotalEvidence(
     InvoiceAutomaticRecognitionResult recognition,
   ) {
@@ -92,25 +247,45 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
     if (ocrResult == null || candidate == null || candidate.rawLines.isEmpty) {
       return recognition;
     }
-    final totalEvidence = resolveInvoiceTotalEvidence(candidate.rawLines);
-    if (totalEvidence == null || candidate.totalAmount == totalEvidence.value) {
+    final merge = resolveInvoiceTotalMerge(
+      parserValue: candidate.totalAmount,
+      rawLines: candidate.rawLines,
+    );
+    if (merge.decision == InvoiceTotalMergeDecision.unchanged) {
       return recognition;
     }
 
+    final semantic = merge.semanticEvidence;
+    if (semantic == null) return recognition;
+
+    final isConflict = merge.decision == InvoiceTotalMergeDecision.conflict;
     final confidence = <TraditionalInvoiceOcrField,
         TraditionalInvoiceOcrConfidence>{
       ...candidate.confidence,
-      TraditionalInvoiceOcrField.totalAmount:
-          TraditionalInvoiceOcrConfidence.medium,
+      TraditionalInvoiceOcrField.totalAmount: isConflict
+          ? TraditionalInvoiceOcrConfidence.low
+          : TraditionalInvoiceOcrConfidence.medium,
     };
     final warnings = <TraditionalInvoiceOcrField, List<String>>{
       ...candidate.fieldWarnings,
       TraditionalInvoiceOcrField.totalAmount: <String>[
         ...(candidate.fieldWarnings[TraditionalInvoiceOcrField.totalAmount] ??
             const <String>[]),
-        'Field-First 總額採用 ${totalEvidence.source} 的高優先語意證據 ${_amount(totalEvidence.value)}；原始 Frozen OCR 保持不變。',
+        if (isConflict)
+          'P4.18.6 LOCAL_LOCAL_TOTAL_CONFLICT：Local parser=${_amount(candidate.totalAmount!)} 與 Field-First ${semantic.source}=${_amount(semantic.value)} 不一致；沒有任何 heuristic 可自動勝出，總金額已保持空白等待覆核。'
+        else
+          'Field-First 總額採用 ${semantic.source} 的高優先語意證據 ${_amount(semantic.value)}；原始 Frozen OCR 保持不變。',
       ],
     };
+    final marker = isConflict ? 'P4_18_6_TOTAL_DECISION_LOCK=CONFLICT' : '';
+    final rawLines = <String>[
+      ...candidate.rawLines,
+      if (marker.isNotEmpty && !candidate.rawLines.contains(marker)) marker,
+    ];
+    final rawText = <String>[
+      if (candidate.rawText.trim().isNotEmpty) candidate.rawText.trim(),
+      if (marker.isNotEmpty && !candidate.rawText.contains(marker)) marker,
+    ].join('\n');
     final effectiveCandidate = TraditionalInvoiceOcrReviewCandidate(
       sourceImageReference: candidate.sourceImageReference,
       invoiceNumber: candidate.invoiceNumber,
@@ -118,7 +293,7 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
       sellerTaxIdSource: candidate.sellerTaxIdSource,
       invoiceDate: candidate.invoiceDate,
       sellerName: candidate.sellerName,
-      totalAmount: totalEvidence.value,
+      totalAmount: isConflict ? null : merge.value,
       visibleLineItems: candidate.visibleLineItems,
       confidence: Map<TraditionalInvoiceOcrField,
           TraditionalInvoiceOcrConfidence>.unmodifiable(confidence),
@@ -127,8 +302,9 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
           (key, value) => MapEntry(key, List<String>.unmodifiable(value)),
         ),
       ),
-      rawText: candidate.rawText,
-      rawLines: candidate.rawLines,
+      variantDiagnostics: candidate.variantDiagnostics,
+      rawText: rawText,
+      rawLines: List<String>.unmodifiable(rawLines),
     );
     return _copyRecognition(
       recognition,
@@ -177,6 +353,7 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
           (key, value) => MapEntry(key, List<String>.unmodifiable(value)),
         ),
       ),
+      variantDiagnostics: candidate.variantDiagnostics,
       rawText: candidate.rawText,
       rawLines: candidate.rawLines,
     );

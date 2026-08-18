@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../invoice_automatic_recognition_coordinator.dart';
+import '../invoice_local_completeness_policy.dart';
 import '../traditional_invoice_ocr_review.dart';
 import 'gemini_invoice_review.dart';
 import 'gemini_invoice_review_client.dart';
@@ -31,9 +32,12 @@ class GeminiInvoiceEscalationPolicy {
           reason: '本機輸入無效，不將影像送至 AI。',
         );
       case InvoiceAutomaticRecognitionStatus.qrReviewCandidate:
-        return const GeminiInvoiceEscalationDecision(
-          shouldReview: false,
-          reason: '已有結構化 QR 覆核候選，本階段不自動呼叫 AI。',
+        final completeness = const InvoiceLocalCompletenessPolicy().evaluate(
+          localResult,
+        );
+        return GeminiInvoiceEscalationDecision(
+          shouldReview: completeness.requiresGeminiReview,
+          reason: completeness.reason,
         );
       case InvoiceAutomaticRecognitionStatus.manualQrDesignation:
         return const GeminiInvoiceEscalationDecision(
@@ -65,6 +69,7 @@ class GeminiInvoiceEscalationPolicy {
       if (candidate.sellerTaxId.isEmpty) '賣方統編',
       if (candidate.invoiceDate == null) '日期',
       if (candidate.totalAmount == null) '總金額',
+      if (candidate.sellerName.trim().isEmpty) '商家名稱',
     ];
     if (missingFields.isNotEmpty) {
       return GeminiInvoiceEscalationDecision(
@@ -122,9 +127,7 @@ abstract interface class GeminiInvoiceImageLoader {
 }
 
 class FileGeminiInvoiceImageLoader implements GeminiInvoiceImageLoader {
-  const FileGeminiInvoiceImageLoader({
-    this.maximumBytes = 8 * 1024 * 1024,
-  });
+  const FileGeminiInvoiceImageLoader({this.maximumBytes = 8 * 1024 * 1024});
 
   final int maximumBytes;
 
@@ -339,15 +342,11 @@ class GeminiInvoiceReviewCoordinator {
       message: '所有可嘗試的 Gemini API Key 均未完成覆核。',
       decision: decision,
       model: settings.model,
-      attempts: List<GeminiInvoiceReviewAttemptSummary>.unmodifiable(
-        attempts,
-      ),
+      attempts: List<GeminiInvoiceReviewAttemptSummary>.unmodifiable(attempts),
     );
   }
 
-  Map<String, Object?> _localSummary(
-    InvoiceAutomaticRecognitionResult result,
-  ) {
+  Map<String, Object?> _localSummary(InvoiceAutomaticRecognitionResult result) {
     final candidate = result.ocrResult?.candidate;
     return <String, Object?>{
       'status': result.status.name,
@@ -359,7 +358,8 @@ class GeminiInvoiceReviewCoordinator {
       'localHasInvoiceDate': candidate?.invoiceDate != null,
       'localHasSellerName': candidate?.sellerName.isNotEmpty == true,
       'localHasTotalAmount': candidate?.totalAmount != null,
-      'localWarningFieldCount': candidate?.fieldWarnings.values
+      'localWarningFieldCount':
+          candidate?.fieldWarnings.values
               .where((warnings) => warnings.isNotEmpty)
               .length ??
           0,
