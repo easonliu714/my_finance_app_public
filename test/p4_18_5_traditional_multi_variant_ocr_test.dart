@@ -60,7 +60,7 @@ void main() {
     );
     expect(
       result.fieldWarnings[TraditionalInvoiceOcrField.totalAmount]?.join(' '),
-      contains('P4.18.5_MULTI_VARIANT_TOTAL_CONSENSUS'),
+      contains('P4.18.6_MULTI_VARIANT_TOTAL_CONSENSUS'),
     );
     expect(provider.cleanedUp, isTrue);
   });
@@ -109,7 +109,7 @@ void main() {
     expect(resolveInvoiceTotalEvidence(result.rawLines), isNull);
     expect(
       result.fieldWarnings[TraditionalInvoiceOcrField.totalAmount]?.join(' '),
-      contains('P4.18.5_MULTI_VARIANT_TOTAL_CONFLICT'),
+      contains('P4.18.6_MULTI_VARIANT_TOTAL_CONFLICT'),
     );
     expect(provider.cleanedUp, isTrue);
   });
