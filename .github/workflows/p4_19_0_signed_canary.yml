@@ -44,6 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           flutter test test/p4_19_0_automatic_gemini_fallback_test.dart
+          flutter test test/p4_19_0_ui_evidence_contract_test.dart
           flutter test test/p4_18_6_local_total_and_variant_diagnostics_test.dart
           flutter test test/p4_18_5_traditional_multi_variant_ocr_test.dart
           flutter test test/p4_18_4_live_frozen_evidence_continuity_test.dart
