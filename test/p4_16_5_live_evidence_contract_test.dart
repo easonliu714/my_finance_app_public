@@ -26,7 +26,7 @@ void main() {
       'lib/features/invoice/traditional_invoice_multi_variant_recognizer.dart',
     ).readAsStringSync();
 
-    expect(pubspec, contains('version: 4.18.5+432'));
+    expect(pubspec, contains('version: 4.18.6+433'));
     expect(pubspec, contains('camera: ^0.12.0+1'));
     expect(pubspec, contains('google_mlkit_barcode_scanning: ^0.14.2'));
     expect(pubspec, contains('archive: ^4.0.9'));
@@ -82,6 +82,8 @@ void main() {
     expect(totalEvidence, contains("('cash_tender_label', 10)"));
     expect(totalEvidence, contains("previous.startsWith('小')"));
     expect(totalEvidence, contains('P4_18_5_TOTAL_DECISION_LOCK='));
+    expect(totalEvidence, contains('P4_18_6_TOTAL_DECISION_LOCK='));
+    expect(totalEvidence, contains('InvoiceTotalMergeDecision.conflict'));
 
     expect(parser, contains('LocalOcrTextLine'));
     expect(parser, contains('positionedLines'));
@@ -99,7 +101,8 @@ void main() {
     expect(fieldFirst, contains('_resolveLiveFrozenTemporalTaxRepair'));
     expect(fieldFirst, contains('frozenRawCandidate'));
     expect(fieldFirst, contains('currentRawCandidate: frozenRawCandidate'));
-    expect(fieldFirst, contains('resolveInvoiceTotalEvidence'));
+    expect(fieldFirst, contains('resolveInvoiceTotalMerge'));
+    expect(fieldFirst, contains('LOCAL_LOCAL_TOTAL_CONFLICT'));
     expect(fieldFirst, contains('rawRecognition: source.rawRecognition'));
     expect(
       fieldFirst,
@@ -113,10 +116,12 @@ void main() {
       contains('FlutterTraditionalInvoiceContrastVariantProvider'),
     );
     expect(multiVariant, contains('contrast_moderate'));
-    expect(multiVariant, contains('grayscale_contrast'));
-    expect(multiVariant, contains('grayscale_high_contrast'));
+    expect(multiVariant, contains('gamma_dark'));
+    expect(multiVariant, contains('local_contrast'));
+    expect(multiVariant, contains('adaptive_threshold'));
     expect(multiVariant, contains('multi_variant_explicit_label_consensus'));
     expect(multiVariant, contains('P4_18_5_TOTAL_DECISION_LOCK='));
+    expect(multiVariant, contains('variantDiagnostics'));
     expect(multiVariant, isNot(contains('GeminiInvoiceReviewClient')));
     expect(multiVariant, isNot(contains('TransactionRepository')));
 
@@ -140,6 +145,8 @@ void main() {
     expect(evidenceExporter, contains('InvoiceReviewFieldKey.invoicePeriod'));
     expect(evidenceExporter, contains('InvoiceReviewFieldKey.randomCode'));
     expect(evidenceExporter, contains("'randomCode': candidate.randomCode"));
+    expect(evidenceExporter, contains("'local_ocr_variant_votes.json'"));
+    expect(evidenceExporter, contains("'containsLocalOcrDerivativeImages': false"));
     expect(evidenceExporter, isNot(contains("('invoicePeriod', '', ai.invoicePeriod")));
 
     expect(geminiCandidate, contains('randomCode'));
@@ -176,10 +183,12 @@ void main() {
     expect(evidence, contains("'capture_image."));
     expect(evidence, contains("'gemini_input."));
     expect(evidence, contains("'local_ocr_raw.txt'"));
+    expect(evidence, contains("'local_ocr_variant_votes.json'"));
     expect(evidence, contains("'live_snapshot_history.json'"));
     expect(evidence, contains('ocrResult?.rawRecognition'));
     expect(evidence, contains('capture_sha256='));
     expect(evidence, contains('gemini_input_matches_capture_sha256='));
+    expect(evidence, contains('local_ocr_derivative_images_included=false'));
     expect(
       evidence,
       contains('String appVersion = PrivateCloudInvoiceLabConfig.validationVersion'),
@@ -187,6 +196,7 @@ void main() {
     expect(evidence, contains("'apiKeyIncluded': false"));
     expect(evidence, contains("'automaticUploadPerformed': false"));
     expect(evidence, contains("'productionDatabaseWritePerformed': false"));
+    expect(evidence, contains("'ocrDerivativeImageBecomesAuthority': false"));
     expect(evidence, isNot(contains('x-goog-api-key')));
     expect(evidence, isNot(contains('TransactionRepository')));
   });
