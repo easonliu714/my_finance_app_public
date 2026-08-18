@@ -147,6 +147,8 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
       fieldWarnings: Map<TraditionalInvoiceOcrField, List<String>>.unmodifiable(
         fieldWarnings,
       ),
+      variantDiagnostics: rawRecognition?.variantDiagnostics ??
+          const <TraditionalInvoiceOcrVariantDiagnostic>[],
       rawText: candidateRawText,
       rawLines: List<String>.unmodifiable(candidateRawLines),
     );
@@ -245,25 +247,45 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
     if (ocrResult == null || candidate == null || candidate.rawLines.isEmpty) {
       return recognition;
     }
-    final totalEvidence = resolveInvoiceTotalEvidence(candidate.rawLines);
-    if (totalEvidence == null || candidate.totalAmount == totalEvidence.value) {
+    final merge = resolveInvoiceTotalMerge(
+      parserValue: candidate.totalAmount,
+      rawLines: candidate.rawLines,
+    );
+    if (merge.decision == InvoiceTotalMergeDecision.unchanged) {
       return recognition;
     }
 
+    final semantic = merge.semanticEvidence;
+    if (semantic == null) return recognition;
+
+    final isConflict = merge.decision == InvoiceTotalMergeDecision.conflict;
     final confidence = <TraditionalInvoiceOcrField,
         TraditionalInvoiceOcrConfidence>{
       ...candidate.confidence,
-      TraditionalInvoiceOcrField.totalAmount:
-          TraditionalInvoiceOcrConfidence.medium,
+      TraditionalInvoiceOcrField.totalAmount: isConflict
+          ? TraditionalInvoiceOcrConfidence.low
+          : TraditionalInvoiceOcrConfidence.medium,
     };
     final warnings = <TraditionalInvoiceOcrField, List<String>>{
       ...candidate.fieldWarnings,
       TraditionalInvoiceOcrField.totalAmount: <String>[
         ...(candidate.fieldWarnings[TraditionalInvoiceOcrField.totalAmount] ??
             const <String>[]),
-        'Field-First 總額採用 ${totalEvidence.source} 的高優先語意證據 ${_amount(totalEvidence.value)}；原始 Frozen OCR 保持不變。',
+        if (isConflict)
+          'P4.18.6 LOCAL_LOCAL_TOTAL_CONFLICT：Local parser=${_amount(candidate.totalAmount!)} 與 Field-First ${semantic.source}=${_amount(semantic.value)} 不一致；沒有任何 heuristic 可自動勝出，總金額已保持空白等待覆核。'
+        else
+          'Field-First 總額採用 ${semantic.source} 的高優先語意證據 ${_amount(semantic.value)}；原始 Frozen OCR 保持不變。',
       ],
     };
+    final marker = isConflict ? 'P4_18_6_TOTAL_DECISION_LOCK=CONFLICT' : '';
+    final rawLines = <String>[
+      ...candidate.rawLines,
+      if (marker.isNotEmpty && !candidate.rawLines.contains(marker)) marker,
+    ];
+    final rawText = <String>[
+      if (candidate.rawText.trim().isNotEmpty) candidate.rawText.trim(),
+      if (marker.isNotEmpty && !candidate.rawText.contains(marker)) marker,
+    ].join('\n');
     final effectiveCandidate = TraditionalInvoiceOcrReviewCandidate(
       sourceImageReference: candidate.sourceImageReference,
       invoiceNumber: candidate.invoiceNumber,
@@ -271,7 +293,7 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
       sellerTaxIdSource: candidate.sellerTaxIdSource,
       invoiceDate: candidate.invoiceDate,
       sellerName: candidate.sellerName,
-      totalAmount: totalEvidence.value,
+      totalAmount: isConflict ? null : merge.value,
       visibleLineItems: candidate.visibleLineItems,
       confidence: Map<TraditionalInvoiceOcrField,
           TraditionalInvoiceOcrConfidence>.unmodifiable(confidence),
@@ -280,8 +302,9 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
           (key, value) => MapEntry(key, List<String>.unmodifiable(value)),
         ),
       ),
-      rawText: candidate.rawText,
-      rawLines: candidate.rawLines,
+      variantDiagnostics: candidate.variantDiagnostics,
+      rawText: rawText,
+      rawLines: List<String>.unmodifiable(rawLines),
     );
     return _copyRecognition(
       recognition,
@@ -330,6 +353,7 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
           (key, value) => MapEntry(key, List<String>.unmodifiable(value)),
         ),
       ),
+      variantDiagnostics: candidate.variantDiagnostics,
       rawText: candidate.rawText,
       rawLines: candidate.rawLines,
     );
