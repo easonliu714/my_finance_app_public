@@ -26,7 +26,7 @@ void main() {
       'lib/features/invoice/traditional_invoice_multi_variant_recognizer.dart',
     ).readAsStringSync();
 
-    expect(pubspec, contains('version: 4.18.6+433'));
+    expect(pubspec, contains('version: 4.18.6+434'));
     expect(pubspec, contains('camera: ^0.12.0+1'));
     expect(pubspec, contains('google_mlkit_barcode_scanning: ^0.14.2'));
     expect(pubspec, contains('archive: ^4.0.9'));
