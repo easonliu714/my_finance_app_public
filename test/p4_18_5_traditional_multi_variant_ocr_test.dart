@@ -3,6 +3,7 @@ import 'package:my_finance_app/features/invoice/google_mlkit_traditional_invoice
 import 'package:my_finance_app/features/invoice/invoice_field_first_evidence.dart';
 import 'package:my_finance_app/features/invoice/invoice_total_evidence.dart';
 import 'package:my_finance_app/features/invoice/traditional_invoice_multi_variant_recognizer.dart';
+import 'package:my_finance_app/features/invoice/traditional_invoice_ocr_review.dart';
 
 void main() {
   test('two enhanced variants may fill missing review-only fields', () async {
