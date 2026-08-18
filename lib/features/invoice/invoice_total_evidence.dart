@@ -12,10 +12,73 @@ class InvoiceTotalEvidence {
   final int lineIndex;
 }
 
+enum InvoiceTotalMergeDecision {
+  unchanged,
+  fillFromSemanticEvidence,
+  conflict,
+}
+
+class InvoiceTotalMergeResult {
+  const InvoiceTotalMergeResult({
+    required this.decision,
+    required this.value,
+    this.semanticEvidence,
+  });
+
+  final InvoiceTotalMergeDecision decision;
+  final double? value;
+  final InvoiceTotalEvidence? semanticEvidence;
+}
+
+bool hasInvoiceTotalDecisionLock(List<String> rawLines) {
+  return rawLines.any((line) {
+    final value = line.trim();
+    return value.startsWith('P4_18_5_TOTAL_DECISION_LOCK=') ||
+        value.startsWith('P4_18_6_TOTAL_DECISION_LOCK=');
+  });
+}
+
+InvoiceTotalMergeResult resolveInvoiceTotalMerge({
+  required double? parserValue,
+  required List<String> rawLines,
+}) {
+  if (hasInvoiceTotalDecisionLock(rawLines)) {
+    return InvoiceTotalMergeResult(
+      decision: InvoiceTotalMergeDecision.unchanged,
+      value: parserValue,
+    );
+  }
+
+  final semantic = resolveInvoiceTotalEvidence(rawLines);
+  if (semantic == null) {
+    return InvoiceTotalMergeResult(
+      decision: InvoiceTotalMergeDecision.unchanged,
+      value: parserValue,
+    );
+  }
+  if (parserValue == null) {
+    return InvoiceTotalMergeResult(
+      decision: InvoiceTotalMergeDecision.fillFromSemanticEvidence,
+      value: semantic.value,
+      semanticEvidence: semantic,
+    );
+  }
+  if (_sameAmount(parserValue, semantic.value)) {
+    return InvoiceTotalMergeResult(
+      decision: InvoiceTotalMergeDecision.unchanged,
+      value: parserValue,
+      semanticEvidence: semantic,
+    );
+  }
+  return InvoiceTotalMergeResult(
+    decision: InvoiceTotalMergeDecision.conflict,
+    value: null,
+    semanticEvidence: semantic,
+  );
+}
+
 InvoiceTotalEvidence? resolveInvoiceTotalEvidence(List<String> rawLines) {
-  if (rawLines.any(
-    (line) => line.trim().startsWith('P4_18_5_TOTAL_DECISION_LOCK='),
-  )) {
+  if (hasInvoiceTotalDecisionLock(rawLines)) {
     return null;
   }
 
@@ -108,3 +171,6 @@ double? _lastAmount(String value) {
   if (parsed == null || !parsed.isFinite || parsed < 0) return null;
   return parsed;
 }
+
+bool _sameAmount(double left, double right) =>
+    (left * 100).round() == (right * 100).round();
