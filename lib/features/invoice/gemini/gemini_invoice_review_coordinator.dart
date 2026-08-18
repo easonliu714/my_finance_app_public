@@ -168,6 +168,8 @@ enum GeminiInvoiceReviewExecutionStatus {
   failed,
 }
 
+enum GeminiInvoiceReviewInvocationMode { none, manual, automatic }
+
 class GeminiInvoiceReviewAttemptSummary {
   const GeminiInvoiceReviewAttemptSummary({
     required this.ordinal,
@@ -190,7 +192,14 @@ class GeminiInvoiceReviewExecution {
     required this.model,
     this.candidate,
     this.attempts = const <GeminiInvoiceReviewAttemptSummary>[],
-  });
+    this.invocationMode = GeminiInvoiceReviewInvocationMode.none,
+    this.automaticReviewSettingEnabled = false,
+    int? requestCount,
+    bool? automaticUploadPerformed,
+  })  : requestCount = requestCount ?? attempts.length,
+        automaticUploadPerformed = automaticUploadPerformed ??
+            (invocationMode == GeminiInvoiceReviewInvocationMode.automatic &&
+                attempts.length > 0);
 
   final GeminiInvoiceReviewExecutionStatus status;
   final String message;
@@ -198,10 +207,32 @@ class GeminiInvoiceReviewExecution {
   final String model;
   final GeminiInvoiceReviewCandidate? candidate;
   final List<GeminiInvoiceReviewAttemptSummary> attempts;
+  final GeminiInvoiceReviewInvocationMode invocationMode;
+  final bool automaticReviewSettingEnabled;
+  final int requestCount;
+  final bool automaticUploadPerformed;
 
-  bool get usedNetwork => attempts.isNotEmpty;
+  bool get usedNetwork => requestCount > 0;
   bool get canCreateFormalRecord => false;
   bool get requiresUserReview => candidate != null;
+
+  GeminiInvoiceReviewExecution withCumulativeAudit({
+    required int requestCount,
+    required bool automaticUploadPerformed,
+  }) {
+    return GeminiInvoiceReviewExecution(
+      status: status,
+      message: message,
+      decision: decision,
+      model: model,
+      candidate: candidate,
+      attempts: attempts,
+      invocationMode: invocationMode,
+      automaticReviewSettingEnabled: automaticReviewSettingEnabled,
+      requestCount: requestCount,
+      automaticUploadPerformed: automaticUploadPerformed,
+    );
+  }
 
   Map<String, Object?> toSafeSummary() {
     return <String, Object?>{
@@ -209,6 +240,10 @@ class GeminiInvoiceReviewExecution {
       'decision': decision.reason,
       'model': model,
       'usedNetwork': usedNetwork,
+      'requestCount': requestCount,
+      'invocationMode': invocationMode.name,
+      'automaticReviewSettingEnabled': automaticReviewSettingEnabled,
+      'automaticUploadPerformed': automaticUploadPerformed,
       'attemptCount': attempts.length,
       'successfulKeyOrdinal': attempts
           .where((attempt) => attempt.success)
@@ -234,12 +269,27 @@ class GeminiInvoiceReviewCoordinator {
   final GeminiInvoiceImageLoader imageLoader;
   final GeminiInvoiceEscalationPolicy policy;
 
+  Future<GeminiInvoiceReviewExecution> reviewAutomatically({
+    required InvoiceAutomaticRecognitionResult localResult,
+    required String localReference,
+  }) {
+    return review(
+      localResult: localResult,
+      localReference: localReference,
+      invocationMode: GeminiInvoiceReviewInvocationMode.automatic,
+    );
+  }
+
   Future<GeminiInvoiceReviewExecution> review({
     required InvoiceAutomaticRecognitionResult localResult,
     required String localReference,
     bool forceReview = false,
+    GeminiInvoiceReviewInvocationMode invocationMode =
+        GeminiInvoiceReviewInvocationMode.manual,
   }) async {
     final settings = await settingsStore.load();
+    final automatic =
+        invocationMode == GeminiInvoiceReviewInvocationMode.automatic;
     final decision = forceReview
         ? const GeminiInvoiceEscalationDecision(
             shouldReview: true,
@@ -248,27 +298,39 @@ class GeminiInvoiceReviewCoordinator {
         : policy.evaluate(localResult);
 
     if (!settings.experimentalInvoiceVisionEnabled) {
-      return GeminiInvoiceReviewExecution(
+      return _execution(
         status: GeminiInvoiceReviewExecutionStatus.disabled,
-        message: 'AI 發票覆核實驗功能尚未啟用。',
+        message: 'AI 發票覆核尚未啟用。',
         decision: decision,
-        model: settings.model,
+        settings: settings,
+        invocationMode: invocationMode,
+      );
+    }
+    if (automatic && !settings.autoReviewLowConfidenceEnabled) {
+      return _execution(
+        status: GeminiInvoiceReviewExecutionStatus.disabled,
+        message: '自動 AI 覆核未啟用。',
+        decision: decision,
+        settings: settings,
+        invocationMode: invocationMode,
       );
     }
     if (!decision.shouldReview) {
-      return GeminiInvoiceReviewExecution(
+      return _execution(
         status: GeminiInvoiceReviewExecutionStatus.skippedLocalComplete,
         message: decision.reason,
         decision: decision,
-        model: settings.model,
+        settings: settings,
+        invocationMode: invocationMode,
       );
     }
     if (!settings.hasApiKey) {
-      return GeminiInvoiceReviewExecution(
+      return _execution(
         status: GeminiInvoiceReviewExecutionStatus.missingApiKey,
         message: '尚未設定可用的 Gemini API Key。',
         decision: decision,
-        model: settings.model,
+        settings: settings,
+        invocationMode: invocationMode,
       );
     }
 
@@ -276,11 +338,12 @@ class GeminiInvoiceReviewCoordinator {
     try {
       image = await imageLoader.load(localReference);
     } catch (_) {
-      return GeminiInvoiceReviewExecution(
+      return _execution(
         status: GeminiInvoiceReviewExecutionStatus.invalidImage,
         message: '無法安全讀取待覆核影像。',
         decision: decision,
-        model: settings.model,
+        settings: settings,
+        invocationMode: invocationMode,
       );
     }
 
@@ -304,15 +367,14 @@ class GeminiInvoiceReviewCoordinator {
             message: '覆核成功',
           ),
         );
-        return GeminiInvoiceReviewExecution(
+        return _execution(
           status: GeminiInvoiceReviewExecutionStatus.success,
-          message: '已取得獨立 Gemini 覆核候選，尚未覆寫本機結果。',
+          message: automatic ? '已完成自動 AI 覆核。' : '已取得 AI 第二意見。',
           decision: decision,
-          model: settings.model,
+          settings: settings,
+          invocationMode: invocationMode,
           candidate: candidate,
-          attempts: List<GeminiInvoiceReviewAttemptSummary>.unmodifiable(
-            attempts,
-          ),
+          attempts: attempts,
         );
       } on GeminiInvoiceReviewException catch (error) {
         attempts.add(
@@ -337,12 +399,42 @@ class GeminiInvoiceReviewCoordinator {
       }
     }
 
-    return GeminiInvoiceReviewExecution(
+    return _execution(
       status: GeminiInvoiceReviewExecutionStatus.failed,
-      message: '所有可嘗試的 Gemini API Key 均未完成覆核。',
+      message: 'AI 覆核未完成；本機結果仍可繼續使用。',
+      decision: decision,
+      settings: settings,
+      invocationMode: invocationMode,
+      attempts: attempts,
+    );
+  }
+
+  GeminiInvoiceReviewExecution _execution({
+    required GeminiInvoiceReviewExecutionStatus status,
+    required String message,
+    required GeminiInvoiceEscalationDecision decision,
+    required GeminiInvoiceSettings settings,
+    required GeminiInvoiceReviewInvocationMode invocationMode,
+    GeminiInvoiceReviewCandidate? candidate,
+    List<GeminiInvoiceReviewAttemptSummary> attempts =
+        const <GeminiInvoiceReviewAttemptSummary>[],
+  }) {
+    final frozenAttempts = List<GeminiInvoiceReviewAttemptSummary>.unmodifiable(
+      attempts,
+    );
+    return GeminiInvoiceReviewExecution(
+      status: status,
+      message: message,
       decision: decision,
       model: settings.model,
-      attempts: List<GeminiInvoiceReviewAttemptSummary>.unmodifiable(attempts),
+      candidate: candidate,
+      attempts: frozenAttempts,
+      invocationMode: invocationMode,
+      automaticReviewSettingEnabled: settings.autoReviewLowConfidenceEnabled,
+      requestCount: frozenAttempts.length,
+      automaticUploadPerformed:
+          invocationMode == GeminiInvoiceReviewInvocationMode.automatic &&
+              frozenAttempts.isNotEmpty,
     );
   }
 
