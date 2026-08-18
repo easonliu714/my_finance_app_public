@@ -35,7 +35,9 @@ class FlutterTraditionalInvoiceContrastVariantProvider
     String originalReference,
   ) async {
     final sourceFile = File(originalReference);
-    if (!await sourceFile.exists()) return const <TraditionalInvoiceImageVariant>[];
+    if (!await sourceFile.exists()) {
+      return const <TraditionalInvoiceImageVariant>[];
+    }
 
     ui.Codec? codec;
     ui.Image? sourceImage;
@@ -212,7 +214,6 @@ class GoogleMlKitMultiVariantTraditionalInvoiceRecognizer
         try {
           enhanced.add(
             _VariantRecognition(
-              label: variant.label,
               recognition: await baseRecognizer.recognizeLocalImage(
                 variant.localReference,
               ),
@@ -353,10 +354,12 @@ class GoogleMlKitMultiVariantTraditionalInvoiceRecognizer
     }
 
     var totalAmount = original.totalAmount;
+    var totalDecisionLock = '';
     final totalConsensus = _amountConsensus(enhanced);
     if (totalConsensus != null) {
       if (totalAmount == null) {
         totalAmount = totalConsensus;
+        totalDecisionLock = 'CONSENSUS';
         confidence[TraditionalInvoiceOcrField.totalAmount] =
             TraditionalInvoiceOcrConfidence.medium;
         warnings[TraditionalInvoiceOcrField.totalAmount] = const <String>[
@@ -364,6 +367,7 @@ class GoogleMlKitMultiVariantTraditionalInvoiceRecognizer
         ];
       } else if (!_sameAmount(totalAmount, totalConsensus)) {
         totalAmount = null;
+        totalDecisionLock = 'CONFLICT';
         confidence[TraditionalInvoiceOcrField.totalAmount] =
             TraditionalInvoiceOcrConfidence.low;
         warnings[TraditionalInvoiceOcrField.totalAmount] = const <String>[
@@ -374,6 +378,11 @@ class GoogleMlKitMultiVariantTraditionalInvoiceRecognizer
 
     final rawLines = List<String>.from(original.rawLines);
     final markers = <String>[];
+    if (totalDecisionLock.isNotEmpty) {
+      final marker = 'P4_18_5_TOTAL_DECISION_LOCK=$totalDecisionLock';
+      rawLines.add(marker);
+      markers.add(marker);
+    }
     final originalPeriod = parseInvoiceFieldFirstEvidence(
       original.rawLines,
     ).invoicePeriod;
@@ -521,11 +530,7 @@ class GoogleMlKitMultiVariantTraditionalInvoiceRecognizer
 }
 
 class _VariantRecognition {
-  const _VariantRecognition({
-    required this.label,
-    required this.recognition,
-  });
+  const _VariantRecognition({required this.recognition});
 
-  final String label;
   final TraditionalInvoiceOcrRecognition recognition;
 }
