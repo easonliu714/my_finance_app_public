@@ -58,7 +58,7 @@ void main() {
     expect(evidence.priority, greaterThan(10));
   });
 
-  test('AA effective total is corrected while raw Frozen OCR remains 118', () async {
+  test('AA Local total conflict fails closed while raw Frozen OCR remains 118', () async {
     final coordinator = _coordinator(
       liveResult: _liveResult(invoiceNumber: 'AA90000001'),
       ocrResult: _ocrResult(
@@ -79,12 +79,21 @@ void main() {
       image: _image(),
       requestedRoute: InvoiceRecognitionRequestedRoute.automatic,
     );
+    final candidate = result.recognitionResult.ocrResult!.candidate!;
 
-    expect(result.recognitionResult.ocrResult!.candidate!.totalAmount, 110);
+    expect(candidate.totalAmount, isNull);
     expect(result.recognitionResult.ocrResult!.rawRecognition!.totalAmount, 118);
     expect(
+      candidate.fieldWarnings[TraditionalInvoiceOcrField.totalAmount]?.join(' '),
+      contains('LOCAL_LOCAL_TOTAL_CONFLICT'),
+    );
+    expect(
+      candidate.rawLines,
+      contains('P4_18_6_TOTAL_DECISION_LOCK=CONFLICT'),
+    );
+    expect(
       result.formModel.fieldFor(InvoiceReviewFieldKey.totalAmount)?.value,
-      '110.0',
+      isEmpty,
     );
   });
 
