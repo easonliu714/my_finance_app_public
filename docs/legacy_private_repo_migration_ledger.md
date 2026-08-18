@@ -65,20 +65,63 @@ None of the seven legacy open PRs are recreated in the public repository.
 | #704 P4.17.2 Electronic-wide/Traditional-first gate | HISTORICAL_NO_MIGRATION | stacked historical implementation branch |
 | #706 Security: prepare public CI and signing boundary | TRANSITION_COMPLETE | existed to prepare the private-to-public transition; public repository is already authoritative |
 
+## Legacy Actions artifact / APK audit
+
+A repository-tree search found no committed `.apk` payload that needs deletion through the Git contents API.
+
+Known signed APK artifacts referenced by the remaining historical PRs were checked through their workflow-run artifact metadata. Representative/latest release artifacts are already expired and no longer consume artifact storage:
+
+| Workflow / run | Artifact | Approx. size | Expiration state |
+|---|---|---:|---|
+| Invoice Vision Lab Signed Validation #478 / `31098575158` | `invoice-vision-lab-signed-apk` / ID `8966742267` | 53.1 MB | expired 2026-08-09 |
+| P4.16 Signed Production Integration APK / `31318558675` | ID `9039608202` | 54.7 MB | expired 2026-08-12 |
+| P4.16 Signed Production Integration APK / `31587397982` | ID `9137979447` | 54.8 MB | expired 2026-08-15 |
+| P4.17.1 Signed Adaptive Live Overlay APK #8 / `31658483663` | ID `9165618661` | 55.1 MB | expired 2026-08-16 |
+| P4.17.1 Signed Adaptive Live Overlay APK #27 / `31672381103` | ID `9170627173` | 55.2 MB | expired 2026-08-16 |
+
+The connected GitHub tool does not expose a repository-wide cache inventory/delete operation. Before final deletion of the legacy private repository, manually inspect `Actions → Management → Caches`; delete any remaining caches if immediate billing/storage reclamation is desired. Repository deletion will otherwise remove repository-owned Actions data with the repository.
+
+## Quarantine repository deletion review
+
+### `easonliu714/my_finance_app_public_email_privacy_quarantine`
+
+- private transitional repository;
+- only observed commit: `a8bfdb8df7b2e99f99cab53c9988152abafb5ed4` (`chore: bootstrap sanitized public source 4.17.2+422`);
+- the exact same commit SHA exists in authoritative `easonliu714/my_finance_app_public` history;
+- no unique source authority remains here.
+
+Disposition: **CONTENT_SAFE_TO_DELETE**, after this ledger/governance migration is retained in public history.
+
+### `easonliu714/my_finance_app_public_bootstrap_quarantine`
+
+- private transitional repository;
+- open Draft PR #1 contains exactly six sanitized test-fixture corrections;
+- the six resulting test blobs were compared with authoritative public `main`; the public copies match the quarantine PR result, including the sanitized invoice-number fixtures and default test merchant option;
+- the bootstrap/staging commits exist only to perform the one-time public-root transition and are not product roadmap authority.
+
+Disposition: **CONTENT_SAFE_TO_DELETE**, after this ledger/governance migration is retained in public history.
+
+Deletion is intentionally not performed by this migration. Repository deletion is a separate irreversible owner action.
+
+## What GitHub retains after repository deletion
+
+For a personal-account repository, GitHub records repository deletion as the `repo.destroy` security-log event. Personal security-log events are reviewable for the documented security-log retention window. GitHub also exposes eligible deleted personal repositories under account settings for restoration for up to 90 days, subject to fork-network restrictions. Repository URLs, PRs, issues and commit browsing should not be treated as permanent audit evidence after deletion; this public ledger is the durable project-side record.
+
 ## Public authority checkpoints
 
 - sanitized public bootstrap: `a8bfdb8df7b2e99f99cab53c9988152abafb5ed4` (`4.17.2+422` generation)
 - public P4.17.4 merge: `3c9b9643b4ece0d5bafc568d291c808086b13a9f`
 - current invoice hardening: public PR #3, Draft / Unmerged until exact-head CI + signed-device gates + explicit owner merge authorization
+- legacy metadata migration: public issues #4–#20 + Draft governance PR #21
 
 ## Deletion gate for the legacy private repository
 
 Do not delete the legacy private repository until all of the following are true:
 
-1. this ledger is merged into public `main`;
+1. this ledger is merged into public `main` or otherwise preserved as an accepted immutable public checkpoint;
 2. public issues #4–#20 remain accessible and accurately represent the intended residual backlog;
-3. legacy Actions artifacts/caches/APK storage has been deleted or explicitly accepted as expiring naturally;
-4. any quarantine repositories have separately passed their deletion review;
+3. any remaining legacy Actions caches are deleted or explicitly accepted as being removed with repository deletion;
+4. both quarantine repositories are accepted for deletion by the owner;
 5. no required source-only material remains exclusively in the legacy repository.
 
 Deleting the legacy repository must not be used as the mechanism for resolving current public PR #3 or any public roadmap issue.
