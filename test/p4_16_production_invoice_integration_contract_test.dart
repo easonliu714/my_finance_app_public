@@ -33,7 +33,7 @@ void main() {
     expect(entry, isNot(contains('拍照／相簿辨識')));
     expect(entry, isNot(contains('Gemini 獨立驗證')));
     expect(image, contains('ImageSource.gallery'));
-    expect(image, isNot(contains('ImageSource.camera'));
+    expect(image, isNot(contains('ImageSource.camera')));
     expect(router, contains('InvoiceImageImportPage.routeName'));
     expect(router, contains("name: 'invoice-capture-still'"));
     expect(router, contains('AdaptiveInvoiceLiveCapturePage'));
@@ -86,7 +86,7 @@ void main() {
     expect(live, contains('左 QR（選填加強）'));
     expect(live, isNot(contains('electronicQrMatches')));
     expect(readiness, contains('consensus.canFreeze && stable >= 2'));
-    expect(readiness, isNot(contains('InvoiceLiveClassification'));
+    expect(readiness, isNot(contains('InvoiceLiveClassification')));
     expect(readiness, isNot(contains('hasValidLeftQr')));
   });
 
@@ -117,9 +117,9 @@ void main() {
     expect(repair, contains('family.length < 2'));
     expect(repair, contains('targets.length != 1'));
     expect(repair, isNot(contains('9_to_0')));
-    expect(repair, isNot(contains('http'));
-    expect(repair, isNot(contains('data.gcis.nat.gov.tw'));
-    expect(live, isNot(contains('TransactionRepository'));
+    expect(repair, isNot(contains('http')));
+    expect(repair, isNot(contains('data.gcis.nat.gov.tw')));
+    expect(live, isNot(contains('TransactionRepository')));
   });
 
   test('4.16.16 fuses Frozen tax evidence and uses semantic total precedence', () {
@@ -131,8 +131,8 @@ void main() {
     expect(flow, contains('currentRawCandidate: frozenRawCandidate'));
     expect(flow, contains('resolveInvoiceTotalEvidence'));
     expect(flow, contains('rawRecognition: source.rawRecognition'));
-    expect(flow, isNot(contains('TransactionRepository'));
-    expect(flow, isNot(contains('TaiwanBusinessRegistryService'));
+    expect(flow, isNot(contains('TransactionRepository')));
+    expect(flow, isNot(contains('TaiwanBusinessRegistryService')));
 
     expect(total, contains("('total_label', 40)"));
     expect(total, contains("('subtotal_label', 35)"));
@@ -159,7 +159,7 @@ void main() {
     expect(evidence, contains('InvoiceReviewFieldKey.randomCode'));
     expect(evidence, contains("'randomCode': candidate.randomCode"));
     expect(evidence, isNot(contains("('invoicePeriod', '', ai.invoicePeriod")));
-    expect(evidence, isNot(contains('TransactionRepository'));
+    expect(evidence, isNot(contains('TransactionRepository')));
   });
 
   test('4.16.14 registry adapter remains explicit corroboration only', () {
@@ -175,9 +175,9 @@ void main() {
     expect(registry, contains('authorizesTaxIdRepair => false'));
     expect(registry, contains('authorizesFormalWrite => false'));
     expect(registry, contains('source-IP allowlisting'));
-    expect(registry, isNot(contains('TransactionRepository'));
-    expect(live, isNot(contains('TaiwanBusinessRegistryService'));
-    expect(frozen, isNot(contains('TaiwanBusinessRegistryService'));
+    expect(registry, isNot(contains('TransactionRepository')));
+    expect(live, isNot(contains('TaiwanBusinessRegistryService')));
+    expect(frozen, isNot(contains('TaiwanBusinessRegistryService')));
   });
 
   test('Traditional date recovery remains calendar-bounded', () {
@@ -186,7 +186,7 @@ void main() {
     expect(parser, contains('_repairYearFromPeriod'));
     expect(parser, contains('_repairMonthFromCalendar'));
     expect(parser, contains('_repairDayFromCalendar'));
-    expect(parser, isNot(contains('_repairMonthFromPeriod'));
+    expect(parser, isNot(contains('_repairMonthFromPeriod')));
     expect(parser, contains('_safeDate(year, month, value)'));
   });
 }
