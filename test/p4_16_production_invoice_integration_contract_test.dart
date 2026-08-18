@@ -19,7 +19,7 @@ void main() {
     expect(card, contains('測試 Key 並讀取可用模型'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.18.5+432'));
+    expect(pubspec, contains('version: 4.18.6+433'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
@@ -122,14 +122,15 @@ void main() {
     expect(live, isNot(contains('TransactionRepository')));
   });
 
-  test('4.16.16 fuses Frozen tax evidence and uses semantic total precedence', () {
+  test('4.16.16 fuses Frozen tax evidence and uses fail-closed semantic total merge', () {
     final flow = File('lib/features/invoice/invoice_field_first_review_flow.dart').readAsStringSync();
     final total = File('lib/features/invoice/invoice_total_evidence.dart').readAsStringSync();
 
     expect(flow, contains('_resolveLiveFrozenTemporalTaxRepair'));
     expect(flow, contains('frozenRawCandidate'));
     expect(flow, contains('currentRawCandidate: frozenRawCandidate'));
-    expect(flow, contains('resolveInvoiceTotalEvidence'));
+    expect(flow, contains('resolveInvoiceTotalMerge'));
+    expect(flow, contains('LOCAL_LOCAL_TOTAL_CONFLICT'));
     expect(flow, contains('rawRecognition: source.rawRecognition'));
     expect(flow, isNot(contains('TransactionRepository')));
     expect(flow, isNot(contains('TaiwanBusinessRegistryService')));
@@ -139,6 +140,7 @@ void main() {
     expect(total, contains("('payable_label', 30)"));
     expect(total, contains("('cash_tender_label', 10)"));
     expect(total, contains("previous.startsWith('小')"));
+    expect(total, contains('InvoiceTotalMergeDecision.conflict'));
   });
 
   test('4.16.16 core form fields and evidence comparison are first-class', () {
