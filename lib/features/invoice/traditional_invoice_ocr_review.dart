@@ -21,6 +21,42 @@ enum TraditionalInvoiceOcrConfidence {
   unknown,
 }
 
+class TraditionalInvoiceOcrVariantDiagnostic {
+  const TraditionalInvoiceOcrVariantDiagnostic({
+    required this.label,
+    this.invoiceNumber = '',
+    this.sellerTaxId = '',
+    this.sellerTaxIdSource = '',
+    this.invoiceDate,
+    this.sellerName = '',
+    this.totalAmount,
+    this.invoicePeriod = '',
+    this.invoiceTime = '',
+  });
+
+  final String label;
+  final String invoiceNumber;
+  final String sellerTaxId;
+  final String sellerTaxIdSource;
+  final DateTime? invoiceDate;
+  final String sellerName;
+  final double? totalAmount;
+  final String invoicePeriod;
+  final String invoiceTime;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'label': label,
+        'invoiceNumber': invoiceNumber,
+        'sellerTaxId': sellerTaxId,
+        'sellerTaxIdSource': sellerTaxIdSource,
+        'invoiceDate': invoiceDate?.toIso8601String(),
+        'sellerName': sellerName,
+        'totalAmount': totalAmount,
+        'invoicePeriod': invoicePeriod,
+        'invoiceTime': invoiceTime,
+      };
+}
+
 class TraditionalInvoiceOcrLineItem {
   const TraditionalInvoiceOcrLineItem({
     required this.name,
@@ -64,6 +100,7 @@ class TraditionalInvoiceOcrRecognition {
     this.confidence = const <TraditionalInvoiceOcrField,
         TraditionalInvoiceOcrConfidence>{},
     this.fieldWarnings = const <TraditionalInvoiceOcrField, List<String>>{},
+    this.variantDiagnostics = const <TraditionalInvoiceOcrVariantDiagnostic>[],
     this.rawText = '',
     this.rawLines = const <String>[],
   });
@@ -78,6 +115,7 @@ class TraditionalInvoiceOcrRecognition {
   final Map<TraditionalInvoiceOcrField, TraditionalInvoiceOcrConfidence>
       confidence;
   final Map<TraditionalInvoiceOcrField, List<String>> fieldWarnings;
+  final List<TraditionalInvoiceOcrVariantDiagnostic> variantDiagnostics;
   final String rawText;
   final List<String> rawLines;
 }
@@ -100,6 +138,7 @@ class TraditionalInvoiceOcrReviewCandidate {
     required this.visibleLineItems,
     required this.confidence,
     required this.fieldWarnings,
+    this.variantDiagnostics = const <TraditionalInvoiceOcrVariantDiagnostic>[],
     this.rawText = '',
     this.rawLines = const <String>[],
   });
@@ -115,6 +154,7 @@ class TraditionalInvoiceOcrReviewCandidate {
   final Map<TraditionalInvoiceOcrField, TraditionalInvoiceOcrConfidence>
       confidence;
   final Map<TraditionalInvoiceOcrField, List<String>> fieldWarnings;
+  final List<TraditionalInvoiceOcrVariantDiagnostic> variantDiagnostics;
   final String rawText;
   final List<String> rawLines;
 
@@ -160,6 +200,7 @@ class TraditionalInvoiceOcrReviewCandidate {
       visibleLineItems: visibleLineItems ?? this.visibleLineItems,
       confidence: confidence,
       fieldWarnings: fieldWarnings,
+      variantDiagnostics: variantDiagnostics,
       rawText: rawText,
       rawLines: rawLines,
     );
@@ -174,6 +215,7 @@ class TraditionalInvoiceOcrReviewCandidate {
       'hasSellerName': sellerName.isNotEmpty,
       'hasTotalAmount': totalAmount != null,
       'visibleLineItemCount': visibleLineItems.length,
+      'variantDiagnosticCount': variantDiagnostics.length,
       'warningFieldCount': fieldWarnings.values
           .where((warnings) => warnings.isNotEmpty)
           .length,
@@ -250,6 +292,10 @@ class TraditionalInvoiceOcrCoordinator {
         fieldWarnings:
             Map<TraditionalInvoiceOcrField, List<String>>.unmodifiable(
           warnings,
+        ),
+        variantDiagnostics:
+            List<TraditionalInvoiceOcrVariantDiagnostic>.unmodifiable(
+          recognition.variantDiagnostics,
         ),
         rawText: recognition.rawText,
         rawLines: List<String>.unmodifiable(recognition.rawLines),
