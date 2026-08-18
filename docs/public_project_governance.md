@@ -44,4 +44,66 @@ At the end of an implementation session, state one concrete next action:
 
 ## Progress handoff
 
-Maintain event-driven project handoff evidence rather than relying on conversation length alone. Important implementation, exact-head CI, signed-device, merge, rollback and governance transitions should be captured in repository/project snapshots so a new conversation can recover without guessing.
+Maintain event-driven project handoff evidence rather than relying on conversation length alone.
+
+### Micro Checkpoint
+
+Create or refresh a lightweight checkpoint immediately after a material transition, including at least:
+
+- exact product version/build;
+- `main` SHA, active branch, active PR and exact active head;
+- current task/root cause;
+- current CI/signed/device state;
+- safety/non-regression contracts affected;
+- blocker and exact next action.
+
+Typical triggers include:
+
+- product/runtime commit or rollback;
+- exact-head CI PASS/FAIL/HOLD;
+- Signed APK ready/fail;
+- real-device Gate PASS/FAIL/HOLD;
+- root-cause reclassification;
+- governance/backlog migration decision;
+- Phase/Gate transition.
+
+### Milestone Full Snapshot
+
+A downloadable full project snapshot is mandatory at major milestones. Do not wait for the conversation to approach its context limit.
+
+Mandatory snapshot triggers include:
+
+- completion of the legacy private-repo audit/backlog migration;
+- PR merge or post-merge production baseline change;
+- completion of a real-device validation cycle, PASS or FAIL;
+- Signed APK/release candidate becoming ready for owner validation;
+- phase/version transition;
+- major blocker/root-cause closure;
+- substantial governance or safety-policy change;
+- before starting a large new implementation phase when recovery risk would increase.
+
+Each full snapshot should preserve:
+
+1. project goal and current phase;
+2. repository/branch/PR/exact-SHA authority;
+3. app version/build and signed-artifact provenance where applicable;
+4. completed and unfinished work;
+5. CI/test/device Gate results;
+6. user-provided real-device findings that GitHub cannot recover;
+7. non-regression and privacy/safety contracts;
+8. known risks/HOLD conditions;
+9. backlog/governance migration state;
+10. exact next action and merge authorization state;
+11. new-chat recovery procedure and snapshot staleness check.
+
+Snapshot filenames should be explicit and sortable, for example:
+
+`Finance_App_專案進度快照_v<version>_<milestone>_<YYYY-MM-DD_HHmm>.md`
+
+### Snapshot staleness check
+
+A new conversation must not assume the latest snapshot is technically current. Reconcile snapshot `main_sha` and `active_head` with GitHub first. If they differ, mark the snapshot as stale for technical state, refresh code/CI facts from GitHub, and preserve only the snapshot information GitHub cannot reconstruct such as device findings, decisions, safety rationale and pending manual Gates.
+
+### Current special milestone rule
+
+The current legacy private-repository audit / backlog consolidation is a mandatory milestone. When that task is fully closed, create and provide a Full Snapshot before the old repository authorization is removed or before product work continues beyond the next safe checkpoint.
