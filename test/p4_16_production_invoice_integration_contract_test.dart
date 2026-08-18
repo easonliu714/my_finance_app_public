@@ -19,7 +19,7 @@ void main() {
     expect(card, contains('測試 Key 並讀取可用模型'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.18.6+433'));
+    expect(pubspec, contains('version: 4.18.6+434'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
