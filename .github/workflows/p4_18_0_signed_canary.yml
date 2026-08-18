@@ -195,4 +195,4 @@ jobs:
             build/app/outputs/flutter-apk/app-release.apk
             p4_18_5_public_signed_canary.sha256
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
