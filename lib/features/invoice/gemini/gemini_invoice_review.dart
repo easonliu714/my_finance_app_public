@@ -240,6 +240,24 @@ String _normalizeInvoicePeriod(Object? value) {
     }
   }
 
+  // Gemini may emit a separator-free ROC bimonthly token such as 1150506.
+  // Because the token is ambiguous without separators, accept only canonical
+  // Taiwan invoice two-month periods: odd start month followed by start + 1.
+  final compactBimonthly =
+      RegExp(r'^(\d{2,3})(\d{2})(\d{2})$').firstMatch(compact);
+  if (compactBimonthly != null) {
+    final year = int.parse(compactBimonthly.group(1)!);
+    final startMonth = int.parse(compactBimonthly.group(2)!);
+    final endMonth = int.parse(compactBimonthly.group(3)!);
+    final canonicalPair = startMonth >= 1 &&
+        startMonth <= 11 &&
+        startMonth.isOdd &&
+        endMonth == startMonth + 1;
+    if (year >= 80 && year <= 200 && canonicalPair) {
+      return '$year年$startMonth-$endMonth月份';
+    }
+  }
+
   return raw;
 }
 
