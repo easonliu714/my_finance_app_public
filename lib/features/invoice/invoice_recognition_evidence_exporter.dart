@@ -74,6 +74,10 @@ class InvoiceRecognitionEvidenceExporter {
     final rawLines =
         ocrCandidate?.rawLines ?? rawRecognition?.rawLines ?? const <String>[];
     final rawOcrAvailable = rawText.trim().isNotEmpty || rawLines.isNotEmpty;
+    final variantDiagnostics = ocrCandidate?.variantDiagnostics ??
+        rawRecognition?.variantDiagnostics ??
+        const [];
+    final variantDiagnosticsIncluded = variantDiagnostics.isNotEmpty;
     final liveHistory =
         captureContext?.liveHistory ?? const <InvoiceLiveFrameEvidence>[];
     final liveHistoryIncluded = liveHistory.isNotEmpty;
@@ -119,6 +123,23 @@ class InvoiceRecognitionEvidenceExporter {
         ].join('\n'),
       );
     }
+    if (variantDiagnosticsIncluded) {
+      _addText(
+        archive,
+        'local_ocr_variant_votes.json',
+        const JsonEncoder.withIndent('  ').convert(
+          <String, Object?>{
+            'schemaVersion': 'invoice-local-ocr-variant-votes-v1',
+            'derivativeImagesIncluded': false,
+            'originalFrozenImageRemainsAuthority': true,
+            'variants': <Object?>[
+              for (final diagnostic in variantDiagnostics)
+                diagnostic.toJson(),
+            ],
+          },
+        ),
+      );
+    }
     if (liveHistoryIncluded) {
       _addText(
         archive,
@@ -145,6 +166,8 @@ class InvoiceRecognitionEvidenceExporter {
         'containsInvoiceImage': true,
         'containsRecognizedInvoiceValues': true,
         'containsRawLocalOcrEvidence': rawOcrAvailable,
+        'containsLocalOcrVariantDiagnostics': variantDiagnosticsIncluded,
+        'containsLocalOcrDerivativeImages': false,
         'containsLiveSnapshotHistory': liveHistoryIncluded,
         'apiKeyIncluded': false,
         'automaticUploadPerformed': false,
@@ -184,6 +207,7 @@ class InvoiceRecognitionEvidenceExporter {
       'safety': <String, Object?>{
         'aiOverwritesLocal': false,
         'automaticFormalTransactionWrite': false,
+        'ocrDerivativeImageBecomesAuthority': false,
         'requiresUserReview': true,
       },
     };
@@ -208,6 +232,8 @@ class InvoiceRecognitionEvidenceExporter {
         'gemini_input_is_exact_request_bytes=$geminiAttempted',
         'gemini_input_matches_capture_sha256=${sameBytes ?? 'NOT_AVAILABLE'}',
         'local_ocr_raw_included=$rawOcrAvailable',
+        'local_ocr_variant_diagnostics_included=$variantDiagnosticsIncluded',
+        'local_ocr_derivative_images_included=false',
         'live_snapshot_history_included=$liveHistoryIncluded',
         'live_snapshot_history_count=${liveHistory.length}',
         'api_key_included=false',
@@ -316,6 +342,10 @@ class InvoiceRecognitionEvidenceExporter {
                 for (final entry in ocr.fieldWarnings.entries)
                   entry.key.name: entry.value,
               },
+              'variantDiagnostics': <Object?>[
+                for (final diagnostic in ocr.variantDiagnostics)
+                  diagnostic.toJson(),
+              ],
               'rawText': ocr.rawText,
               'rawLines': ocr.rawLines,
             },
@@ -328,6 +358,10 @@ class InvoiceRecognitionEvidenceExporter {
               'invoiceDate': raw.invoiceDate?.toIso8601String(),
               'sellerName': raw.sellerName,
               'totalAmount': raw.totalAmount,
+              'variantDiagnostics': <Object?>[
+                for (final diagnostic in raw.variantDiagnostics)
+                  diagnostic.toJson(),
+              ],
               'rawText': raw.rawText,
               'rawLines': raw.rawLines,
             },
