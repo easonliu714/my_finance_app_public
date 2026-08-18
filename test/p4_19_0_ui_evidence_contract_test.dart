@@ -32,7 +32,10 @@ void main() {
       expect(source, contains('gemini_invocation_mode='));
       expect(source, contains('gemini_request_count='));
       expect(source, contains('automatic_review_setting_enabled='));
-      expect(source, contains('automatic_upload_performed=$automaticUploadPerformed'));
+      expect(
+        source,
+        contains(r'automatic_upload_performed=$automaticUploadPerformed'),
+      );
       expect(source, isNot(contains("'automatic_upload_performed=false'")));
       expect(source, contains("'production_database_write_performed=false'"));
     });
