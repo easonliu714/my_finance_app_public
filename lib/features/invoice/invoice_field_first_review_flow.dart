@@ -1,4 +1,3 @@
-import 'google_mlkit_traditional_invoice_recognizer.dart';
 import 'image_capture_staging.dart';
 import 'invoice_automatic_recognition_coordinator.dart';
 import 'invoice_capture_review_flow.dart';
@@ -7,6 +6,7 @@ import 'invoice_live_capture_page.dart';
 import 'invoice_local_recognition_coordinator.dart';
 import 'invoice_total_evidence.dart';
 import 'mobile_scanner_invoice_qr_decoder.dart';
+import 'traditional_invoice_multi_variant_recognizer.dart';
 import 'traditional_invoice_ocr_review.dart';
 import 'traditional_tax_id_temporal_repair.dart';
 
@@ -29,7 +29,7 @@ class FieldFirstInvoiceCaptureReviewFlowCoordinator
           decoder: NativeInvoiceQrDecoder(),
         ).recognize,
         ocrRunner: const TraditionalInvoiceOcrCoordinator(
-          recognizer: GoogleMlKitTraditionalInvoiceRecognizer(),
+          recognizer: GoogleMlKitMultiVariantTraditionalInvoiceRecognizer(),
         ).recognize,
       ),
     );
