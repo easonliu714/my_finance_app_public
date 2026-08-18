@@ -5,6 +5,7 @@ class GeminiInvoiceSettings {
     this.apiKeys = const <String>[],
     this.model = defaultModel,
     this.experimentalInvoiceVisionEnabled = false,
+    this.autoReviewLowConfidenceEnabled = false,
     this.debugToolsEnabled = true,
   });
 
@@ -13,6 +14,7 @@ class GeminiInvoiceSettings {
   final List<String> apiKeys;
   final String model;
   final bool experimentalInvoiceVisionEnabled;
+  final bool autoReviewLowConfidenceEnabled;
   final bool debugToolsEnabled;
 
   bool get hasApiKey => apiKeys.isNotEmpty;
@@ -21,6 +23,7 @@ class GeminiInvoiceSettings {
     List<String>? apiKeys,
     String? model,
     bool? experimentalInvoiceVisionEnabled,
+    bool? autoReviewLowConfidenceEnabled,
     bool? debugToolsEnabled,
   }) {
     return GeminiInvoiceSettings(
@@ -28,15 +31,18 @@ class GeminiInvoiceSettings {
       model: model ?? this.model,
       experimentalInvoiceVisionEnabled:
           experimentalInvoiceVisionEnabled ?? this.experimentalInvoiceVisionEnabled,
+      autoReviewLowConfidenceEnabled:
+          autoReviewLowConfidenceEnabled ?? this.autoReviewLowConfidenceEnabled,
       debugToolsEnabled: debugToolsEnabled ?? this.debugToolsEnabled,
     );
   }
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'schemaVersion': 1,
+        'schemaVersion': 2,
         'apiKeys': apiKeys,
         'model': model,
         'experimentalInvoiceVisionEnabled': experimentalInvoiceVisionEnabled,
+        'autoReviewLowConfidenceEnabled': autoReviewLowConfidenceEnabled,
         'debugToolsEnabled': debugToolsEnabled,
       };
 
@@ -55,6 +61,8 @@ class GeminiInvoiceSettings {
         model: _normalizedModel(values['model']?.toString()),
         experimentalInvoiceVisionEnabled:
             values['experimentalInvoiceVisionEnabled'] == true,
+        autoReviewLowConfidenceEnabled:
+            values['autoReviewLowConfidenceEnabled'] == true,
         debugToolsEnabled: values['debugToolsEnabled'] != false,
       );
     } catch (_) {
