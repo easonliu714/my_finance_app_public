@@ -13,6 +13,12 @@ class InvoiceTotalEvidence {
 }
 
 InvoiceTotalEvidence? resolveInvoiceTotalEvidence(List<String> rawLines) {
+  if (rawLines.any(
+    (line) => line.trim().startsWith('P4_18_5_TOTAL_DECISION_LOCK='),
+  )) {
+    return null;
+  }
+
   final lines = rawLines
       .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
       .where((line) => line.isNotEmpty)
