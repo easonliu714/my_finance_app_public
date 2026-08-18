@@ -6,7 +6,7 @@ Date: 2026-08-18
 
 This document preserves the disposition of open planning metadata that existed in the legacy private repository `easonliu714/my_finance_app` when the sanitized public repository became authoritative.
 
-The public source tree was bootstrapped from the sanitized `4.17.2+422` state and subsequently advanced through public P4.17.4. Historical private pull requests are therefore not automatically pending public work.
+The public source tree was bootstrapped from the sanitized `4.17.2+422` state and subsequently advanced through public P4.17.4 and P4.18.6. Historical private pull requests are therefore not automatically pending public work.
 
 Rules used for this migration:
 
@@ -15,7 +15,7 @@ Rules used for this migration:
 - consolidate duplicate/overlapping issues;
 - do not recreate historical implementation PRs whose code is already represented or superseded by public `main`;
 - do not treat old phase/version text as current authority;
-- keep current P4.18 invoice work under public PR #3 rather than recreating older invoice-roadmap children.
+- keep current invoice work under the authoritative public repository rather than recreating older invoice-roadmap children.
 
 ## Legacy open issues
 
@@ -30,20 +30,20 @@ Rules used for this migration:
 | #113 | RESIDUAL_MIGRATED | public #9 — reload/auto-reload residual; existing low-balance foundations retained |
 | #114 | CONSOLIDATED | public #10 — transaction-entry quick-add |
 | #117 | CONSOLIDATED | public #8 |
-| #334 | SUPERSEDED | review-first candidate/draft architecture is already represented by later production implementation and current P4.18 flow |
+| #334 | SUPERSEDED | review-first candidate/draft architecture is already represented by later production implementation and current public invoice flow |
 | #366 | HISTORICAL_ONLY | APK validation findings record; not an active public backlog item |
 | #371 | MIGRATED | public #11 — deterministic time-based default expense category |
 | #376 | RESIDUAL_MIGRATED | public #12 — remaining Settings Center / Places / quota/general-settings scope; existing Gemini BYOK is not reset |
-| #380 | MIGRATED | public #13 — invoice award-check shortcut/reminder |
+| #380 | MIGRATED | public #13 — invoice award-check shortcut/reminder and later expanded award-sync/bookkeeping roadmap |
 | #383 | MIGRATED | public #14 — customizable Home shortcuts |
 | #384 | UPDATED_MIGRATION | public #15 — public CI minutes/cache/artifact-storage governance |
 | #405 | CONSOLIDATED | public #10 |
 | #412 | POLICY_TO_DOCUMENTATION | development/CI governance belongs in repository governance documentation, not a product backlog issue |
 | #588 | MIGRATED | public #16 — product-photo + Gemini Vision review-first roadmap |
-| #589 | CURRENT_WORK_SUPERSEDES | current public PR #3 owns the active invoice OCR/Gemini review work; create only a residual follow-up after P4.18 closure if needed |
+| #589 | SUPERSEDED_BY_PUBLIC_LINEAGE | public P4.18.x completed the migrated invoice OCR/Gemini review hardening; later work continues under current public phases/issues |
 | #590 | MIGRATED | public #18 — final schema freeze / backup audit / local DB encryption |
 | #608 | MIGRATED | public #19 — official Taiwan business-calendar annual update/manual CSV fallback |
-| #617 | MIGRATED | public #20 — merchant identity history/legal-name changes/local learning |
+| #617 | MIGRATED | public #20 — merchant identity history, downloadable official business registry, and local learning |
 | #665 | SUPERSEDED | P4.15.2 recognition child was superseded by P4.16/P4.17/P4.18 production work |
 | #666 | MIGRATED | public #17 — product image crop/photo-retention child roadmap |
 | #667 | RESIDUAL_CONSOLIDATED | public #12 — existing Gemini BYOK/model validation is already implemented; only remaining settings scope migrated |
@@ -103,6 +103,19 @@ Disposition: **CONTENT_SAFE_TO_DELETE**, after this ledger/governance migration 
 
 Deletion is intentionally not performed by this migration. Repository deletion is a separate irreversible owner action.
 
+## GitHub App access cutoff
+
+On 2026-08-18 the owner removed the GitHub App repository read authorization for the legacy private repository `easonliu714/my_finance_app`.
+
+A post-removal installation query confirmed:
+
+- `easonliu714/my_finance_app` is no longer in the GitHub App accessible-repository set;
+- `easonliu714/my_finance_app_public` remains accessible and authoritative;
+- both quarantine repositories remain accessible pending their separate deletion decision;
+- active public development continues without requiring access to the legacy private repository.
+
+This access cutoff is deliberate dependency evidence: future product development, PR/CI/signing governance and roadmap authority must not depend on re-enabling the legacy repository.
+
 ## What GitHub retains after repository deletion
 
 For a personal-account repository, GitHub records repository deletion as the `repo.destroy` security-log event. Personal security-log events are reviewable for the documented security-log retention window. GitHub also exposes eligible deleted personal repositories under account settings for restoration for up to 90 days, subject to fork-network restrictions. Repository URLs, PRs, issues and commit browsing should not be treated as permanent audit evidence after deletion; this public ledger is the durable project-side record.
@@ -111,8 +124,10 @@ For a personal-account repository, GitHub records repository deletion as the `re
 
 - sanitized public bootstrap: `a8bfdb8df7b2e99f99cab53c9988152abafb5ed4` (`4.17.2+422` generation)
 - public P4.17.4 merge: `3c9b9643b4ece0d5bafc568d291c808086b13a9f`
-- current invoice hardening: public PR #3, Draft / Unmerged until exact-head CI + signed-device gates + explicit owner merge authorization
-- legacy metadata migration: public issues #4–#20 + Draft governance PR #21
+- public P4.18.6 merge: `c1c090740ea6b0d6f2622d589877386d86057df0`
+- current invoice phase: public PR #23 (`P4.19.0`), Draft / Unmerged until its own CI/device/owner merge gates are satisfied
+- legacy metadata migration: public issues #4–#20 + governance PR #21
+- legacy private GitHub App read authorization: REMOVED and post-removal verified on 2026-08-18
 
 ## Deletion gate for the legacy private repository
 
@@ -122,6 +137,7 @@ Do not delete the legacy private repository until all of the following are true:
 2. public issues #4–#20 remain accessible and accurately represent the intended residual backlog;
 3. any remaining legacy Actions caches are deleted or explicitly accepted as being removed with repository deletion;
 4. both quarantine repositories are accepted for deletion by the owner;
-5. no required source-only material remains exclusively in the legacy repository.
+5. no required source-only material remains exclusively in the legacy repository;
+6. the legacy private repository GitHub App access remains removed and public-only development continues normally.
 
-Deleting the legacy repository must not be used as the mechanism for resolving current public PR #3 or any public roadmap issue.
+Deleting the legacy repository must not be used as the mechanism for resolving any current public PR or roadmap issue.
