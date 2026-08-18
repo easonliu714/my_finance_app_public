@@ -90,6 +90,60 @@ void main() {
       expect(client.lastBytes, Uint8List.fromList(const <int>[1, 2, 3, 4]));
     });
 
+    test('automatic review never fails over to a second API key', () async {
+      final client = _CountingClient(failRetryably: true);
+      final coordinator = GeminiInvoiceReviewCoordinator(
+        settingsStore: _MemorySettingsStore(
+          const GeminiInvoiceSettings(
+            apiKeys: <String>['key-1', 'key-2'],
+            experimentalInvoiceVisionEnabled: true,
+            autoReviewLowConfidenceEnabled: true,
+          ),
+        ),
+        client: client,
+        imageLoader: const _MemoryImageLoader(),
+      );
+
+      final execution = await coordinator.reviewAutomatically(
+        localResult: _recognitionFailed(),
+        localReference: '/original/frozen.jpg',
+      );
+
+      expect(execution.status, GeminiInvoiceReviewExecutionStatus.failed);
+      expect(execution.requestCount, 1);
+      expect(execution.attempts, hasLength(1));
+      expect(execution.automaticUploadPerformed, isTrue);
+      expect(client.calls, 1);
+      expect(client.keys, <String>['key-1']);
+    });
+
+    test('manual review may still fail over to a second API key', () async {
+      final client = _CountingClient(failFirstOnly: true);
+      final coordinator = GeminiInvoiceReviewCoordinator(
+        settingsStore: _MemorySettingsStore(
+          const GeminiInvoiceSettings(
+            apiKeys: <String>['key-1', 'key-2'],
+            experimentalInvoiceVisionEnabled: true,
+            autoReviewLowConfidenceEnabled: true,
+          ),
+        ),
+        client: client,
+        imageLoader: const _MemoryImageLoader(),
+      );
+
+      final execution = await coordinator.review(
+        localResult: _recognitionFailed(),
+        localReference: '/original/frozen.jpg',
+      );
+
+      expect(execution.status, GeminiInvoiceReviewExecutionStatus.success);
+      expect(execution.invocationMode, GeminiInvoiceReviewInvocationMode.manual);
+      expect(execution.requestCount, 2);
+      expect(execution.automaticUploadPerformed, isFalse);
+      expect(client.calls, 2);
+      expect(client.keys, <String>['key-1', 'key-2']);
+    });
+
     test('setting ON plus complete high-confidence Local makes zero AI requests', () async {
       final client = _CountingClient();
       final coordinator = GeminiInvoiceReviewCoordinator(
@@ -195,8 +249,13 @@ class _MemoryImageLoader implements GeminiInvoiceImageLoader {
 }
 
 class _CountingClient implements GeminiInvoiceReviewPort {
+  _CountingClient({this.failRetryably = false, this.failFirstOnly = false});
+
+  final bool failRetryably;
+  final bool failFirstOnly;
   int calls = 0;
   Uint8List? lastBytes;
+  final List<String> keys = <String>[];
 
   @override
   Future<GeminiInvoiceReviewCandidate> review({
@@ -207,7 +266,14 @@ class _CountingClient implements GeminiInvoiceReviewPort {
     Map<String, Object?> localSummary = const <String, Object?>{},
   }) async {
     calls += 1;
+    keys.add(apiKey);
     lastBytes = Uint8List.fromList(imageBytes);
+    if (failRetryably || (failFirstOnly && calls == 1)) {
+      throw const GeminiInvoiceReviewException(
+        GeminiInvoiceReviewFailureKind.quota,
+        'test retryable failure',
+      );
+    }
     return const GeminiInvoiceReviewCandidate(
       invoiceNumber: 'AA12345678',
       invoicePeriod: '115年7-8月份',
