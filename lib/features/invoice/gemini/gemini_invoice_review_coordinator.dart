@@ -348,7 +348,10 @@ class GeminiInvoiceReviewCoordinator {
     }
 
     final attempts = <GeminiInvoiceReviewAttemptSummary>[];
-    for (var index = 0; index < settings.apiKeys.length; index++) {
+    // Automatic mode is a standing authorization for one image request only.
+    // Manual review may still fail over across the user's configured keys.
+    final keyCount = automatic ? 1 : settings.apiKeys.length;
+    for (var index = 0; index < keyCount; index++) {
       final key = settings.apiKeys[index];
       final maskedKey = GeminiInvoiceSettings.maskApiKey(key);
       try {
