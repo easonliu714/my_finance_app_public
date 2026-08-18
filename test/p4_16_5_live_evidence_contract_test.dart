@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('P4.17 keeps P4.16.16 safety baseline under adaptive Live guidance', () {
+  test('P4.19 keeps P4.16.16 safety baseline under automatic AI review', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final router = File('lib/routing/app_router.dart').readAsStringSync();
     final entry = File('lib/features/invoice/invoice_capture_entry_page.dart').readAsStringSync();
@@ -26,7 +26,7 @@ void main() {
       'lib/features/invoice/traditional_invoice_multi_variant_recognizer.dart',
     ).readAsStringSync();
 
-    expect(pubspec, contains('version: 4.18.6+434'));
+    expect(pubspec, contains('version: 4.19.0+435'));
     expect(pubspec, contains('camera: ^0.12.0+1'));
     expect(pubspec, contains('google_mlkit_barcode_scanning: ^0.14.2'));
     expect(pubspec, contains('archive: ^4.0.9'));
@@ -127,6 +127,7 @@ void main() {
 
     expect(frozen, contains('positionalTaxIdTemporalRepairSource'));
     expect(frozen, contains('extractUnverifiedPositionalHeaderTaxIdFromLines'));
+    expect(frozen, contains('reviewAutomatically'));
     expect(frozen, isNot(contains('data.gcis.nat.gov.tw')));
 
     expect(fieldEvidence, contains('invoicePeriod'));
@@ -147,6 +148,7 @@ void main() {
     expect(evidenceExporter, contains("'randomCode': candidate.randomCode"));
     expect(evidenceExporter, contains("'local_ocr_variant_votes.json'"));
     expect(evidenceExporter, contains("'containsLocalOcrDerivativeImages': false"));
+    expect(evidenceExporter, contains('automaticUploadPerformed'));
     expect(evidenceExporter, isNot(contains("('invoicePeriod', '', ai.invoicePeriod")));
 
     expect(geminiCandidate, contains('randomCode'));
@@ -176,10 +178,10 @@ void main() {
     expect(client, isNot(contains('cropImage')));
   });
 
-  test('Evidence v4 keeps provenance and safety boundaries', () {
+  test('Evidence v5 keeps provenance and automatic-upload audit boundaries', () {
     final evidence = File('lib/features/invoice/invoice_recognition_evidence_exporter.dart').readAsStringSync();
 
-    expect(evidence, contains('invoice-recognition-evidence-v4'));
+    expect(evidence, contains('invoice-recognition-evidence-v5'));
     expect(evidence, contains("'capture_image."));
     expect(evidence, contains("'gemini_input."));
     expect(evidence, contains("'local_ocr_raw.txt'"));
@@ -188,13 +190,16 @@ void main() {
     expect(evidence, contains('ocrResult?.rawRecognition'));
     expect(evidence, contains('capture_sha256='));
     expect(evidence, contains('gemini_input_matches_capture_sha256='));
+    expect(evidence, contains('gemini_invocation_mode='));
+    expect(evidence, contains('gemini_request_count='));
+    expect(evidence, contains('automatic_review_setting_enabled='));
     expect(evidence, contains('local_ocr_derivative_images_included=false'));
     expect(
       evidence,
       contains('String appVersion = PrivateCloudInvoiceLabConfig.validationVersion'),
     );
     expect(evidence, contains("'apiKeyIncluded': false"));
-    expect(evidence, contains("'automaticUploadPerformed': false"));
+    expect(evidence, contains("'automaticUploadPerformed': automaticUploadPerformed"));
     expect(evidence, contains("'productionDatabaseWritePerformed': false"));
     expect(evidence, contains("'ocrDerivativeImageBecomesAuthority': false"));
     expect(evidence, isNot(contains('x-goog-api-key')));
