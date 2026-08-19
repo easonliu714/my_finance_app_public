@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../recognition_ai/recognition_ai_status_indicator.dart';
 import 'daily_capture_entry_shell.dart';
 import 'gemini/gemini_invoice_review.dart';
 import 'gemini/gemini_invoice_review_client.dart';
@@ -308,7 +309,18 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                         : Icons.verified_outlined,
                   ),
                   title: Text(_aiStatusTitle(_geminiDecision!, execution)),
-                  subtitle: Text(_aiStatusSubtitle(_geminiDecision!, execution)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(_aiStatusSubtitle(_geminiDecision!, execution)),
+                      if (execution?.sessionContext != null) ...<Widget>[
+                        const SizedBox(height: 6),
+                        RecognitionAiStatusIndicator(
+                          context: execution!.sessionContext!,
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             if (ai != null) ...<Widget>[
