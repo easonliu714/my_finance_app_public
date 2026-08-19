@@ -108,7 +108,7 @@ void main() {
     expect(editable.obscureText, isFalse);
   });
 
-  testWidgets('tests multiple keys, loads models and securely saves flags', (
+  testWidgets('tests explicit groups, loads models and securely saves topology', (
     tester,
   ) async {
     final store = _FakeStore(const GeminiInvoiceSettings());
@@ -116,9 +116,12 @@ void main() {
 
     final apiKeyField = find.byKey(GeminiInvoiceSettingsCard.apiKeyFieldKey);
     await tester.ensureVisible(apiKeyField);
-    await tester.enterText(apiKeyField, 'KEY_1，KEY_2；KEY_1');
+    await tester.enterText(apiKeyField, 'KEY_1\nKEY_2\nKEY_1');
     await tester.pump();
-    expect(find.text('已解析 2 組 API Key'), findsOneWidget);
+    expect(
+      find.text('已解析 2 個 Key Group / 2 組 API Key'),
+      findsOneWidget,
+    );
 
     final testButton = find.byKey(GeminiInvoiceSettingsCard.testKey);
     await tester.ensureVisible(testButton);
@@ -127,8 +130,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('已讀取 2 個'), findsOneWidget);
-    expect(find.textContaining('Key #1'), findsOneWidget);
-    expect(find.textContaining('Key #2'), findsOneWidget);
+    expect(find.textContaining('GROUP_A · Key #1'), findsOneWidget);
+    expect(find.textContaining('GROUP_B · Key #2'), findsOneWidget);
 
     final featureSwitch = find.widgetWithText(
       SwitchListTile,
@@ -144,6 +147,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(store.value.apiKeys, <String>['KEY_1', 'KEY_2']);
+    expect(store.value.effectiveKeyGroups, hasLength(2));
+    expect(store.value.effectiveKeyGroups[0].alias, 'GROUP_A');
+    expect(store.value.effectiveKeyGroups[0].apiKeys, <String>['KEY_1']);
+    expect(store.value.effectiveKeyGroups[1].alias, 'GROUP_B');
+    expect(store.value.effectiveKeyGroups[1].apiKeys, <String>['KEY_2']);
     expect(store.value.model, GeminiInvoiceSettings.defaultModel);
     expect(store.value.experimentalInvoiceVisionEnabled, isTrue);
     expect(store.value.debugToolsEnabled, isTrue);
