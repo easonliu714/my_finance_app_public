@@ -25,7 +25,9 @@ void main() {
     expect(settings, contains('legacyGroupAlias'));
     expect(card, contains('OCR 信心不足時自動 AI 辨識'));
     expect(card, contains('每次只建立 1 個 AI logical invocation'));
-    expect(card, contains('每行 1 個獨立 Project'));
+    expect(card, contains('新增獨立 Project / Key Group'));
+    expect(card, contains('獨立 Google Project / quota boundary'));
+    expect(card, contains('obscureText: _obscureKeys'));
     expect(coordinator, contains('automatic && !settings.autoReviewLowConfidenceEnabled'));
     expect(coordinator, contains('settings.effectiveKeyGroups'));
     expect(coordinator, contains('GeminiKeyGroupRouter.fromGroups'));
