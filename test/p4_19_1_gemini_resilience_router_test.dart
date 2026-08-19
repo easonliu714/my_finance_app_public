@@ -101,54 +101,70 @@ void main() {
     expect(result, isNot(contains('missing-flash')));
   });
 
-  test('legacy flat keys stay in one conservative quota group', () async {
-    final groups = GeminiKeyGroupRouter.fromApiKeys(
+  test('flat keys become ordered anonymous runtime slots', () {
+    final slots = GeminiKeyGroupRouter.fromApiKeys(
       const <String>['KEY_A', 'KEY_B'],
     ).healthyGroups;
-    expect(groups, hasLength(1));
-    expect(groups.single.alias, 'LEGACY_GROUP');
-    expect(groups.single.apiKeys, <String>['KEY_A', 'KEY_B']);
 
+    expect(slots, hasLength(2));
+    expect(slots[0].alias, 'KEY_1');
+    expect(slots[0].apiKeys, <String>['KEY_A']);
+    expect(slots[1].alias, 'KEY_2');
+    expect(slots[1].apiKeys, <String>['KEY_B']);
+  });
+
+  test('quota failure rotates to next key with same model', () async {
+    final frozen = Uint8List.fromList(<int>[9, 8, 7, 6]);
+    final loader = _Loader(frozen);
     final client = _Client((key, model, ordinal) async {
-      throw const GeminiInvoiceReviewException(
-        GeminiInvoiceReviewFailureKind.quota,
-        'quota',
-        statusCode: 429,
-      );
+      if (key == 'KEY_A') {
+        throw const GeminiInvoiceReviewException(
+          GeminiInvoiceReviewFailureKind.quota,
+          'quota',
+          statusCode: 429,
+        );
+      }
+      return _candidate();
     });
     final result = await _coordinator(
       client: client,
-      loader: _Loader(Uint8List.fromList(<int>[9, 8, 7, 6])),
-      catalog: _Catalog(<String, Object>{'KEY_A': models}),
+      loader: loader,
+      catalog: _Catalog(<String, Object>{
+        'KEY_A': models,
+        'KEY_B': models,
+      }),
       keys: const <String>['KEY_A', 'KEY_B'],
     ).reviewAutomatically(
       localResult: _partialResult(),
       localReference: '/frozen/invoice.jpg',
     );
 
-    expect(result.status, GeminiInvoiceReviewExecutionStatus.failed);
-    expect(client.calls, hasLength(1));
-    expect(client.calls.single.key, 'KEY_A');
+    expect(result.status, GeminiInvoiceReviewExecutionStatus.success);
+    expect(client.calls.map((call) => call.key), <String>['KEY_A', 'KEY_B']);
+    expect(client.calls.map((call) => call.model).toSet(), <String>{preferred});
+    expect(identical(client.calls[0].bytes, client.calls[1].bytes), isTrue);
+    expect(identical(client.calls[0].bytes, frozen), isTrue);
+    expect(loader.loads, 1);
     expect(result.sessionContext!.logicalInvocationCount, 1);
-    expect(result.sessionContext!.physicalAttemptCount, 1);
-    expect(result.sessionContext!.keyGroupAttemptCount, 1);
-    expect(result.sessionContext!.keyGroupAlias, 'LEGACY_GROUP');
+    expect(result.sessionContext!.physicalAttemptCount, 2);
+    expect(result.sessionContext!.keyGroupAttemptCount, 2);
+    expect(result.sessionContext!.keyGroupAlias, 'KEY_2');
     expect(
       result.sessionContext!.fallbackReason,
       RecognitionAiFallbackReason.quotaExhausted,
     );
   });
 
-  test('explicit group router preserves independent boundaries', () {
-    final groups = GeminiKeyGroupRouter.fromGroups(
+  test('legacy grouped adapter is flattened into key slots', () {
+    final slots = GeminiKeyGroupRouter.fromGroups(
       const <GeminiKeyGroup>[
         GeminiKeyGroup(alias: 'GROUP_A', apiKeys: <String>['KEY_A']),
         GeminiKeyGroup(alias: 'GROUP_B', apiKeys: <String>['KEY_B']),
       ],
     ).healthyGroups;
-    expect(groups, hasLength(2));
-    expect(groups[0].alias, 'GROUP_A');
-    expect(groups[1].alias, 'GROUP_B');
+    expect(slots, hasLength(2));
+    expect(slots[0].alias, 'KEY_1');
+    expect(slots[1].alias, 'KEY_2');
   });
 
   test('unavailable preferred model switches to provider-listed Flash', () async {
