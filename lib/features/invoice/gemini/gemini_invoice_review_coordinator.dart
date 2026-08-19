@@ -367,7 +367,14 @@ class GeminiInvoiceReviewCoordinator {
     }
 
     final logicalInvocationId = logicalInvocationIdFactory();
-    final groups = keyGroupRouterFactory(settings.apiKeys).healthyGroups;
+    final groups = settings.keyGroups.isNotEmpty
+        ? GeminiKeyGroupRouter.fromGroups(
+            <GeminiKeyGroup>[
+              for (final group in settings.effectiveKeyGroups)
+                GeminiKeyGroup(alias: group.alias, apiKeys: group.apiKeys),
+            ],
+          ).healthyGroups
+        : keyGroupRouterFactory(settings.apiKeys).healthyGroups;
     if (groups.isEmpty) {
       return _terminalExecution(
         status: GeminiInvoiceReviewExecutionStatus.missingApiKey,
