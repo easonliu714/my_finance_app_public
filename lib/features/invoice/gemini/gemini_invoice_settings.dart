@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+/// Legacy compatibility shape retained only so P4.19.1 can safely decode
+/// settings written by the short-lived project/group UI. New settings are
+/// always stored as one flat ordered API-key pool.
 class GeminiInvoiceKeyGroup {
   const GeminiInvoiceKeyGroup({
     required this.alias,
@@ -38,9 +41,11 @@ class GeminiInvoiceSettings {
   static const String defaultModel = 'gemini-3.6-flash';
   static const String legacyGroupAlias = 'LEGACY_GROUP';
 
-  /// Flat credential list retained for source compatibility with P4.16-P4.19.
-  /// Quota routing authority is [effectiveKeyGroups], not this list.
+  /// Canonical ordered credential pool used by production runtime.
   final List<String> apiKeys;
+
+  /// Legacy decode-only field. New saves write an empty list and runtime never
+  /// requires users to understand quota/project grouping.
   final List<GeminiInvoiceKeyGroup> keyGroups;
   final String model;
   final bool experimentalInvoiceVisionEnabled;
@@ -49,44 +54,37 @@ class GeminiInvoiceSettings {
 
   bool get hasApiKey => effectiveApiKeys.isNotEmpty;
 
+  /// Flattens both the canonical list and any legacy v3 grouped payload so an
+  /// upgrade never asks the user to re-enter keys.
   List<String> get effectiveApiKeys {
     final result = <String>[];
     final seen = <String>{};
-    for (final group in effectiveKeyGroups) {
-      for (final key in group.apiKeys) {
-        if (seen.add(key)) result.add(key);
+    void addAll(Iterable<String> values) {
+      for (final raw in values) {
+        final key = raw.trim();
+        if (key.isNotEmpty && seen.add(key)) result.add(key);
       }
+    }
+
+    addAll(apiKeys);
+    for (final group in keyGroups) {
+      addAll(group.apiKeys);
     }
     return List<String>.unmodifiable(result);
   }
 
-  /// Legacy flat keys are conservatively treated as ONE quota boundary.
-  /// Gemini rate limits are project-scoped, so separate groups must only be
-  /// created from explicit user grouping rather than inferred from key count.
-  List<GeminiInvoiceKeyGroup> get effectiveKeyGroups {
-    final explicit = keyGroups
-        .where((group) => !group.isEmpty)
-        .map(
-          (group) => GeminiInvoiceKeyGroup(
-            alias: _safeAlias(group.alias, fallbackIndex: 0),
-            apiKeys: parseApiKeys(group.apiKeys.join('\n')),
+  /// Compatibility projection only. Each key is represented as one anonymous
+  /// runtime slot; this is not a user-configurable quota/project group.
+  List<GeminiInvoiceKeyGroup> get effectiveKeyGroups =>
+      List<GeminiInvoiceKeyGroup>.unmodifiable(<GeminiInvoiceKeyGroup>[
+        for (var index = 0; index < effectiveApiKeys.length; index++)
+          GeminiInvoiceKeyGroup(
+            alias: _generatedKeyAlias(index),
+            apiKeys: <String>[effectiveApiKeys[index]],
           ),
-        )
-        .where((group) => !group.isEmpty)
-        .toList(growable: false);
-    if (explicit.isNotEmpty) {
-      return List<GeminiInvoiceKeyGroup>.unmodifiable(explicit);
-    }
-    final legacy = parseApiKeys(apiKeys.join('\n'));
-    if (legacy.isEmpty) return const <GeminiInvoiceKeyGroup>[];
-    return <GeminiInvoiceKeyGroup>[
-      GeminiInvoiceKeyGroup(alias: legacyGroupAlias, apiKeys: legacy),
-    ];
-  }
+      ]);
 
-  String get keyGroupInputText => effectiveKeyGroups
-      .map((group) => group.apiKeys.join('，'))
-      .join('\n');
+  String get keyGroupInputText => effectiveApiKeys.join('，');
 
   GeminiInvoiceSettings copyWith({
     List<String>? apiKeys,
@@ -109,13 +107,11 @@ class GeminiInvoiceSettings {
   }
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'schemaVersion': 3,
-        // Keep the flattened field for backward-compatible diagnostics and
-        // rollback decode. The authoritative quota topology is keyGroups.
+        'schemaVersion': 4,
         'apiKeys': effectiveApiKeys,
-        'keyGroups': <Object?>[
-          for (final group in effectiveKeyGroups) group.toJson(),
-        ],
+        // Kept as an explicit empty array so rollback/diagnostic decoders can
+        // distinguish the new flat-key authority from a truncated payload.
+        'keyGroups': const <Object?>[],
         'model': model,
         'experimentalInvoiceVisionEnabled': experimentalInvoiceVisionEnabled,
         'autoReviewLowConfidenceEnabled': autoReviewLowConfidenceEnabled,
@@ -132,10 +128,15 @@ class GeminiInvoiceSettings {
       final decoded = jsonDecode(encoded);
       if (decoded is! Map) return const GeminiInvoiceSettings();
       final values = Map<String, Object?>.from(decoded.cast<String, Object?>());
+      final schemaVersion = switch (values['schemaVersion']) {
+        final int value => value,
+        final Object value => int.tryParse(value.toString()) ?? 1,
+        null => 1,
+      };
       final flatKeys = parseApiKeys(
         (values['apiKeys'] as List?)?.join('\n') ?? '',
       );
-      final parsedGroups = <GeminiInvoiceKeyGroup>[];
+      final migratedKeys = <String>[...flatKeys];
       final rawGroups = values['keyGroups'];
       if (rawGroups is List) {
         for (final raw in rawGroups) {
@@ -143,41 +144,27 @@ class GeminiInvoiceSettings {
           final group = GeminiInvoiceKeyGroup.fromJson(
             Map<String, Object?>.from(raw.cast<String, Object?>()),
           );
-          if (group.isEmpty) continue;
-          parsedGroups.add(
-            GeminiInvoiceKeyGroup(
-              alias: _safeAlias(
-                group.alias,
-                fallbackIndex: parsedGroups.length,
-              ),
-              apiKeys: group.apiKeys,
-            ),
-          );
+          migratedKeys.addAll(group.apiKeys);
         }
       }
-      // v2 and earlier do not prove that keys belong to independent projects.
-      // Preserve them as one legacy quota group rather than inventing groups.
-      final groups = parsedGroups.isNotEmpty
-          ? parsedGroups
-          : flatKeys.isEmpty
-              ? const <GeminiInvoiceKeyGroup>[]
-              : <GeminiInvoiceKeyGroup>[
-                  GeminiInvoiceKeyGroup(
-                    alias: legacyGroupAlias,
-                    apiKeys: flatKeys,
-                  ),
-                ];
-      final flattened = <String>[
-        for (final group in groups) ...group.apiKeys,
-      ];
+      final keys = parseApiKeys(migratedKeys.join('\n'));
+      final featureEnabled = values['experimentalInvoiceVisionEnabled'] == true;
+      final savedAutoReview = values['autoReviewLowConfidenceEnabled'] == true;
+
+      // P4.19.1 schema <=3 required an explicit Save after toggling the switch.
+      // Real-device evidence proved that the UI could look enabled while the
+      // persisted flag stayed false. When AI review was already enabled, the
+      // v4 migration restores the intended Local-low-confidence auto escalation.
+      final autoReviewEnabled = schemaVersion <= 3 && featureEnabled
+          ? true
+          : savedAutoReview;
+
       return GeminiInvoiceSettings(
-        apiKeys: parseApiKeys(flattened.join('\n')),
-        keyGroups: List<GeminiInvoiceKeyGroup>.unmodifiable(groups),
+        apiKeys: keys,
+        keyGroups: const <GeminiInvoiceKeyGroup>[],
         model: _normalizedModel(values['model']?.toString()),
-        experimentalInvoiceVisionEnabled:
-            values['experimentalInvoiceVisionEnabled'] == true,
-        autoReviewLowConfidenceEnabled:
-            values['autoReviewLowConfidenceEnabled'] == true,
+        experimentalInvoiceVisionEnabled: featureEnabled,
+        autoReviewLowConfidenceEnabled: autoReviewEnabled,
         debugToolsEnabled: values['debugToolsEnabled'] != false,
       );
     } catch (_) {
@@ -185,8 +172,6 @@ class GeminiInvoiceSettings {
     }
   }
 
-  /// Parses the existing flat key syntax. New quota grouping is line-based and
-  /// is handled by [parseKeyGroups].
   static List<String> parseApiKeys(String raw) {
     final values = raw
         .split(RegExp(r'[\s,，、;；]+'))
@@ -200,24 +185,17 @@ class GeminiInvoiceSettings {
     return List<String>.unmodifiable(result);
   }
 
-  /// Each non-empty line is an explicit independent quota/project group.
-  /// Keys on the same line are credentials for the same quota boundary.
+  /// Deprecated compatibility parser. All keys now belong to one user-facing
+  /// pool; the returned singleton slots exist only for legacy source callers.
   static List<GeminiInvoiceKeyGroup> parseKeyGroups(String raw) {
-    final groups = <GeminiInvoiceKeyGroup>[];
-    final seenKeys = <String>{};
-    for (final line in raw.split(RegExp(r'[\r\n]+'))) {
-      final keys = parseApiKeys(line)
-          .where((key) => seenKeys.add(key))
-          .toList(growable: false);
-      if (keys.isEmpty) continue;
-      groups.add(
+    final keys = parseApiKeys(raw);
+    return List<GeminiInvoiceKeyGroup>.unmodifiable(<GeminiInvoiceKeyGroup>[
+      for (var index = 0; index < keys.length; index++)
         GeminiInvoiceKeyGroup(
-          alias: _generatedGroupAlias(groups.length),
-          apiKeys: List<String>.unmodifiable(keys),
+          alias: _generatedKeyAlias(index),
+          apiKeys: <String>[keys[index]],
         ),
-      );
-    }
-    return List<GeminiInvoiceKeyGroup>.unmodifiable(groups);
+    ]);
   }
 
   static String maskApiKey(String value) {
@@ -231,19 +209,5 @@ class GeminiInvoiceSettings {
     return normalized?.isNotEmpty == true ? normalized! : defaultModel;
   }
 
-  static String _safeAlias(String value, {required int fallbackIndex}) {
-    final normalized = value
-        .trim()
-        .toUpperCase()
-        .replaceAll(RegExp(r'[^A-Z0-9_]+'), '_')
-        .replaceAll(RegExp(r'_+'), '_')
-        .replaceAll(RegExp(r'^_|_$'), '');
-    return normalized.isEmpty ? _generatedGroupAlias(fallbackIndex) : normalized;
-  }
-
-  static String _generatedGroupAlias(int index) {
-    final code = 65 + index;
-    if (code <= 90) return 'GROUP_${String.fromCharCode(code)}';
-    return 'GROUP_${index + 1}';
-  }
+  static String _generatedKeyAlias(int index) => 'KEY_${index + 1}';
 }
