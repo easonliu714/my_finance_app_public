@@ -1,6 +1,6 @@
 # P4.19.2 Phase Gate
 
-Current gate: `A_CONTRACT_IMPLEMENTED_PENDING_CI`
+Current gate: `A_CONTRACT_CI_RUNNING`
 
 Required before network integration:
 
@@ -9,6 +9,7 @@ Required before network integration:
 - amount derivation requires explicit quantity + unit price;
 - transaction handoff remains review-only;
 - no `TransactionRepository` dependency in product candidate/handoff contracts;
-- focused contract tests pass.
+- focused contract tests pass;
+- full Flutter regression suite remains green.
 
 Next gate after A: `B_GEMINI_PRODUCT_CLIENT`.
