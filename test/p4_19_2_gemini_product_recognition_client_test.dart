@@ -13,11 +13,7 @@ void main() {
     final client = GeminiProductRecognitionClient(
       client: MockClient((request) async {
         captured = request;
-        return http.Response(
-          _responseBody(),
-          200,
-          headers: const <String, String>{'content-type': 'application/json'},
-        );
+        return _utf8Response(_responseBody(), 200);
       }),
     );
 
@@ -68,7 +64,7 @@ void main() {
   test('nullable uncertain fields stay empty without invented values', () async {
     final client = GeminiProductRecognitionClient(
       client: MockClient(
-        (_) async => http.Response(
+        (_) async => _utf8Response(
           _responseBody(
             payload: <String, Object?>{
               'productName': '品牌 A',
@@ -105,7 +101,7 @@ void main() {
 
   test('429 is quota retryable, while 400 fails fast', () async {
     final quotaClient = GeminiProductRecognitionClient(
-      client: MockClient((_) async => http.Response('{}', 429)),
+      client: MockClient((_) async => _utf8Response('{}', 429)),
     );
     await expectLater(
       quotaClient.recognize(
@@ -126,7 +122,7 @@ void main() {
     );
 
     final rejectedClient = GeminiProductRecognitionClient(
-      client: MockClient((_) async => http.Response('{}', 400)),
+      client: MockClient((_) async => _utf8Response('{}', 400)),
     );
     await expectLater(
       rejectedClient.recognize(
@@ -154,7 +150,7 @@ void main() {
     ]) {
       final client = GeminiProductRecognitionClient(
         client: MockClient(
-          (_) async => http.Response(
+          (_) async => _utf8Response(
             jsonEncode(<String, Object?>{
               'error': <String, Object?>{
                 'status': 'ERROR',
@@ -185,7 +181,7 @@ void main() {
   test('safety block and malformed success are fail-fast', () async {
     final blocked = GeminiProductRecognitionClient(
       client: MockClient(
-        (_) async => http.Response(
+        (_) async => _utf8Response(
           jsonEncode(<String, Object?>{
             'promptFeedback': <String, Object?>{'blockReason': 'SAFETY'},
           }),
@@ -212,7 +208,7 @@ void main() {
     );
 
     final malformed = GeminiProductRecognitionClient(
-      client: MockClient((_) async => http.Response('{}', 200)),
+      client: MockClient((_) async => _utf8Response('{}', 200)),
     );
     await expectLater(
       malformed.recognize(
@@ -234,7 +230,7 @@ void main() {
   test('empty candidate is rejected as malformed response', () async {
     final client = GeminiProductRecognitionClient(
       client: MockClient(
-        (_) async => http.Response(
+        (_) async => _utf8Response(
           _responseBody(
             payload: <String, Object?>{
               'productName': null,
@@ -275,7 +271,7 @@ void main() {
     final client = GeminiProductRecognitionClient(
       client: MockClient((_) async {
         requests += 1;
-        return http.Response('{}', 200);
+        return _utf8Response('{}', 200);
       }),
     );
 
@@ -296,6 +292,16 @@ void main() {
     );
     expect(requests, 0);
   });
+}
+
+http.Response _utf8Response(String body, int statusCode) {
+  return http.Response.bytes(
+    utf8.encode(body),
+    statusCode,
+    headers: const <String, String>{
+      'content-type': 'application/json; charset=utf-8',
+    },
+  );
 }
 
 String _responseBody({Map<String, Object?>? payload}) {
