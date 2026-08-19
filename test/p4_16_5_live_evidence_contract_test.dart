@@ -28,7 +28,7 @@ void main() {
       'lib/features/invoice/gemini/gemini_invoice_review_client.dart',
     ).readAsStringSync();
 
-    expect(pubspec, contains('version: 4.19.1+436'));
+    expect(pubspec, contains('version: 4.19.1+437'));
     expect(router, contains('InvoiceFrozenReviewPage.routeName'));
     expect(entry, contains('Live 即時辨識'));
     expect(entry, contains('從圖片讀取'));
