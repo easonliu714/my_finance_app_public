@@ -14,14 +14,19 @@ void main() {
     expect(center, contains('GeminiInvoiceSettingsCard'));
     expect(settings, contains("defaultModel = 'gemini-3.6-flash'"));
     expect(settings, contains('autoReviewLowConfidenceEnabled'));
+    expect(settings, contains('effectiveApiKeys'));
+    expect(settings, contains("'schemaVersion': 4"));
     expect(repository, contains('FlutterSecureStorage'));
     expect(repository, contains('encryptedSharedPreferences: true'));
     expect(card, contains('obscureText: _obscureKeys'));
-    expect(card, contains('測試 Key 並讀取可用模型'));
+    expect(card, contains('測試 API Keys 並讀取可用模型'));
+    expect(card, contains('Gemini API Keys'));
+    expect(card, isNot(contains('新增獨立 Project / Key Group')));
     expect(card, contains('OCR 信心不足時自動 AI 辨識'));
+    expect(card, contains('_persistImmediate'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.19.0+435'));
+    expect(pubspec, contains('version: 4.19.1+437'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
@@ -54,6 +59,9 @@ void main() {
     expect(coordinator, contains('autoReviewLowConfidenceEnabled'));
     expect(frozen, contains('_automaticGeminiAttempted'));
     expect(frozen, contains('reviewAutomatically'));
+    expect(frozen, contains('RecognitionAiRunningStatusIndicator'));
+    expect(frozen, contains('_geminiElapsedTimer'));
+    expect(frozen, contains('_geminiActiveModel'));
     expect(
       frozen,
       contains('forceReview: _geminiDecision?.shouldReview != true'),
@@ -165,7 +173,7 @@ void main() {
     expect(evidence, contains('InvoiceReviewFieldKey.invoicePeriod'));
     expect(evidence, contains('InvoiceReviewFieldKey.randomCode'));
     expect(evidence, contains("'randomCode': candidate.randomCode"));
-    expect(evidence, isNot(contains("('invoicePeriod', '', ai.invoicePeriod")));
+    expect(evidence.contains("('invoicePeriod', '', ai.invoicePeriod"), isFalse);
     expect(evidence, isNot(contains('TransactionRepository')));
   });
 
