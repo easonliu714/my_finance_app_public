@@ -168,7 +168,10 @@ void main() {
       forceReview: true,
     );
     expect(result.status, GeminiInvoiceReviewExecutionStatus.success);
-    expect(result.message, contains('尚未覆寫本機結果'));
+    expect(result.candidate, isNotNull);
+    expect(result.requiresUserReview, isTrue);
+    expect(result.canCreateFormalRecord, isFalse);
+    expect(result.invocationMode, GeminiInvoiceReviewInvocationMode.manual);
     expect(client.attemptedKeys, <String>['KEY_1']);
   });
 }
