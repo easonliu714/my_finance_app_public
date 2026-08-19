@@ -8,7 +8,7 @@ void main() {
     logicalInvocationId: 'logical-1',
     provider: 'Gemini',
     activeModel: 'provider-listed-flash',
-    keyGroupAlias: 'GROUP_B',
+    keyGroupAlias: 'KEY_2',
     logicalInvocationCount: 1,
     physicalAttemptCount: 2,
     modelAttemptCount: 1,
@@ -17,7 +17,29 @@ void main() {
     modelCatalogChecked: true,
   );
 
-  testWidgets('status shows active model and fallback without raw key', (
+  testWidgets('running status shows active model and elapsed time', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: RecognitionAiRunningStatusIndicator(
+            provider: 'Gemini',
+            activeModel: 'gemini-3.6-flash',
+            elapsed: Duration(seconds: 17),
+            message: '正在辨識…',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Gemini · gemini-3.6-flash'), findsOneWidget);
+    expect(find.textContaining('已等待 17 秒'), findsOneWidget);
+    expect(find.textContaining('正在辨識'), findsOneWidget);
+    expect(find.textContaining('AIza'), findsNothing);
+  });
+
+  testWidgets('completed status shows active model and key fallback safely', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -30,15 +52,15 @@ void main() {
 
     expect(find.textContaining('Gemini'), findsOneWidget);
     expect(find.textContaining('provider-listed-flash'), findsOneWidget);
-    expect(find.text('配額已滿，已切換 Key Group'), findsOneWidget);
+    expect(find.text('配額已滿，已切換下一組 API Key'), findsOneWidget);
     expect(find.textContaining('AIza'), findsNothing);
-    expect(find.textContaining('GROUP_B'), findsNothing);
+    expect(find.textContaining('KEY_2'), findsNothing);
   });
 
   test('safe JSON includes routing metadata but no credential field', () {
     final json = session.toSafeJson();
     expect(json['active_model'], 'provider-listed-flash');
-    expect(json['key_group_alias'], 'GROUP_B');
+    expect(json['key_group_alias'], 'KEY_2');
     expect(json['physical_attempt_count'], 2);
     expect(json['fallback_reason'], 'quotaExhausted');
     expect(json.keys, isNot(contains('api_key')));
