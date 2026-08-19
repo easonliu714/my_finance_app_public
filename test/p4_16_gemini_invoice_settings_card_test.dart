@@ -132,7 +132,7 @@ void main() {
 
     final featureSwitch = find.widgetWithText(
       SwitchListTile,
-      '啟用 AI 發票覆核（實驗功能）',
+      '啟用 AI 發票覆核',
     );
     await tester.ensureVisible(featureSwitch);
     await tester.tap(featureSwitch);
