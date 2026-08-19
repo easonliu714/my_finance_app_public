@@ -23,7 +23,7 @@ void main() {
     expect(card, contains('OCR 信心不足時自動 AI 辨識'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.19.0+435'));
+    expect(pubspec, contains('version: 4.19.1+436'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
@@ -169,7 +169,7 @@ void main() {
     expect(evidence, contains('InvoiceReviewFieldKey.randomCode'));
     expect(evidence, contains("'randomCode': candidate.randomCode"));
     expect(evidence, isNot(contains("('invoicePeriod', '', ai.invoicePeriod")));
-    expect(evidence, isNot(contains('TransactionRepository')));
+    expect(evidence, isNot(contains('TransactionRepository'));
   });
 
   test('4.16.14 registry adapter remains explicit corroboration only', () {
