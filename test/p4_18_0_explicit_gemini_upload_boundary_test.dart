@@ -23,7 +23,7 @@ void main() {
     expect(settings, contains("'schemaVersion': 4"));
     expect(settings, contains('effectiveApiKeys'));
     expect(settings, contains('parseApiKeys'));
-    expect(settings, contains("alias: _generatedKeyAlias(index)"));
+    expect(settings, contains('alias: _generatedKeyAlias(index)'));
     expect(card, contains('OCR 信心不足時自動 AI 辨識'));
     expect(card, contains('Key／模型不可用時允許有限次自動切換'));
     expect(card, contains('Gemini API Keys'));
