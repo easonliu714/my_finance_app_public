@@ -14,13 +14,16 @@ void main() {
     expect(center, contains('GeminiInvoiceSettingsCard'));
     expect(settings, contains("defaultModel = 'gemini-3.6-flash'"));
     expect(settings, contains('autoReviewLowConfidenceEnabled'));
-    expect(settings, contains('effectiveKeyGroups'));
+    expect(settings, contains('effectiveApiKeys'));
+    expect(settings, contains("'schemaVersion': 4"));
     expect(repository, contains('FlutterSecureStorage'));
     expect(repository, contains('encryptedSharedPreferences: true'));
     expect(card, contains('obscureText: _obscureKeys'));
-    expect(card, contains('測試 Key Groups 並讀取可用模型'));
-    expect(card, contains('新增獨立 Project / Key Group'));
+    expect(card, contains('測試 API Keys 並讀取可用模型'));
+    expect(card, contains('Gemini API Keys'));
+    expect(card, isNot(contains('新增獨立 Project / Key Group')));
     expect(card, contains('OCR 信心不足時自動 AI 辨識'));
+    expect(card, contains('_persistImmediate'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
     expect(pubspec, contains('version: 4.19.1+436'));
@@ -54,9 +57,11 @@ void main() {
     expect(coordinator, contains('shouldReview: completeness.requiresGeminiReview'));
     expect(coordinator, contains('reviewAutomatically'));
     expect(coordinator, contains('autoReviewLowConfidenceEnabled'));
-    expect(coordinator, contains('settings.effectiveKeyGroups'));
     expect(frozen, contains('_automaticGeminiAttempted'));
     expect(frozen, contains('reviewAutomatically'));
+    expect(frozen, contains('RecognitionAiRunningStatusIndicator'));
+    expect(frozen, contains('_geminiElapsedTimer'));
+    expect(frozen, contains('_geminiActiveModel'));
     expect(
       frozen,
       contains('forceReview: _geminiDecision?.shouldReview != true'),
