@@ -12,7 +12,8 @@ void main() {
       expect(source, contains('OCR 信心不足時自動 AI 辨識'));
       expect(source, contains('每次只建立 1 個 AI logical invocation'));
       expect(source, contains('有限次 fallback / retry'));
-      expect(source, contains('每行 1 個獨立 Project'));
+      expect(source, contains('新增獨立 Project / Key Group'));
+      expect(source, contains('obscureText: _obscureKeys'));
     });
 
     test('Frozen Review no longer shows the old mandatory-upload explanation', () {
