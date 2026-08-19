@@ -114,10 +114,20 @@ void main() {
     final store = _FakeStore(const GeminiInvoiceSettings());
     await pumpCard(tester, store: store);
 
-    final apiKeyField = find.byKey(GeminiInvoiceSettingsCard.apiKeyFieldKey);
-    await tester.ensureVisible(apiKeyField);
-    await tester.enterText(apiKeyField, 'KEY_1\nKEY_2\nKEY_1');
+    final firstGroup = find.byKey(GeminiInvoiceSettingsCard.apiKeyFieldKey);
+    await tester.ensureVisible(firstGroup);
+    await tester.enterText(firstGroup, 'KEY_1');
+
+    final addGroup = find.byKey(GeminiInvoiceSettingsCard.addGroupKey);
+    await tester.ensureVisible(addGroup);
+    await tester.tap(addGroup);
     await tester.pump();
+
+    final secondGroup = find.byKey(GeminiInvoiceSettingsCard.groupFieldKey(1));
+    await tester.ensureVisible(secondGroup);
+    await tester.enterText(secondGroup, 'KEY_2');
+    await tester.pump();
+
     expect(
       find.text('已解析 2 個 Key Group / 2 組 API Key'),
       findsOneWidget,
