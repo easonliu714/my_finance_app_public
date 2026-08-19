@@ -31,6 +31,7 @@ class InvoiceFrozenReviewPage extends StatefulWidget {
   static const Key geminiAcknowledgementKey = Key('invoice_frozen_gemini_ack');
   static const Key forceGeminiKey = Key('invoice_frozen_force_gemini');
   static const Key exportEvidenceKey = Key('invoice_frozen_export_evidence');
+  static const Key aiStatusKey = Key('invoice_frozen_ai_status');
 
   final InvoiceLiveCaptureResult liveResult;
   final InvoiceCaptureReviewFlowCoordinator? reviewFlowCoordinator;
@@ -50,6 +51,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
   GeminiInvoiceReviewExecution? _geminiExecution;
   GeminiInvoiceEscalationDecision? _geminiDecision;
   bool _geminiComparisonAcknowledged = false;
+  bool _automaticGeminiAttempted = false;
   InvoiceRecognitionEvidenceExportResult? _evidenceResult;
   String? _error;
   bool _busy = true;
@@ -156,6 +158,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
         _geminiDecision = decision;
         _busy = false;
       });
+      await _maybeRunAutomaticGemini(local);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -165,27 +168,47 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
     }
   }
 
+  Future<void> _maybeRunAutomaticGemini(
+    InvoiceCaptureReviewFlowResult local,
+  ) async {
+    if (_automaticGeminiAttempted) return;
+    _automaticGeminiAttempted = true;
+    await _runGemini(local, forceReview: false, automatic: true);
+  }
+
   Future<void> _runGemini(
     InvoiceCaptureReviewFlowResult local, {
     required bool forceReview,
+    bool automatic = false,
   }) async {
     if (_geminiBusy) return;
     setState(() {
       _geminiBusy = true;
       _error = null;
-      if (forceReview) _geminiExecution = null;
-      _geminiComparisonAcknowledged = false;
+      if (forceReview && !automatic) _geminiComparisonAcknowledged = false;
     });
     try {
-      final execution = await _geminiReviewCoordinator.review(
-        localResult: local.recognitionResult,
-        localReference: _item.localReference,
-        forceReview: forceReview,
-      );
+      final execution = automatic
+          ? await _geminiReviewCoordinator.reviewAutomatically(
+              localResult: local.recognitionResult,
+              localReference: _item.localReference,
+            )
+          : await _geminiReviewCoordinator.review(
+              localResult: local.recognitionResult,
+              localReference: _item.localReference,
+              forceReview: forceReview,
+            );
       if (!mounted) return;
-      setState(() => _geminiExecution = execution);
+      final previous = _geminiExecution;
+      final merged = execution.withCumulativeAudit(
+        requestCount: (previous?.requestCount ?? 0) + execution.requestCount,
+        automaticUploadPerformed:
+            (previous?.automaticUploadPerformed ?? false) ||
+            execution.automaticUploadPerformed,
+      );
+      setState(() => _geminiExecution = merged);
     } catch (error) {
-      if (mounted) setState(() => _error = 'Gemini 覆核失敗：${error.runtimeType}');
+      if (mounted) setState(() => _error = 'AI 覆核失敗：${error.runtimeType}');
     } finally {
       if (mounted) setState(() => _geminiBusy = false);
     }
@@ -231,36 +254,19 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
           );
     final isGallery = widget.liveResult.origin == InvoiceCaptureOrigin.gallery;
     return Scaffold(
-      appBar: AppBar(title: const Text('發票影像覆核')),
+      appBar: AppBar(title: const Text('發票覆核')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: <Widget>[
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    'Single Image Review',
-                    style: Theme.of(context).textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 6),
-                  Text('來源：${isGallery ? '圖片讀取' : 'Live 凍結'}'),
-                  if (!isGallery) ...<Widget>[
-                    Text('Live 初判：${widget.liveResult.classification.label}'),
-                    Text('自動凍結：${widget.liveResult.autoFrozen ? '是' : '否'}'),
-                    Text(
-                      'Live identity 分數：${(widget.liveResult.liveSnapshot.score * 100).round()}%',
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  const Text(
-                    '先執行本機 QR/OCR。若關鍵欄位不完整，系統會標示 Gemini 必要覆核，但不會自動上傳影像；只有你明確按下按鈕才會送出目前發票影像。AI 不會覆寫 Local。',
-                  ),
-                ],
+            child: ListTile(
+              leading: Icon(
+                isGallery
+                    ? Icons.photo_outlined
+                    : Icons.document_scanner_outlined,
               ),
+              title: Text(isGallery ? '圖片發票' : widget.liveResult.classification.label),
+              subtitle: Text(isGallery ? '圖片讀取' : 'Live 凍結影像'),
             ),
           ),
           if (_busy || _geminiBusy || _evidenceBusy) ...<Widget>[
@@ -269,7 +275,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
               semanticsLabel: _evidenceBusy
                   ? '證據包建立中'
                   : _geminiBusy
-                  ? 'Gemini 覆核中'
+                  ? 'AI 覆核中'
                   : '本機辨識中',
             ),
           ],
@@ -280,7 +286,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
           if (local != null) ...<Widget>[
             const SizedBox(height: 12),
             _CandidateCard(
-              title: '本機 QR / OCR',
+              title: '本機辨識',
               subtitle: local.recognitionResult.message,
               fields: <(String, String)>[
                 for (final field in local.formModel.fields)
@@ -288,48 +294,38 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                     (field.label, field.value),
                 ('賣方統編', localTaxId),
                 if (repair.accepted)
-                  (
-                    '統編修復證據',
-                    '${repair.observations} 個 Live frame / ${repair.rule}',
-                  ),
+                  ('統編證據', '${repair.observations} 個 Live frame'),
               ],
             ),
             const SizedBox(height: 12),
             if (_geminiDecision != null)
               Card(
+                key: InvoiceFrozenReviewPage.aiStatusKey,
                 child: ListTile(
                   leading: Icon(
                     _geminiDecision!.shouldReview
-                        ? Icons.warning_amber_rounded
+                        ? Icons.auto_awesome_outlined
                         : Icons.verified_outlined,
                   ),
-                  title: Text(
-                    _geminiDecision!.shouldReview
-                        ? 'Gemini 必要覆核'
-                        : 'Local 關鍵欄位完整',
-                  ),
-                  subtitle: Text(
-                    '${_geminiDecision!.reason}\n按下 Gemini 按鈕才會將目前發票影像送出。',
-                  ),
+                  title: Text(_aiStatusTitle(_geminiDecision!, execution)),
+                  subtitle: Text(_aiStatusSubtitle(_geminiDecision!, execution)),
                 ),
               ),
-            const SizedBox(height: 12),
-            _CandidateCard(
-              title: 'Gemini 第二意見',
-              subtitle: execution?.message ?? '尚未執行 Gemini。',
-              fields: ai == null
-                  ? const <(String, String)>[]
-                  : <(String, String)>[
-                      ('發票號碼', ai.invoiceNumber),
-                      ('期別', ai.invoicePeriod),
-                      ('賣方統編', ai.sellerTaxId),
-                      ('日期', ai.invoiceDate),
-                      ('時間', ai.invoiceTime),
-                      ('商家', ai.merchantName),
-                      ('總金額', _amount(ai.totalAmount)),
-                    ],
-            ),
             if (ai != null) ...<Widget>[
+              const SizedBox(height: 12),
+              _CandidateCard(
+                title: 'AI 第二意見',
+                subtitle: _aiCandidateSubtitle(execution),
+                fields: <(String, String)>[
+                  ('發票號碼', ai.invoiceNumber),
+                  ('期別', ai.invoicePeriod),
+                  ('賣方統編', ai.sellerTaxId),
+                  ('日期', ai.invoiceDate),
+                  ('時間', ai.invoiceTime),
+                  ('商家', ai.merchantName),
+                  ('總金額', _amount(ai.totalAmount)),
+                ],
+              ),
               const SizedBox(height: 12),
               _ComparisonCard(
                 local: local.formModel,
@@ -343,8 +339,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                 onChanged: (value) => setState(
                   () => _geminiComparisonAcknowledged = value == true,
                 ),
-                title: const Text('我已核對 Local 與 Gemini 結果'),
-                subtitle: const Text('Gemini 只提供第二意見，不會自動覆寫本機欄位。'),
+                title: const Text('我已核對本機與 AI 結果'),
               ),
             ],
             const SizedBox(height: 12),
@@ -357,11 +352,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                       forceReview: _geminiDecision?.shouldReview != true,
                     ),
               icon: const Icon(Icons.auto_awesome_outlined),
-              label: Text(
-                _geminiDecision?.shouldReview == true
-                    ? '送出至 Gemini 必要覆核'
-                    : '強制 Gemini 二次覆核',
-              ),
+              label: Text(ai == null ? 'AI 覆核' : '重新 AI 覆核'),
             ),
             const SizedBox(height: 10),
             FilledButton.icon(
@@ -387,7 +378,7 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                       'Capture SHA-256：${_evidenceResult!.captureImageSha256}',
                     ),
                     Text(
-                      'Gemini SHA-256：${_evidenceResult!.geminiInputSha256 ?? '尚未呼叫 Gemini'}',
+                      'AI SHA-256：${_evidenceResult!.geminiInputSha256 ?? '尚未呼叫 AI'}',
                     ),
                     Text(
                       '同一影像：${_sameImageLabel(_evidenceResult!.geminiInputMatchesCapture)}',
@@ -397,15 +388,57 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
               ),
             ),
           ],
-          const SizedBox(height: 20),
-          const Text(
-            '本頁只建立人工覆核候選與證據包，不會建立正式發票或交易。',
-            textAlign: TextAlign.center,
-          ),
         ],
       ),
     );
   }
+}
+
+String _aiStatusTitle(
+  GeminiInvoiceEscalationDecision decision,
+  GeminiInvoiceReviewExecution? execution,
+) {
+  if (execution?.status == GeminiInvoiceReviewExecutionStatus.success) {
+    return execution!.invocationMode == GeminiInvoiceReviewInvocationMode.automatic
+        ? '已自動 AI 覆核'
+        : '已取得 AI 第二意見';
+  }
+  if (execution?.status == GeminiInvoiceReviewExecutionStatus.failed) {
+    return 'AI 覆核失敗';
+  }
+  if (execution?.status == GeminiInvoiceReviewExecutionStatus.missingApiKey) {
+    return 'AI 覆核需要 API Key';
+  }
+  if (execution?.status == GeminiInvoiceReviewExecutionStatus.skippedLocalComplete) {
+    return '本機辨識完成';
+  }
+  return decision.shouldReview ? '建議 AI 覆核' : '本機辨識完成';
+}
+
+String _aiStatusSubtitle(
+  GeminiInvoiceEscalationDecision decision,
+  GeminiInvoiceReviewExecution? execution,
+) {
+  if (execution?.status == GeminiInvoiceReviewExecutionStatus.success) {
+    return '請核對本機與 AI 欄位。';
+  }
+  if (execution?.status == GeminiInvoiceReviewExecutionStatus.failed ||
+      execution?.status == GeminiInvoiceReviewExecutionStatus.missingApiKey ||
+      execution?.status == GeminiInvoiceReviewExecutionStatus.invalidImage) {
+    return execution!.message;
+  }
+  if (!decision.shouldReview) return '關鍵欄位完整，未自動送出影像。';
+  if (execution?.automaticReviewSettingEnabled == true) {
+    return '本機信心不足，已依設定啟動 AI 覆核。';
+  }
+  return '本機信心不足或欄位不完整。';
+}
+
+String _aiCandidateSubtitle(GeminiInvoiceReviewExecution? execution) {
+  if (execution == null) return '第二意見';
+  return execution.invocationMode == GeminiInvoiceReviewInvocationMode.automatic
+      ? '自動覆核結果'
+      : '手動覆核結果';
 }
 
 InvoiceLiveCaptureResult _captureContextWithTemporalTaxRepair(
@@ -456,8 +489,6 @@ String _localSellerTaxId(
   InvoiceCaptureReviewFlowResult local, {
   String temporalRepair = '',
 }) {
-  // The form value has already passed the frozen-candidate promotion policy.
-  // Never re-promote raw OCR or a seller-name 8-digit fallback here.
   final explicit =
       local.formModel.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '';
   if (explicit.trim().isNotEmpty) return explicit.trim();
@@ -561,11 +592,10 @@ class _ComparisonCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             Text(
-              '本機 ↔ Gemini 欄位比較',
+              '本機 ↔ AI 欄位比較',
               style: Theme.of(context).textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.w800),
             ),
-            const Text('只比較、不融合。'),
             for (final row in rows) ...<Widget>[
               const Divider(height: 18),
               Row(
@@ -589,7 +619,7 @@ class _ComparisonCard extends StatelessWidget {
                 ],
               ),
               Text('本機：${row.$2.trim().isEmpty ? '—' : row.$2}'),
-              Text('Gemini：${row.$3.trim().isEmpty ? '—' : row.$3}'),
+              Text('AI：${row.$3.trim().isEmpty ? '—' : row.$3}'),
             ],
           ],
         ),

@@ -16,6 +16,8 @@ class GeminiInvoiceSettingsCard extends StatefulWidget {
       Key('gemini_invoice_api_key_visibility');
   static const Key testKey = Key('gemini_invoice_test_keys');
   static const Key modelDropdownKey = Key('gemini_invoice_model_dropdown');
+  static const Key autoReviewToggleKey =
+      Key('gemini_invoice_auto_review_low_confidence');
   static const Key saveKey = Key('gemini_invoice_save_settings');
   static const Key clearKey = Key('gemini_invoice_clear_settings');
 
@@ -106,16 +108,14 @@ class _GeminiInvoiceSettingsCardState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        'Gemini 發票辨識',
+                        'Gemini 發票覆核',
                         style: Theme.of(context)
                             .textTheme
                             .titleMedium
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        '設定 AI 覆核用 API Key 與模型。Key 只保存在系統安全儲存空間，不寫入記帳資料庫或診斷紀錄。',
-                      ),
+                      const Text('設定 API Key、模型與自動覆核。Key 僅保存於系統安全儲存空間。'),
                     ],
                   ),
                 ),
@@ -133,7 +133,7 @@ class _GeminiInvoiceSettingsCardState
               decoration: InputDecoration(
                 labelText: 'Gemini API Key（可輸入多組）',
                 hintText: 'Key 1，Key 2；Key 3',
-                helperText: '支援逗號、頓號、分號、空白或換行分隔；重複 Key 會自動移除。',
+                helperText: '支援常用分隔符號；重複 Key 會自動移除。',
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
                   key: GeminiInvoiceSettingsCard.visibilityToggleKey,
@@ -209,28 +209,41 @@ class _GeminiInvoiceSettingsCardState
                   ? null
                   : (value) => setState(() => _selectedModel = value),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              '預設模型為 gemini-3.6-flash。下拉清單只顯示目前 Key 可存取且支援 generateContent 的模型。',
-            ),
             const Divider(height: 28),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
-              title: const Text('啟用 AI 發票覆核（實驗功能）'),
-              subtitle: const Text('辨識結果先進入可編輯草稿，人工確認後才允許後續寫入。'),
+              title: const Text('啟用 AI 發票覆核'),
+              subtitle: const Text('AI 只提供第二意見，不會直接建立交易。'),
               value: _settings.experimentalInvoiceVisionEnabled,
               onChanged: _busy
                   ? null
                   : (value) => setState(
                         () => _settings = _settings.copyWith(
                           experimentalInvoiceVisionEnabled: value,
+                          autoReviewLowConfidenceEnabled: value
+                              ? _settings.autoReviewLowConfidenceEnabled
+                              : false,
+                        ),
+                      ),
+            ),
+            SwitchListTile.adaptive(
+              key: GeminiInvoiceSettingsCard.autoReviewToggleKey,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('OCR 信心不足時自動 AI 辨識'),
+              subtitle: const Text('開啟後，僅在本機判定需要覆核時自動送出原始發票影像一次。'),
+              value: _settings.autoReviewLowConfidenceEnabled,
+              onChanged: _busy || !_settings.experimentalInvoiceVisionEnabled
+                  ? null
+                  : (value) => setState(
+                        () => _settings = _settings.copyWith(
+                          autoReviewLowConfidenceEnabled: value,
                         ),
                       ),
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('保留發票辨識除錯工具'),
-              subtitle: const Text('顯示雙引擎比較、診斷 JSON、凍結影像與證據包匯出。'),
+              subtitle: const Text('顯示比較、診斷與證據包匯出。'),
               value: _settings.debugToolsEnabled,
               onChanged: _busy
                   ? null
@@ -325,7 +338,7 @@ class _GeminiInvoiceSettingsCardState
         _models = result.models;
         _selectedModel = nextModel;
         _statusMessage = result.hasAvailableKey
-            ? 'API Key 測試完成；已讀取 ${result.models.length} 個可用文字／多模態生成模型。'
+            ? 'API Key 測試完成；已讀取 ${result.models.length} 個可用模型。'
             : '沒有 API Key 通過測試，設定尚未啟用。';
       });
     } finally {
@@ -349,7 +362,7 @@ class _GeminiInvoiceSettingsCardState
         _obscureKeys = true;
         _statusMessage = keys.isEmpty
             ? '已儲存功能開關；目前沒有 API Key。'
-            : '已將 ${keys.length} 組 API Key 與模型安全儲存。';
+            : '已安全儲存 Gemini 設定。';
       });
     } catch (_) {
       if (!mounted) return;
