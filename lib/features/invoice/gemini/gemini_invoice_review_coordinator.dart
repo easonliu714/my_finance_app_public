@@ -229,14 +229,12 @@ class GeminiInvoiceReviewExecution {
     required bool automaticUploadPerformed,
   }) {
     final context = sessionContext;
-    final cumulativeContext = context == null
-        ? null
-        : context.copyWith(
-            logicalInvocationCount: requestCount > this.requestCount
-                ? context.logicalInvocationCount + 1
-                : context.logicalInvocationCount,
-            physicalAttemptCount: requestCount,
-          );
+    final cumulativeContext = context?.copyWith(
+      logicalInvocationCount: requestCount > this.requestCount
+          ? context.logicalInvocationCount + 1
+          : context.logicalInvocationCount,
+      physicalAttemptCount: requestCount,
+    );
     return GeminiInvoiceReviewExecution(
       status: status,
       message: message,
@@ -771,7 +769,7 @@ class GeminiInvoiceReviewCoordinator {
   static String _defaultLogicalInvocationId() {
     final micros = DateTime.now().toUtc().microsecondsSinceEpoch.toRadixString(36);
     final entropy = Random.secure().nextInt(0x7fffffff).toRadixString(36);
-    return 'gemini_$micros_$entropy';
+    return 'gemini_${micros}_$entropy';
   }
 }
 
