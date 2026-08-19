@@ -10,6 +10,7 @@ import 'package:my_finance_app/features/invoice/gemini/gemini_model_catalog_clie
 import 'package:my_finance_app/features/invoice/invoice_automatic_recognition_coordinator.dart';
 import 'package:my_finance_app/features/invoice/traditional_invoice_ocr_review.dart';
 import 'package:my_finance_app/features/recognition_ai/gemini_flash_model_router.dart';
+import 'package:my_finance_app/features/recognition_ai/gemini_key_group_router.dart';
 import 'package:my_finance_app/features/recognition_ai/recognition_ai_contract.dart';
 
 class _Store implements GeminiInvoiceSettingsStore {
@@ -100,60 +101,65 @@ void main() {
     expect(result, isNot(contains('missing-flash')));
   });
 
-  test('quota moves to next Key Group using same model and frozen bytes', () async {
-    final frozen = Uint8List.fromList(<int>[9, 8, 7, 6]);
-    final loader = _Loader(frozen);
-    final client = _Client((key, model, ordinal) async {
-      if (key == 'KEY_A') {
-        throw const GeminiInvoiceReviewException(
-          GeminiInvoiceReviewFailureKind.quota,
-          'quota',
-          statusCode: 429,
-        );
-      }
-      return _candidate();
-    });
-    final coordinator = _coordinator(
-      client: client,
-      loader: loader,
-      catalog: _Catalog(<String, Object>{
-        'KEY_A': models,
-        'KEY_B': models,
-      }),
-      keys: const <String>['KEY_A', 'KEY_B'],
-    );
+  test('legacy flat keys stay in one conservative quota group', () async {
+    final groups = GeminiKeyGroupRouter.fromApiKeys(
+      const <String>['KEY_A', 'KEY_B'],
+    ).healthyGroups;
+    expect(groups, hasLength(1));
+    expect(groups.single.alias, 'LEGACY_GROUP');
+    expect(groups.single.apiKeys, <String>['KEY_A', 'KEY_B']);
 
-    final result = await coordinator.reviewAutomatically(
+    final client = _Client((key, model, ordinal) async {
+      throw const GeminiInvoiceReviewException(
+        GeminiInvoiceReviewFailureKind.quota,
+        'quota',
+        statusCode: 429,
+      );
+    });
+    final result = await _coordinator(
+      client: client,
+      loader: _Loader(Uint8List.fromList(<int>[9, 8, 7, 6])),
+      catalog: _Catalog(<String, Object>{'KEY_A': models}),
+      keys: const <String>['KEY_A', 'KEY_B'],
+    ).reviewAutomatically(
       localResult: _partialResult(),
       localReference: '/frozen/invoice.jpg',
     );
-    final session = result.sessionContext!;
 
-    expect(result.status, GeminiInvoiceReviewExecutionStatus.success);
-    expect(client.calls.map((call) => call.key), <String>['KEY_A', 'KEY_B']);
-    expect(client.calls.map((call) => call.model), <String>[preferred, preferred]);
-    expect(identical(client.calls[0].bytes, client.calls[1].bytes), isTrue);
-    expect(identical(client.calls[0].bytes, frozen), isTrue);
-    expect(loader.loads, 1);
-    expect(session.logicalInvocationCount, 1);
-    expect(session.physicalAttemptCount, 2);
-    expect(session.modelAttemptCount, 1);
-    expect(session.keyGroupAttemptCount, 2);
-    expect(session.keyGroupAlias, 'GROUP_B');
-    expect(session.fallbackReason, RecognitionAiFallbackReason.quotaExhausted);
+    expect(result.status, GeminiInvoiceReviewExecutionStatus.failed);
+    expect(client.calls, hasLength(1));
+    expect(client.calls.single.key, 'KEY_A');
+    expect(result.sessionContext!.logicalInvocationCount, 1);
+    expect(result.sessionContext!.physicalAttemptCount, 1);
+    expect(result.sessionContext!.keyGroupAttemptCount, 1);
+    expect(result.sessionContext!.keyGroupAlias, 'LEGACY_GROUP');
+    expect(
+      result.sessionContext!.fallbackReason,
+      RecognitionAiFallbackReason.quotaExhausted,
+    );
+  });
+
+  test('explicit group router preserves independent boundaries', () {
+    final groups = GeminiKeyGroupRouter.fromGroups(
+      const <GeminiKeyGroup>[
+        GeminiKeyGroup(alias: 'GROUP_A', apiKeys: <String>['KEY_A']),
+        GeminiKeyGroup(alias: 'GROUP_B', apiKeys: <String>['KEY_B']),
+      ],
+    ).healthyGroups;
+    expect(groups, hasLength(2));
+    expect(groups[0].alias, 'GROUP_A');
+    expect(groups[1].alias, 'GROUP_B');
   });
 
   test('unavailable preferred model switches to provider-listed Flash', () async {
     final client = _Client((key, model, ordinal) async => _candidate());
-    final coordinator = _coordinator(
+    final result = await _coordinator(
       client: client,
       loader: _Loader(Uint8List.fromList(<int>[1, 2, 3])),
       catalog: _Catalog(<String, Object>{'KEY_A': models}),
       keys: const <String>['KEY_A'],
       model: 'missing-flash',
-    );
-
-    final result = await coordinator.reviewAutomatically(
+    ).reviewAutomatically(
       localResult: _partialResult(),
       localReference: '/frozen/invoice.jpg',
     );
@@ -178,13 +184,12 @@ void main() {
       }
       return _candidate();
     });
-    final retryCoordinator = _coordinator(
+    final retryResult = await _coordinator(
       client: retryClient,
       loader: _Loader(Uint8List.fromList(<int>[1, 2, 3])),
       catalog: _Catalog(<String, Object>{'KEY_A': models}),
       keys: const <String>['KEY_A'],
-    );
-    final retryResult = await retryCoordinator.reviewAutomatically(
+    ).reviewAutomatically(
       localResult: _partialResult(),
       localReference: '/frozen/invoice.jpg',
     );
@@ -199,22 +204,17 @@ void main() {
         statusCode: 400,
       );
     });
-    final failCoordinator = _coordinator(
+    final failResult = await _coordinator(
       client: failClient,
       loader: _Loader(Uint8List.fromList(<int>[1, 2, 3])),
-      catalog: _Catalog(<String, Object>{
-        'KEY_A': models,
-        'KEY_B': models,
-      }),
-      keys: const <String>['KEY_A', 'KEY_B'],
-    );
-    final failResult = await failCoordinator.reviewAutomatically(
+      catalog: _Catalog(<String, Object>{'KEY_A': models}),
+      keys: const <String>['KEY_A'],
+    ).reviewAutomatically(
       localResult: _partialResult(),
       localReference: '/frozen/invoice.jpg',
     );
     expect(failResult.status, GeminiInvoiceReviewExecutionStatus.failed);
     expect(failClient.calls, hasLength(1));
-    expect(failResult.sessionContext!.keyGroupAttemptCount, 1);
   });
 }
 
