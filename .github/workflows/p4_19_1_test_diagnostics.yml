@@ -1,0 +1,57 @@
+name: P4.19.1 Test Diagnostics
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-19-1-test-diagnostics-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture-full-test-log:
+    name: Capture Flutter test log
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Run full tests and capture raw output
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          flutter test 2>&1 | tee p4_19_1_flutter_test.log
+          status=${PIPESTATUS[0]}
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload raw Flutter test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-19-1-flutter-test-log
+          path: p4_19_1_flutter_test.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Preserve test failure conclusion
+        if: ${{ steps.tests.outputs.exit_code != '0' }}
+        run: exit 1
