@@ -21,9 +21,14 @@ void main() {
     ).readAsStringSync();
 
     expect(settings, contains('this.autoReviewLowConfidenceEnabled = false'));
+    expect(settings, contains('effectiveKeyGroups'));
+    expect(settings, contains('legacyGroupAlias'));
     expect(card, contains('OCR 信心不足時自動 AI 辨識'));
-    expect(card, contains('僅在本機判定需要覆核時自動送出原始發票影像一次'));
+    expect(card, contains('每次只建立 1 個 AI logical invocation'));
+    expect(card, contains('每行 1 個獨立 Project'));
     expect(coordinator, contains('automatic && !settings.autoReviewLowConfidenceEnabled'));
+    expect(coordinator, contains('settings.effectiveKeyGroups'));
+    expect(coordinator, contains('GeminiKeyGroupRouter.fromGroups'));
     expect(coordinator, contains('maxPhysicalAttempts = 3'));
     expect(coordinator, contains('logicalInvocationIdFactory'));
     expect(coordinator, contains('physicalAttemptCount'));
