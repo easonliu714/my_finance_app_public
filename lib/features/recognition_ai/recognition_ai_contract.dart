@@ -59,6 +59,35 @@ class RecognitionSessionContext {
   final bool modelCatalogChecked;
   final List<RecognitionAiRoutingEvent> events;
 
+  RecognitionSessionContext copyWith({
+    String? logicalInvocationId,
+    String? provider,
+    String? activeModel,
+    String? keyGroupAlias,
+    int? logicalInvocationCount,
+    int? physicalAttemptCount,
+    int? modelAttemptCount,
+    int? keyGroupAttemptCount,
+    RecognitionAiFallbackReason? fallbackReason,
+    bool? modelCatalogChecked,
+    List<RecognitionAiRoutingEvent>? events,
+  }) {
+    return RecognitionSessionContext(
+      logicalInvocationId: logicalInvocationId ?? this.logicalInvocationId,
+      provider: provider ?? this.provider,
+      activeModel: activeModel ?? this.activeModel,
+      keyGroupAlias: keyGroupAlias ?? this.keyGroupAlias,
+      logicalInvocationCount:
+          logicalInvocationCount ?? this.logicalInvocationCount,
+      physicalAttemptCount: physicalAttemptCount ?? this.physicalAttemptCount,
+      modelAttemptCount: modelAttemptCount ?? this.modelAttemptCount,
+      keyGroupAttemptCount: keyGroupAttemptCount ?? this.keyGroupAttemptCount,
+      fallbackReason: fallbackReason ?? this.fallbackReason,
+      modelCatalogChecked: modelCatalogChecked ?? this.modelCatalogChecked,
+      events: events ?? this.events,
+    );
+  }
+
   Map<String, Object?> toSafeJson() => <String, Object?>{
         'provider': provider,
         'logical_invocation_id': logicalInvocationId,
