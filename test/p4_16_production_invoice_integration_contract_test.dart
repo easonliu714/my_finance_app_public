@@ -14,10 +14,12 @@ void main() {
     expect(center, contains('GeminiInvoiceSettingsCard'));
     expect(settings, contains("defaultModel = 'gemini-3.6-flash'"));
     expect(settings, contains('autoReviewLowConfidenceEnabled'));
+    expect(settings, contains('effectiveKeyGroups'));
     expect(repository, contains('FlutterSecureStorage'));
     expect(repository, contains('encryptedSharedPreferences: true'));
     expect(card, contains('obscureText: _obscureKeys'));
-    expect(card, contains('測試 Key 並讀取可用模型'));
+    expect(card, contains('測試 Key Groups 並讀取可用模型'));
+    expect(card, contains('新增獨立 Project / Key Group'));
     expect(card, contains('OCR 信心不足時自動 AI 辨識'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
@@ -52,6 +54,7 @@ void main() {
     expect(coordinator, contains('shouldReview: completeness.requiresGeminiReview'));
     expect(coordinator, contains('reviewAutomatically'));
     expect(coordinator, contains('autoReviewLowConfidenceEnabled'));
+    expect(coordinator, contains('settings.effectiveKeyGroups'));
     expect(frozen, contains('_automaticGeminiAttempted'));
     expect(frozen, contains('reviewAutomatically'));
     expect(
