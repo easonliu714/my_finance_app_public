@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../recognition_ai/recognition_ai_status_indicator.dart';
@@ -5,6 +8,7 @@ import 'daily_capture_entry_shell.dart';
 import 'gemini/gemini_invoice_review.dart';
 import 'gemini/gemini_invoice_review_client.dart';
 import 'gemini/gemini_invoice_review_coordinator.dart';
+import 'gemini/gemini_invoice_settings.dart';
 import 'gemini/gemini_invoice_settings_repository.dart';
 import 'google_mlkit_traditional_invoice_recognizer.dart';
 import 'image_capture_staging.dart';
@@ -33,6 +37,7 @@ class InvoiceFrozenReviewPage extends StatefulWidget {
   static const Key forceGeminiKey = Key('invoice_frozen_force_gemini');
   static const Key exportEvidenceKey = Key('invoice_frozen_export_evidence');
   static const Key aiStatusKey = Key('invoice_frozen_ai_status');
+  static const Key aiRunningStatusKey = Key('invoice_frozen_ai_running_status');
 
   final InvoiceLiveCaptureResult liveResult;
   final InvoiceCaptureReviewFlowCoordinator? reviewFlowCoordinator;
@@ -58,6 +63,12 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
   bool _busy = true;
   bool _geminiBusy = false;
   bool _evidenceBusy = false;
+  Timer? _geminiElapsedTimer;
+  DateTime? _geminiStartedAt;
+  Duration _geminiElapsed = Duration.zero;
+  String _geminiActiveModel = GeminiInvoiceSettings.defaultModel;
+  String _geminiProgressMessage = '正在確認可用 API Key 與模型…';
+  int _geminiPhysicalAttemptOrdinal = 0;
 
   @override
   void initState() {
@@ -86,13 +97,29 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
             ).recognize,
           ),
         );
-    _geminiReviewCoordinator =
-        widget.geminiReviewCoordinator ??
-        GeminiInvoiceReviewCoordinator(
-          settingsStore: const GeminiInvoiceSettingsRepository(),
-          client: GeminiInvoiceReviewClient(),
-        );
+    if (widget.geminiReviewCoordinator != null) {
+      _geminiReviewCoordinator = widget.geminiReviewCoordinator!;
+    } else {
+      const settingsRepository = GeminiInvoiceSettingsRepository();
+      _geminiReviewCoordinator = GeminiInvoiceReviewCoordinator(
+        settingsStore: settingsRepository,
+        client: _ProgressReportingGeminiInvoiceReviewClient(
+          delegate: GeminiInvoiceReviewClient(),
+          onAttempt: _onGeminiPhysicalAttempt,
+        ),
+      );
+      settingsRepository.load().then((settings) {
+        if (!mounted) return;
+        setState(() => _geminiActiveModel = settings.model);
+      });
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _runLocalAndEscalate());
+  }
+
+  @override
+  void dispose() {
+    _geminiElapsedTimer?.cancel();
+    super.dispose();
   }
 
   InvoiceRecognitionRequestedRoute get _requestedRoute =>
@@ -177,12 +204,46 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
     await _runGemini(local, forceReview: false, automatic: true);
   }
 
+  void _startGeminiProgress() {
+    _geminiElapsedTimer?.cancel();
+    _geminiStartedAt = DateTime.now();
+    _geminiElapsed = Duration.zero;
+    _geminiPhysicalAttemptOrdinal = 0;
+    _geminiProgressMessage = '正在確認可用 API Key 與模型…';
+    _geminiElapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final started = _geminiStartedAt;
+      if (!mounted || started == null) return;
+      setState(() => _geminiElapsed = DateTime.now().difference(started));
+    });
+  }
+
+  void _stopGeminiProgress() {
+    _geminiElapsedTimer?.cancel();
+    _geminiElapsedTimer = null;
+    final started = _geminiStartedAt;
+    if (started != null) {
+      _geminiElapsed = DateTime.now().difference(started);
+    }
+  }
+
+  void _onGeminiPhysicalAttempt(String model) {
+    if (!mounted) return;
+    setState(() {
+      _geminiPhysicalAttemptOrdinal += 1;
+      _geminiActiveModel = model;
+      _geminiProgressMessage = _geminiPhysicalAttemptOrdinal == 1
+          ? '正在辨識…'
+          : '正在切換可用 Key／模型並重試…';
+    });
+  }
+
   Future<void> _runGemini(
     InvoiceCaptureReviewFlowResult local, {
     required bool forceReview,
     bool automatic = false,
   }) async {
     if (_geminiBusy) return;
+    _startGeminiProgress();
     setState(() {
       _geminiBusy = true;
       _error = null;
@@ -207,10 +268,16 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
             (previous?.automaticUploadPerformed ?? false) ||
             execution.automaticUploadPerformed,
       );
-      setState(() => _geminiExecution = merged);
+      setState(() {
+        _geminiExecution = merged;
+        if (execution.model.trim().isNotEmpty) {
+          _geminiActiveModel = execution.model;
+        }
+      });
     } catch (error) {
       if (mounted) setState(() => _error = 'AI 覆核失敗：${error.runtimeType}');
     } finally {
+      _stopGeminiProgress();
       if (mounted) setState(() => _geminiBusy = false);
     }
   }
@@ -278,6 +345,21 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                   : _geminiBusy
                   ? 'AI 覆核中'
                   : '本機辨識中',
+            ),
+          ],
+          if (_geminiBusy) ...<Widget>[
+            const SizedBox(height: 10),
+            Card(
+              key: InvoiceFrozenReviewPage.aiRunningStatusKey,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: RecognitionAiRunningStatusIndicator(
+                  provider: 'Gemini',
+                  activeModel: _geminiActiveModel,
+                  elapsed: _geminiElapsed,
+                  message: _geminiProgressMessage,
+                ),
+              ),
             ),
           ],
           if (_error != null) ...<Widget>[
@@ -402,6 +484,35 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _ProgressReportingGeminiInvoiceReviewClient
+    implements GeminiInvoiceReviewPort {
+  _ProgressReportingGeminiInvoiceReviewClient({
+    required this.delegate,
+    required this.onAttempt,
+  });
+
+  final GeminiInvoiceReviewPort delegate;
+  final void Function(String model) onAttempt;
+
+  @override
+  Future<GeminiInvoiceReviewCandidate> review({
+    required String apiKey,
+    required String model,
+    required Uint8List imageBytes,
+    required String mimeType,
+    Map<String, Object?> localSummary = const <String, Object?>{},
+  }) {
+    onAttempt(model);
+    return delegate.review(
+      apiKey: apiKey,
+      model: model,
+      imageBytes: imageBytes,
+      mimeType: mimeType,
+      localSummary: localSummary,
     );
   }
 }
