@@ -287,9 +287,9 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
           ],
           if (!_recognitionBusy && _reviewedCandidate != null) ...[
             const SizedBox(height: 12),
-            Card(
+            const Card(
               key: ProductCapturePage.reviewedStatusKey,
-              child: const ListTile(
+              child: ListTile(
                 leading: Icon(Icons.verified_outlined),
                 title: Text('人工覆核已確認'),
                 subtitle: Text('已採用你修正後的欄位；目前仍未建立正式交易。'),
