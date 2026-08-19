@@ -14,12 +14,17 @@ class GeminiInvoiceSettingsCard extends StatefulWidget {
   static const Key apiKeyFieldKey = Key('gemini_invoice_api_keys');
   static const Key visibilityToggleKey =
       Key('gemini_invoice_api_key_visibility');
+  static const Key addGroupKey = Key('gemini_invoice_add_key_group');
   static const Key testKey = Key('gemini_invoice_test_keys');
   static const Key modelDropdownKey = Key('gemini_invoice_model_dropdown');
   static const Key autoReviewToggleKey =
       Key('gemini_invoice_auto_review_low_confidence');
   static const Key saveKey = Key('gemini_invoice_save_settings');
   static const Key clearKey = Key('gemini_invoice_clear_settings');
+
+  static Key groupFieldKey(int index) => Key('gemini_invoice_key_group_$index');
+  static Key removeGroupKey(int index) =>
+      Key('gemini_invoice_remove_key_group_$index');
 
   final GeminiInvoiceSettingsRepository repository;
   final GeminiModelCatalogClient? catalogClient;
@@ -31,7 +36,7 @@ class GeminiInvoiceSettingsCard extends StatefulWidget {
 
 class _GeminiInvoiceSettingsCardState
     extends State<GeminiInvoiceSettingsCard> {
-  late final TextEditingController _apiKeyController;
+  late List<TextEditingController> _groupControllers;
   late final GeminiModelCatalogClient _catalogClient;
   GeminiInvoiceSettings _settings = const GeminiInvoiceSettings();
   List<GeminiModelDescriptor> _models = const <GeminiModelDescriptor>[];
@@ -45,14 +50,16 @@ class _GeminiInvoiceSettingsCardState
   @override
   void initState() {
     super.initState();
-    _apiKeyController = TextEditingController();
+    _groupControllers = <TextEditingController>[TextEditingController()];
     _catalogClient = widget.catalogClient ?? GeminiModelCatalogClient();
     _load();
   }
 
   @override
   void dispose() {
-    _apiKeyController.dispose();
+    for (final controller in _groupControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -60,9 +67,12 @@ class _GeminiInvoiceSettingsCardState
     try {
       final settings = await widget.repository.load();
       if (!mounted) return;
+      _replaceGroupControllers(<String>[
+        for (final group in settings.effectiveKeyGroups)
+          group.apiKeys.join('，'),
+      ]);
       setState(() {
         _settings = settings;
-        _apiKeyController.text = settings.keyGroupInputText;
         _selectedModel = settings.model;
         _loading = false;
       });
@@ -86,9 +96,7 @@ class _GeminiInvoiceSettingsCardState
       );
     }
 
-    final parsedGroups = GeminiInvoiceSettings.parseKeyGroups(
-      _apiKeyController.text,
-    );
+    final parsedGroups = _parsedGroups();
     final parsedKeys = _flattenGroups(parsedGroups);
     final selectedModel = _selectedModel ?? GeminiInvoiceSettings.defaultModel;
     final modelItems = _modelItems(selectedModel);
@@ -125,36 +133,18 @@ class _GeminiInvoiceSettingsCardState
               ],
             ),
             const SizedBox(height: 16),
-            TextField(
-              key: GeminiInvoiceSettingsCard.apiKeyFieldKey,
-              controller: _apiKeyController,
-              obscureText: _obscureKeys,
-              enableSuggestions: false,
-              autocorrect: false,
-              keyboardType: TextInputType.multiline,
-              minLines: 2,
-              maxLines: 6,
-              decoration: InputDecoration(
-                labelText: 'Gemini Key Groups（每行 1 個獨立 Project）',
-                hintText: 'PROJECT_A_KEY\nPROJECT_B_KEY',
-                helperText:
-                    '不同 Google Project / quota boundary 請分行；同一 Project 的多把 Key 可放同一行。舊 flat Key 會保守視為同一組。',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  key: GeminiInvoiceSettingsCard.visibilityToggleKey,
-                  tooltip: _obscureKeys ? '顯示 API Key' : '隱藏 API Key',
-                  onPressed: () => setState(() => _obscureKeys = !_obscureKeys),
-                  icon: Icon(
-                    _obscureKeys
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                  ),
-                ),
+            for (var index = 0; index < _groupControllers.length; index++) ...<Widget>[
+              _buildGroupField(context, index),
+              const SizedBox(height: 10),
+            ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                key: GeminiInvoiceSettingsCard.addGroupKey,
+                onPressed: _busy ? null : _addGroup,
+                icon: const Icon(Icons.add_outlined),
+                label: const Text('新增獨立 Project / Key Group'),
               ),
-              onChanged: (_) => setState(() {
-                _keyResults = const <GeminiApiKeyTestResult>[];
-                _statusMessage = null;
-              }),
             ),
             const SizedBox(height: 8),
             Text(
@@ -293,6 +283,64 @@ class _GeminiInvoiceSettingsCardState
     );
   }
 
+  Widget _buildGroupField(BuildContext context, int index) {
+    final alias = _groupAlias(index);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                '$alias · 獨立 Google Project / quota boundary',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+            if (_groupControllers.length > 1)
+              IconButton(
+                key: GeminiInvoiceSettingsCard.removeGroupKey(index),
+                tooltip: '移除 $alias',
+                onPressed: _busy ? null : () => _removeGroup(index),
+                icon: const Icon(Icons.remove_circle_outline),
+              ),
+          ],
+        ),
+        TextField(
+          key: index == 0
+              ? GeminiInvoiceSettingsCard.apiKeyFieldKey
+              : GeminiInvoiceSettingsCard.groupFieldKey(index),
+          controller: _groupControllers[index],
+          obscureText: _obscureKeys,
+          enableSuggestions: false,
+          autocorrect: false,
+          keyboardType: TextInputType.visiblePassword,
+          textInputAction: index == _groupControllers.length - 1
+              ? TextInputAction.done
+              : TextInputAction.next,
+          decoration: InputDecoration(
+            labelText: '$alias API Key',
+            hintText: 'AIza…',
+            helperText: '同一 Project 的多把 Key 可用逗號、頓號或分號分隔。',
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              key: index == 0
+                  ? GeminiInvoiceSettingsCard.visibilityToggleKey
+                  : null,
+              tooltip: _obscureKeys ? '顯示全部 API Key' : '隱藏全部 API Key',
+              onPressed: () => setState(() => _obscureKeys = !_obscureKeys),
+              icon: Icon(
+                _obscureKeys
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+              ),
+            ),
+          ),
+          onChanged: (_) => _onKeyInputChanged(),
+        ),
+      ],
+    );
+  }
+
   List<DropdownMenuItem<String>> _modelItems(String selectedModel) {
     final byId = <String, GeminiModelDescriptor>{
       for (final model in _models) model.id: model,
@@ -321,7 +369,7 @@ class _GeminiInvoiceSettingsCardState
   }
 
   Future<void> _testAndLoadModels() async {
-    final groups = GeminiInvoiceSettings.parseKeyGroups(_apiKeyController.text);
+    final groups = _parsedGroups();
     final keys = _flattenGroups(groups);
     if (keys.isEmpty) return;
     setState(() {
@@ -355,7 +403,7 @@ class _GeminiInvoiceSettingsCardState
   }
 
   Future<void> _save() async {
-    final groups = GeminiInvoiceSettings.parseKeyGroups(_apiKeyController.text);
+    final groups = _parsedGroups();
     final keys = _flattenGroups(groups);
     final settings = _settings.copyWith(
       apiKeys: keys,
@@ -368,7 +416,6 @@ class _GeminiInvoiceSettingsCardState
       if (!mounted) return;
       setState(() {
         _settings = settings;
-        _apiKeyController.text = settings.keyGroupInputText;
         _obscureKeys = true;
         _statusMessage = keys.isEmpty
             ? '已儲存功能開關；目前沒有 API Key。'
@@ -387,9 +434,9 @@ class _GeminiInvoiceSettingsCardState
     try {
       await widget.repository.clear();
       if (!mounted) return;
+      _replaceGroupControllers(const <String>[]);
       setState(() {
         _settings = const GeminiInvoiceSettings();
-        _apiKeyController.clear();
         _selectedModel = GeminiInvoiceSettings.defaultModel;
         _models = const <GeminiModelDescriptor>[];
         _keyResults = const <GeminiApiKeyTestResult>[];
@@ -399,6 +446,49 @@ class _GeminiInvoiceSettingsCardState
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _onKeyInputChanged() {
+    setState(() {
+      _keyResults = const <GeminiApiKeyTestResult>[];
+      _statusMessage = null;
+    });
+  }
+
+  void _addGroup() {
+    setState(() {
+      _groupControllers.add(TextEditingController());
+      _keyResults = const <GeminiApiKeyTestResult>[];
+      _statusMessage = null;
+    });
+  }
+
+  void _removeGroup(int index) {
+    if (_groupControllers.length <= 1) return;
+    final controller = _groupControllers.removeAt(index);
+    controller.dispose();
+    setState(() {
+      _keyResults = const <GeminiApiKeyTestResult>[];
+      _statusMessage = null;
+    });
+  }
+
+  void _replaceGroupControllers(List<String> values) {
+    for (final controller in _groupControllers) {
+      controller.dispose();
+    }
+    final normalized = values.where((value) => value.trim().isNotEmpty).toList();
+    _groupControllers = normalized.isEmpty
+        ? <TextEditingController>[TextEditingController()]
+        : <TextEditingController>[
+            for (final value in normalized) TextEditingController(text: value),
+          ];
+  }
+
+  List<GeminiInvoiceKeyGroup> _parsedGroups() {
+    return GeminiInvoiceSettings.parseKeyGroups(
+      _groupControllers.map((controller) => controller.text).join('\n'),
+    );
   }
 
   List<String> _flattenGroups(List<GeminiInvoiceKeyGroup> groups) {
@@ -417,5 +507,11 @@ class _GeminiInvoiceSettingsCardState
       if (ordinal <= cursor) return group.alias;
     }
     return 'KEY_GROUP';
+  }
+
+  String _groupAlias(int index) {
+    final code = 65 + index;
+    if (code <= 90) return 'GROUP_${String.fromCharCode(code)}';
+    return 'GROUP_${index + 1}';
   }
 }
