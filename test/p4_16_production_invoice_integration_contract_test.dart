@@ -168,7 +168,7 @@ void main() {
     expect(evidence, contains('InvoiceReviewFieldKey.invoicePeriod'));
     expect(evidence, contains('InvoiceReviewFieldKey.randomCode'));
     expect(evidence, contains("'randomCode': candidate.randomCode"));
-    expect(evidence, isNot(contains("('invoicePeriod', '', ai.invoicePeriod"))));
+    expect(evidence.contains("('invoicePeriod', '', ai.invoicePeriod"), isFalse);
     expect(evidence, isNot(contains('TransactionRepository')));
   });
 
