@@ -62,7 +62,7 @@ class _GeminiInvoiceSettingsCardState
       if (!mounted) return;
       setState(() {
         _settings = settings;
-        _apiKeyController.text = settings.apiKeys.join('\n');
+        _apiKeyController.text = settings.keyGroupInputText;
         _selectedModel = settings.model;
         _loading = false;
       });
@@ -86,9 +86,10 @@ class _GeminiInvoiceSettingsCardState
       );
     }
 
-    final parsedKeys = GeminiInvoiceSettings.parseApiKeys(
+    final parsedGroups = GeminiInvoiceSettings.parseKeyGroups(
       _apiKeyController.text,
     );
+    final parsedKeys = _flattenGroups(parsedGroups);
     final selectedModel = _selectedModel ?? GeminiInvoiceSettings.defaultModel;
     final modelItems = _modelItems(selectedModel);
 
@@ -115,7 +116,9 @@ class _GeminiInvoiceSettingsCardState
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 4),
-                      const Text('設定 API Key、模型與自動覆核。Key 僅保存於系統安全儲存空間。'),
+                      const Text(
+                        '設定 Project / Key Group、模型與自動覆核。Key 僅保存於系統安全儲存空間。',
+                      ),
                     ],
                   ),
                 ),
@@ -128,12 +131,14 @@ class _GeminiInvoiceSettingsCardState
               obscureText: _obscureKeys,
               enableSuggestions: false,
               autocorrect: false,
-              keyboardType: TextInputType.visiblePassword,
-              textInputAction: TextInputAction.done,
+              keyboardType: TextInputType.multiline,
+              minLines: 2,
+              maxLines: 6,
               decoration: InputDecoration(
-                labelText: 'Gemini API Key（可輸入多組）',
-                hintText: 'Key 1，Key 2；Key 3',
-                helperText: '支援常用分隔符號；重複 Key 會自動移除。',
+                labelText: 'Gemini Key Groups（每行 1 個獨立 Project）',
+                hintText: 'PROJECT_A_KEY\nPROJECT_B_KEY',
+                helperText:
+                    '不同 Google Project / quota boundary 請分行；同一 Project 的多把 Key 可放同一行。舊 flat Key 會保守視為同一組。',
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
                   key: GeminiInvoiceSettingsCard.visibilityToggleKey,
@@ -155,7 +160,7 @@ class _GeminiInvoiceSettingsCardState
             Text(
               parsedKeys.isEmpty
                   ? '尚未輸入 API Key'
-                  : '已解析 ${parsedKeys.length} 組 API Key',
+                  : '已解析 ${parsedGroups.length} 個 Key Group / ${parsedKeys.length} 組 API Key',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             if (_keyResults.isNotEmpty) ...<Widget>[
@@ -176,7 +181,7 @@ class _GeminiInvoiceSettingsCardState
                             : Theme.of(context).colorScheme.error,
                       ),
                       label: Text(
-                        'Key #${result.ordinal} ${result.maskedKey}：${result.message}',
+                        '${_groupAliasForOrdinal(parsedGroups, result.ordinal)} · Key #${result.ordinal} ${result.maskedKey}：${result.message}',
                       ),
                     ),
                 ],
@@ -192,7 +197,7 @@ class _GeminiInvoiceSettingsCardState
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.network_check_outlined),
-              label: Text(_busy ? '正在測試並讀取模型…' : '測試 Key 並讀取可用模型'),
+              label: Text(_busy ? '正在測試並讀取模型…' : '測試 Key Groups 並讀取可用模型'),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -230,7 +235,9 @@ class _GeminiInvoiceSettingsCardState
               key: GeminiInvoiceSettingsCard.autoReviewToggleKey,
               contentPadding: EdgeInsets.zero,
               title: const Text('OCR 信心不足時自動 AI 辨識'),
-              subtitle: const Text('開啟後，僅在本機判定需要覆核時自動送出原始發票影像一次。'),
+              subtitle: const Text(
+                '開啟後，每次只建立 1 個 AI logical invocation；只有配額、模型不可用或暫時性服務錯誤才允許有限次 fallback / retry。',
+              ),
               value: _settings.autoReviewLowConfidenceEnabled,
               onChanged: _busy || !_settings.experimentalInvoiceVisionEnabled
                   ? null
@@ -314,7 +321,8 @@ class _GeminiInvoiceSettingsCardState
   }
 
   Future<void> _testAndLoadModels() async {
-    final keys = GeminiInvoiceSettings.parseApiKeys(_apiKeyController.text);
+    final groups = GeminiInvoiceSettings.parseKeyGroups(_apiKeyController.text);
+    final keys = _flattenGroups(groups);
     if (keys.isEmpty) return;
     setState(() {
       _busy = true;
@@ -338,7 +346,7 @@ class _GeminiInvoiceSettingsCardState
         _models = result.models;
         _selectedModel = nextModel;
         _statusMessage = result.hasAvailableKey
-            ? 'API Key 測試完成；已讀取 ${result.models.length} 個可用模型。'
+            ? 'Key Group 測試完成；已讀取 ${result.models.length} 個可用模型。'
             : '沒有 API Key 通過測試，設定尚未啟用。';
       });
     } finally {
@@ -347,9 +355,11 @@ class _GeminiInvoiceSettingsCardState
   }
 
   Future<void> _save() async {
-    final keys = GeminiInvoiceSettings.parseApiKeys(_apiKeyController.text);
+    final groups = GeminiInvoiceSettings.parseKeyGroups(_apiKeyController.text);
+    final keys = _flattenGroups(groups);
     final settings = _settings.copyWith(
       apiKeys: keys,
+      keyGroups: groups,
       model: _selectedModel ?? GeminiInvoiceSettings.defaultModel,
     );
     setState(() => _busy = true);
@@ -358,11 +368,11 @@ class _GeminiInvoiceSettingsCardState
       if (!mounted) return;
       setState(() {
         _settings = settings;
-        _apiKeyController.text = keys.join('\n');
+        _apiKeyController.text = settings.keyGroupInputText;
         _obscureKeys = true;
         _statusMessage = keys.isEmpty
             ? '已儲存功能開關；目前沒有 API Key。'
-            : '已安全儲存 Gemini 設定。';
+            : '已安全儲存 ${groups.length} 個 Key Group / ${keys.length} 組 API Key。';
       });
     } catch (_) {
       if (!mounted) return;
@@ -389,5 +399,23 @@ class _GeminiInvoiceSettingsCardState
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  List<String> _flattenGroups(List<GeminiInvoiceKeyGroup> groups) {
+    return List<String>.unmodifiable(<String>[
+      for (final group in groups) ...group.apiKeys,
+    ]);
+  }
+
+  String _groupAliasForOrdinal(
+    List<GeminiInvoiceKeyGroup> groups,
+    int ordinal,
+  ) {
+    var cursor = 0;
+    for (final group in groups) {
+      cursor += group.apiKeys.length;
+      if (ordinal <= cursor) return group.alias;
+    }
+    return 'KEY_GROUP';
   }
 }
