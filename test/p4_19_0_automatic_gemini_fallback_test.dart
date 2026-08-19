@@ -10,7 +10,7 @@ import 'package:my_finance_app/features/invoice/invoice_automatic_recognition_co
 import 'package:my_finance_app/features/invoice/traditional_invoice_ocr_review.dart';
 
 void main() {
-  group('P4.19.0 automatic Gemini fallback', () {
+  group('P4.19 automatic Gemini fallback compatibility', () {
     test('legacy settings decode keeps automatic review OFF', () {
       final settings = GeminiInvoiceSettings.decode(
         '{"schemaVersion":1,"apiKeys":["key-1"],'
@@ -62,7 +62,7 @@ void main() {
       expect(client.calls, 0);
     });
 
-    test('setting ON plus low-confidence Local makes exactly one AI request', () async {
+    test('setting ON plus low-confidence Local makes one successful request', () async {
       final client = _CountingClient();
       final coordinator = GeminiInvoiceReviewCoordinator(
         settingsStore: _MemorySettingsStore(
@@ -90,7 +90,7 @@ void main() {
       expect(client.lastBytes, Uint8List.fromList(const <int>[1, 2, 3, 4]));
     });
 
-    test('automatic review never fails over to a second API key', () async {
+    test('automatic quota failure does not escape legacy flat-key project group', () async {
       final client = _CountingClient(failRetryably: true);
       final coordinator = GeminiInvoiceReviewCoordinator(
         settingsStore: _MemorySettingsStore(
@@ -115,9 +115,10 @@ void main() {
       expect(execution.automaticUploadPerformed, isTrue);
       expect(client.calls, 1);
       expect(client.keys, <String>['key-1']);
+      expect(execution.sessionContext?.keyGroupAlias, 'LEGACY_GROUP');
     });
 
-    test('manual review may still fail over to a second API key', () async {
+    test('manual quota failure also stays inside legacy flat-key project group', () async {
       final client = _CountingClient(failFirstOnly: true);
       final coordinator = GeminiInvoiceReviewCoordinator(
         settingsStore: _MemorySettingsStore(
@@ -136,12 +137,13 @@ void main() {
         localReference: '/original/frozen.jpg',
       );
 
-      expect(execution.status, GeminiInvoiceReviewExecutionStatus.success);
+      expect(execution.status, GeminiInvoiceReviewExecutionStatus.failed);
       expect(execution.invocationMode, GeminiInvoiceReviewInvocationMode.manual);
-      expect(execution.requestCount, 2);
+      expect(execution.requestCount, 1);
       expect(execution.automaticUploadPerformed, isFalse);
-      expect(client.calls, 2);
-      expect(client.keys, <String>['key-1', 'key-2']);
+      expect(client.calls, 1);
+      expect(client.keys, <String>['key-1']);
+      expect(execution.sessionContext?.keyGroupAlias, 'LEGACY_GROUP');
     });
 
     test('setting ON plus complete high-confidence Local makes zero AI requests', () async {
