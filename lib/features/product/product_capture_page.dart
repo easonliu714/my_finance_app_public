@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -12,6 +13,7 @@ import '../invoice/production_image_capture.dart';
 import '../recognition_ai/recognition_ai_status_indicator.dart';
 import 'gemini_product_recognition_client.dart';
 import 'gemini_product_recognition_coordinator.dart';
+import 'product_manual_review_card.dart';
 import 'product_recognition_candidate.dart';
 
 class ProductCapturePage extends StatefulWidget {
@@ -35,6 +37,7 @@ class ProductCapturePage extends StatefulWidget {
       Key('product_capture_ai_running_status');
   static const Key aiStatusKey = Key('product_capture_ai_status');
   static const Key candidateReviewKey = Key('product_capture_candidate_review');
+  static const Key reviewedStatusKey = Key('product_capture_reviewed_status');
 
   final ProductionImageCaptureCoordinator? coordinator;
   final ProductRecognitionCoordinator? recognitionCoordinator;
@@ -48,6 +51,7 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
   late final ProductRecognitionCoordinator _recognitionCoordinator;
   ProductionImageCaptureResult? _result;
   ProductRecognitionExecution? _recognitionExecution;
+  ProductRecognitionCandidate? _reviewedCandidate;
   String? _recognitionError;
   bool _busy = false;
   bool _recognitionBusy = false;
@@ -117,7 +121,7 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
               ),
               CaptureHelpSection(
                 title: '人工覆核',
-                body: 'AI 只提供商品候選與分類、商家建議；所有欄位都必須由你覆核後才能進入正式記帳流程。',
+                body: 'AI 只提供候選。商品、數量、單價、總金額、分類與商家都可人工修正；只有你按下確認後才成為人工覆核值。',
               ),
               CaptureHelpSection(
                 title: '照片管理',
@@ -275,9 +279,21 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
           ],
           if (!_recognitionBusy && execution?.candidate != null) ...[
             const SizedBox(height: 16),
-            _ProductRecognitionCandidateCard(
+            ProductManualReviewCard(
               key: ProductCapturePage.candidateReviewKey,
               candidate: execution!.candidate!,
+              onReviewed: _acceptReviewedCandidate,
+            ),
+          ],
+          if (!_recognitionBusy && _reviewedCandidate != null) ...[
+            const SizedBox(height: 12),
+            Card(
+              key: ProductCapturePage.reviewedStatusKey,
+              child: const ListTile(
+                leading: Icon(Icons.verified_outlined),
+                title: Text('人工覆核已確認'),
+                subtitle: Text('已採用你修正後的欄位；目前仍未建立正式交易。'),
+              ),
             ),
           ],
         ],
@@ -291,6 +307,7 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
       _busy = true;
       _result = null;
       _recognitionExecution = null;
+      _reviewedCandidate = null;
       _recognitionError = null;
     });
     final result = source == ImageCaptureStagingSource.camera
@@ -310,6 +327,7 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
     setState(() {
       _recognitionBusy = true;
       _recognitionExecution = null;
+      _reviewedCandidate = null;
       _recognitionError = null;
     });
     try {
@@ -341,8 +359,13 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
       _busy = false;
       _result = result;
       _recognitionExecution = null;
+      _reviewedCandidate = null;
       _recognitionError = null;
     });
+  }
+
+  void _acceptReviewedCandidate(ProductRecognitionCandidate reviewed) {
+    setState(() => _reviewedCandidate = reviewed);
   }
 
   void _startRecognitionProgress() {
@@ -382,126 +405,6 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
   }
 }
 
-class _ProductRecognitionCandidateCard extends StatelessWidget {
-  const _ProductRecognitionCandidateCard({
-    super.key,
-    required this.candidate,
-  });
-
-  final ProductRecognitionCandidate candidate;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.fact_check_outlined),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'AI 商品候選 · 請人工覆核',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _CandidateField(label: '商品', value: candidate.productName),
-            _CandidateField(
-              label: '數量',
-              value: _displayNumber(candidate.quantity),
-            ),
-            _CandidateField(
-              label: '單價',
-              value: _displayNumber(candidate.unitPrice),
-            ),
-            _CandidateField(
-              label: '總金額',
-              value: _displayNumber(candidate.resolvedTotalAmount),
-            ),
-            _CandidateField(
-              label: '分類建議',
-              value: candidate.categorySuggestion,
-            ),
-            _CandidateField(
-              label: '商家建議',
-              value: candidate.merchantName,
-            ),
-            if (candidate.resolvedAmountSource ==
-                ProductRecognitionAmountSource.derivedQuantityTimesUnitPrice)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '總金額為數量 × 單價推導值，需由你確認。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            if (candidate.warnings.isNotEmpty) ...[
-              const Divider(height: 24),
-              Text(
-                '需注意：${candidate.warnings.join('、')}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-            const Divider(height: 24),
-            Text(
-              '目前只建立覆核候選，不會自動新增分類、商家或正式交易。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static String _displayNumber(double? value) {
-    if (value == null) return '—';
-    if (value == value.roundToDouble()) return value.toStringAsFixed(0);
-    return value
-        .toStringAsFixed(4)
-        .replaceFirst(RegExp(r'0+$'), '')
-        .replaceFirst(RegExp(r'\.$'), '');
-  }
-}
-
-class _CandidateField extends StatelessWidget {
-  const _CandidateField({
-    required this.label,
-    required this.value,
-  });
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 86,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-          Expanded(child: Text(value.trim().isEmpty ? '—' : value.trim())),
-        ],
-      ),
-    );
-  }
-}
-
 class _ProgressReportingGeminiProductRecognitionClient
     implements GeminiProductRecognitionPort {
   const _ProgressReportingGeminiProductRecognitionClient({
@@ -516,7 +419,7 @@ class _ProgressReportingGeminiProductRecognitionClient
   Future<ProductRecognitionCandidate> recognize({
     required String apiKey,
     required String model,
-    required dynamic imageBytes,
+    required Uint8List imageBytes,
     required String mimeType,
   }) {
     onAttempt(model);
