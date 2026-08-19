@@ -170,7 +170,7 @@ jobs:
           Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
           PY
       - name: Build signed release APK
-        run: flutter build apk --release --no-pub --build-number=436
+        run: flutter build apk --release --no-pub --build-number=437
       - name: Inspect signed APK boundary
         env:
           ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
@@ -194,14 +194,14 @@ jobs:
           ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
           test "$version_name" = '4.19.1'
-          test "$version_code" = '436'
+          test "$version_code" = '437'
           grep -Fq "$expected" <<< "$normalized"
           printf 'APK signing certificate pin: PASS\n'
       - name: Generate checksum
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_19_1_public_signed_canary.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: p4-19-1-public-4.19.1+436-signed-canary
+          name: p4-19-1-public-4.19.1+437-signed-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             p4_19_1_public_signed_canary.sha256
