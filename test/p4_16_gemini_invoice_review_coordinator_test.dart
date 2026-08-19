@@ -92,7 +92,7 @@ void main() {
     expect(client.attemptedKeys, isEmpty);
   });
 
-  test('quota on legacy flat keys fails closed within one project group', () async {
+  test('quota on flat key pool rotates through available keys then fails closed', () async {
     final client = _RecordingReviewClient((key) async {
       throw const GeminiInvoiceReviewException(
         GeminiInvoiceReviewFailureKind.quota,
@@ -115,9 +115,10 @@ void main() {
       localReference: '/tmp/invoice.jpg',
     );
     expect(result.status, GeminiInvoiceReviewExecutionStatus.failed);
-    expect(client.attemptedKeys, <String>['KEY_1']);
-    expect(result.attempts, hasLength(1));
-    expect(result.sessionContext?.keyGroupAlias, 'LEGACY_GROUP');
+    expect(client.attemptedKeys, <String>['KEY_1', 'KEY_2']);
+    expect(result.attempts, hasLength(2));
+    expect(result.sessionContext?.keyGroupAlias, 'KEY_2');
+    expect(result.sessionContext?.keyGroupAttemptCount, 2);
     expect(result.canCreateFormalRecord, isFalse);
   });
 
