@@ -11,12 +11,14 @@ class _FakeStore extends GeminiInvoiceSettingsRepository {
 
   GeminiInvoiceSettings value;
   var clearCount = 0;
+  var saveCount = 0;
 
   @override
   Future<GeminiInvoiceSettings> load() async => value;
 
   @override
   Future<void> save(GeminiInvoiceSettings settings) async {
+    saveCount += 1;
     value = settings;
   }
 
@@ -87,7 +89,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('API Key is obscured by default and can be revealed', (
+  testWidgets('API Key pool is obscured by default and can be revealed', (
     tester,
   ) async {
     final store = _FakeStore(
@@ -108,40 +110,30 @@ void main() {
     expect(editable.obscureText, isFalse);
   });
 
-  testWidgets('tests explicit groups, loads models and securely saves topology', (
+  testWidgets('one pane tests multiple keys and securely saves flat pool', (
     tester,
   ) async {
     final store = _FakeStore(const GeminiInvoiceSettings());
     await pumpCard(tester, store: store);
 
-    final firstGroup = find.byKey(GeminiInvoiceSettingsCard.apiKeyFieldKey);
-    await tester.ensureVisible(firstGroup);
-    await tester.enterText(firstGroup, 'KEY_1');
-
-    final addGroup = find.byKey(GeminiInvoiceSettingsCard.addGroupKey);
-    await tester.ensureVisible(addGroup);
-    await tester.tap(addGroup);
+    final keyField = find.byKey(GeminiInvoiceSettingsCard.apiKeyFieldKey);
+    await tester.ensureVisible(keyField);
+    await tester.enterText(keyField, 'KEY_1，KEY_2；KEY_3');
     await tester.pump();
 
-    final secondGroup = find.byKey(GeminiInvoiceSettingsCard.groupFieldKey(1));
-    await tester.ensureVisible(secondGroup);
-    await tester.enterText(secondGroup, 'KEY_2');
-    await tester.pump();
-
-    expect(
-      find.text('已解析 2 個 Key Group / 2 組 API Key'),
-      findsOneWidget,
-    );
+    expect(find.text('已解析 3 組 API Key'), findsOneWidget);
+    expect(find.byKey(GeminiInvoiceSettingsCard.addGroupKey), findsNothing);
 
     final testButton = find.byKey(GeminiInvoiceSettingsCard.testKey);
     await tester.ensureVisible(testButton);
     await tester.tap(testButton);
-    await tester.pump();
     await tester.pumpAndSettle();
 
     expect(find.textContaining('已讀取 2 個'), findsOneWidget);
-    expect(find.textContaining('GROUP_A · Key #1'), findsOneWidget);
-    expect(find.textContaining('GROUP_B · Key #2'), findsOneWidget);
+    expect(find.textContaining('Key #1'), findsOneWidget);
+    expect(find.textContaining('Key #2'), findsOneWidget);
+    expect(find.textContaining('Key #3'), findsOneWidget);
+    expect(find.textContaining('GROUP_'), findsNothing);
 
     final featureSwitch = find.widgetWithText(
       SwitchListTile,
@@ -149,21 +141,37 @@ void main() {
     );
     await tester.ensureVisible(featureSwitch);
     await tester.tap(featureSwitch);
-    await tester.pump();
+    await tester.pumpAndSettle();
+
+    // Feature switch is now immediate-persist and enables Local-low-confidence
+    // auto escalation by default, so the real-device switch state cannot drift
+    // from Secure Storage.
+    expect(store.value.experimentalInvoiceVisionEnabled, isTrue);
+    expect(store.value.autoReviewLowConfidenceEnabled, isTrue);
+    expect(store.value.apiKeys, <String>['KEY_1', 'KEY_2', 'KEY_3']);
+    expect(store.value.keyGroups, isEmpty);
+    expect(store.saveCount, greaterThanOrEqualTo(1));
+
+    final autoSwitch =
+        find.byKey(GeminiInvoiceSettingsCard.autoReviewToggleKey);
+    await tester.ensureVisible(autoSwitch);
+    await tester.tap(autoSwitch);
+    await tester.pumpAndSettle();
+    expect(store.value.autoReviewLowConfidenceEnabled, isFalse);
+
+    await tester.tap(autoSwitch);
+    await tester.pumpAndSettle();
+    expect(store.value.autoReviewLowConfidenceEnabled, isTrue);
 
     final saveButton = find.byKey(GeminiInvoiceSettingsCard.saveKey);
     await tester.ensureVisible(saveButton);
     await tester.tap(saveButton);
     await tester.pumpAndSettle();
 
-    expect(store.value.apiKeys, <String>['KEY_1', 'KEY_2']);
-    expect(store.value.effectiveKeyGroups, hasLength(2));
-    expect(store.value.effectiveKeyGroups[0].alias, 'GROUP_A');
-    expect(store.value.effectiveKeyGroups[0].apiKeys, <String>['KEY_1']);
-    expect(store.value.effectiveKeyGroups[1].alias, 'GROUP_B');
-    expect(store.value.effectiveKeyGroups[1].apiKeys, <String>['KEY_2']);
+    expect(store.value.apiKeys, <String>['KEY_1', 'KEY_2', 'KEY_3']);
     expect(store.value.model, GeminiInvoiceSettings.defaultModel);
     expect(store.value.experimentalInvoiceVisionEnabled, isTrue);
+    expect(store.value.autoReviewLowConfidenceEnabled, isTrue);
     expect(store.value.debugToolsEnabled, isTrue);
   });
 }
