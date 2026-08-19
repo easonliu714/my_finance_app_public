@@ -67,7 +67,7 @@ class _Client implements GeminiInvoiceReviewPort {
     Map<String, Object?> localSummary = const <String, Object?>{},
   }) async {
     calls.add(_Call(apiKey, model, imageBytes));
-    if (apiKey == 'PROJECT_A_KEY') {
+    if (apiKey != 'KEY_4') {
       throw const GeminiInvoiceReviewException(
         GeminiInvoiceReviewFailureKind.quota,
         'quota exhausted',
@@ -90,24 +90,14 @@ class _Client implements GeminiInvoiceReviewPort {
 }
 
 void main() {
-  test('GROUP_A quota switches to GROUP_B with same model and frozen bytes', () async {
+  test('flat key pool rotates through four keys with same model and frozen bytes', () async {
     final frozen = Uint8List.fromList(const <int>[7, 6, 5, 4]);
     final loader = _Loader(frozen);
     final client = _Client();
     final coordinator = GeminiInvoiceReviewCoordinator(
       settingsStore: const _Store(
         GeminiInvoiceSettings(
-          apiKeys: <String>['PROJECT_A_KEY', 'PROJECT_B_KEY'],
-          keyGroups: <GeminiInvoiceKeyGroup>[
-            GeminiInvoiceKeyGroup(
-              alias: 'GROUP_A',
-              apiKeys: <String>['PROJECT_A_KEY'],
-            ),
-            GeminiInvoiceKeyGroup(
-              alias: 'GROUP_B',
-              apiKeys: <String>['PROJECT_B_KEY'],
-            ),
-          ],
+          apiKeys: <String>['KEY_1', 'KEY_2', 'KEY_3', 'KEY_4'],
           experimentalInvoiceVisionEnabled: true,
           autoReviewLowConfidenceEnabled: true,
         ),
@@ -115,7 +105,8 @@ void main() {
       client: client,
       imageLoader: loader,
       catalogClient: _Catalog(),
-      logicalInvocationIdFactory: () => 'logical-explicit-group-test',
+      maxPhysicalAttempts: 8,
+      logicalInvocationIdFactory: () => 'logical-flat-key-pool-test',
     );
 
     final result = await coordinator.reviewAutomatically(
@@ -125,23 +116,26 @@ void main() {
 
     expect(result.status, GeminiInvoiceReviewExecutionStatus.success);
     expect(client.calls.map((call) => call.apiKey), <String>[
-      'PROJECT_A_KEY',
-      'PROJECT_B_KEY',
+      'KEY_1',
+      'KEY_2',
+      'KEY_3',
+      'KEY_4',
     ]);
     expect(client.calls.map((call) => call.model).toSet(), <String>{
       GeminiInvoiceSettings.defaultModel,
     });
-    expect(identical(client.calls[0].bytes, client.calls[1].bytes), isTrue);
-    expect(identical(client.calls[0].bytes, frozen), isTrue);
+    for (final call in client.calls) {
+      expect(identical(call.bytes, frozen), isTrue);
+    }
     expect(loader.loadCount, 1);
 
     final session = result.sessionContext!;
-    expect(session.logicalInvocationId, 'logical-explicit-group-test');
+    expect(session.logicalInvocationId, 'logical-flat-key-pool-test');
     expect(session.logicalInvocationCount, 1);
-    expect(session.physicalAttemptCount, 2);
+    expect(session.physicalAttemptCount, 4);
     expect(session.modelAttemptCount, 1);
-    expect(session.keyGroupAttemptCount, 2);
-    expect(session.keyGroupAlias, 'GROUP_B');
+    expect(session.keyGroupAttemptCount, 4);
+    expect(session.keyGroupAlias, 'KEY_4');
     expect(session.activeModel, GeminiInvoiceSettings.defaultModel);
     expect(session.fallbackReason, RecognitionAiFallbackReason.quotaExhausted);
   });
