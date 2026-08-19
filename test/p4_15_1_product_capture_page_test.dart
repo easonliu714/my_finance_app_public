@@ -11,11 +11,20 @@ import 'package:my_finance_app/features/invoice/production_image_capture.dart';
 import 'package:my_finance_app/features/product/gemini_product_recognition_client.dart';
 import 'package:my_finance_app/features/product/gemini_product_recognition_coordinator.dart';
 import 'package:my_finance_app/features/product/product_capture_page.dart';
+import 'package:my_finance_app/features/product/product_manual_review_card.dart';
 import 'package:my_finance_app/features/product/product_recognition_candidate.dart';
 
 void main() {
+  Future<void> setTallSurface(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   testWidgets('product page uses product-only camera and gallery flow',
       (tester) async {
+    await setTallSurface(tester);
     final coordinator = ProductionImageCaptureCoordinator(
       stagingService: const ImageCaptureStagingService(
         gallerySource: _GallerySource(
@@ -64,6 +73,7 @@ void main() {
 
   testWidgets('staging remains local until explicit AI recognition action',
       (tester) async {
+    await setTallSurface(tester);
     final capture = ProductionImageCaptureCoordinator(
       stagingService: const ImageCaptureStagingService(
         gallerySource: _GallerySource(
@@ -112,11 +122,95 @@ void main() {
     expect(client.requestCount, 1);
     expect(find.byKey(ProductCapturePage.aiStatusKey), findsOneWidget);
     expect(find.byKey(ProductCapturePage.candidateReviewKey), findsOneWidget);
-    expect(find.text('AI 商品候選 · 請人工覆核'), findsOneWidget);
-    expect(find.text('無糖綠茶'), findsOneWidget);
-    expect(find.text('飲料水果'), findsOneWidget);
-    expect(find.text('測試商店'), findsOneWidget);
-    expect(find.textContaining('不會自動新增分類、商家或正式交易'), findsOneWidget);
+    expect(find.text('AI 商品候選 · 人工覆核'), findsOneWidget);
+    expect(find.byKey(ProductManualReviewCard.productNameFieldKey), findsOneWidget);
+    expect(find.byKey(ProductManualReviewCard.quantityFieldKey), findsOneWidget);
+    expect(find.byKey(ProductManualReviewCard.unitPriceFieldKey), findsOneWidget);
+    expect(find.byKey(ProductManualReviewCard.totalAmountFieldKey), findsOneWidget);
+    expect(find.byKey(ProductManualReviewCard.categoryFieldKey), findsOneWidget);
+    expect(find.byKey(ProductManualReviewCard.merchantFieldKey), findsOneWidget);
+    expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsNothing);
+  });
+
+  testWidgets('manual review can edit fields and must explicitly confirm',
+      (tester) async {
+    await setTallSurface(tester);
+    final capture = ProductionImageCaptureCoordinator(
+      stagingService: const ImageCaptureStagingService(
+        gallerySource: _GallerySource(
+          GalleryPickedImage(
+            reference: 'local-product.jpg',
+            name: 'product.jpg',
+          ),
+        ),
+      ),
+    );
+    final recognition = ProductRecognitionCoordinator(
+      settingsStore: const _SettingsStore(
+        GeminiInvoiceSettings(
+          apiKeys: <String>['KEY_A'],
+          model: 'gemini-3.6-flash',
+        ),
+      ),
+      client: _RecordingProductClient(),
+      imageLoader: _ImageLoader(),
+      catalogClient: _CatalogClient(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProductCapturePage(
+          coordinator: capture,
+          recognitionCoordinator: recognition,
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(ProductCapturePage.galleryActionKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ProductCapturePage.aiRecognitionActionKey));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.productNameFieldKey),
+      '人工修正紅茶',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.quantityFieldKey),
+      '0',
+    );
+    final confirm = find.byKey(ProductManualReviewCard.confirmKey);
+    await tester.ensureVisible(confirm);
+    await tester.tap(confirm);
+    await tester.pump();
+    expect(find.text('數量必須大於 0'), findsOneWidget);
+    expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsNothing);
+
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.quantityFieldKey),
+      '3',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.unitPriceFieldKey),
+      '25',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.totalAmountFieldKey),
+      '75',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.categoryFieldKey),
+      '飲料水果',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.merchantFieldKey),
+      '全家便利商店',
+    );
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+
+    expect(find.text('已確認人工覆核'), findsOneWidget);
+    expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsOneWidget);
+    expect(find.textContaining('目前仍未建立正式交易'), findsWidgets);
   });
 }
 
