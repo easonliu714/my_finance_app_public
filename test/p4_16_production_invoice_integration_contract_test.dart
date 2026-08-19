@@ -4,11 +4,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('My page exposes secure Gemini settings without formal writes', () {
-    final center = File('lib/features/backup/backup_migration_center.dart').readAsStringSync();
-    final settings = File('lib/features/invoice/gemini/gemini_invoice_settings.dart').readAsStringSync();
-    final repository = File('lib/features/invoice/gemini/gemini_invoice_settings_repository.dart').readAsStringSync();
-    final card = File('lib/features/invoice/gemini/gemini_invoice_settings_card.dart').readAsStringSync();
-    final catalog = File('lib/features/invoice/gemini/gemini_model_catalog_client.dart').readAsStringSync();
+    final center = File(
+      'lib/features/backup/backup_migration_center.dart',
+    ).readAsStringSync();
+    final settings = File(
+      'lib/features/invoice/gemini/gemini_invoice_settings.dart',
+    ).readAsStringSync();
+    final repository = File(
+      'lib/features/invoice/gemini/gemini_invoice_settings_repository.dart',
+    ).readAsStringSync();
+    final card = File(
+      'lib/features/invoice/gemini/gemini_invoice_settings_card.dart',
+    ).readAsStringSync();
+    final catalog = File(
+      'lib/features/invoice/gemini/gemini_model_catalog_client.dart',
+    ).readAsStringSync();
     final pubspec = File('pubspec.yaml').readAsStringSync();
 
     expect(center, contains('GeminiInvoiceSettingsCard'));
@@ -26,13 +36,17 @@ void main() {
     expect(card, contains('_persistImmediate'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.19.1+437'));
+    expect(pubspec, contains('version: 4.19.2+439'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
   test('production capture entry exposes only Live and image import', () {
-    final entry = File('lib/features/invoice/invoice_capture_entry_page.dart').readAsStringSync();
-    final image = File('lib/features/invoice/invoice_image_import_page.dart').readAsStringSync();
+    final entry = File(
+      'lib/features/invoice/invoice_capture_entry_page.dart',
+    ).readAsStringSync();
+    final image = File(
+      'lib/features/invoice/invoice_image_import_page.dart',
+    ).readAsStringSync();
     final router = File('lib/routing/app_router.dart').readAsStringSync();
 
     expect(entry, contains('Live 即時辨識'));
@@ -47,8 +61,12 @@ void main() {
   });
 
   test('Local-first review auto-escalates weak evidence and keeps manual AI', () {
-    final coordinator = File('lib/features/invoice/gemini/gemini_invoice_review_coordinator.dart').readAsStringSync();
-    final frozen = File('lib/features/invoice/invoice_frozen_review_page.dart').readAsStringSync();
+    final coordinator = File(
+      'lib/features/invoice/gemini/gemini_invoice_review_coordinator.dart',
+    ).readAsStringSync();
+    final frozen = File(
+      'lib/features/invoice/invoice_frozen_review_page.dart',
+    ).readAsStringSync();
 
     expect(coordinator, contains("if (candidate.sellerTaxId.isEmpty) '賣方統編'"));
     expect(coordinator, contains('TraditionalInvoiceOcrField.sellerTaxId'));
@@ -73,8 +91,12 @@ void main() {
   });
 
   test('Gemini structured review includes random code and remains review-only', () {
-    final client = File('lib/features/invoice/gemini/gemini_invoice_review_client.dart').readAsStringSync();
-    final candidate = File('lib/features/invoice/gemini/gemini_invoice_review.dart').readAsStringSync();
+    final client = File(
+      'lib/features/invoice/gemini/gemini_invoice_review_client.dart',
+    ).readAsStringSync();
+    final candidate = File(
+      'lib/features/invoice/gemini/gemini_invoice_review.dart',
+    ).readAsStringSync();
 
     expect(client, contains("'responseMimeType': 'application/json'"));
     expect(client, contains("'responseJsonSchema': _responseSchema"));
@@ -89,8 +111,12 @@ void main() {
   });
 
   test('4.16.16 readiness baseline remains classification-independent and QR-optional', () {
-    final live = File('lib/features/invoice/invoice_live_capture_stabilized_page.dart').readAsStringSync();
-    final readiness = File('lib/features/invoice/invoice_live_field_readiness.dart').readAsStringSync();
+    final live = File(
+      'lib/features/invoice/invoice_live_capture_stabilized_page.dart',
+    ).readAsStringSync();
+    final readiness = File(
+      'lib/features/invoice/invoice_live_field_readiness.dart',
+    ).readAsStringSync();
 
     expect(live, contains('resolveTraditionalLiveIdentityConsensus'));
     expect(live, contains('resolveInvoiceLiveFieldReadiness'));
@@ -104,9 +130,15 @@ void main() {
   });
 
   test('4.16.16 preserves Camera 3A and Frozen invoice identity boundary', () {
-    final live = File('lib/features/invoice/invoice_live_capture_stabilized_page.dart').readAsStringSync();
-    final parser = File('lib/features/invoice/google_mlkit_traditional_invoice_recognizer.dart').readAsStringSync();
-    final repair = File('lib/features/invoice/traditional_tax_id_temporal_repair.dart').readAsStringSync();
+    final live = File(
+      'lib/features/invoice/invoice_live_capture_stabilized_page.dart',
+    ).readAsStringSync();
+    final parser = File(
+      'lib/features/invoice/google_mlkit_traditional_invoice_recognizer.dart',
+    ).readAsStringSync();
+    final repair = File(
+      'lib/features/invoice/traditional_tax_id_temporal_repair.dart',
+    ).readAsStringSync();
 
     expect(live, contains('setFocusMode(FocusMode.locked)'));
     expect(live, contains('setExposureMode(ExposureMode.locked)'));
@@ -136,8 +168,12 @@ void main() {
   });
 
   test('4.16.16 fuses Frozen tax evidence and uses fail-closed semantic total merge', () {
-    final flow = File('lib/features/invoice/invoice_field_first_review_flow.dart').readAsStringSync();
-    final total = File('lib/features/invoice/invoice_total_evidence.dart').readAsStringSync();
+    final flow = File(
+      'lib/features/invoice/invoice_field_first_review_flow.dart',
+    ).readAsStringSync();
+    final total = File(
+      'lib/features/invoice/invoice_total_evidence.dart',
+    ).readAsStringSync();
 
     expect(flow, contains('_resolveLiveFrozenTemporalTaxRepair'));
     expect(flow, contains('frozenRawCandidate'));
@@ -157,9 +193,15 @@ void main() {
   });
 
   test('4.16.16 core form fields and evidence comparison are first-class', () {
-    final presenter = File('lib/features/invoice/invoice_field_first_review_form_presenter.dart').readAsStringSync();
-    final form = File('lib/features/invoice/invoice_review_form_view_model.dart').readAsStringSync();
-    final evidence = File('lib/features/invoice/invoice_recognition_evidence_exporter.dart').readAsStringSync();
+    final presenter = File(
+      'lib/features/invoice/invoice_field_first_review_form_presenter.dart',
+    ).readAsStringSync();
+    final form = File(
+      'lib/features/invoice/invoice_review_form_view_model.dart',
+    ).readAsStringSync();
+    final evidence = File(
+      'lib/features/invoice/invoice_recognition_evidence_exporter.dart',
+    ).readAsStringSync();
 
     expect(form, contains('sellerTaxId'));
     expect(form, contains('invoicePeriod'));
@@ -178,9 +220,15 @@ void main() {
   });
 
   test('4.16.14 registry adapter remains explicit corroboration only', () {
-    final registry = File('lib/features/invoice/taiwan_business_registry_validation.dart').readAsStringSync();
-    final live = File('lib/features/invoice/invoice_live_capture_stabilized_page.dart').readAsStringSync();
-    final frozen = File('lib/features/invoice/invoice_frozen_review_page.dart').readAsStringSync();
+    final registry = File(
+      'lib/features/invoice/taiwan_business_registry_validation.dart',
+    ).readAsStringSync();
+    final live = File(
+      'lib/features/invoice/invoice_live_capture_stabilized_page.dart',
+    ).readAsStringSync();
+    final frozen = File(
+      'lib/features/invoice/invoice_frozen_review_page.dart',
+    ).readAsStringSync();
 
     expect(registry, contains('TaiwanBusinessRegistryService'));
     expect(registry, contains('9D17AE0D-09B5-4732-A8F4-81ADED04B679'));
@@ -196,7 +244,9 @@ void main() {
   });
 
   test('Traditional date recovery remains calendar-bounded', () {
-    final parser = File('lib/features/invoice/google_mlkit_traditional_invoice_recognizer.dart').readAsStringSync();
+    final parser = File(
+      'lib/features/invoice/google_mlkit_traditional_invoice_recognizer.dart',
+    ).readAsStringSync();
 
     expect(parser, contains('_repairYearFromPeriod'));
     expect(parser, contains('_repairMonthFromCalendar'));
