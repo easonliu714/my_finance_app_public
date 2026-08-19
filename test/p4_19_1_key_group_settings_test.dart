@@ -2,62 +2,52 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/gemini/gemini_invoice_settings.dart';
 
 void main() {
-  test('legacy v2 flat keys migrate into one conservative quota group', () {
+  test('legacy v3 grouped settings migrate into one flat key pool', () {
     final settings = GeminiInvoiceSettings.decode(
-      '{"schemaVersion":2,"apiKeys":["KEY_A","KEY_B"],"model":"gemini-3.6-flash","experimentalInvoiceVisionEnabled":true}',
+      '{"schemaVersion":3,"apiKeys":["KEY_A","KEY_B"],"keyGroups":[{"alias":"GROUP_A","apiKeys":["KEY_A","KEY_B"]}],"model":"gemini-3.6-flash","experimentalInvoiceVisionEnabled":true,"autoReviewLowConfidenceEnabled":false}',
     );
 
     expect(settings.apiKeys, <String>['KEY_A', 'KEY_B']);
-    expect(settings.effectiveKeyGroups, hasLength(1));
-    expect(
-      settings.effectiveKeyGroups.single.alias,
-      GeminiInvoiceSettings.legacyGroupAlias,
-    );
-    expect(
-      settings.effectiveKeyGroups.single.apiKeys,
-      <String>['KEY_A', 'KEY_B'],
-    );
+    expect(settings.keyGroups, isEmpty);
+    expect(settings.effectiveApiKeys, <String>['KEY_A', 'KEY_B']);
+    // Repairs the P4.19.1 real-device state where the switch looked enabled
+    // but schema <=3 persisted autoReview=false until an explicit Save.
+    expect(settings.autoReviewLowConfidenceEnabled, isTrue);
   });
 
-  test('each non-empty input line becomes one explicit independent group', () {
-    final groups = GeminiInvoiceSettings.parseKeyGroups(
-      'KEY_A1，KEY_A2\nKEY_B1\n\nKEY_C1；KEY_C2',
+  test('one input accepts multiple separators and deduplicates keys', () {
+    final keys = GeminiInvoiceSettings.parseApiKeys(
+      'KEY_A，KEY_B KEY_C\nKEY_B；KEY_D、KEY_E',
     );
 
-    expect(groups.map((group) => group.alias), <String>[
-      'GROUP_A',
-      'GROUP_B',
-      'GROUP_C',
-    ]);
-    expect(groups[0].apiKeys, <String>['KEY_A1', 'KEY_A2']);
-    expect(groups[1].apiKeys, <String>['KEY_B1']);
-    expect(groups[2].apiKeys, <String>['KEY_C1', 'KEY_C2']);
+    expect(keys, <String>['KEY_A', 'KEY_B', 'KEY_C', 'KEY_D', 'KEY_E']);
   });
 
-  test('schema v3 round trip preserves explicit group boundaries', () {
+  test('schema v4 round trip preserves flat key order without groups', () {
     const settings = GeminiInvoiceSettings(
-      apiKeys: <String>['KEY_A', 'KEY_B'],
-      keyGroups: <GeminiInvoiceKeyGroup>[
-        GeminiInvoiceKeyGroup(alias: 'GROUP_A', apiKeys: <String>['KEY_A']),
-        GeminiInvoiceKeyGroup(alias: 'GROUP_B', apiKeys: <String>['KEY_B']),
-      ],
+      apiKeys: <String>['KEY_A', 'KEY_B', 'KEY_C'],
       experimentalInvoiceVisionEnabled: true,
       autoReviewLowConfidenceEnabled: true,
     );
 
-    final decoded = GeminiInvoiceSettings.decode(settings.encode());
-    expect(decoded.effectiveKeyGroups, hasLength(2));
-    expect(decoded.effectiveKeyGroups[0].alias, 'GROUP_A');
-    expect(decoded.effectiveKeyGroups[1].alias, 'GROUP_B');
-    expect(decoded.effectiveApiKeys, <String>['KEY_A', 'KEY_B']);
+    final encoded = settings.encode();
+    final decoded = GeminiInvoiceSettings.decode(encoded);
+
+    expect(decoded.effectiveApiKeys, <String>['KEY_A', 'KEY_B', 'KEY_C']);
+    expect(decoded.keyGroups, isEmpty);
+    expect(decoded.experimentalInvoiceVisionEnabled, isTrue);
+    expect(decoded.autoReviewLowConfidenceEnabled, isTrue);
   });
 
-  test('duplicate key is never assigned to two quota groups', () {
-    final groups = GeminiInvoiceSettings.parseKeyGroups(
-      'KEY_A，KEY_SHARED\nKEY_SHARED，KEY_B',
+  test('legacy compatibility projection exposes anonymous key slots only', () {
+    const settings = GeminiInvoiceSettings(
+      apiKeys: <String>['KEY_A', 'KEY_B'],
     );
-    expect(groups, hasLength(2));
-    expect(groups[0].apiKeys, <String>['KEY_A', 'KEY_SHARED']);
-    expect(groups[1].apiKeys, <String>['KEY_B']);
+
+    expect(settings.effectiveKeyGroups, hasLength(2));
+    expect(settings.effectiveKeyGroups[0].alias, 'KEY_1');
+    expect(settings.effectiveKeyGroups[0].apiKeys, <String>['KEY_A']);
+    expect(settings.effectiveKeyGroups[1].alias, 'KEY_2');
+    expect(settings.effectiveKeyGroups[1].apiKeys, <String>['KEY_B']);
   });
 }
