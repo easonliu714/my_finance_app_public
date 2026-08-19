@@ -21,32 +21,43 @@ class RecognitionAiStatusIndicator extends StatelessWidget {
       if (showKeyGroupAlias && session.keyGroupAlias.isNotEmpty)
         session.keyGroupAlias,
     ];
+    final fallback = _fallbackLabel(session.fallbackReason);
     return Semantics(
       label: 'AI 辨識狀態',
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(Icons.auto_awesome_outlined, size: 18),
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(Icons.auto_awesome_outlined, size: 18),
+          ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              details.join(' · '),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  details.join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (fallback != null) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(
+                    fallback,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
             ),
           ),
-          if (session.fallbackReason != RecognitionAiFallbackReason.none)
-            Tooltip(
-              message: _fallbackLabel(session.fallbackReason),
-              child: const Icon(Icons.swap_horiz_outlined, size: 18),
-            ),
         ],
       ),
     );
   }
 
-  String _fallbackLabel(RecognitionAiFallbackReason reason) => switch (reason) {
-        RecognitionAiFallbackReason.none => '未切換',
+  String? _fallbackLabel(RecognitionAiFallbackReason reason) => switch (reason) {
+        RecognitionAiFallbackReason.none => null,
         RecognitionAiFallbackReason.quotaExhausted => '配額已滿，已切換 Key Group',
         RecognitionAiFallbackReason.authenticationFailed => '憑證不可用，已切換 Key Group',
         RecognitionAiFallbackReason.modelUnavailable => '模型不可用，已切換 Flash 模型',
