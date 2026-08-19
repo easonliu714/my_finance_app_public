@@ -282,7 +282,7 @@ class GeminiInvoiceReviewCoordinator {
     GeminiModelCatalogClient? catalogClient,
     GeminiKeyGroupRouter Function(List<String>)? keyGroupRouterFactory,
     this.modelRouter = const GeminiFlashModelRouter(),
-    this.maxPhysicalAttempts = 3,
+    this.maxPhysicalAttempts = 8,
     String Function()? logicalInvocationIdFactory,
   })  : catalogClient = catalogClient ?? GeminiModelCatalogClient(),
         keyGroupRouterFactory =
@@ -387,8 +387,6 @@ class GeminiInvoiceReviewCoordinator {
 
     late GeminiInvoiceImagePayload image;
     try {
-      // Frozen Original Image authority: load once and reuse the exact same
-      // byte object for every physical Gemini attempt in this logical call.
       image = await imageLoader.load(localReference);
     } catch (_) {
       return _resilientExecution(
