@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('P4.19 preserves explicit standing authorization and manual review', () {
+  test('P4.19.1 preserves standing authorization with bounded resilient review', () {
     final frozen = File(
       'lib/features/invoice/invoice_frozen_review_page.dart',
     ).readAsStringSync();
@@ -24,13 +24,18 @@ void main() {
     expect(card, contains('OCR 信心不足時自動 AI 辨識'));
     expect(card, contains('僅在本機判定需要覆核時自動送出原始發票影像一次'));
     expect(coordinator, contains('automatic && !settings.autoReviewLowConfidenceEnabled'));
-    expect(coordinator, contains('final keyCount = automatic ? 1 : settings.apiKeys.length'));
+    expect(coordinator, contains('maxPhysicalAttempts = 3'));
+    expect(coordinator, contains('logicalInvocationIdFactory'));
+    expect(coordinator, contains('physicalAttemptCount'));
     expect(coordinator, contains('bytes: await file.readAsBytes()'));
+    expect(coordinator, contains('imageBytes: image.bytes'));
     expect(frozen, contains('reviewAutomatically'));
     expect(frozen, contains("label: Text(ai == null ? 'AI 覆核' : '重新 AI 覆核')"));
     expect(frozen, contains('我已核對本機與 AI 結果'));
     expect(evidence, contains('automaticUploadPerformed'));
     expect(evidence, contains('gemini_invocation_mode='));
     expect(evidence, contains('gemini_request_count='));
+    expect(evidence, contains('logical_invocation_id='));
+    expect(evidence, contains('physical_attempt_count='));
   });
 }
