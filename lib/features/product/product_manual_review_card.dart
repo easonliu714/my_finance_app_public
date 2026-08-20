@@ -237,6 +237,9 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
               ),
               DropdownButtonFormField<String>(
                 key: ProductManualReviewCard.categoryFieldKey,
+                // `value` is intentionally retained for a controlled dropdown:
+                // initialValue would not follow explicit add/review state updates.
+                // ignore: deprecated_member_use
                 value: widget.categoryOptions.contains(_selectedCategory)
                     ? _selectedCategory
                     : null,
@@ -269,6 +272,8 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
               ),
               DropdownButtonFormField<String>(
                 key: ProductManualReviewCard.merchantFieldKey,
+                // See category dropdown: this must remain controlled on rebuild.
+                // ignore: deprecated_member_use
                 value: widget.merchantOptions.contains(_selectedMerchant)
                     ? _selectedMerchant
                     : null,
@@ -298,6 +303,8 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
               ),
               DropdownButtonFormField<String>(
                 key: ProductManualReviewCard.accountFieldKey,
+                // Account selection is also controlled by formal master refreshes.
+                // ignore: deprecated_member_use
                 value: widget.accountOptions.contains(_selectedAccount)
                     ? _selectedAccount
                     : null,
