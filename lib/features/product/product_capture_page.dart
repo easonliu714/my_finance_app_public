@@ -49,6 +49,7 @@ class ProductCapturePage extends StatefulWidget {
   static const Key aiStatusKey = Key('product_capture_ai_status');
   static const Key candidateReviewKey = Key('product_capture_candidate_review');
   static const Key reviewedStatusKey = Key('product_capture_reviewed_status');
+  static const Key reviewNeedsReconfirmKey = Key('product_capture_review_needs_reconfirm');
   static const Key transactionHandoffKey = Key('product_capture_transaction_handoff');
 
   final ProductionImageCaptureCoordinator? coordinator;
@@ -76,6 +77,7 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
   ProductionImageCaptureResult? _result;
   ProductRecognitionExecution? _recognitionExecution;
   ProductTransactionDraftSeed? _reviewedDraft;
+  bool _reviewNeedsReconfirm = false;
   String? _recognitionError;
   bool _busy = false;
   bool _recognitionBusy = false;
@@ -150,7 +152,7 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
               ),
               CaptureHelpSection(
                 title: '人工覆核',
-                body: '總額可由數量×單價自動計算並允許人工覆寫；類別、商家與扣款帳戶引用正式資料。',
+                body: '總額可由數量×單價自動計算並允許人工覆寫；類別、商家與扣款帳戶引用正式資料。確認後若再修改任何覆核內容，必須重新確認才能帶入新增記帳。',
               ),
               CaptureHelpSection(
                 title: '正式記帳',
@@ -303,22 +305,35 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
               onAddCategory: _addCategory,
               onAddMerchant: _addMerchant,
               onReviewed: _acceptReviewedDraft,
+              onReviewInvalidated: _invalidateReviewedDraft,
             ),
           ],
-          if (!_recognitionBusy && _reviewedDraft != null) ...[
+          if (!_recognitionBusy &&
+              (_reviewedDraft != null || _reviewNeedsReconfirm)) ...[
             const SizedBox(height: 12),
-            const Card(
-              key: ProductCapturePage.reviewedStatusKey,
-              child: ListTile(
-                leading: Icon(Icons.verified_outlined),
-                title: Text('人工覆核已確認'),
-                subtitle: Text('已形成可帶入新增記帳頁的草稿；目前仍未建立正式交易。'),
+            if (_reviewNeedsReconfirm)
+              const Card(
+                key: ProductCapturePage.reviewNeedsReconfirmKey,
+                child: ListTile(
+                  leading: Icon(Icons.warning_amber_outlined),
+                  title: Text('內容已變更，請再次確認人工覆核'),
+                  subtitle: Text('先前確認的交易草稿已作廢；重新確認前不可帶入新增記帳。'),
+                ),
+              )
+            else
+              const Card(
+                key: ProductCapturePage.reviewedStatusKey,
+                child: ListTile(
+                  leading: Icon(Icons.verified_outlined),
+                  title: Text('人工覆核已確認'),
+                  subtitle: Text('已形成可帶入新增記帳頁的草稿；目前仍未建立正式交易。'),
+                ),
               ),
-            ),
             const SizedBox(height: 10),
             FilledButton.icon(
               key: ProductCapturePage.transactionHandoffKey,
-              onPressed: _reviewedDraft!.isReadyForTransactionEntry
+              onPressed: !_reviewNeedsReconfirm &&
+                      _reviewedDraft?.isReadyForTransactionEntry == true
                   ? _openTransactionEntry
                   : null,
               icon: const Icon(Icons.edit_note_outlined),
@@ -374,7 +389,6 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
       if (mounted) {
         setState(() {
           _categoryOptions = _normalize(categories.map((item) => item.name));
-          _reviewedDraft = null;
         });
       }
       return record.name;
@@ -405,7 +419,6 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
             ..._defaultMerchants,
             ...merchants.map((item) => item.displayName),
           ]);
-          _reviewedDraft = null;
         });
       }
       return record.displayName;
@@ -421,6 +434,7 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
       _result = null;
       _recognitionExecution = null;
       _reviewedDraft = null;
+      _reviewNeedsReconfirm = false;
       _recognitionError = null;
     });
     final result = source == ImageCaptureStagingSource.camera
@@ -441,6 +455,7 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
       _recognitionBusy = true;
       _recognitionExecution = null;
       _reviewedDraft = null;
+      _reviewNeedsReconfirm = false;
       _recognitionError = null;
     });
     try {
@@ -469,17 +484,33 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
       _result = result;
       _recognitionExecution = null;
       _reviewedDraft = null;
+      _reviewNeedsReconfirm = false;
       _recognitionError = null;
     });
   }
 
   void _acceptReviewedDraft(ProductTransactionDraftSeed reviewed) {
-    setState(() => _reviewedDraft = reviewed);
+    setState(() {
+      _reviewedDraft = reviewed;
+      _reviewNeedsReconfirm = false;
+    });
+  }
+
+  void _invalidateReviewedDraft() {
+    if (_reviewedDraft == null && _reviewNeedsReconfirm) return;
+    setState(() {
+      _reviewedDraft = null;
+      _reviewNeedsReconfirm = true;
+    });
   }
 
   void _openTransactionEntry() {
     final draft = _reviewedDraft;
-    if (draft == null || !draft.isReadyForTransactionEntry) return;
+    if (_reviewNeedsReconfirm ||
+        draft == null ||
+        !draft.isReadyForTransactionEntry) {
+      return;
+    }
     context.pushNamed(
       TransactionEntryPage.routeName,
       extra: TransactionEntrySeed(
