@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../database/production_database_coordinator.dart';
-import '../../database/production_schema_v22.dart';
+import 'expense_category_schema.dart';
 
 class ExpenseCategoryRecord {
   const ExpenseCategoryRecord({
@@ -27,7 +27,7 @@ class ExpenseCategoryRepository {
 
   Future<Database> get _db async {
     final db = await ProductionDatabaseCoordinator.instance.database;
-    await createCanonicalProductionV22Tables(db);
+    await ensureExpenseCategorySchema(db);
     return db;
   }
 
@@ -56,7 +56,9 @@ class ExpenseCategoryRepository {
 
   Future<ExpenseCategoryRecord> addUserCategory(String rawName) async {
     final name = rawName.trim();
-    if (name.isEmpty) throw ArgumentError.value(rawName, 'rawName', '類別名稱不可空白');
+    if (name.isEmpty) {
+      throw ArgumentError.value(rawName, 'rawName', '類別名稱不可空白');
+    }
     final existing = await findActiveByName(name);
     if (existing != null) return existing;
 
