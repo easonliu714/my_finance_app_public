@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +8,8 @@ import 'package:uuid/uuid.dart';
 import '../account/account_page.dart';
 import '../account/account_providers.dart';
 import '../account/account_record.dart';
+import '../category/expense_category_repository.dart';
+import '../category/expense_category_schema.dart';
 import '../invoice/cloud_invoice_supplement_note.dart';
 import '../invoice/cloud_invoice_transaction_detail.dart';
 import '../merchant/canonical_merchant_repository.dart';
@@ -20,12 +24,20 @@ class TransactionEntrySeed {
     this.accountName,
     this.fromAccountName,
     this.toAccountName,
+    this.amount,
+    this.category,
+    this.merchantName,
+    this.note,
     this.initialType = TransactionType.expense,
   });
 
   final String? accountName;
   final String? fromAccountName;
   final String? toAccountName;
+  final double? amount;
+  final String? category;
+  final String? merchantName;
+  final String? note;
   final TransactionType initialType;
 }
 
@@ -74,7 +86,9 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
   CurrencyCode _selectedCurrency = CurrencyCode.twd;
   String _exchangeRateText = '1';
 
-  final List<String> _expenseCategories = const ['早餐', '午餐', '晚餐', '飲料水果', '捷運', '客運', '家居百貨', '利息支出', '電子數碼', '手續費', '電影', '全部'];
+  final List<String> _expenseCategories = <String>[
+    ...canonicalDefaultExpenseCategories,
+  ];
   final List<String> _incomeCategories = const ['福利補貼', '工資薪水', '獎金薪水', '現金回饋', '退款返款', '發票兌獎', '利息', '全部'];
   final List<String> _transferCategories = const ['轉帳', '投資', '贖回', '存錢', '取錢'];
   final List<String> _loanCategories = const ['借入', '借出', '還款', '收款'];
@@ -89,11 +103,16 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     super.initState();
     final record = widget.initialRecord;
     if (record == null) {
-      _selectedType = widget.seed?.initialType ?? widget.initialType;
+      final seed = widget.seed;
+      _selectedType = seed?.initialType ?? widget.initialType;
       _selectedCategory = _categoriesFor(_selectedType).first;
-      final seededAccount = widget.seed?.accountName?.trim();
-      final seededFromAccount = widget.seed?.fromAccountName?.trim();
-      final seededToAccount = widget.seed?.toAccountName?.trim();
+      final seededAccount = seed?.accountName?.trim();
+      final seededFromAccount = seed?.fromAccountName?.trim();
+      final seededToAccount = seed?.toAccountName?.trim();
+      final seededCategory = seed?.category?.trim();
+      final seededMerchant = seed?.merchantName?.trim();
+      final seededNote = seed?.note?.trim();
+      final seededAmount = seed?.amount;
       if (seededAccount != null && seededAccount.isNotEmpty) {
         _seededAccountName = seededAccount;
       }
@@ -102,6 +121,25 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
       }
       if (seededToAccount != null && seededToAccount.isNotEmpty) {
         _seededToAccountName = seededToAccount;
+      }
+      if (seededCategory != null && seededCategory.isNotEmpty) {
+        if (_selectedType == TransactionType.expense &&
+            !_expenseCategories.contains(seededCategory)) {
+          _expenseCategories.add(seededCategory);
+        }
+        if (_categoriesFor(_selectedType).contains(seededCategory)) {
+          _selectedCategory = seededCategory;
+        }
+      }
+      if (seededMerchant != null && seededMerchant.isNotEmpty) {
+        _selectedMerchant = seededMerchant;
+      }
+      if (seededNote != null && seededNote.isNotEmpty) {
+        _note = seededNote;
+      }
+      if (seededAmount != null && seededAmount.isFinite && seededAmount > 0) {
+        _amountText = _formatAmount(seededAmount);
+        _startNewNumber = true;
       }
       if (_selectedType == TransactionType.transfer) {
         final fromSeed = _seededFromAccountName ?? _seededAccountName;
@@ -112,12 +150,17 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
       } else if (_seededAccountName != null) {
         _selectedAccount = _seededAccountName!;
       }
+      unawaited(_loadExpenseCategories());
       return;
     }
 
     _selectedType = record.type;
     _amountText = _formatAmount(record.amount);
     _selectedCategory = record.category;
+    if (record.type == TransactionType.expense &&
+        !_expenseCategories.contains(record.category)) {
+      _expenseCategories.add(record.category);
+    }
     _selectedTime = record.occurredAt;
     _selectedAccount = record.accountName;
     _selectedFromAccount = record.fromAccountName ?? record.accountName;
@@ -128,6 +171,7 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     _note = record.note;
     _selectedCurrency = record.currency;
     _exchangeRateText = _formatAmount(record.exchangeRateToBase);
+    unawaited(_loadExpenseCategories());
   }
 
   @override
@@ -425,6 +469,27 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     if (account == null) return;
     _selectedCurrency = account.currency;
     _exchangeRateText = _formatAmount(account.currency.defaultRateToTwd);
+  }
+
+  Future<void> _loadExpenseCategories() async {
+    try {
+      final records = await ExpenseCategoryRepository.instance.listActive();
+      if (!mounted) return;
+      final selected = _selectedCategory;
+      final next = _normalizeChoiceOptions([
+        ...canonicalDefaultExpenseCategories,
+        ...records.map((record) => record.name),
+        if (selected.trim().isNotEmpty) selected,
+      ]);
+      setState(() {
+        _expenseCategories
+          ..clear()
+          ..addAll(next);
+      });
+    } catch (_) {
+      // Keep the built-in canonical defaults when the additive category table
+      // cannot be read. This does not affect formal transaction write safety.
+    }
   }
 
   List<String> _categoriesFor(TransactionType type) {
