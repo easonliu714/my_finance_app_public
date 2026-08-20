@@ -227,11 +227,14 @@ void main() {
       '80',
     );
     await tester.pump();
-    final totalFieldAfterManual = tester.widget<TextFormField>(
-      find.byKey(ProductManualReviewCard.totalAmountFieldKey),
+    final totalField = find.byKey(ProductManualReviewCard.totalAmountFieldKey);
+    final totalDecorator = find.descendant(
+      of: totalField,
+      matching: find.byType(InputDecorator),
     );
+    expect(totalDecorator, findsOneWidget);
     expect(
-      totalFieldAfterManual.decoration.helperText,
+      tester.widget<InputDecorator>(totalDecorator).decoration.helperText,
       contains('人工修改模式'),
     );
 
