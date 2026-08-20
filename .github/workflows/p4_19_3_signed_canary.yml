@@ -37,6 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Frozen P4.19.2 ancestry gate
@@ -44,10 +45,13 @@ jobs:
         run: |
           set -euo pipefail
           frozen='b255c8479390f0c92baff66df934c7523d1ba602'
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$expected_head"
           git cat-file -e "$frozen^{commit}"
           git merge-base --is-ancestor "$frozen" HEAD
           printf 'P4.19.2 frozen ancestor: PASS (%s)\n' "$frozen"
-          printf 'P4.19.3 exact head: %s\n' "$(git rev-parse HEAD)"
+          printf 'P4.19.3 exact head: %s\n' "$actual_head"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -77,8 +81,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Exact head gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$expected_head"
+          printf 'Signed APK source exact head: %s\n' "$actual_head"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
