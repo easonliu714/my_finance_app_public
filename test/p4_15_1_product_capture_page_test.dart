@@ -22,6 +22,23 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  ProductCapturePage page({
+    required ProductionImageCaptureCoordinator coordinator,
+    ProductRecognitionCoordinator? recognitionCoordinator,
+  }) {
+    return ProductCapturePage(
+      coordinator: coordinator,
+      recognitionCoordinator: recognitionCoordinator,
+      categoryOptionsOverride: const <String>['飲料水果'],
+      merchantOptionsOverride: const <String>[
+        '不使用商家',
+        '測試商店',
+        '全家便利商店',
+      ],
+      accountOptionsOverride: const <String>['現金'],
+    );
+  }
+
   testWidgets('product page uses product-only camera and gallery flow',
       (tester) async {
     await setTallSurface(tester);
@@ -37,7 +54,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(home: ProductCapturePage(coordinator: coordinator)),
+      MaterialApp(home: page(coordinator: coordinator)),
     );
 
     expect(find.text('拍商品'), findsOneWidget);
@@ -51,8 +68,11 @@ void main() {
     await tester.tap(find.byKey(ProductCapturePage.helpKey));
     await tester.pumpAndSettle();
     expect(find.text('拍商品使用說明'), findsOneWidget);
-    expect(find.text('照片管理'), findsOneWidget);
-    expect(find.textContaining('立即丟棄照片'), findsOneWidget);
+    expect(find.text('AI 辨識'), findsOneWidget);
+    expect(find.text('人工覆核'), findsOneWidget);
+    expect(find.text('正式記帳'), findsOneWidget);
+    expect(find.textContaining('明確按下 AI 辨識'), findsOneWidget);
+    expect(find.textContaining('仍需由你在新增記帳頁按下儲存'), findsOneWidget);
     await tester.tap(find.text('知道了'));
     await tester.pumpAndSettle();
 
@@ -100,7 +120,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: ProductCapturePage(
+        home: page(
           coordinator: capture,
           recognitionCoordinator: recognition,
         ),
@@ -129,10 +149,11 @@ void main() {
     expect(find.byKey(ProductManualReviewCard.totalAmountFieldKey), findsOneWidget);
     expect(find.byKey(ProductManualReviewCard.categoryFieldKey), findsOneWidget);
     expect(find.byKey(ProductManualReviewCard.merchantFieldKey), findsOneWidget);
+    expect(find.byKey(ProductManualReviewCard.accountFieldKey), findsOneWidget);
     expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsNothing);
   });
 
-  testWidgets('manual review can edit fields and must explicitly confirm',
+  testWidgets('manual review uses formal masters and must explicitly confirm',
       (tester) async {
     await setTallSurface(tester);
     final capture = ProductionImageCaptureCoordinator(
@@ -159,7 +180,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: ProductCapturePage(
+        home: page(
           coordinator: capture,
           recognitionCoordinator: recognition,
         ),
@@ -183,6 +204,7 @@ void main() {
     await tester.tap(confirm);
     await tester.pump();
     expect(find.text('數量必須大於 0'), findsOneWidget);
+    expect(find.text('請選擇消費扣款帳戶'), findsOneWidget);
     expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsNothing);
 
     await tester.enterText(
@@ -193,24 +215,37 @@ void main() {
       find.byKey(ProductManualReviewCard.unitPriceFieldKey),
       '25',
     );
-    await tester.enterText(
-      find.byKey(ProductManualReviewCard.totalAmountFieldKey),
+    expect(
+      (tester.widget<TextFormField>(
+        find.byKey(ProductManualReviewCard.totalAmountFieldKey),
+      ).controller?.text),
       '75',
     );
+
     await tester.enterText(
-      find.byKey(ProductManualReviewCard.categoryFieldKey),
-      '飲料水果',
+      find.byKey(ProductManualReviewCard.totalAmountFieldKey),
+      '80',
     );
-    await tester.enterText(
-      find.byKey(ProductManualReviewCard.merchantFieldKey),
-      '全家便利商店',
-    );
+    expect(find.textContaining('人工修改模式'), findsOneWidget);
+
+    await tester.tap(find.byKey(ProductManualReviewCard.merchantFieldKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全家便利商店').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(ProductManualReviewCard.accountFieldKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('現金').last);
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(confirm);
     await tester.tap(confirm);
     await tester.pumpAndSettle();
 
     expect(find.text('已確認人工覆核'), findsOneWidget);
     expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsOneWidget);
     expect(find.textContaining('目前仍未建立正式交易'), findsWidgets);
+    expect(find.byKey(ProductCapturePage.transactionHandoffKey), findsOneWidget);
   });
 }
 
