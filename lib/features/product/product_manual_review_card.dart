@@ -11,6 +11,7 @@ class ProductManualReviewCard extends StatefulWidget {
     required this.merchantOptions,
     required this.accountOptions,
     required this.onReviewed,
+    this.onReviewInvalidated,
     this.onAddCategory,
     this.onAddMerchant,
   });
@@ -32,6 +33,7 @@ class ProductManualReviewCard extends StatefulWidget {
   final List<String> merchantOptions;
   final List<String> accountOptions;
   final ValueChanged<ProductTransactionDraftSeed> onReviewed;
+  final VoidCallback? onReviewInvalidated;
   final Future<String?> Function(String name)? onAddCategory;
   final Future<String?> Function(String name)? onAddMerchant;
 
@@ -79,7 +81,10 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     }
     if (_selectedAccount != null &&
         !widget.accountOptions.contains(_selectedAccount)) {
+      final wasConfirmed = _confirmed;
       _selectedAccount = null;
+      _confirmed = false;
+      if (wasConfirmed) widget.onReviewInvalidated?.call();
     }
   }
 
@@ -157,6 +162,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                   labelText: '商品名稱',
                   border: OutlineInputBorder(),
                 ),
+                onChanged: (_) => _invalidateConfirmedReview(),
               ),
               const SizedBox(height: 10),
               Row(
@@ -212,11 +218,9 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                   border: const OutlineInputBorder(),
                 ),
                 onChanged: (_) {
+                  _invalidateConfirmedReview();
                   if (!_totalManualOverride) {
-                    setState(() {
-                      _totalManualOverride = true;
-                      _confirmed = false;
-                    });
+                    setState(() => _totalManualOverride = true);
                   }
                 },
                 validator: (value) => _validateNumber(
@@ -253,10 +257,10 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                   for (final category in widget.categoryOptions)
                     DropdownMenuItem(value: category, child: Text(category)),
                 ],
-                onChanged: (value) => setState(() {
-                  _selectedCategory = value;
-                  _confirmed = false;
-                }),
+                onChanged: (value) {
+                  _invalidateConfirmedReview();
+                  setState(() => _selectedCategory = value);
+                },
                 validator: (value) => value == null || value.trim().isEmpty
                     ? '請選擇消費類別'
                     : null,
@@ -287,10 +291,10 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                   for (final merchant in widget.merchantOptions)
                     DropdownMenuItem(value: merchant, child: Text(merchant)),
                 ],
-                onChanged: (value) => setState(() {
-                  _selectedMerchant = value;
-                  _confirmed = false;
-                }),
+                onChanged: (value) {
+                  _invalidateConfirmedReview();
+                  setState(() => _selectedMerchant = value);
+                },
               ),
               Align(
                 alignment: Alignment.centerRight,
@@ -318,10 +322,10 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                   for (final account in widget.accountOptions)
                     DropdownMenuItem(value: account, child: Text(account)),
                 ],
-                onChanged: (value) => setState(() {
-                  _selectedAccount = value;
-                  _confirmed = false;
-                }),
+                onChanged: (value) {
+                  _invalidateConfirmedReview();
+                  setState(() => _selectedAccount = value);
+                },
                 validator: (value) => value == null || value.trim().isEmpty
                     ? '請選擇消費扣款帳戶'
                     : null,
@@ -357,25 +361,28 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     );
   }
 
+  void _invalidateConfirmedReview() {
+    if (!_confirmed) return;
+    setState(() => _confirmed = false);
+    widget.onReviewInvalidated?.call();
+  }
+
   void _recalculateTotalIfAutomatic() {
-    if (_totalManualOverride) {
-      setState(() => _confirmed = false);
-      return;
-    }
+    _invalidateConfirmedReview();
+    if (_totalManualOverride) return;
     final total = _calculatedTotal();
     setState(() {
       _totalAmount.text = total == null ? '' : _number(total);
-      _confirmed = false;
     });
   }
 
   void _restoreAutoTotal() {
     final total = _calculatedTotal();
     if (total == null) return;
+    _invalidateConfirmedReview();
     setState(() {
       _totalManualOverride = false;
       _totalAmount.text = _number(total);
-      _confirmed = false;
     });
   }
 
@@ -421,10 +428,8 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     if (name == null || widget.onAddCategory == null) return;
     final added = await widget.onAddCategory!(name);
     if (!mounted || added == null || added.trim().isEmpty) return;
-    setState(() {
-      _selectedCategory = added;
-      _confirmed = false;
-    });
+    _invalidateConfirmedReview();
+    setState(() => _selectedCategory = added);
   }
 
   Future<void> _addMerchant() async {
@@ -432,10 +437,8 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     if (name == null || widget.onAddMerchant == null) return;
     final added = await widget.onAddMerchant!(name);
     if (!mounted || added == null || added.trim().isEmpty) return;
-    setState(() {
-      _selectedMerchant = added;
-      _confirmed = false;
-    });
+    _invalidateConfirmedReview();
+    setState(() => _selectedMerchant = added);
   }
 
   Future<String?> _askForName(String title, String label) async {
