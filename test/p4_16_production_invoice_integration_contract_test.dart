@@ -36,7 +36,7 @@ void main() {
     expect(card, contains('_persistImmediate'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.19.2+439'));
+    expect(pubspec, contains('version: 4.19.3+440'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
