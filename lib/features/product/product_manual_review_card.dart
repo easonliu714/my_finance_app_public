@@ -82,9 +82,14 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     if (_selectedAccount != null &&
         !widget.accountOptions.contains(_selectedAccount)) {
       final wasConfirmed = _confirmed;
+      final onReviewInvalidated = widget.onReviewInvalidated;
       _selectedAccount = null;
       _confirmed = false;
-      if (wasConfirmed) widget.onReviewInvalidated?.call();
+      if (wasConfirmed && onReviewInvalidated != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) onReviewInvalidated();
+        });
+      }
     }
   }
 
