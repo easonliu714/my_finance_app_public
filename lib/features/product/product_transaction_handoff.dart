@@ -27,6 +27,12 @@ class ProductTransactionDraftSeed {
   final String note;
   final bool reviewedByUser;
 
+  // P4.19.2 compatibility aliases. P4.19.3 promotes these values from
+  // suggestions into reviewed transaction-draft fields, but older callers and
+  // regression tests still use the original names.
+  String get categorySuggestion => category;
+  String get merchantSuggestion => merchant;
+
   bool get requiresUserReview => !reviewedByUser;
   bool get canCreateFormalRecord => false;
   bool get isReadyForTransactionEntry =>
@@ -57,6 +63,10 @@ class ProductTransactionDraftSeed {
         candidate.quantity! > 0 &&
         candidate.unitPrice != null &&
         candidate.unitPrice! >= 0;
+    if (canAutoCalculate) {
+      noteParts.add('總額來源：數量×單價推導');
+    }
+
     return ProductTransactionDraftSeed(
       productName: candidate.productName,
       quantity: candidate.quantity,
