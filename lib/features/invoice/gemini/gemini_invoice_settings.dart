@@ -38,7 +38,10 @@ class GeminiInvoiceSettings {
     this.debugToolsEnabled = true,
   });
 
-  static const String defaultModel = 'gemini-3.6-flash';
+  // P4.19.4 default/fallback model. Existing persisted non-empty model values
+  // remain authoritative; this only applies to fresh settings or blank model
+  // payloads so upgrades do not silently overwrite an explicit user choice.
+  static const String defaultModel = 'gemini-3.1-flash-lite';
   static const String legacyGroupAlias = 'LEGACY_GROUP';
 
   /// Canonical ordered credential pool used by production runtime.
