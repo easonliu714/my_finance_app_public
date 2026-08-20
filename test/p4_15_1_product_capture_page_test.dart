@@ -226,6 +226,9 @@ void main() {
       find.byKey(ProductManualReviewCard.totalAmountFieldKey),
       '80',
     );
+    // totalAmount onChanged toggles manual mode via setState; render one frame
+    // before asserting the helper text that communicates the active mode.
+    await tester.pump();
     expect(find.textContaining('人工修改模式'), findsOneWidget);
 
     await tester.tap(find.byKey(ProductManualReviewCard.merchantFieldKey));
