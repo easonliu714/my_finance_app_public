@@ -33,7 +33,7 @@ void main() {
     expect(decoded.debugToolsEnabled, isTrue);
   });
 
-  test('model catalog keeps generateContent models and prefers 3.6 Flash', () async {
+  test('model catalog keeps generateContent models and prefers the default', () async {
     final client = GeminiModelCatalogClient(
       client: MockClient((request) async {
         expect(request.headers['x-goog-api-key'], 'TEST_KEY');
@@ -55,6 +55,11 @@ void main() {
                 'displayName': 'Gemini 3.6 Flash',
                 'supportedGenerationMethods': <String>['generateContent'],
               },
+              <String, Object?>{
+                'name': 'models/gemini-3.1-flash-lite',
+                'displayName': 'Gemini 3.1 Flash-Lite',
+                'supportedGenerationMethods': <String>['generateContent'],
+              },
             ],
           }),
           200,
@@ -66,8 +71,9 @@ void main() {
     final models = await client.listModels('TEST_KEY');
 
     expect(models.map((model) => model.id), <String>[
-      'gemini-3.6-flash',
+      GeminiInvoiceSettings.defaultModel,
       'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
     ]);
   });
 
@@ -101,6 +107,6 @@ void main() {
     expect(result.keyResults.first.available, isFalse);
     expect(result.keyResults.last.available, isTrue);
     expect(result.keyResults.first.maskedKey, isNot(contains('12345678')));
-    expect(result.models.single.id, GeminiInvoiceSettings.defaultModel);
+    expect(result.models.single.id, 'gemini-3.6-flash');
   });
 }
