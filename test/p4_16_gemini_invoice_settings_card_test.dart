@@ -45,10 +45,15 @@ class _FakeCatalogClient extends GeminiModelCatalogClient {
             maskedKey: GeminiInvoiceSettings.maskApiKey(apiKeys[index]),
             available: true,
             message: '可用',
-            modelCount: 2,
+            modelCount: 3,
           ),
       ],
       models: const <GeminiModelDescriptor>[
+        GeminiModelDescriptor(
+          id: 'gemini-3.1-flash-lite',
+          displayName: 'Gemini 3.1 Flash-Lite',
+          supportedGenerationMethods: <String>{'generateContent'},
+        ),
         GeminiModelDescriptor(
           id: 'gemini-3.6-flash',
           displayName: 'Gemini 3.6 Flash',
@@ -129,7 +134,7 @@ void main() {
     await tester.tap(testButton);
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('已讀取 2 個'), findsOneWidget);
+    expect(find.textContaining('已讀取 3 個'), findsOneWidget);
     expect(find.textContaining('Key #1'), findsOneWidget);
     expect(find.textContaining('Key #2'), findsOneWidget);
     expect(find.textContaining('Key #3'), findsOneWidget);
