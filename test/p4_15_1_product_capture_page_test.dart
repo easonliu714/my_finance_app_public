@@ -13,6 +13,7 @@ import 'package:my_finance_app/features/product/gemini_product_recognition_coord
 import 'package:my_finance_app/features/product/product_capture_page.dart';
 import 'package:my_finance_app/features/product/product_manual_review_card.dart';
 import 'package:my_finance_app/features/product/product_recognition_candidate.dart';
+import 'package:my_finance_app/features/product/product_transaction_handoff.dart';
 
 void main() {
   Future<void> setTallSurface(WidgetTester tester) async {
@@ -72,6 +73,7 @@ void main() {
     expect(find.text('人工覆核'), findsOneWidget);
     expect(find.text('正式記帳'), findsOneWidget);
     expect(find.textContaining('明確按下 AI 辨識'), findsOneWidget);
+    expect(find.textContaining('重新確認才能帶入新增記帳'), findsOneWidget);
     expect(find.textContaining('仍需由你在新增記帳頁按下儲存'), findsOneWidget);
     await tester.tap(find.text('知道了'));
     await tester.pumpAndSettle();
@@ -255,7 +257,132 @@ void main() {
     expect(find.text('已確認人工覆核'), findsOneWidget);
     expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsOneWidget);
     expect(find.textContaining('目前仍未建立正式交易'), findsWidgets);
+    final handoff = find.byKey(ProductCapturePage.transactionHandoffKey);
+    expect(handoff, findsOneWidget);
+    expect(tester.widget<FilledButton>(handoff).onPressed, isNotNull);
+
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.quantityFieldKey),
+      '1',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.unitPriceFieldKey),
+      '20',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.totalAmountFieldKey),
+      '17',
+    );
+    await tester.pump();
+
+    expect(find.text('已確認人工覆核'), findsNothing);
+    expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsNothing);
+    expect(find.byKey(ProductCapturePage.reviewNeedsReconfirmKey), findsOneWidget);
+    expect(find.textContaining('請再次確認人工覆核'), findsOneWidget);
     expect(find.byKey(ProductCapturePage.transactionHandoffKey), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(ProductCapturePage.transactionHandoffKey),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.ensureVisible(confirm);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(ProductCapturePage.reviewNeedsReconfirmKey), findsNothing);
+    expect(find.byKey(ProductCapturePage.reviewedStatusKey), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(ProductCapturePage.transactionHandoffKey),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      (tester.widget<TextFormField>(
+        find.byKey(ProductManualReviewCard.totalAmountFieldKey),
+      ).controller?.text),
+      '17',
+    );
+  });
+
+  testWidgets('reconfirm emits the latest manual amount after stale review invalidation',
+      (tester) async {
+    await setTallSurface(tester);
+    ProductTransactionDraftSeed? reviewed;
+    var invalidationCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ProductManualReviewCard(
+              candidate: const ProductRecognitionCandidate(
+                productName: '測試商品',
+                quantity: 2,
+                unitPrice: 20,
+                totalAmount: 40,
+                categorySuggestion: '飲料水果',
+                merchantName: '測試商店',
+              ),
+              categoryOptions: const <String>['飲料水果'],
+              merchantOptions: const <String>['測試商店'],
+              accountOptions: const <String>['現金'],
+              onReviewed: (value) => reviewed = value,
+              onReviewInvalidated: () => invalidationCount += 1,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(ProductManualReviewCard.accountFieldKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('現金').last);
+    await tester.pumpAndSettle();
+
+    final confirm = find.byKey(ProductManualReviewCard.confirmKey);
+    await tester.ensureVisible(confirm);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+
+    expect(reviewed, isNotNull);
+    expect(reviewed!.quantity, 2);
+    expect(reviewed!.unitPrice, 20);
+    expect(reviewed!.amount, 40);
+    expect(reviewed!.totalMode, ProductReviewTotalMode.automatic);
+
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.quantityFieldKey),
+      '1',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.unitPriceFieldKey),
+      '20',
+    );
+    await tester.enterText(
+      find.byKey(ProductManualReviewCard.totalAmountFieldKey),
+      '17',
+    );
+    await tester.pump();
+
+    expect(invalidationCount, 1);
+    expect(find.text('已確認人工覆核'), findsNothing);
+
+    await tester.ensureVisible(confirm);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+
+    expect(reviewed!.quantity, 1);
+    expect(reviewed!.unitPrice, 20);
+    expect(reviewed!.amount, 17);
+    expect(reviewed!.totalMode, ProductReviewTotalMode.manualOverride);
+    expect(invalidationCount, 1);
   });
 }
 
