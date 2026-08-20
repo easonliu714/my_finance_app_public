@@ -22,7 +22,7 @@ void main() {
     final pubspec = File('pubspec.yaml').readAsStringSync();
 
     expect(center, contains('GeminiInvoiceSettingsCard'));
-    expect(settings, contains("defaultModel = 'gemini-3.6-flash'"));
+    expect(settings, contains("defaultModel = 'gemini-3.1-flash-lite'"));
     expect(settings, contains('autoReviewLowConfidenceEnabled'));
     expect(settings, contains('effectiveApiKeys'));
     expect(settings, contains("'schemaVersion': 4"));
@@ -36,7 +36,7 @@ void main() {
     expect(card, contains('_persistImmediate'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.19.3+440'));
+    expect(pubspec, contains('version: 4.19.4+441'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
