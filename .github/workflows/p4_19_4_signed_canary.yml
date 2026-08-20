@@ -60,7 +60,7 @@ jobs:
       - run: flutter pub get
       - name: Analyze
         run: flutter analyze
-      - name: Focused P4.19.4 review freshness gates
+      - name: Focused P4.19.4 review freshness and default-model gates
         run: |
           set -euo pipefail
           flutter test test/p4_15_1_product_capture_page_test.dart
@@ -68,6 +68,7 @@ jobs:
           flutter test test/p4_19_2_product_candidate_contract_test.dart
           flutter test test/p4_19_2_gemini_product_recognition_client_test.dart
           flutter test test/p4_19_2_product_recognition_coordinator_test.dart
+          flutter test test/p4_19_1_key_group_settings_test.dart
           flutter test test/p4_12_34_1_version_contract_test.dart
 
   signed-apk:
@@ -215,6 +216,7 @@ jobs:
             printf 'P4_19_4_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
             printf 'VERSION_NAME=%s\n' "$version_name"
             printf 'VERSION_CODE=%s\n' "$version_code"
+            printf 'DEFAULT_MODEL=gemini-3.1-flash-lite\n'
             printf 'SIGNER_SHA256_PIN=PASS\n'
             printf 'CAMERA_PERMISSION=PASS\n'
             printf 'INTERNET_PERMISSION=PASS\n'
