@@ -7,29 +7,6 @@ import 'package:my_finance_app/features/product/product_recognition_candidate.da
 import 'package:my_finance_app/features/product/product_transaction_handoff.dart';
 
 void main() {
-  Future<ProductTransactionDraftSeed?> pumpReview(
-    WidgetTester tester, {
-    required ProductRecognitionCandidate candidate,
-  }) async {
-    ProductTransactionDraftSeed? reviewed;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ProductManualReviewCard(
-              candidate: candidate,
-              categoryOptions: const <String>['飲料水果', '日常用品'],
-              merchantOptions: const <String>['不使用商家', '測試商店'],
-              accountOptions: const <String>['現金', '信用卡'],
-              onReviewed: (value) => reviewed = value,
-            ),
-          ),
-        ),
-      ),
-    );
-    return reviewed;
-  }
-
   Future<void> selectAccount(WidgetTester tester, String account) async {
     await tester.ensureVisible(find.byKey(ProductManualReviewCard.accountFieldKey));
     await tester.tap(find.byKey(ProductManualReviewCard.accountFieldKey));
