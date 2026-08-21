@@ -1,0 +1,68 @@
+name: P4.19.7 Public Signed Voice Canary APK
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/features/voice/**'
+      - 'lib/features/dashboard/dashboard_invoice_entry_shell.dart'
+      - 'lib/features/transaction/transaction_entry_page.dart'
+      - 'lib/routing/app_router.dart'
+      - 'lib/features/invoice/lab/private_cloud_invoice_lab_config.dart'
+      - 'test/p4_19_7_**'
+      - 'test/p4_19_6_**'
+      - 'test/p4_12_34_1_version_contract_test.dart'
+      - 'test/p4_12_38_exact_head_test.dart'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/p4_19_7_signed_canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-19-7-public-signed-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate P4.19.7 voice canary
+    if: >-
+      ${{ github.head_ref == 'p4-19-7-voice-transcript-parser' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Frozen P4.19.6 real-device ancestry gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen='8daa556cff9302638da714369403e56497cde236'
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$expected_head"
+          git cat-file -e "$frozen^{commit}"
+          git merge-base --is-ancestor "$frozen" HEAD
+          printf 'P4.19.6 real-device PASS ancestor: PASS (%s)\n' "$frozen"
+          printf 'P4.19.7 exact head: %s\n' "$actual_head"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Focused P4.19.7 voice transcript and accounting-boundary gates
+        run: |
+          set -euo pipefail
+          flutter test test/p4_19_7_voice_transaction_test.dart
+          flutter test test/p4_19_6_product_review_ux_hotfix_test.dart
+          flutter test test/p4_19_5_product_review_ux_test.dart
+          flutter test test/p4_12_34_1_version_contract_test.dart
+          flutter test test/p4_12_38_exact_head_test.dart
