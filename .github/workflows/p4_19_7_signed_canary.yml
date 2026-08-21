@@ -56,6 +56,13 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Capture resolved release lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-19-7-resolved-pubspec-lock
+          path: pubspec.lock
+          if-no-files-found: error
+          retention-days: 1
       - name: Analyze
         run: flutter analyze
       - name: Focused P4.19.7 voice transcript and accounting-boundary gates
