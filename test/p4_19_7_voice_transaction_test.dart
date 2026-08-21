@@ -30,7 +30,7 @@ void main() {
     test('unknown or ambiguous accounting evidence fails closed', () {
       final candidate = parser.parse('昨天可能有買東西，金額不確定');
 
-      expect(candidate.intent, VoiceTransactionIntent.expense);
+      expect(candidate.intent, VoiceTransactionIntent.unknown);
       expect(candidate.amount, isNull);
       expect(candidate.accountCandidate, isEmpty);
       expect(candidate.warnings, isNotEmpty);
@@ -62,6 +62,7 @@ void main() {
   });
 
   testWidgets('permission unavailable keeps editable text fallback', (tester) async {
+    _useTallViewport(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: VoiceTransactionEntryPage(
@@ -83,6 +84,7 @@ void main() {
 
   testWidgets('review confirmation stays draft-only and handoff uses reviewed seed',
       (tester) async {
+    _useTallViewport(tester);
     TransactionEntrySeed? capturedSeed;
     late final GoRouter router;
     router = GoRouter(
@@ -120,13 +122,11 @@ void main() {
     expect(find.text('付款候選：一卡通'), findsOneWidget);
     expect(find.text('總金額：72'), findsOneWidget);
 
-    await tester.ensureVisible(find.byKey(VoiceTransactionEntryPage.categoryKey));
     await tester.tap(find.byKey(VoiceTransactionEntryPage.categoryKey));
     await tester.pumpAndSettle();
     await tester.tap(find.text('早餐').last);
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(VoiceTransactionEntryPage.confirmKey));
     await tester.tap(find.byKey(VoiceTransactionEntryPage.confirmKey));
     await tester.pumpAndSettle();
 
@@ -144,10 +144,12 @@ void main() {
     expect(capturedSeed!.category, '早餐');
     expect(capturedSeed!.note, contains('來源：語音／文字快速記帳'));
     expect(capturedSeed!.note, contains('大熱拿 × 1'));
+    expect(capturedSeed!.note, contains('花生吐司 × 1'));
     expect(capturedSeed!.note, isNot(contains(VoiceTransactionEntryPage.exampleTranscript)));
   });
 
   testWidgets('post-confirm edit invalidates stale handoff authority', (tester) async {
+    _useTallViewport(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: VoiceTransactionEntryPage(
@@ -164,13 +166,11 @@ void main() {
     await tester.tap(find.byKey(VoiceTransactionEntryPage.parseKey));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(VoiceTransactionEntryPage.categoryKey));
     await tester.tap(find.byKey(VoiceTransactionEntryPage.categoryKey));
     await tester.pumpAndSettle();
     await tester.tap(find.text('早餐').last);
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(VoiceTransactionEntryPage.confirmKey));
     await tester.tap(find.byKey(VoiceTransactionEntryPage.confirmKey));
     await tester.pumpAndSettle();
     expect(find.byKey(VoiceTransactionEntryPage.handoffKey), findsOneWidget);
@@ -183,6 +183,15 @@ void main() {
 
     expect(find.byKey(VoiceTransactionEntryPage.reconfirmKey), findsOneWidget);
     expect(find.byKey(VoiceTransactionEntryPage.handoffKey), findsNothing);
+  });
+}
+
+void _useTallViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(800, 1200);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
   });
 }
 
