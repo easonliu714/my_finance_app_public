@@ -1,9 +1,8 @@
 name: P4.19.6 One-shot Bootstrap Patch
 
 on:
-  push:
-    branches:
-      - p4-19-6-calculator-ime-auto-total
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -12,7 +11,10 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ github.event.head_commit.message == 'P4.19.6 bootstrap patch runner' }}
+    if: >-
+      ${{ github.head_ref == 'p4-19-6-calculator-ime-auto-total' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
