@@ -103,8 +103,11 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Generate Android host without dependency resolution
-        run: flutter create --platforms=android --no-pub .
+      - name: Generate Android host without dependency authority
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android --no-pub .
+          git checkout HEAD -- pubspec.yaml pubspec.lock
       - name: Patch Android build boundary
         run: |
           set -euo pipefail
