@@ -1,0 +1,198 @@
+name: P4.19.2 Public Signed Canary APK
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/features/product/**'
+      - 'lib/features/recognition_ai/**'
+      - 'lib/features/invoice/gemini/**'
+      - 'lib/features/invoice/lab/private_cloud_invoice_lab_config.dart'
+      - 'test/p4_19_2_**'
+      - 'test/p4_19_1_**'
+      - 'test/p4_15_1_product_capture_page_test.dart'
+      - 'test/p4_12_34_1_version_contract_test.dart'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/p4_19_2_signed_canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-19-2-public-signed-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate P4.19.2 Public canary
+    if: >-
+      ${{ github.head_ref == 'p4-19-2-product-photo-transaction-capture' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Focused P4.19.2 product recognition tests
+        run: |
+          set -euo pipefail
+          flutter test test/p4_19_2_product_candidate_contract_test.dart
+          flutter test test/p4_19_2_gemini_product_recognition_client_test.dart
+          flutter test test/p4_19_2_product_recognition_coordinator_test.dart
+          flutter test test/p4_15_1_product_capture_page_test.dart
+          flutter test test/p4_19_1_gemini_resilience_router_test.dart
+          flutter test test/p4_19_1_key_group_settings_test.dart
+          flutter test test/p4_19_1_recognition_ai_status_test.dart
+          flutter test test/p4_12_34_1_version_contract_test.dart
+
+  signed-apk:
+    name: Build and inspect P4.19.2 Public signed APK
+    needs: validate
+    if: ${{ needs.validate.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android host
+        run: flutter create --platforms=android .
+      - name: Patch Android build boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          old = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          new = '<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'xmlns:tools=' not in text:
+              raise SystemExit('tools namespace missing')
+          for node in [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />',
+          ]:
+              if node not in text:
+                  text = text.replace(new, new + '\n    ' + node, 1)
+          manifest.write_text(text)
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          if 'isCoreLibraryDesugaringEnabled = true' not in text:
+              text = text.replace('compileOptions {', 'compileOptions {\n        isCoreLibraryDesugaringEnabled = true', 1)
+          dep = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          if dep not in text:
+              if 'dependencies {' in text:
+                  text = text.replace('dependencies {', 'dependencies {\n    ' + dep, 1)
+              else:
+                  text += '\n\ndependencies {\n    ' + dep + '\n}\n'
+          gradle.write_text(text)
+          PY
+      - run: flutter pub get
+      - name: Prepare signing files
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          test -n "$ANDROID_SIGNING_CERT_SHA256"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+      - name: Verify configured signing certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          actual="$({ keytool -exportcert -rfc -keystore android/app/upload-keystore.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD"; } | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          expected="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test "$actual" = "$expected"
+          printf 'Configured signing certificate SHA-256: %s\n' "$actual"
+      - name: Patch release signing and ML Kit R8 boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('android/app/build.gradle.kts')
+          text = path.read_text()
+          if 'val keystoreProperties' not in text:
+              text = text.replace('plugins {', 'import java.util.Properties\nimport java.io.FileInputStream\n\nplugins {', 1)
+              text = text.replace('android {', 'val keystoreProperties = Properties()\nval keystorePropertiesFile = rootProject.file("key.properties")\nif (keystorePropertiesFile.exists()) { keystoreProperties.load(FileInputStream(keystorePropertiesFile)) }\n\nandroid {', 1)
+          if 'create("release")' not in text:
+              text = text.replace('    buildTypes {\n        release {', '    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }\n\n    buildTypes {\n        release {', 1)
+          text = text.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+          path.write_text(text)
+          Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
+          PY
+      - name: Build signed release APK
+        run: flutter build apk --release --no-pub --build-number=439
+      - name: Inspect signed APK boundary
+        env:
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          apk='build/app/outputs/flutter-apk/app-release.apk'
+          apkanalyzer_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort -V | tail -n 1)"
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          permissions="$($apkanalyzer_bin manifest permissions "$apk")"
+          version_name="$($apkanalyzer_bin manifest version-name "$apk")"
+          version_code="$($apkanalyzer_bin manifest version-code "$apk")"
+          signer_output="$($apksigner_bin verify --print-certs "$apk")"
+          expected="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          normalized="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          printf '%s\n' "$permissions"
+          printf 'APK versionName: %s\nAPK versionCode: %s\n%s\n' "$version_name" "$version_code" "$signer_output"
+          grep -Fq 'android.permission.CAMERA' <<< "$permissions"
+          grep -Fq 'android.permission.INTERNET' <<< "$permissions"
+          grep -Fq 'android.permission.POST_NOTIFICATIONS' <<< "$permissions"
+          ! grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
+          test "$version_name" = '4.19.2'
+          test "$version_code" = '439'
+          grep -Fq "$expected" <<< "$normalized"
+          printf 'APK signing certificate pin: PASS\n'
+      - name: Generate checksum
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > p4_19_2_public_signed_canary.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p4-19-2-public-4.19.2+439-signed-canary
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            p4_19_2_public_signed_canary.sha256
+          if-no-files-found: error
+          retention-days: 1
