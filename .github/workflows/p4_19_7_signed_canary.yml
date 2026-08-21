@@ -60,7 +60,7 @@ jobs:
       - name: Resolve pinned dependencies
         run: |
           set -euo pipefail
-          flutter pub get
+          flutter pub get --enforce-lockfile
           git diff --exit-code -- pubspec.lock
       - name: Analyze
         run: flutter analyze
@@ -103,8 +103,8 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Generate Android host
-        run: flutter create --platforms=android .
+      - name: Generate Android host without dependency resolution
+        run: flutter create --platforms=android --no-pub .
       - name: Patch Android build boundary
         run: |
           set -euo pipefail
@@ -136,7 +136,7 @@ jobs:
       - name: Resolve pinned dependencies
         run: |
           set -euo pipefail
-          flutter pub get
+          flutter pub get --enforce-lockfile
           git diff --exit-code -- pubspec.lock
       - name: Prepare signing files
         env:
