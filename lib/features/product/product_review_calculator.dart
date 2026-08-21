@@ -122,6 +122,7 @@ class _ProductReviewCalculatorDialogState
       ')', '⌫', 'C', '=',
     ];
     return AlertDialog(
+      scrollable: true,
       title: const Text('計算總金額'),
       content: SizedBox(
         width: 360,
