@@ -201,20 +201,24 @@ class VoiceTransactionParser {
   }
 
   static VoiceTransactionItemCandidate? _parseItemSegment(String segment) {
-    final match = RegExp(
-      r'^\s*(?:(\d+(?:\.\d+)?)|([一二兩三四五六七八九十]+))?\s*(?:個|杯|份|瓶|包|盒|張|件|條|顆|組|罐)?\s*(.+?)\s*$',
-    ).firstMatch(segment);
-    if (match == null) return null;
-    final name = (match.group(3) ?? '').trim();
-    if (name.isEmpty) return null;
-    final numeric = match.group(1);
-    final chinese = match.group(2);
-    final quantity = numeric != null
-        ? double.tryParse(numeric)
-        : chinese != null
-            ? _parseChineseNumber(chinese)?.toDouble()
-            : null;
-    return VoiceTransactionItemCandidate(name: name, quantity: quantity);
+    final normalized = segment.trim();
+    if (normalized.isEmpty) return null;
+
+    final quantified = RegExp(
+      r'^(\d+(?:\.\d+)?|[一二兩三四五六七八九十百]+)\s*(個|杯|份|瓶|包|盒|張|件|條|顆|組|罐)\s*(.+)$',
+    ).firstMatch(normalized);
+    if (quantified != null) {
+      final quantityToken = quantified.group(1) ?? '';
+      final name = (quantified.group(3) ?? '').trim();
+      final quantity = double.tryParse(quantityToken) ??
+          _parseChineseNumber(quantityToken)?.toDouble();
+      if (name.isEmpty || quantity == null || !quantity.isFinite || quantity <= 0) {
+        return null;
+      }
+      return VoiceTransactionItemCandidate(name: name, quantity: quantity);
+    }
+
+    return VoiceTransactionItemCandidate(name: normalized);
   }
 
   static int? _parseChineseNumber(String value) {
