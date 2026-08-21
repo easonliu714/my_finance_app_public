@@ -251,7 +251,7 @@ void main() {
     expect(parser, contains('_repairYearFromPeriod'));
     expect(parser, contains('_repairMonthFromCalendar'));
     expect(parser, contains('_repairDayFromCalendar'));
-    expect(parser, isNot(contains('_repairMonthFromPeriod'));
+    expect(parser, isNot(contains('_repairMonthFromPeriod')));
     expect(parser, contains('_safeDate(year, month, value)'));
   });
 }
