@@ -36,7 +36,7 @@ void main() {
     expect(card, contains('_persistImmediate'));
     expect(catalog, contains('/v1beta/models?pageSize=1000'));
     expect(catalog, contains("'x-goog-api-key': key"));
-    expect(pubspec, contains('version: 4.19.4+441'));
+    expect(pubspec, contains('version: 4.19.5+442'));
     expect(repository, isNot(contains('TransactionRepository')));
   });
 
@@ -251,7 +251,7 @@ void main() {
     expect(parser, contains('_repairYearFromPeriod'));
     expect(parser, contains('_repairMonthFromCalendar'));
     expect(parser, contains('_repairDayFromCalendar'));
-    expect(parser, isNot(contains('_repairMonthFromPeriod')));
+    expect(parser, isNot(contains('_repairMonthFromPeriod'));
     expect(parser, contains('_safeDate(year, month, value)'));
   });
 }
