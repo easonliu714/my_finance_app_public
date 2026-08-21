@@ -39,9 +39,15 @@ class ProductRecognitionCandidate {
   bool get requiresUserReview => true;
   bool get canCreateFormalRecord => false;
 
+  bool get hasMultipleProducts => warnings.contains('multiple_products_visible');
+
+  List<String> get displayWarningsZh => List<String>.unmodifiable(
+        warnings.map(_warningDisplayZh),
+      );
+
   ProductRecognitionAmountSource get resolvedAmountSource {
     if (totalAmount != null) return ProductRecognitionAmountSource.observedTotal;
-    if (quantity != null && unitPrice != null) {
+    if (!hasMultipleProducts && quantity != null && unitPrice != null) {
       return ProductRecognitionAmountSource.derivedQuantityTimesUnitPrice;
     }
     return ProductRecognitionAmountSource.none;
@@ -67,6 +73,7 @@ class ProductRecognitionCandidate {
         'totalAmount': totalAmount,
         'resolvedTotalAmount': resolvedTotalAmount,
         'resolvedAmountSource': resolvedAmountSource.name,
+        'hasMultipleProducts': hasMultipleProducts,
         'categorySuggestion': categorySuggestion,
         'merchantName': merchantName,
         'recognizedText': recognizedText,
@@ -80,7 +87,7 @@ class ProductRecognitionCandidate {
 
   factory ProductRecognitionCandidate.fromJson(Map<String, Object?> json) {
     final warnings = <String>[
-      ..._stringList(json['warnings']),
+      ..._stringList(json['warnings']).map(_normalizeWarning),
     ];
 
     final quantity = _positiveNumber(json['quantity']);
@@ -110,6 +117,85 @@ class ProductRecognitionCandidate {
       warnings: List<String>.unmodifiable(_deduplicate(warnings)),
     );
   }
+
+  static const Set<String> _knownWarningCodes = <String>{
+    'multiple_products_visible',
+    'image_unclear',
+    'occlusion_present',
+    'price_ambiguous',
+    'quantity_needs_review',
+    'unit_price_needs_review',
+    'merchant_needs_review',
+    'merchant_brand_ambiguous',
+    'quantity_invalid_or_non_positive',
+    'unit_price_invalid_or_negative',
+    'total_amount_invalid_or_negative',
+    'other_review_required',
+  };
+
+  static String _normalizeWarning(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) return 'other_review_required';
+    final lower = normalized.toLowerCase().replaceAll('-', '_');
+    if (_knownWarningCodes.contains(lower)) return lower;
+
+    final mentionsMultiple = lower.contains('multiple') ||
+        lower.contains('multi item') ||
+        lower.contains('multi-item') ||
+        normalized.contains('多項') ||
+        normalized.contains('多個商品') ||
+        normalized.contains('多件商品');
+    if (mentionsMultiple) return 'multiple_products_visible';
+
+    if ((lower.contains('unit') && lower.contains('price')) ||
+        normalized.contains('單價')) {
+      return 'unit_price_needs_review';
+    }
+    if (lower.contains('quantity') || normalized.contains('數量')) {
+      return 'quantity_needs_review';
+    }
+    if (lower.contains('price') ||
+        lower.contains('amount') ||
+        normalized.contains('價格') ||
+        normalized.contains('金額')) {
+      return 'price_ambiguous';
+    }
+    if (lower.contains('occlud') ||
+        normalized.contains('遮擋') ||
+        normalized.contains('遮住')) {
+      return 'occlusion_present';
+    }
+    if ((lower.contains('brand') && lower.contains('merchant')) ||
+        (normalized.contains('品牌') && normalized.contains('商家'))) {
+      return 'merchant_brand_ambiguous';
+    }
+    if (lower.contains('merchant') || normalized.contains('商家')) {
+      return 'merchant_needs_review';
+    }
+    if (lower.contains('unclear') ||
+        lower.contains('blur') ||
+        normalized.contains('模糊') ||
+        normalized.contains('不清楚')) {
+      return 'image_unclear';
+    }
+    return 'other_review_required';
+  }
+
+  static String _warningDisplayZh(String code) => switch (code) {
+        'multiple_products_visible' =>
+          '辨識到多項商品；未可靠對應各品項單價，本次請以實際支付總金額覆核。',
+        'image_unclear' => '影像不夠清楚，請人工確認辨識內容。',
+        'occlusion_present' => '部分商品或價格被遮擋，請人工確認。',
+        'price_ambiguous' => '價格證據不明確，請人工確認實際支付金額。',
+        'quantity_needs_review' => '商品數量需要人工確認。',
+        'unit_price_needs_review' => '單價無法可靠確認，請人工覆核。',
+        'merchant_needs_review' => '消費商家需要人工確認。',
+        'merchant_brand_ambiguous' => '商品品牌與消費商家可能不同，請人工確認。',
+        'quantity_invalid_or_non_positive' => '辨識數量格式不正確，已保持空白。',
+        'unit_price_invalid_or_negative' => '辨識單價格式不正確，已保持空白。',
+        'total_amount_invalid_or_negative' => '辨識總金額格式不正確，已保持空白。',
+        _ => 'AI 辨識結果有欄位需要人工確認。',
+      };
 
   static String _string(Object? value) => value?.toString().trim() ?? '';
 
