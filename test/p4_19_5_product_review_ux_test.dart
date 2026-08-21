@@ -41,6 +41,14 @@ void main() {
       candidate.resolvedAmountSource,
       ProductRecognitionAmountSource.observedTotal,
     );
+
+    final seed = ProductTransactionDraftSeed.fromCandidate(candidate);
+    expect(seed.amount, 72);
+    expect(seed.unitPrice, isNull);
+    expect(seed.totalMode, ProductReviewTotalMode.manualOverride);
+    expect(seed.note, contains('多商品辨識總額'));
+    expect(seed.note, isNot(contains('單價：36')));
+    expect(seed.note, isNot(contains('數量×單價推導')));
   });
 
   test('calculator supports subtotal discount and safe invalid expressions', () {
