@@ -53,6 +53,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
   late final TextEditingController _totalAmount;
   bool _confirmed = false;
   bool _totalManualOverride = false;
+  bool _multiProductUserAutoMode = false;
   String? _selectedCategory;
   String? _selectedMerchant;
   String? _selectedAccount;
@@ -119,6 +120,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
             ? '不使用商家'
             : null;
     _selectedAccount = null;
+    _multiProductUserAutoMode = false;
 
     if (candidate.hasMultipleProducts) {
       _totalManualOverride = true;
@@ -140,6 +142,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
   Widget build(BuildContext context) {
     final candidate = widget.candidate;
     final multiProduct = candidate.hasMultipleProducts;
+    final multiProductAutoMode = multiProduct && _multiProductUserAutoMode;
     final autoTotal = _calculatedTotal();
     final aiTotal = candidate.totalAmount;
     return Card(
@@ -181,7 +184,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                 onChanged: (_) => _invalidateConfirmedReview(),
               ),
               const SizedBox(height: 10),
-              if (multiProduct) ...[
+              if (multiProduct && !multiProductAutoMode) ...[
                 TextFormField(
                   key: ProductManualReviewCard.quantityFieldKey,
                   controller: _quantity,
@@ -224,9 +227,12 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
-                        decoration: const InputDecoration(
-                          labelText: '數量',
-                          border: OutlineInputBorder(),
+                        decoration: InputDecoration(
+                          labelText: multiProductAutoMode ? '合計數量' : '數量',
+                          helperText: multiProductAutoMode
+                              ? '已由您明確啟用自動計算；此數量會乘上您輸入的共同單價。'
+                              : null,
+                          border: const OutlineInputBorder(),
                         ),
                         onChanged: (_) => _recalculateTotalIfAutomatic(),
                         validator: (value) => _validateNumber(
@@ -244,9 +250,12 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
-                        decoration: const InputDecoration(
-                          labelText: '單價',
-                          border: OutlineInputBorder(),
+                        decoration: InputDecoration(
+                          labelText: multiProductAutoMode ? '共同單價（人工）' : '單價',
+                          helperText: multiProductAutoMode
+                              ? '只在您主動選擇此模式後使用；不是 AI 對多商品單價的推測。'
+                              : null,
+                          border: const OutlineInputBorder(),
                         ),
                         onChanged: (_) => _recalculateTotalIfAutomatic(),
                         validator: (value) => _validateNumber(
@@ -270,6 +279,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                     autoTotal: autoTotal,
                     aiTotal: aiTotal,
                     multiProduct: multiProduct,
+                    multiProductAutoMode: multiProductAutoMode,
                   ),
                   border: const OutlineInputBorder(),
                 ),
@@ -291,14 +301,12 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                 spacing: 8,
                 runSpacing: 4,
                 children: [
-                  if (!multiProduct)
-                    TextButton.icon(
-                      key: ProductManualReviewCard.restoreAutoTotalKey,
-                      onPressed:
-                          _calculatedTotal() == null ? null : _restoreAutoTotal,
-                      icon: const Icon(Icons.refresh_outlined),
-                      label: const Text('恢復自動計算'),
-                    ),
+                  TextButton.icon(
+                    key: ProductManualReviewCard.restoreAutoTotalKey,
+                    onPressed: _restoreAutoTotal,
+                    icon: const Icon(Icons.refresh_outlined),
+                    label: const Text('恢復自動計算'),
+                  ),
                   TextButton.icon(
                     key: ProductManualReviewCard.calculatorKey,
                     onPressed: _openCalculator,
@@ -445,12 +453,14 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
   }
 
   void _restoreAutoTotal() {
-    final total = _calculatedTotal();
-    if (total == null) return;
     _invalidateConfirmedReview();
     setState(() {
+      if (widget.candidate.hasMultipleProducts) {
+        _multiProductUserAutoMode = true;
+      }
       _totalManualOverride = false;
-      _totalAmount.text = _number(total);
+      final total = _calculatedTotal();
+      _totalAmount.text = total == null ? '' : _number(total);
     });
   }
 
@@ -468,7 +478,9 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
   }
 
   double? _calculatedTotal() {
-    if (widget.candidate.hasMultipleProducts) return null;
+    if (widget.candidate.hasMultipleProducts && !_multiProductUserAutoMode) {
+      return null;
+    }
     final quantity = _parse(_quantity.text);
     final unitPrice = _parse(_unitPrice.text);
     if (quantity == null || quantity <= 0 || unitPrice == null || unitPrice < 0) {
@@ -481,8 +493,9 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     required double? autoTotal,
     required double? aiTotal,
     required bool multiProduct,
+    required bool multiProductAutoMode,
   }) {
-    if (multiProduct) {
+    if (multiProduct && !multiProductAutoMode) {
       if (aiTotal != null) {
         return 'AI 辨識總金額：${_number(aiTotal)}；多項商品未可靠對應各自單價，請覆核實際支付總額。';
       }
@@ -496,7 +509,13 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
       final ai = aiTotal != null && aiTotal != autoTotal
           ? '；AI 辨識總額 ${_number(aiTotal)}'
           : '';
-      return '自動：數量 × 單價 = ${_number(autoTotal)}$ai';
+      final prefix = multiProductAutoMode
+          ? '使用者啟用自動：合計數量 × 共同單價'
+          : '自動：數量 × 單價';
+      return '$prefix = ${_number(autoTotal)}$ai';
+    }
+    if (multiProductAutoMode) {
+      return '自動計算已啟用；請輸入合計數量與共同單價。';
     }
     return aiTotal == null
         ? '請輸入數量與單價，或直接人工輸入總額。'
@@ -573,7 +592,9 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     if (_formKey.currentState?.validate() != true) return;
     final multiProduct = widget.candidate.hasMultipleProducts;
     final quantity = _parse(_quantity.text);
-    final unitPrice = multiProduct ? null : _parse(_unitPrice.text);
+    final unitPrice = multiProduct && !_multiProductUserAutoMode
+        ? null
+        : _parse(_unitPrice.text);
     final amount = _parse(_totalAmount.text);
     final noteParts = <String>[];
     final productName = _productName.text.trim();
@@ -585,11 +606,13 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     }
     if (unitPrice != null) noteParts.add('單價：${_number(unitPrice)}');
     noteParts.add(
-      multiProduct
+      multiProduct && !_multiProductUserAutoMode
           ? '總額來源：多商品人工覆核'
           : _totalManualOverride
               ? '總額來源：人工修改'
-              : '總額來源：數量×單價自動計算',
+              : multiProduct
+                  ? '總額來源：多商品人工指定共同單價×合計數量自動計算'
+                  : '總額來源：數量×單價自動計算',
     );
     if (widget.candidate.warnings.isNotEmpty) {
       noteParts.add('AI 注意事項：${widget.candidate.displayWarningsZh.join('；')}');
@@ -600,7 +623,8 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
       quantity: quantity,
       unitPrice: unitPrice,
       amount: amount,
-      totalMode: multiProduct || _totalManualOverride
+      totalMode: (multiProduct && !_multiProductUserAutoMode) ||
+              _totalManualOverride
           ? ProductReviewTotalMode.manualOverride
           : ProductReviewTotalMode.automatic,
       category: _selectedCategory?.trim() ?? '',

@@ -152,11 +152,20 @@ void main() {
     await tester.tap(calculator);
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const Key('product_review_calculator_expression')),
-      '(45 + 27) × 0.9',
-    );
+    final expressionFinder =
+        find.byKey(const Key('product_review_calculator_expression'));
+    final expressionField = tester.widget<TextField>(expressionFinder);
+    expect(expressionField.readOnly, isTrue);
+    expect(expressionField.canRequestFocus, isFalse);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'C'));
     await tester.pump();
+    for (final keyText in <String>[
+      '(', '4', '5', '+', '2', '7', ')', '×', '0', '.', '9',
+    ]) {
+      await tester.tap(find.widgetWithText(OutlinedButton, keyText));
+      await tester.pump();
+    }
     expect(find.text('結果：64.8'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('product_review_calculator_apply')));

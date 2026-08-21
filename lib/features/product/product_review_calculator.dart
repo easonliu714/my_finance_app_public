@@ -150,13 +150,15 @@ class _ProductReviewCalculatorDialogState
             TextField(
               key: const Key('product_review_calculator_expression'),
               controller: _expression,
-              keyboardType: TextInputType.text,
+              readOnly: true,
+              canRequestFocus: false,
+              showCursor: false,
+              enableInteractiveSelection: false,
               decoration: const InputDecoration(
                 labelText: '算式',
-                hintText: '例如：(45 + 27) × 0.9',
+                hintText: '請使用下方按鍵輸入算式',
                 border: OutlineInputBorder(),
               ),
-              onChanged: (_) => _recalculate(silent: true),
             ),
             const SizedBox(height: 8),
             Text(

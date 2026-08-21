@@ -7,7 +7,7 @@ class PrivateCloudInvoiceLabConfig {
   );
 
   /// Must match the version declared in pubspec.yaml for signed LAB packages.
-  static const String validationVersion = '4.19.5+442';
+  static const String validationVersion = '4.19.6+443';
 
   static final Uri officialLandingUri = Uri.parse(
     'https://www.einvoice.nat.gov.tw/portal/btc/mobile',
