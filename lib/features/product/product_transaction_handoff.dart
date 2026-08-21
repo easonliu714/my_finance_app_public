@@ -50,27 +50,34 @@ class ProductTransactionDraftSeed {
       noteParts.add('商品：${candidate.productName}');
     }
     if (candidate.quantity != null) {
-      noteParts.add('數量：${_number(candidate.quantity!)}');
+      noteParts.add(
+        candidate.hasMultipleProducts
+            ? '辨識數量合計：${_number(candidate.quantity!)}'
+            : '數量：${_number(candidate.quantity!)}',
+      );
     }
-    if (candidate.unitPrice != null) {
+    if (!candidate.hasMultipleProducts && candidate.unitPrice != null) {
       noteParts.add('單價：${_number(candidate.unitPrice!)}');
     }
     if (candidate.warnings.isNotEmpty) {
-      noteParts.add('AI 警告：${candidate.warnings.join('；')}');
+      noteParts.add('AI 注意事項：${candidate.displayWarningsZh.join('；')}');
     }
 
-    final canAutoCalculate = candidate.quantity != null &&
+    final canAutoCalculate = !candidate.hasMultipleProducts &&
+        candidate.quantity != null &&
         candidate.quantity! > 0 &&
         candidate.unitPrice != null &&
         candidate.unitPrice! >= 0;
     if (canAutoCalculate) {
       noteParts.add('總額來源：數量×單價推導');
+    } else if (candidate.hasMultipleProducts && candidate.totalAmount != null) {
+      noteParts.add('總額來源：多商品辨識總額，待人工覆核');
     }
 
     return ProductTransactionDraftSeed(
       productName: candidate.productName,
       quantity: candidate.quantity,
-      unitPrice: candidate.unitPrice,
+      unitPrice: candidate.hasMultipleProducts ? null : candidate.unitPrice,
       amount: canAutoCalculate
           ? candidate.quantity! * candidate.unitPrice!
           : candidate.totalAmount,
