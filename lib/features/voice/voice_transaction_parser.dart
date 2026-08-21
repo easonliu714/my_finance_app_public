@@ -259,5 +259,8 @@ class VoiceTransactionParser {
       .trim()
       .replaceAll('：', ':')
       .replaceAll(RegExp(r'\s+'), ' ')
-      .replaceAll(RegExp(r'\s*([，、。；])\s*'), r'$1');
+      .replaceAllMapped(
+        RegExp(r'\s*([，、。；])\s*'),
+        (match) => match.group(1)!,
+      );
 }
