@@ -94,7 +94,8 @@ void main() {
     expect(seed.note, contains('數量：2'));
     expect(seed.note, contains('單價：45'));
     expect(seed.note, contains('數量×單價推導'));
-    expect(seed.note, contains('merchant_needs_review'));
+    expect(seed.note, contains('消費商家需要人工確認'));
+    expect(seed.note, isNot(contains('merchant_needs_review')));
     expect(seed.requiresUserReview, isTrue);
     expect(seed.canCreateFormalRecord, isFalse);
   });
