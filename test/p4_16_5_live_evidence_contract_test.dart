@@ -30,7 +30,7 @@ void main() {
       'lib/features/invoice/gemini/gemini_invoice_review_client.dart',
     ).readAsStringSync();
 
-    expect(pubspec, contains('version: 4.19.4+441'));
+    expect(pubspec, contains('version: 4.19.5+442'));
     expect(router, contains('InvoiceFrozenReviewPage.routeName'));
     expect(entry, contains('Live 即時辨識'));
     expect(entry, contains('從圖片讀取'));
@@ -67,8 +67,8 @@ void main() {
     expect(coordinator, contains('bytes: await file.readAsBytes()'));
     expect(coordinator, contains('imageBytes: image.bytes'));
     expect(client, contains('base64Encode(imageBytes)'));
-    expect(client, isNot(contains('copyResize')));
-    expect(client, isNot(contains('cropImage')));
+    expect(client, isNot(contains('copyResize'));
+    expect(client, isNot(contains('cropImage'));
   });
 
   test('Evidence v6 preserves provenance resilience audit and key safety', () {
