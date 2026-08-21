@@ -92,16 +92,13 @@ void main() {
     expect(client.attemptedKeys, isEmpty);
   });
 
-  test('partial OCR rotates quota-limited key and succeeds with next key', () async {
+  test('quota on flat key pool rotates through available keys then fails closed', () async {
     final client = _RecordingReviewClient((key) async {
-      if (key == 'KEY_1') {
-        throw const GeminiInvoiceReviewException(
-          GeminiInvoiceReviewFailureKind.quota,
-          'quota',
-          statusCode: 429,
-        );
-      }
-      return _aiCandidate();
+      throw const GeminiInvoiceReviewException(
+        GeminiInvoiceReviewFailureKind.quota,
+        'quota',
+        statusCode: 429,
+      );
     });
     final coordinator = GeminiInvoiceReviewCoordinator(
       settingsStore: const _FakeSettingsStore(
@@ -117,14 +114,15 @@ void main() {
       localResult: _partialOcrResult(),
       localReference: '/tmp/invoice.jpg',
     );
-    expect(result.status, GeminiInvoiceReviewExecutionStatus.success);
+    expect(result.status, GeminiInvoiceReviewExecutionStatus.failed);
     expect(client.attemptedKeys, <String>['KEY_1', 'KEY_2']);
-    expect(result.attempts.length, 2);
-    expect(result.candidate?.invoiceNumber, 'AB12345678');
+    expect(result.attempts, hasLength(2));
+    expect(result.sessionContext?.keyGroupAlias, 'KEY_2');
+    expect(result.sessionContext?.keyGroupAttemptCount, 2);
     expect(result.canCreateFormalRecord, isFalse);
   });
 
-  test('request error stops rotation to avoid repeating invalid request', () async {
+  test('request error stops fallback to avoid repeating invalid request', () async {
     final client = _RecordingReviewClient((_) async {
       throw const GeminiInvoiceReviewException(
         GeminiInvoiceReviewFailureKind.requestRejected,
@@ -168,7 +166,10 @@ void main() {
       forceReview: true,
     );
     expect(result.status, GeminiInvoiceReviewExecutionStatus.success);
-    expect(result.message, contains('尚未覆寫本機結果'));
+    expect(result.candidate, isNotNull);
+    expect(result.requiresUserReview, isTrue);
+    expect(result.canCreateFormalRecord, isFalse);
+    expect(result.invocationMode, GeminiInvoiceReviewInvocationMode.manual);
     expect(client.attemptedKeys, <String>['KEY_1']);
   });
 }

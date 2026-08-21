@@ -131,21 +131,36 @@ void main() {
       frozen,
       contains('forceReview: _geminiDecision?.shouldReview != true'),
     );
-    expect(frozen, contains('送出至 Gemini 必要覆核'));
-    expect(frozen, contains('強制 Gemini 二次覆核'));
-    expect(frozen, contains('只有你明確按下按鈕才會送出目前發票影像'));
+    expect(frozen, contains('await _maybeRunAutomaticGemini(local);'));
+    expect(
+      frozen,
+      contains('await _runGemini(local, forceReview: false, automatic: true);'),
+    );
+    expect(frozen, contains('reviewAutomatically('));
+    expect(frozen, contains("label: Text(ai == null ? 'AI 覆核' : '重新 AI 覆核')"));
+    expect(frozen, contains('RecognitionAiStatusIndicator('));
     expect(policy, contains('InvoiceLocalCompletenessPolicy().evaluate'));
     expect(policy, contains('shouldReview: completeness.requiresGeminiReview'));
     expect(policy, contains("if (candidate.sellerTaxId.isEmpty) '賣方統編'"));
     expect(policy, contains('TraditionalInvoiceOcrField.sellerTaxId'));
   });
 
-  test('Evidence v4 keeps failed OCR and Live history while staying key-safe', () {
+  test('Evidence v6 keeps raw evidence and resilience telemetry key-safe', () {
     final evidence = File('lib/features/invoice/invoice_recognition_evidence_exporter.dart').readAsStringSync();
-    expect(evidence, contains('invoice-recognition-evidence-v4'));
+    expect(evidence, contains('invoice-recognition-evidence-v6'));
     expect(evidence, contains('ocrResult?.rawRecognition'));
     expect(evidence, contains('live_snapshot_history.json'));
     expect(evidence, contains("'apiKeyIncluded': false"));
+    expect(evidence, contains("'automaticUploadPerformed': automaticUploadPerformed"));
+    expect(evidence, contains('gemini_invocation_mode='));
+    expect(evidence, contains('gemini_request_count='));
+    expect(evidence, contains('logical_invocation_id='));
+    expect(evidence, contains('active_model='));
+    expect(evidence, contains('key_group_alias='));
+    expect(evidence, contains('physical_attempt_count='));
+    expect(evidence, contains('model_attempt_count='));
+    expect(evidence, contains('key_group_attempt_count='));
+    expect(evidence, contains('fallback_reason='));
     expect(evidence, isNot(contains('x-goog-api-key')));
   });
 }
