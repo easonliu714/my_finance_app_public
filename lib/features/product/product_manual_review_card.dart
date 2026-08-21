@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'product_recognition_candidate.dart';
+import 'product_review_calculator.dart';
 import 'product_transaction_handoff.dart';
 
 class ProductManualReviewCard extends StatefulWidget {
@@ -21,6 +22,9 @@ class ProductManualReviewCard extends StatefulWidget {
   static const Key unitPriceFieldKey = Key('product_review_unit_price');
   static const Key totalAmountFieldKey = Key('product_review_total_amount');
   static const Key restoreAutoTotalKey = Key('product_review_restore_auto_total');
+  static const Key calculatorKey = Key('product_review_calculator');
+  static const Key multiProductTotalModeKey =
+      Key('product_review_multi_product_total_mode');
   static const Key categoryFieldKey = Key('product_review_category');
   static const Key addCategoryKey = Key('product_review_add_category');
   static const Key merchantFieldKey = Key('product_review_merchant');
@@ -105,7 +109,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
   void _loadCandidate(ProductRecognitionCandidate candidate) {
     _productName.text = candidate.productName;
     _quantity.text = _number(candidate.quantity);
-    _unitPrice.text = _number(candidate.unitPrice);
+    _unitPrice.text = candidate.hasMultipleProducts ? '' : _number(candidate.unitPrice);
     _selectedCategory = widget.categoryOptions.contains(candidate.categorySuggestion)
         ? candidate.categorySuggestion
         : null;
@@ -115,6 +119,12 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
             ? '不使用商家'
             : null;
     _selectedAccount = null;
+
+    if (candidate.hasMultipleProducts) {
+      _totalManualOverride = true;
+      _totalAmount.text = _number(candidate.totalAmount);
+      return;
+    }
 
     final autoTotal = _calculatedTotal();
     if (autoTotal != null) {
@@ -129,6 +139,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
   @override
   Widget build(BuildContext context) {
     final candidate = widget.candidate;
+    final multiProduct = candidate.hasMultipleProducts;
     final autoTotal = _calculatedTotal();
     final aiTotal = candidate.totalAmount;
     return Card(
@@ -163,62 +174,102 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
               TextFormField(
                 key: ProductManualReviewCard.productNameFieldKey,
                 controller: _productName,
-                decoration: const InputDecoration(
-                  labelText: '商品名稱',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: multiProduct ? '商品摘要' : '商品名稱',
+                  border: const OutlineInputBorder(),
                 ),
                 onChanged: (_) => _invalidateConfirmedReview(),
               ),
               const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      key: ProductManualReviewCard.quantityFieldKey,
-                      controller: _quantity,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '數量',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => _recalculateTotalIfAutomatic(),
-                      validator: (value) => _validateNumber(
-                        value,
-                        positive: true,
-                        label: '數量',
+              if (multiProduct) ...[
+                TextFormField(
+                  key: ProductManualReviewCard.quantityFieldKey,
+                  controller: _quantity,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: '辨識數量（合計，可留空）',
+                    helperText: '多項商品的合計件數僅供參考，不會拿來反推單價。',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => _invalidateConfirmedReview(),
+                  validator: (value) => _validateOptionalPositiveNumber(
+                    value,
+                    label: '辨識數量',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  key: ProductManualReviewCard.multiProductTotalModeKey,
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    '辨識到多項商品。由於目前沒有可靠的逐項單價對應，本次不顯示單一「單價」欄位，請直接覆核實際支付總金額。',
+                  ),
+                ),
+              ] else
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        key: ProductManualReviewCard.quantityFieldKey,
+                        controller: _quantity,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: '數量',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => _recalculateTotalIfAutomatic(),
+                        validator: (value) => _validateNumber(
+                          value,
+                          positive: true,
+                          label: '數量',
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      key: ProductManualReviewCard.unitPriceFieldKey,
-                      controller: _unitPrice,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '單價',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => _recalculateTotalIfAutomatic(),
-                      validator: (value) => _validateNumber(
-                        value,
-                        positive: false,
-                        label: '單價',
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextFormField(
+                        key: ProductManualReviewCard.unitPriceFieldKey,
+                        controller: _unitPrice,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: '單價',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => _recalculateTotalIfAutomatic(),
+                        validator: (value) => _validateNumber(
+                          value,
+                          positive: false,
+                          label: '單價',
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
               const SizedBox(height: 10),
               TextFormField(
                 key: ProductManualReviewCard.totalAmountFieldKey,
                 controller: _totalAmount,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(
                   labelText: '總金額',
                   helperText: _totalHelperText(
                     autoTotal: autoTotal,
                     aiTotal: aiTotal,
+                    multiProduct: multiProduct,
                   ),
                   border: const OutlineInputBorder(),
                 ),
@@ -235,14 +286,26 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
                 ),
               ),
               const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  key: ProductManualReviewCard.restoreAutoTotalKey,
-                  onPressed: _calculatedTotal() == null ? null : _restoreAutoTotal,
-                  icon: const Icon(Icons.calculate_outlined),
-                  label: const Text('恢復自動計算'),
-                ),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (!multiProduct)
+                    TextButton.icon(
+                      key: ProductManualReviewCard.restoreAutoTotalKey,
+                      onPressed:
+                          _calculatedTotal() == null ? null : _restoreAutoTotal,
+                      icon: const Icon(Icons.refresh_outlined),
+                      label: const Text('恢復自動計算'),
+                    ),
+                  TextButton.icon(
+                    key: ProductManualReviewCard.calculatorKey,
+                    onPressed: _openCalculator,
+                    icon: const Icon(Icons.calculate_outlined),
+                    label: const Text('計算機'),
+                  ),
+                ],
               ),
               DropdownButtonFormField<String>(
                 key: ProductManualReviewCard.categoryFieldKey,
@@ -338,7 +401,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
               if (candidate.warnings.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
-                  'AI 注意事項：${candidate.warnings.join('、')}',
+                  'AI 注意事項：${candidate.displayWarningsZh.join('、')}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
@@ -391,7 +454,21 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     });
   }
 
+  Future<void> _openCalculator() async {
+    final result = await showProductReviewCalculator(
+      context,
+      initialValue: _totalAmount.text,
+    );
+    if (!mounted || result == null || result <= 0) return;
+    _invalidateConfirmedReview();
+    setState(() {
+      _totalManualOverride = true;
+      _totalAmount.text = _number(result);
+    });
+  }
+
   double? _calculatedTotal() {
+    if (widget.candidate.hasMultipleProducts) return null;
     final quantity = _parse(_quantity.text);
     final unitPrice = _parse(_unitPrice.text);
     if (quantity == null || quantity <= 0 || unitPrice == null || unitPrice < 0) {
@@ -400,7 +477,17 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     return quantity * unitPrice;
   }
 
-  String _totalHelperText({required double? autoTotal, required double? aiTotal}) {
+  String _totalHelperText({
+    required double? autoTotal,
+    required double? aiTotal,
+    required bool multiProduct,
+  }) {
+    if (multiProduct) {
+      if (aiTotal != null) {
+        return 'AI 辨識總金額：${_number(aiTotal)}；多項商品未可靠對應各自單價，請覆核實際支付總額。';
+      }
+      return '多項商品總額模式：請直接輸入或使用計算機確認實際支付總金額。';
+    }
     if (_totalManualOverride) {
       final reference = autoTotal == null ? '' : '；參考計算 ${_number(autoTotal)}';
       return '人工修改模式$reference';
@@ -411,20 +498,26 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
           : '';
       return '自動：數量 × 單價 = ${_number(autoTotal)}$ai';
     }
-    return aiTotal == null ? '請輸入數量與單價，或直接人工輸入總額。' : 'AI 辨識總額：${_number(aiTotal)}';
+    return aiTotal == null
+        ? '請輸入數量與單價，或直接人工輸入總額。'
+        : 'AI 辨識總額：${_number(aiTotal)}';
   }
 
   String? _categoryHelperText(ProductRecognitionCandidate candidate) {
     final suggestion = candidate.categorySuggestion.trim();
     if (suggestion.isEmpty) return '請從正式支出類別中選擇。';
-    if (widget.categoryOptions.contains(suggestion)) return 'AI 建議已匹配現有類別：$suggestion';
+    if (widget.categoryOptions.contains(suggestion)) {
+      return 'AI 建議已匹配現有類別：$suggestion';
+    }
     return 'AI 建議：$suggestion（目前尚未建立，請改選或明確新增）';
   }
 
   String? _merchantHelperText(ProductRecognitionCandidate candidate) {
     final suggestion = candidate.merchantName.trim();
     if (suggestion.isEmpty) return '可選現有商家，或使用「不使用商家」。';
-    if (widget.merchantOptions.contains(suggestion)) return 'AI 建議已匹配現有商家：$suggestion';
+    if (widget.merchantOptions.contains(suggestion)) {
+      return 'AI 建議已匹配現有商家：$suggestion';
+    }
     return 'AI 建議：$suggestion（目前尚未建立，請改選或明確新增）';
   }
 
@@ -478,21 +571,28 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
 
   void _confirm() {
     if (_formKey.currentState?.validate() != true) return;
+    final multiProduct = widget.candidate.hasMultipleProducts;
     final quantity = _parse(_quantity.text);
-    final unitPrice = _parse(_unitPrice.text);
+    final unitPrice = multiProduct ? null : _parse(_unitPrice.text);
     final amount = _parse(_totalAmount.text);
     final noteParts = <String>[];
     final productName = _productName.text.trim();
     if (productName.isNotEmpty) noteParts.add('商品：$productName');
-    if (quantity != null) noteParts.add('數量：${_number(quantity)}');
+    if (quantity != null) {
+      noteParts.add(multiProduct
+          ? '辨識數量合計：${_number(quantity)}'
+          : '數量：${_number(quantity)}');
+    }
     if (unitPrice != null) noteParts.add('單價：${_number(unitPrice)}');
     noteParts.add(
-      _totalManualOverride
-          ? '總額來源：人工修改'
-          : '總額來源：數量×單價自動計算',
+      multiProduct
+          ? '總額來源：多商品人工覆核'
+          : _totalManualOverride
+              ? '總額來源：人工修改'
+              : '總額來源：數量×單價自動計算',
     );
     if (widget.candidate.warnings.isNotEmpty) {
-      noteParts.add('AI 警告：${widget.candidate.warnings.join('；')}');
+      noteParts.add('AI 注意事項：${widget.candidate.displayWarningsZh.join('；')}');
     }
 
     final reviewed = ProductTransactionDraftSeed(
@@ -500,7 +600,7 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
       quantity: quantity,
       unitPrice: unitPrice,
       amount: amount,
-      totalMode: _totalManualOverride
+      totalMode: multiProduct || _totalManualOverride
           ? ProductReviewTotalMode.manualOverride
           : ProductReviewTotalMode.automatic,
       category: _selectedCategory?.trim() ?? '',
@@ -525,6 +625,18 @@ class _ProductManualReviewCardState extends State<ProductManualReviewCard> {
     if (parsed == null || !parsed.isFinite) return '$label格式不正確';
     if (positive && parsed <= 0) return '$label必須大於 0';
     if (!positive && parsed < 0) return '$label不可小於 0';
+    return null;
+  }
+
+  static String? _validateOptionalPositiveNumber(
+    String? raw, {
+    required String label,
+  }) {
+    final value = raw?.trim() ?? '';
+    if (value.isEmpty) return null;
+    final parsed = double.tryParse(value);
+    if (parsed == null || !parsed.isFinite) return '$label格式不正確';
+    if (parsed <= 0) return '$label必須大於 0';
     return null;
   }
 
