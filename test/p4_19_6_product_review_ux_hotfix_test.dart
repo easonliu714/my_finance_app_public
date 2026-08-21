@@ -95,6 +95,9 @@ void main() {
 
   testWidgets('multi-product explicit restore may use user-entered shared unit price',
       (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     ProductTransactionDraftSeed? reviewed;
     const candidate = ProductRecognitionCandidate(
       productName: '飲料、點心',
@@ -125,7 +128,6 @@ void main() {
     final restoreFinder = find.byKey(ProductManualReviewCard.restoreAutoTotalKey);
     expect(tester.widget<TextButton>(restoreFinder).onPressed, isNotNull);
 
-    await tester.ensureVisible(restoreFinder);
     await tester.tap(restoreFinder);
     await tester.pump();
 
@@ -144,16 +146,12 @@ void main() {
     expect(totalField.controller?.text, '60');
 
     final account = find.byKey(ProductManualReviewCard.accountFieldKey);
-    await tester.scrollUntilVisible(account, 250);
-    await tester.pumpAndSettle();
     await tester.tap(account);
     await tester.pumpAndSettle();
     await tester.tap(find.text('一卡通').last);
     await tester.pumpAndSettle();
 
     final confirm = find.byKey(ProductManualReviewCard.confirmKey);
-    await tester.scrollUntilVisible(confirm, 250);
-    await tester.pumpAndSettle();
     await tester.tap(confirm);
     await tester.pumpAndSettle();
 
