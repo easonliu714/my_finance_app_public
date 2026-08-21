@@ -18,7 +18,7 @@ on:
       - '.github/workflows/p4_19_7_signed_canary.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: p4-19-7-public-signed-${{ github.event.pull_request.number }}
@@ -38,7 +38,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          persist-credentials: false
       - name: Frozen P4.19.6 real-device ancestry gate
         shell: bash
         run: |
@@ -56,6 +55,23 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: One-shot pin resolved release lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- pubspec.lock; then
+            printf 'LOCKFILE_ALREADY_PINNED=YES\n'
+            exit 0
+          fi
+          test "${{ github.head_ref }}" = 'p4-19-7-voice-transcript-parser'
+          changed="$(git diff --name-only)"
+          test "$changed" = 'pubspec.lock'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- pubspec.lock
+          test "$(git diff --cached --name-only)" = 'pubspec.lock'
+          git commit -m 'P4.19.7: pin resolved speech dependencies'
+          git push origin HEAD:p4-19-7-voice-transcript-parser
       - name: Capture resolved release lockfile
         uses: actions/upload-artifact@v4
         with:
