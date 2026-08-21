@@ -67,8 +67,8 @@ void main() {
     expect(coordinator, contains('bytes: await file.readAsBytes()'));
     expect(coordinator, contains('imageBytes: image.bytes'));
     expect(client, contains('base64Encode(imageBytes)'));
-    expect(client, isNot(contains('copyResize'));
-    expect(client, isNot(contains('cropImage'));
+    expect(client, isNot(contains('copyResize')));
+    expect(client, isNot(contains('cropImage')));
   });
 
   test('Evidence v6 preserves provenance resilience audit and key safety', () {
