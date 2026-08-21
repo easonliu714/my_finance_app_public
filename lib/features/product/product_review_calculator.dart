@@ -112,6 +112,23 @@ class _ProductReviewCalculatorDialogState
     });
   }
 
+  void _handleKey(String keyText) {
+    switch (keyText) {
+      case '⌫':
+        _backspace();
+        return;
+      case 'C':
+        _clear();
+        return;
+      case '=':
+        _recalculate();
+        return;
+      default:
+        _append(keyText);
+        return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     const keys = <String>[
@@ -158,33 +175,21 @@ class _ProductReviewCalculatorDialogState
               ),
             ],
             const SizedBox(height: 12),
-            GridView.count(
-              crossAxisCount: 4,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 6,
-              crossAxisSpacing: 6,
-              childAspectRatio: 1.6,
+            Table(
+              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
               children: [
-                for (final keyText in keys)
-                  OutlinedButton(
-                    onPressed: () {
-                      switch (keyText) {
-                        case '⌫':
-                          _backspace();
-                          return;
-                        case 'C':
-                          _clear();
-                          return;
-                        case '=':
-                          _recalculate();
-                          return;
-                        default:
-                          _append(keyText);
-                          return;
-                      }
-                    },
-                    child: Text(keyText),
+                for (var row = 0; row < keys.length; row += 4)
+                  TableRow(
+                    children: [
+                      for (final keyText in keys.skip(row).take(4))
+                        Padding(
+                          padding: const EdgeInsets.all(3),
+                          child: OutlinedButton(
+                            onPressed: () => _handleKey(keyText),
+                            child: Text(keyText),
+                          ),
+                        ),
+                    ],
                   ),
               ],
             ),
