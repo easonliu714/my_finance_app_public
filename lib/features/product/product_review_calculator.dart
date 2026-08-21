@@ -171,12 +171,16 @@ class _ProductReviewCalculatorDialogState
                       switch (keyText) {
                         case '⌫':
                           _backspace();
+                          return;
                         case 'C':
                           _clear();
+                          return;
                         case '=':
                           _recalculate();
+                          return;
                         default:
                           _append(keyText);
+                          return;
                       }
                     },
                     child: Text(keyText),
