@@ -80,9 +80,11 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
 
       await _speech.listen(
         onResult: _handleResult,
-        localeId: localeId,
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 5),
+        listenOptions: SpeechListenOptions(
+          localeId: localeId,
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 5),
+        ),
       );
       if (!_speech.isListening) {
         return const VoiceSpeechStartResult(
