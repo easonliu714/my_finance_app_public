@@ -144,14 +144,16 @@ void main() {
     expect(totalField.controller?.text, '60');
 
     final account = find.byKey(ProductManualReviewCard.accountFieldKey);
-    await tester.ensureVisible(account);
+    await tester.scrollUntilVisible(account, 250);
+    await tester.pumpAndSettle();
     await tester.tap(account);
     await tester.pumpAndSettle();
     await tester.tap(find.text('一卡通').last);
     await tester.pumpAndSettle();
 
     final confirm = find.byKey(ProductManualReviewCard.confirmKey);
-    await tester.ensureVisible(confirm);
+    await tester.scrollUntilVisible(confirm, 250);
+    await tester.pumpAndSettle();
     await tester.tap(confirm);
     await tester.pumpAndSettle();
 
