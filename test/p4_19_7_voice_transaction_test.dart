@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:my_finance_app/features/merchant/canonical_merchant_repository.dart';
 import 'package:my_finance_app/features/transaction/transaction_entry_page.dart';
 import 'package:my_finance_app/features/voice/voice_speech_recognition.dart';
 import 'package:my_finance_app/features/voice/voice_transaction_entry_page.dart';
@@ -58,6 +61,37 @@ void main() {
         ),
         isNull,
       );
+    });
+
+    test('built-in transaction merchants share the same canonical matcher', () {
+      expect(canonicalBuiltInTransactionMerchantNames, contains('OK便利商店'));
+      expect(
+        VoiceTransactionReferenceMatcher.matchUnique(
+          'OK便利商店',
+          canonicalBuiltInTransactionMerchantNames,
+        ),
+        'OK便利商店',
+      );
+      expect(
+        VoiceTransactionReferenceMatcher.matchUnique(
+          'OK 便利商店',
+          canonicalBuiltInTransactionMerchantNames,
+        ),
+        'OK便利商店',
+      );
+    });
+
+    test('platform speech contract is manual-stop with transparent cycle restart', () {
+      final source = File(
+        'lib/features/voice/voice_speech_recognition.dart',
+      ).readAsStringSync();
+
+      expect(source, contains('_manualSessionActive'));
+      expect(source, contains('_scheduleRestart()'));
+      expect(source, contains('listenFor: const Duration(seconds: 60)'));
+      expect(source, contains('pauseFor: const Duration(seconds: 30)'));
+      expect(source, contains("normalized.contains('no_match')"));
+      expect(source, contains("_onStatus?.call('restarting')"));
     });
   });
 
