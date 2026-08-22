@@ -36,12 +36,17 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
   final SpeechToText _speech;
   bool _initialized = false;
   bool _available = false;
+  bool _manualSessionActive = false;
+  bool _restartScheduled = false;
+  int _sessionGeneration = 0;
+  String _committedWords = '';
+  String _cycleWords = '';
   VoiceSpeechResultCallback? _onResult;
   VoiceSpeechStatusCallback? _onStatus;
   VoiceSpeechErrorCallback? _onError;
 
   @override
-  bool get isListening => _speech.isListening;
+  bool get isListening => _manualSessionActive;
 
   @override
   Future<VoiceSpeechStartResult> start({
@@ -68,6 +73,40 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
         );
       }
 
+      if (_manualSessionActive) {
+        return const VoiceSpeechStartResult(started: true);
+      }
+
+      _manualSessionActive = true;
+      _restartScheduled = false;
+      _sessionGeneration += 1;
+      _committedWords = '';
+      _cycleWords = '';
+      final generation = _sessionGeneration;
+      final started = await _startPlatformCycle(generation);
+      if (!started) {
+        _manualSessionActive = false;
+        return const VoiceSpeechStartResult(
+          started: false,
+          message: '語音服務沒有開始聆聽；請改用文字輸入或稍後重試。',
+        );
+      }
+      return const VoiceSpeechStartResult(started: true);
+    } catch (_) {
+      _manualSessionActive = false;
+      return const VoiceSpeechStartResult(
+        started: false,
+        message: '無法啟動語音辨識；請改用文字輸入或稍後重試。',
+      );
+    }
+  }
+
+  Future<bool> _startPlatformCycle(int generation) async {
+    if (!_manualSessionActive || generation != _sessionGeneration) {
+      return false;
+    }
+
+    try {
       final locales = await _speech.locales();
       String? localeId;
       for (final locale in locales) {
@@ -78,31 +117,30 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
         }
       }
 
+      _cycleWords = '';
       await _speech.listen(
         onResult: _handleResult,
         listenOptions: SpeechListenOptions(
           localeId: localeId,
-          listenFor: const Duration(seconds: 30),
-          pauseFor: const Duration(seconds: 5),
+          listenFor: const Duration(seconds: 60),
+          pauseFor: const Duration(seconds: 30),
         ),
       );
-      if (!_speech.isListening) {
-        return const VoiceSpeechStartResult(
-          started: false,
-          message: '語音服務沒有開始聆聽；請改用文字輸入或稍後重試。',
-        );
+      if (_manualSessionActive && generation == _sessionGeneration) {
+        _onStatus?.call('listening');
       }
-      return const VoiceSpeechStartResult(started: true);
+      return true;
     } catch (_) {
-      return const VoiceSpeechStartResult(
-        started: false,
-        message: '無法啟動語音辨識；請改用文字輸入或稍後重試。',
-      );
+      return false;
     }
   }
 
   @override
   Future<void> stop() async {
+    _commitCycleWords();
+    _manualSessionActive = false;
+    _restartScheduled = false;
+    _sessionGeneration += 1;
     try {
       await _speech.stop();
     } catch (_) {
@@ -113,6 +151,10 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
 
   @override
   Future<void> cancel() async {
+    _commitCycleWords();
+    _manualSessionActive = false;
+    _restartScheduled = false;
+    _sessionGeneration += 1;
     try {
       await _speech.cancel();
     } catch (_) {
@@ -121,15 +163,86 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
   }
 
   void _handleResult(SpeechRecognitionResult result) {
-    _onResult?.call(result.recognizedWords, result.finalResult);
+    final words = result.recognizedWords.trim();
+    if (words.isEmpty) return;
+    _cycleWords = words;
+    final combined = _joinSegments(_committedWords, words);
+    _onResult?.call(combined, false);
+    if (result.finalResult) {
+      _committedWords = combined;
+      _cycleWords = '';
+    }
   }
 
   void _handleStatus(String status) {
+    final normalized = status.toLowerCase();
+    final finished = normalized.contains('done') ||
+        normalized.contains('notlistening') ||
+        normalized.contains('not listening');
+
+    if (_manualSessionActive && finished) {
+      _commitCycleWords();
+      _onStatus?.call('restarting');
+      _scheduleRestart();
+      return;
+    }
     _onStatus?.call(status);
   }
 
   void _handleError(SpeechRecognitionError error) {
+    final normalized = error.errorMsg.toLowerCase();
+    final recoverableSilence = normalized.contains('no_match') ||
+        normalized.contains('speech_timeout') ||
+        normalized.contains('speech timeout');
+    if (_manualSessionActive && recoverableSilence) {
+      _commitCycleWords();
+      _onStatus?.call('restarting');
+      _scheduleRestart();
+      return;
+    }
+
+    _manualSessionActive = false;
+    _restartScheduled = false;
+    _sessionGeneration += 1;
     _onError?.call(_localizedError(error.errorMsg));
+  }
+
+  void _scheduleRestart() {
+    if (!_manualSessionActive || _restartScheduled) return;
+    _restartScheduled = true;
+    final generation = _sessionGeneration;
+    Future<void>.delayed(const Duration(milliseconds: 250), () async {
+      _restartScheduled = false;
+      if (!_manualSessionActive || generation != _sessionGeneration) return;
+      final restarted = await _startPlatformCycle(generation);
+      if (restarted || !_manualSessionActive || generation != _sessionGeneration) {
+        return;
+      }
+      _manualSessionActive = false;
+      _sessionGeneration += 1;
+      _onError?.call('語音服務無法繼續聆聽；目前文字已保留，可直接修正後解析。');
+    });
+  }
+
+  void _commitCycleWords() {
+    final words = _cycleWords.trim();
+    if (words.isEmpty) return;
+    _committedWords = _joinSegments(_committedWords, words);
+    _cycleWords = '';
+    _onResult?.call(_committedWords, false);
+  }
+
+  static String _joinSegments(String prefix, String segment) {
+    final left = prefix.trim();
+    final right = segment.trim();
+    if (left.isEmpty) return right;
+    if (right.isEmpty) return left;
+    if (left == right || left.endsWith(right)) return left;
+    if (right.startsWith(left)) return right;
+    if (RegExp(r'[，、。；;,.!?！？]$').hasMatch(left)) {
+      return '$left$right';
+    }
+    return '$left，$right';
   }
 
   static String _localizedError(String error) {
