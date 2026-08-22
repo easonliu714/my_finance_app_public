@@ -6,7 +6,7 @@ import 'package:my_finance_app/features/invoice/lab/private_cloud_invoice_lab_co
 void main() {
   test('package and validation versions stay aligned', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    expect(pubspec, contains('version: 4.18.6+434'));
-    expect(PrivateCloudInvoiceLabConfig.validationVersion, '4.18.6+434');
+    expect(pubspec, contains('version: 4.19.7+445'));
+    expect(PrivateCloudInvoiceLabConfig.validationVersion, '4.19.7+445');
   });
 }
