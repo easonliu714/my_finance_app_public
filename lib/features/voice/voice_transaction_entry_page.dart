@@ -41,6 +41,94 @@ class VoiceTransactionEntryPage extends StatefulWidget {
   static const String exampleTranscript =
       '我在OK便利商店用一卡通支付72元，買了1杯大熱拿、一個花生吐司';
 
+  static String mergeLiveTranscript(String current, String incoming) {
+    final left = current.trim();
+    final right = incoming.trim();
+    if (left.isEmpty) return right;
+    if (right.isEmpty) return left;
+    if (left == right) return left;
+
+    final normalizedLeft = _normalizeSpeechText(left);
+    final normalizedRight = _normalizeSpeechText(right);
+    if (normalizedLeft.isEmpty) return right;
+    if (normalizedRight.isEmpty) return left;
+    if (normalizedLeft == normalizedRight) {
+      return right.length >= left.length ? right : left;
+    }
+    if (normalizedRight.startsWith(normalizedLeft)) return right;
+    if (normalizedLeft.startsWith(normalizedRight)) return left;
+
+    final boundary = _lastSpeechBoundary(left);
+    if (boundary >= 0 && boundary + 1 < left.length) {
+      final prefix = left.substring(0, boundary + 1);
+      final tail = left.substring(boundary + 1).trim();
+      final normalizedTail = _normalizeSpeechText(tail);
+      if (normalizedTail.length >= 2 &&
+          normalizedRight.startsWith(normalizedTail)) {
+        return '$prefix$right';
+      }
+      if (normalizedTail.length >= 2 &&
+          normalizedTail.startsWith(normalizedRight)) {
+        return left;
+      }
+    }
+
+    final lengthDelta = (normalizedLeft.length - normalizedRight.length).abs();
+    if (lengthDelta <= 3) {
+      final distance = _editDistance(normalizedLeft, normalizedRight);
+      final maxLength = normalizedLeft.length > normalizedRight.length
+          ? normalizedLeft.length
+          : normalizedRight.length;
+      if (distance <= 2 || (maxLength >= 8 && distance * 4 <= maxLength)) {
+        return right;
+      }
+    }
+
+    if (RegExp(r'[，、。；;,.!?！？]$').hasMatch(left)) {
+      return '$left$right';
+    }
+    return '$left，$right';
+  }
+
+  static String _normalizeSpeechText(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\s，、。；;,.!?！？：:]'), '');
+  }
+
+  static int _lastSpeechBoundary(String value) {
+    var result = -1;
+    for (final token in const ['，', '、', '。', '；', ';', ',', '.', '!', '?', '！', '？']) {
+      final index = value.lastIndexOf(token);
+      if (index > result) result = index;
+    }
+    return result;
+  }
+
+  static int _editDistance(String left, String right) {
+    if (left == right) return 0;
+    if (left.isEmpty) return right.length;
+    if (right.isEmpty) return left.length;
+
+    var previous = List<int>.generate(right.length + 1, (index) => index);
+    for (var i = 1; i <= left.length; i += 1) {
+      final current = List<int>.filled(right.length + 1, 0);
+      current[0] = i;
+      for (var j = 1; j <= right.length; j += 1) {
+        final substitutionCost =
+            left.codeUnitAt(i - 1) == right.codeUnitAt(j - 1) ? 0 : 1;
+        final deletion = previous[j] + 1;
+        final insertion = current[j - 1] + 1;
+        final substitution = previous[j - 1] + substitutionCost;
+        var best = deletion < insertion ? deletion : insertion;
+        if (substitution < best) best = substitution;
+        current[j] = best;
+      }
+      previous = current;
+    }
+    return previous[right.length];
+  }
+
   final VoiceTransactionParser parser;
   final VoiceSpeechRecognitionPort? speechPort;
   final List<String>? categoryOptionsOverride;
@@ -448,7 +536,11 @@ class _VoiceTransactionEntryPageState extends State<VoiceTransactionEntryPage> {
   void _handleSpeechResult(String words, bool isFinal) {
     if (!mounted || words.trim().isEmpty) return;
     setState(() {
-      _transcriptController.text = words.trim();
+      final merged = VoiceTransactionEntryPage.mergeLiveTranscript(
+        _transcriptController.text,
+        words,
+      );
+      _transcriptController.text = merged;
       _transcriptController.selection = TextSelection.collapsed(
         offset: _transcriptController.text.length,
       );
