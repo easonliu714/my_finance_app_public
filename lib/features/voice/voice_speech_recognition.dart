@@ -33,11 +33,14 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
   PlatformVoiceSpeechRecognitionPort({SpeechToText? speech})
       : _speech = speech ?? SpeechToText();
 
+  static const int _maxRestartAttempts = 6;
+
   final SpeechToText _speech;
   bool _initialized = false;
   bool _available = false;
   bool _manualSessionActive = false;
   bool _restartScheduled = false;
+  int _restartAttempt = 0;
   int _sessionGeneration = 0;
   String _committedWords = '';
   String _cycleWords = '';
@@ -79,6 +82,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
 
       _manualSessionActive = true;
       _restartScheduled = false;
+      _restartAttempt = 0;
       _sessionGeneration += 1;
       _committedWords = '';
       _cycleWords = '';
@@ -140,6 +144,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
     _commitCycleWords();
     _manualSessionActive = false;
     _restartScheduled = false;
+    _restartAttempt = 0;
     _sessionGeneration += 1;
     try {
       await _speech.stop();
@@ -154,6 +159,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
     _commitCycleWords();
     _manualSessionActive = false;
     _restartScheduled = false;
+    _restartAttempt = 0;
     _sessionGeneration += 1;
     try {
       await _speech.cancel();
@@ -163,8 +169,10 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
   }
 
   void _handleResult(SpeechRecognitionResult result) {
+    if (!_manualSessionActive) return;
     final words = result.recognizedWords.trim();
     if (words.isEmpty) return;
+    _restartAttempt = 0;
     _cycleWords = words;
     final combined = _joinSegments(_committedWords, words);
     _onResult?.call(combined, false);
@@ -175,12 +183,14 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
   }
 
   void _handleStatus(String status) {
+    if (!_manualSessionActive) return;
+
     final normalized = status.toLowerCase();
     final finished = normalized.contains('done') ||
         normalized.contains('notlistening') ||
         normalized.contains('not listening');
 
-    if (_manualSessionActive && finished) {
+    if (finished) {
       _commitCycleWords();
       _onStatus?.call('restarting');
       _scheduleRestart();
@@ -190,38 +200,88 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
   }
 
   void _handleError(SpeechRecognitionError error) {
+    // Android can deliver a trailing callback after an explicit stop/cancel.
+    // Once the user session is inactive those callbacks must not resurrect or
+    // invalidate the completed transcript.
+    if (!_manualSessionActive) return;
+
     final normalized = error.errorMsg.toLowerCase();
     final recoverableSilence = normalized.contains('no_match') ||
         normalized.contains('speech_timeout') ||
         normalized.contains('speech timeout');
-    if (_manualSessionActive && recoverableSilence) {
+    final recoverableReleaseRace = normalized.contains('busy') ||
+        normalized.contains('error_client') ||
+        normalized.contains('error client');
+
+    if (recoverableSilence || recoverableReleaseRace) {
       _commitCycleWords();
+      if (recoverableReleaseRace) {
+        _restartAttempt += 1;
+      }
       _onStatus?.call('restarting');
       _scheduleRestart();
       return;
     }
 
-    _manualSessionActive = false;
-    _restartScheduled = false;
-    _sessionGeneration += 1;
-    _onError?.call(_localizedError(error.errorMsg));
+    _endManualSessionWithError(_localizedError(error.errorMsg));
   }
 
   void _scheduleRestart() {
     if (!_manualSessionActive || _restartScheduled) return;
+    if (_restartAttempt >= _maxRestartAttempts) {
+      _endManualSessionWithError(
+        '語音服務持續忙碌，無法穩定恢復聆聽；目前文字已保留，可直接修正後解析。',
+      );
+      return;
+    }
+
     _restartScheduled = true;
     final generation = _sessionGeneration;
-    Future<void>.delayed(const Duration(milliseconds: 250), () async {
+    final delay = _restartDelay(_restartAttempt);
+    Future<void>.delayed(delay, () async {
+      if (!_manualSessionActive || generation != _sessionGeneration) {
+        _restartScheduled = false;
+        return;
+      }
+
+      // A native endpoint/error callback can arrive before Android has fully
+      // released SpeechRecognizer. Do not race a new listen() against an
+      // instance that still reports itself active.
+      if (_speech.isListening) {
+        _restartScheduled = false;
+        _restartAttempt += 1;
+        _onStatus?.call('restarting');
+        _scheduleRestart();
+        return;
+      }
+
       _restartScheduled = false;
-      if (!_manualSessionActive || generation != _sessionGeneration) return;
       final restarted = await _startPlatformCycle(generation);
       if (restarted || !_manualSessionActive || generation != _sessionGeneration) {
         return;
       }
-      _manualSessionActive = false;
-      _sessionGeneration += 1;
-      _onError?.call('語音服務無法繼續聆聽；目前文字已保留，可直接修正後解析。');
+
+      _restartAttempt += 1;
+      _onStatus?.call('restarting');
+      _scheduleRestart();
     });
+  }
+
+  static Duration _restartDelay(int attempt) {
+    if (attempt <= 0) return const Duration(milliseconds: 600);
+    if (attempt == 1) return const Duration(milliseconds: 900);
+    if (attempt == 2) return const Duration(milliseconds: 1200);
+    if (attempt == 3) return const Duration(milliseconds: 1600);
+    if (attempt == 4) return const Duration(milliseconds: 2000);
+    return const Duration(milliseconds: 2500);
+  }
+
+  void _endManualSessionWithError(String message) {
+    _manualSessionActive = false;
+    _restartScheduled = false;
+    _restartAttempt = 0;
+    _sessionGeneration += 1;
+    _onError?.call(message);
   }
 
   void _commitCycleWords() {
