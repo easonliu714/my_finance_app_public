@@ -34,6 +34,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
       : _speech = speech ?? SpeechToText();
 
   static const int _maxRestartAttempts = 6;
+  static const Duration _segmentResetGap = Duration(milliseconds: 1200);
 
   final SpeechToText _speech;
   bool _initialized = false;
@@ -44,6 +45,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
   int _sessionGeneration = 0;
   String _committedWords = '';
   String _cycleWords = '';
+  DateTime? _lastResultAt;
   VoiceSpeechResultCallback? _onResult;
   VoiceSpeechStatusCallback? _onStatus;
   VoiceSpeechErrorCallback? _onError;
@@ -86,6 +88,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
       _sessionGeneration += 1;
       _committedWords = '';
       _cycleWords = '';
+      _lastResultAt = null;
       final generation = _sessionGeneration;
       final started = await _startPlatformCycle(generation);
       if (!started) {
@@ -122,6 +125,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
       }
 
       _cycleWords = '';
+      _lastResultAt = null;
       await _speech.listen(
         onResult: _handleResult,
         listenOptions: SpeechListenOptions(
@@ -145,6 +149,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
     _manualSessionActive = false;
     _restartScheduled = false;
     _restartAttempt = 0;
+    _lastResultAt = null;
     _sessionGeneration += 1;
     try {
       await _speech.stop();
@@ -160,6 +165,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
     _manualSessionActive = false;
     _restartScheduled = false;
     _restartAttempt = 0;
+    _lastResultAt = null;
     _sessionGeneration += 1;
     try {
       await _speech.cancel();
@@ -172,14 +178,57 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
     if (!_manualSessionActive) return;
     final words = result.recognizedWords.trim();
     if (words.isEmpty) return;
+
+    final now = DateTime.now();
+    final previous = _cycleWords.trim();
+    if (_shouldPromotePreviousPartial(previous, words, now)) {
+      _committedWords = _joinSegments(_committedWords, previous);
+      _cycleWords = '';
+    }
+
     _restartAttempt = 0;
     _cycleWords = words;
+    _lastResultAt = now;
     final combined = _joinSegments(_committedWords, words);
     _onResult?.call(combined, false);
     if (result.finalResult) {
       _committedWords = combined;
       _cycleWords = '';
+      _lastResultAt = null;
     }
+  }
+
+  bool _shouldPromotePreviousPartial(
+    String previous,
+    String incoming,
+    DateTime now,
+  ) {
+    if (previous.isEmpty || incoming.isEmpty) return false;
+    if (_sameHypothesis(previous, incoming)) return false;
+    final last = _lastResultAt;
+    if (last == null) return false;
+    return now.difference(last) >= _segmentResetGap;
+  }
+
+  static bool _sameHypothesis(String left, String right) {
+    final a = _normalizeHypothesis(left);
+    final b = _normalizeHypothesis(right);
+    if (a.isEmpty || b.isEmpty) return true;
+    if (a == b || a.startsWith(b) || b.startsWith(a)) return true;
+
+    final limit = a.length < b.length ? a.length : b.length;
+    var prefix = 0;
+    while (prefix < limit && a.codeUnitAt(prefix) == b.codeUnitAt(prefix)) {
+      prefix += 1;
+    }
+    if (prefix >= 3) return true;
+    return limit <= 4 && prefix >= 2;
+  }
+
+  static String _normalizeHypothesis(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\s，、。；;,.!?！？：:]'), '');
   }
 
   void _handleStatus(String status) {
@@ -280,6 +329,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
     _manualSessionActive = false;
     _restartScheduled = false;
     _restartAttempt = 0;
+    _lastResultAt = null;
     _sessionGeneration += 1;
     _onError?.call(message);
   }
@@ -289,6 +339,7 @@ class PlatformVoiceSpeechRecognitionPort implements VoiceSpeechRecognitionPort {
     if (words.isEmpty) return;
     _committedWords = _joinSegments(_committedWords, words);
     _cycleWords = '';
+    _lastResultAt = null;
     _onResult?.call(_committedWords, false);
   }
 
