@@ -81,17 +81,28 @@ void main() {
       );
     });
 
-    test('platform speech contract is manual-stop with transparent cycle restart', () {
+    test('platform speech contract waits for idle and uses bounded restart backoff', () {
       final source = File(
         'lib/features/voice/voice_speech_recognition.dart',
       ).readAsStringSync();
 
       expect(source, contains('_manualSessionActive'));
+      expect(source, contains('_maxRestartAttempts = 6'));
       expect(source, contains('_scheduleRestart()'));
+      expect(source, contains('_speech.isListening'));
       expect(source, contains('listenFor: const Duration(seconds: 60)'));
       expect(source, contains('pauseFor: const Duration(seconds: 30)'));
       expect(source, contains("normalized.contains('no_match')"));
+      expect(source, contains("normalized.contains('busy')"));
+      expect(source, contains("normalized.contains('error_client')"));
+      expect(source, contains('Duration(milliseconds: 600)'));
+      expect(source, contains('Duration(milliseconds: 2500)'));
       expect(source, contains("_onStatus?.call('restarting')"));
+      expect(source, contains('if (!_manualSessionActive) return;'));
+      expect(
+        source,
+        contains('語音服務持續忙碌，無法穩定恢復聆聽；目前文字已保留'),
+      );
     });
   });
 
