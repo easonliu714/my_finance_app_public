@@ -192,7 +192,7 @@ jobs:
           Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
           PY
       - name: Build signed release APK
-        run: flutter build apk --release --no-pub --build-number=446
+        run: flutter build apk --release --no-pub --build-number=447
       - name: Inspect signed APK boundary
         env:
           ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
@@ -216,7 +216,7 @@ jobs:
           ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
           ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
           test "$version_name" = '4.19.7'
-          test "$version_code" = '446'
+          test "$version_code" = '447'
           grep -Fq "$expected" <<< "$normalized"
           printf 'APK signing certificate pin: PASS\n'
           {
@@ -228,6 +228,8 @@ jobs:
             printf 'MANUAL_STOP_SPEECH_SESSION=PASS\n'
             printf 'SPEECH_RESTART_IDLE_GATE=PASS\n'
             printf 'SPEECH_RESTART_BUSY_BACKOFF=PASS\n'
+            printf 'SPEECH_PARTIAL_RESET_GUARD=PASS\n'
+            printf 'SPEECH_TRANSCRIPT_MONOTONIC=PASS\n'
             printf 'FORMAL_MASTER_UNIQUE_MATCH=PASS\n'
             printf 'TEXT_FALLBACK=PASS\n'
             printf 'REVIEW_FRESHNESS_INVALIDATION=PASS\n'
@@ -244,7 +246,7 @@ jobs:
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk | tee p4_19_7_public_signed_voice_canary.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: p4-19-7-public-4.19.7+446-signed-voice-canary
+          name: p4-19-7-public-4.19.7+447-signed-voice-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             p4_19_7_public_signed_voice_canary.sha256
