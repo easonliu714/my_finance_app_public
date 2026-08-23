@@ -81,13 +81,15 @@ void main() {
       );
     });
 
-    test('platform speech contract waits for idle and uses bounded restart backoff', () {
+    test('platform speech contract waits for idle and guards silent partial reset', () {
       final source = File(
         'lib/features/voice/voice_speech_recognition.dart',
       ).readAsStringSync();
 
       expect(source, contains('_manualSessionActive'));
       expect(source, contains('_maxRestartAttempts = 6'));
+      expect(source, contains('_segmentResetGap'));
+      expect(source, contains('_shouldPromotePreviousPartial'));
       expect(source, contains('_scheduleRestart()'));
       expect(source, contains('_speech.isListening'));
       expect(source, contains('listenFor: const Duration(seconds: 60)'));
@@ -102,6 +104,43 @@ void main() {
       expect(
         source,
         contains('語音服務持續忙碌，無法穩定恢復聆聽；目前文字已保留'),
+      );
+    });
+
+    test('live transcript merge is monotonic across recognizer segment resets', () {
+      final first = VoiceTransactionEntryPage.mergeLiveTranscript(
+        '',
+        '我在OK便利商店',
+      );
+      expect(first, '我在OK便利商店');
+
+      final second = VoiceTransactionEntryPage.mergeLiveTranscript(
+        first,
+        '用一卡通',
+      );
+      expect(second, '我在OK便利商店，用一卡通');
+
+      final third = VoiceTransactionEntryPage.mergeLiveTranscript(
+        second,
+        '用一卡通支付了72元',
+      );
+      expect(third, '我在OK便利商店，用一卡通支付了72元');
+    });
+
+    test('live transcript merge permits nearby hypothesis correction', () {
+      expect(
+        VoiceTransactionEntryPage.mergeLiveTranscript(
+          '我在歐K便利商店',
+          '我在OK便利商店',
+        ),
+        '我在OK便利商店',
+      );
+      expect(
+        VoiceTransactionEntryPage.mergeLiveTranscript(
+          '我在OK便利商店',
+          '我在OK',
+        ),
+        '我在OK便利商店',
       );
     });
   });
@@ -125,6 +164,43 @@ void main() {
 
     expect(find.byKey(VoiceTransactionEntryPage.transcriptFieldKey), findsOneWidget);
     expect(find.textContaining('仍可直接輸入文字'), findsOneWidget);
+  });
+
+  testWidgets('active voice callback reset cannot erase an earlier spoken segment',
+      (tester) async {
+    _useTallViewport(tester);
+    final speech = _ControllableSpeechPort();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VoiceTransactionEntryPage(
+          speechPort: speech,
+          categoryOptionsOverride: const ['早餐'],
+          merchantOptionsOverride: const ['OK便利商店'],
+          accountOptionsOverride: const ['一卡通 Money'],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(VoiceTransactionEntryPage.microphoneKey));
+    await tester.pumpAndSettle();
+    expect(speech.isListening, isTrue);
+
+    speech.emit('我在OK便利商店');
+    await tester.pump();
+    expect(_transcriptText(tester), '我在OK便利商店');
+
+    // Reproduces the P4.19.7+446 real-device evidence: after a 2-3 second
+    // pause Android can reset the recognition hypothesis and return only the
+    // next phrase without the already displayed prefix.
+    speech.emit('用一卡通');
+    await tester.pump();
+    expect(_transcriptText(tester), '我在OK便利商店，用一卡通');
+
+    speech.emit('用一卡通支付了72元');
+    await tester.pump();
+    expect(_transcriptText(tester), '我在OK便利商店，用一卡通支付了72元');
+    expect(speech.isListening, isTrue);
   });
 
   testWidgets('review confirmation stays draft-only and handoff uses reviewed seed',
@@ -231,6 +307,13 @@ void main() {
   });
 }
 
+String _transcriptText(WidgetTester tester) {
+  final field = tester.widget<TextField>(
+    find.byKey(VoiceTransactionEntryPage.transcriptFieldKey),
+  );
+  return field.controller?.text ?? '';
+}
+
 void _useTallViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(800, 1200);
   tester.view.devicePixelRatio = 1;
@@ -261,4 +344,38 @@ class _UnavailableSpeechPort implements VoiceSpeechRecognitionPort {
 
   @override
   Future<void> stop() async {}
+}
+
+class _ControllableSpeechPort implements VoiceSpeechRecognitionPort {
+  bool _active = false;
+  VoiceSpeechResultCallback? _onResult;
+
+  @override
+  bool get isListening => _active;
+
+  void emit(String words, {bool isFinal = false}) {
+    _onResult?.call(words, isFinal);
+  }
+
+  @override
+  Future<void> cancel() async {
+    _active = false;
+  }
+
+  @override
+  Future<VoiceSpeechStartResult> start({
+    required VoiceSpeechResultCallback onResult,
+    required VoiceSpeechStatusCallback onStatus,
+    required VoiceSpeechErrorCallback onError,
+  }) async {
+    _onResult = onResult;
+    _active = true;
+    onStatus('listening');
+    return const VoiceSpeechStartResult(started: true);
+  }
+
+  @override
+  Future<void> stop() async {
+    _active = false;
+  }
 }
