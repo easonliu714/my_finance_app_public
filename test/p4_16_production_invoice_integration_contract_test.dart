@@ -215,7 +215,8 @@ void main() {
     expect(evidence, contains('InvoiceReviewFieldKey.invoicePeriod'));
     expect(evidence, contains('InvoiceReviewFieldKey.randomCode'));
     expect(evidence, contains("'randomCode': candidate.randomCode"));
-    expect(evidence.contains("('invoicePeriod', '', ai.invoicePeriod"), isFalse);
+    const forbiddenInvoicePeriodTuple = "('invoicePeriod', '', ai.invoicePeriod";
+    expect(evidence, isNot(contains(forbiddenInvoicePeriodTuple)));
     expect(evidence, isNot(contains('TransactionRepository')));
   });
 
@@ -251,7 +252,7 @@ void main() {
     expect(parser, contains('_repairYearFromPeriod'));
     expect(parser, contains('_repairMonthFromCalendar'));
     expect(parser, contains('_repairDayFromCalendar'));
-    expect(parser, isNot(contains('_repairMonthFromPeriod'));
+    expect(parser, isNot(contains('_repairMonthFromPeriod')));
     expect(parser, contains('_safeDate(year, month, value)'));
   });
 }
