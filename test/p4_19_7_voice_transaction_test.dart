@@ -159,11 +159,47 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(VoiceTransactionEntryPage.exampleKey));
+    await tester.pump();
+    expect(_transcriptText(tester), VoiceTransactionEntryPage.exampleTranscript);
+
     await tester.tap(find.byKey(VoiceTransactionEntryPage.microphoneKey));
     await tester.pumpAndSettle();
 
+    expect(_transcriptText(tester), VoiceTransactionEntryPage.exampleTranscript);
     expect(find.byKey(VoiceTransactionEntryPage.transcriptFieldKey), findsOneWidget);
     expect(find.textContaining('仍可直接輸入文字'), findsOneWidget);
+  });
+
+  testWidgets('successful fresh voice session clears pre-existing transcript',
+      (tester) async {
+    _useTallViewport(tester);
+    final speech = _ControllableSpeechPort();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VoiceTransactionEntryPage(
+          speechPort: speech,
+          categoryOptionsOverride: const ['早餐'],
+          merchantOptionsOverride: const ['OK便利商店'],
+          accountOptionsOverride: const ['一卡通 Money'],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(VoiceTransactionEntryPage.exampleKey));
+    await tester.pump();
+    expect(_transcriptText(tester), VoiceTransactionEntryPage.exampleTranscript);
+
+    await tester.tap(find.byKey(VoiceTransactionEntryPage.microphoneKey));
+    await tester.pumpAndSettle();
+
+    expect(speech.isListening, isTrue);
+    expect(_transcriptText(tester), isEmpty);
+
+    speech.emit('我在OK便利商店');
+    await tester.pump();
+    expect(_transcriptText(tester), '我在OK便利商店');
   });
 
   testWidgets('active voice callback reset cannot erase an earlier spoken segment',
