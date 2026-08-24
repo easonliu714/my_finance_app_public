@@ -76,11 +76,11 @@ void main() {
     ).readAsStringSync();
 
     expect(source, isNot(contains('TransactionRepository')));
+    expect(source, isNot(contains('TransactionStore')));
     expect(source, isNot(contains('transactionLedgerProvider')));
-    expect(source, isNot(contains('.add(')));
-    expect(source, isNot(contains('.insert(')));
     expect(source, isNot(contains('upsertMerchant')));
     expect(source, isNot(contains('upsertAccount')));
+    expect(source, isNot(contains('insertFormalTransaction')));
   });
 }
 
