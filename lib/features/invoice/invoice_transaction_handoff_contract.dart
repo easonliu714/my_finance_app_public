@@ -13,6 +13,7 @@ class InvoiceTransactionHandoffDraft {
     required this.sellerTaxId,
     required this.invoicePeriod,
     required this.randomCode,
+    required this.idempotencyKey,
     required this.note,
     required this.warnings,
   });
@@ -35,6 +36,12 @@ class InvoiceTransactionHandoffDraft {
   final String sellerTaxId;
   final String invoicePeriod;
   final String randomCode;
+
+  /// Stable identity carried into the transaction draft. Re-entering the same
+  /// reviewed invoice therefore targets the same transaction id instead of
+  /// creating a second formal transaction.
+  final String idempotencyKey;
+
   final String note;
   final List<String> warnings;
 
@@ -43,11 +50,16 @@ class InvoiceTransactionHandoffDraft {
   bool get requiresExplicitCategorySelection => formalCategory.isEmpty;
 
   bool get coreInvoiceFieldsReady =>
-      reviewConfirmed && amount != null && amount! > 0 && occurredAt != null;
+      reviewConfirmed &&
+      invoiceNumber.isNotEmpty &&
+      amount != null &&
+      amount! > 0 &&
+      occurredAt != null &&
+      idempotencyKey.isNotEmpty;
 
   /// Opening an editable transaction draft is allowed once the invoice review
-  /// itself is confirmed and the amount/date-time are usable. Missing formal
-  /// master selections remain explicit blockers for the final Save boundary.
+  /// itself is confirmed and the invoice identity/amount/date-time are usable.
+  /// Missing formal master selections remain explicit blockers for final Save.
   bool get canOpenTransactionDraft => coreInvoiceFieldsReady;
 
   bool get canSaveFormalTransaction =>
@@ -75,16 +87,23 @@ class InvoiceTransactionHandoffContract {
     );
     final recognizedMerchantCandidate =
         _field(review, InvoiceReviewFieldKey.sellerName);
-    final invoiceNumber = _field(review, InvoiceReviewFieldKey.invoiceNumber);
+    final invoiceNumber =
+        _field(review, InvoiceReviewFieldKey.invoiceNumber).toUpperCase();
     final sellerTaxId = _field(review, InvoiceReviewFieldKey.sellerTaxId);
     final invoicePeriod = _field(review, InvoiceReviewFieldKey.invoicePeriod);
     final randomCode = _field(review, InvoiceReviewFieldKey.randomCode);
+    final idempotencyKey = _buildIdempotencyKey(
+      invoiceNumber: invoiceNumber,
+      sellerTaxId: sellerTaxId,
+      occurredAt: occurredAt,
+    );
 
     final normalizedMerchant = formalMerchantName.trim();
     final normalizedAccount = formalAccountName.trim();
     final normalizedCategory = formalCategory.trim();
     final warnings = <String>[
       if (!reviewConfirmed) 'REVIEW_CONFIRMATION_REQUIRED',
+      if (invoiceNumber.isEmpty) 'INVOICE_NUMBER_REQUIRED',
       if (amount == null) 'TOTAL_AMOUNT_REQUIRED_OR_INVALID',
       if (occurredAt == null) 'INVOICE_DATE_TIME_REQUIRED_OR_INVALID',
       if (normalizedMerchant.isEmpty) 'FORMAL_MERCHANT_SELECTION_REQUIRED',
@@ -104,6 +123,7 @@ class InvoiceTransactionHandoffContract {
       sellerTaxId: sellerTaxId,
       invoicePeriod: invoicePeriod,
       randomCode: randomCode,
+      idempotencyKey: idempotencyKey,
       note: _buildGovernedNote(
         invoiceNumber: invoiceNumber,
         sellerTaxId: sellerTaxId,
@@ -148,6 +168,19 @@ class InvoiceTransactionHandoffContract {
       return null;
     }
     return value;
+  }
+
+  static String _buildIdempotencyKey({
+    required String invoiceNumber,
+    required String sellerTaxId,
+    required DateTime? occurredAt,
+  }) {
+    if (invoiceNumber.isEmpty || occurredAt == null) return '';
+    final date = '${occurredAt.year.toString().padLeft(4, '0')}'
+        '${occurredAt.month.toString().padLeft(2, '0')}'
+        '${occurredAt.day.toString().padLeft(2, '0')}';
+    final seller = sellerTaxId.trim().isEmpty ? 'NO_TAX_ID' : sellerTaxId.trim();
+    return 'invoice-review:$invoiceNumber:$date:$seller';
   }
 
   static String _buildGovernedNote({
