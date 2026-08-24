@@ -514,7 +514,10 @@ class _VoiceTransactionEntryPageState extends State<VoiceTransactionEntryPage> {
       return;
     }
 
+    final previousTranscript = _transcriptController.text;
     setState(() {
+      _transcriptController.clear();
+      _invalidateParsedState(setStateRequired: false);
       _speechBusy = true;
       _speechMessage = '正在啟動系統語音辨識…';
     });
@@ -525,6 +528,12 @@ class _VoiceTransactionEntryPageState extends State<VoiceTransactionEntryPage> {
     );
     if (!mounted) return;
     setState(() {
+      if (!result.started && _transcriptController.text.trim().isEmpty) {
+        _transcriptController.text = previousTranscript;
+        _transcriptController.selection = TextSelection.collapsed(
+          offset: _transcriptController.text.length,
+        );
+      }
       _speechBusy = false;
       _speechListening = result.started;
       _speechMessage = result.started
