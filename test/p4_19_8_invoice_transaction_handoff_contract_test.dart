@@ -15,6 +15,11 @@ void main() {
 
     expect(draft.amount, 72);
     expect(draft.occurredAt, DateTime(2026, 8, 24, 20, 18));
+    expect(draft.invoiceNumber, 'AB12345678');
+    expect(
+      draft.idempotencyKey,
+      'invoice-review:AB12345678:20260824:12345675',
+    );
     expect(draft.recognizedMerchantCandidate, 'OK便利商店');
     expect(draft.formalMerchantName, isEmpty);
     expect(draft.formalAccountName, isEmpty);
@@ -59,6 +64,14 @@ void main() {
     expect(unconfirmed.canOpenTransactionDraft, isFalse);
     expect(unconfirmed.warnings, contains('REVIEW_CONFIRMATION_REQUIRED'));
 
+    final missingIdentity = contract.build(
+      review: _review(invoiceNumber: ''),
+      reviewConfirmed: true,
+    );
+    expect(missingIdentity.idempotencyKey, isEmpty);
+    expect(missingIdentity.canOpenTransactionDraft, isFalse);
+    expect(missingIdentity.warnings, contains('INVOICE_NUMBER_REQUIRED'));
+
     final invalid = contract.build(
       review: _review(amount: '0', date: '2026-02-30', time: '25:00'),
       reviewConfirmed: true,
@@ -68,6 +81,12 @@ void main() {
     expect(invalid.canOpenTransactionDraft, isFalse);
     expect(invalid.warnings, contains('TOTAL_AMOUNT_REQUIRED_OR_INVALID'));
     expect(invalid.warnings, contains('INVOICE_DATE_TIME_REQUIRED_OR_INVALID'));
+  });
+
+  test('same reviewed invoice generates the same formal-write identity', () {
+    final first = contract.build(review: _review(), reviewConfirmed: true);
+    final replay = contract.build(review: _review(), reviewConfirmed: true);
+    expect(replay.idempotencyKey, first.idempotencyKey);
   });
 
   test('handoff contract remains review-only and has no formal write dependency', () {
@@ -85,6 +104,7 @@ void main() {
 }
 
 InvoiceReviewFormViewModel _review({
+  String invoiceNumber = 'AB12345678',
   String merchant = 'OK便利商店',
   String amount = '72',
   String date = '2026-08-24',
@@ -95,7 +115,7 @@ InvoiceReviewFormViewModel _review({
     routeReason: 'test',
     disclaimer: 'test',
     fields: <InvoiceReviewFieldViewModel>[
-      _field(InvoiceReviewFieldKey.invoiceNumber, '發票號碼', 'AB12345678'),
+      _field(InvoiceReviewFieldKey.invoiceNumber, '發票號碼', invoiceNumber),
       _field(InvoiceReviewFieldKey.invoiceDate, '發票日期', date),
       _field(InvoiceReviewFieldKey.invoiceTime, '交易時間', time),
       _field(InvoiceReviewFieldKey.sellerTaxId, '賣方統編', '12345675'),
