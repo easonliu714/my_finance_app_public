@@ -5,6 +5,13 @@ import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_cont
 import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_review_card.dart';
 
 void main() {
+  Future<void> tapVisible(WidgetTester tester, Finder finder) async {
+    await tester.ensureVisible(finder);
+    await tester.pumpAndSettle();
+    await tester.tap(finder);
+    await tester.pump();
+  }
+
   testWidgets('confirmed review opens draft and post-confirm edit invalidates handoff',
       (tester) async {
     InvoiceTransactionHandoffDraft? opened;
@@ -21,33 +28,41 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey));
-    await tester.pump();
+    await tapVisible(
+      tester,
+      find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey),
+    );
     expect(find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey), findsOneWidget);
 
-    await tester.tap(find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey));
-    await tester.pump();
+    await tapVisible(
+      tester,
+      find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey),
+    );
     expect(opened, isNotNull);
     expect(opened!.amount, 72);
     expect(opened!.idempotencyKey, 'invoice-review:AB12345678:20260824:12345675');
 
-    await tester.enterText(
-      find.byKey(
-        InvoiceTransactionHandoffReviewCard.fieldKey(
-          InvoiceReviewFieldKey.totalAmount,
-        ),
+    final totalField = find.byKey(
+      InvoiceTransactionHandoffReviewCard.fieldKey(
+        InvoiceReviewFieldKey.totalAmount,
       ),
-      '80',
     );
+    await tester.ensureVisible(totalField);
+    await tester.pumpAndSettle();
+    await tester.enterText(totalField, '80');
     await tester.pump();
 
     expect(find.byKey(InvoiceTransactionHandoffReviewCard.reconfirmKey), findsOneWidget);
     expect(find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey), findsNothing);
 
-    await tester.tap(find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey));
-    await tester.pump();
-    await tester.tap(find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey));
-    await tester.pump();
+    await tapVisible(
+      tester,
+      find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey),
+    );
+    await tapVisible(
+      tester,
+      find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey),
+    );
     expect(opened!.amount, 80);
   });
 
@@ -68,14 +83,20 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey));
-    await tester.pump();
+    await tapVisible(
+      tester,
+      find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey),
+    );
     expect(find.text('請先完成辨識覆核確認。'), findsOneWidget);
 
-    await tester.tap(find.byKey(InvoiceTransactionHandoffReviewCard.disclaimerKey));
-    await tester.pump();
-    await tester.tap(find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey));
-    await tester.pump();
+    await tapVisible(
+      tester,
+      find.byKey(InvoiceTransactionHandoffReviewCard.disclaimerKey),
+    );
+    await tapVisible(
+      tester,
+      find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey),
+    );
     expect(find.text('請先核對本機與 AI 結果，再確認發票覆核。'), findsOneWidget);
     expect(find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey), findsNothing);
   });
@@ -94,8 +115,10 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey));
-    await tester.pump();
+    await tapVisible(
+      tester,
+      find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey),
+    );
     expect(find.textContaining('請先補齊必要欄位：發票號碼'), findsOneWidget);
     expect(find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey), findsNothing);
   });
