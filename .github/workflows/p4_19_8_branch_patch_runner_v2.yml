@@ -1,0 +1,49 @@
+name: P4.19.8 branch patch runner v2
+
+on:
+  push:
+    branches:
+      - p4-19-8-invoice-review-transaction-handoff
+    paths:
+      - .github/workflows/p4_19_8_branch_patch_runner_v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: p4-19-8-invoice-review-transaction-handoff
+          fetch-depth: 0
+      - name: Reuse verified exact patch payload
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          source = Path('.github/workflows/p4_19_8_branch_patch_runner.yml').read_text()
+          lines = source.splitlines()
+          start = next(i for i, line in enumerate(lines) if line.strip() == "python3 - <<'PY'") + 1
+          end = next(i for i in range(start, len(lines)) if lines[i].strip() == 'PY')
+          payload = textwrap.dedent('\n'.join(lines[start:end]))
+          compile(payload, 'p4_19_8_verified_patch_payload.py', 'exec')
+          exec(payload, {'__name__': '__main__'})
+          PY
+          git diff --check
+          git status --short
+      - name: Commit branch-only R2 source wiring
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No patch delta to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/features/transaction/transaction_entry_page.dart lib/features/invoice/invoice_frozen_review_page.dart
+          git commit -m 'feat(p4.19.8): wire confirmed invoice review into explicit-save transaction entry'
+          git push origin HEAD:p4-19-8-invoice-review-transaction-handoff
