@@ -1,0 +1,127 @@
+name: P4.19.8 branch patch runner
+
+on:
+  push:
+    branches:
+      - p4-19-8-invoice-review-transaction-handoff
+    paths:
+      - .github/workflows/p4_19_8_branch_patch_runner.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: p4-19-8-invoice-review-transaction-handoff
+          fetch-depth: 0
+      - name: Apply exact P4.19.8 R2 wiring patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, got {count}: {old[:100]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          tx = 'lib/features/transaction/transaction_entry_page.dart'
+          replace_once(tx,
+          """    this.merchantName,\n    this.note,\n    this.initialType = TransactionType.expense,\n""",
+          """    this.merchantName,\n    this.note,\n    this.occurredAt,\n    this.stableRecordId,\n    this.requireExplicitAccountSelection = false,\n    this.requireExplicitCategorySelection = false,\n    this.requireExplicitMerchantSelection = false,\n    this.initialType = TransactionType.expense,\n""")
+          replace_once(tx,
+          """  final String? merchantName;\n  final String? note;\n  final TransactionType initialType;\n""",
+          """  final String? merchantName;\n  final String? note;\n  final DateTime? occurredAt;\n\n  /// Stable source identity used to make an external reviewed handoff\n  /// idempotent across double-tap and re-entry.\n  final String? stableRecordId;\n\n  /// These flags keep externally reviewed drafts fail-closed. A visual\n  /// fallback must never count as formal user selection.\n  final bool requireExplicitAccountSelection;\n  final bool requireExplicitCategorySelection;\n  final bool requireExplicitMerchantSelection;\n  final TransactionType initialType;\n""")
+          replace_once(tx,
+          """  String? _seededToAccountName;\n  TransactionRecord? _savedNewRecord;\n\n  String _selectedCategory = '早餐';\n""",
+          """  String? _seededToAccountName;\n  TransactionRecord? _savedNewRecord;\n  bool _accountExplicitlySelected = true;\n  bool _categoryExplicitlySelected = true;\n  bool _merchantExplicitlySelected = true;\n\n  String _selectedCategory = '早餐';\n""")
+          replace_once(tx,
+          """  bool get _isEditing => widget.initialRecord != null;\n\n  @override\n""",
+          """  bool get _isEditing => widget.initialRecord != null;\n  bool get _requiresExplicitAccount =>\n      widget.seed?.requireExplicitAccountSelection == true;\n  bool get _requiresExplicitCategory =>\n      widget.seed?.requireExplicitCategorySelection == true;\n  bool get _requiresExplicitMerchant =>\n      widget.seed?.requireExplicitMerchantSelection == true;\n  String get _categoryDisplayLabel =>\n      _requiresExplicitCategory && !_categoryExplicitlySelected\n          ? '請選擇消費類別'\n          : _selectedCategory;\n  String get _accountDisplayLabel =>\n      _requiresExplicitAccount && !_accountExplicitlySelected\n          ? '請選擇付款帳戶'\n          : _selectedAccount;\n  String get _merchantDisplayLabel =>\n      _requiresExplicitMerchant && !_merchantExplicitlySelected\n          ? '請選擇商家'\n          : _selectedMerchant;\n  String? get _stableSeedRecordId {\n    final value = widget.seed?.stableRecordId?.trim();\n    return value == null || value.isEmpty ? null : value;\n  }\n\n  @override\n""")
+          replace_once(tx,
+          """      final seed = widget.seed;\n      _selectedType = seed?.initialType ?? widget.initialType;\n      _selectedCategory = _categoriesFor(_selectedType).first;\n""",
+          """      final seed = widget.seed;\n      _selectedType = seed?.initialType ?? widget.initialType;\n      _selectedCategory = _categoriesFor(_selectedType).first;\n      _selectedTime = seed?.occurredAt ?? DateTime.now();\n      _accountExplicitlySelected = !(seed?.requireExplicitAccountSelection ?? false);\n      _categoryExplicitlySelected = !(seed?.requireExplicitCategorySelection ?? false);\n      _merchantExplicitlySelected = !(seed?.requireExplicitMerchantSelection ?? false);\n""")
+          replace_once(tx,
+          """      if (seededAccount != null && seededAccount.isNotEmpty) {\n        _seededAccountName = seededAccount;\n      }\n""",
+          """      if (seededAccount != null && seededAccount.isNotEmpty) {\n        _seededAccountName = seededAccount;\n        _accountExplicitlySelected = true;\n      }\n""")
+          replace_once(tx,
+          """        if (_categoriesFor(_selectedType).contains(seededCategory)) {\n          _selectedCategory = seededCategory;\n        }\n""",
+          """        if (_categoriesFor(_selectedType).contains(seededCategory)) {\n          _selectedCategory = seededCategory;\n          _categoryExplicitlySelected = true;\n        }\n""")
+          replace_once(tx,
+          """      if (seededMerchant != null && seededMerchant.isNotEmpty) {\n        _selectedMerchant = seededMerchant;\n      }\n""",
+          """      if (seededMerchant != null && seededMerchant.isNotEmpty) {\n        _selectedMerchant = seededMerchant;\n        _merchantExplicitlySelected = true;\n      }\n""")
+          replace_once(tx,
+          """            child: _AmountCard(amountText: _amountText, expressionText: _expressionText, transactionType: _selectedType, category: _selectedCategory),\n""",
+          """            child: _AmountCard(amountText: _amountText, expressionText: _expressionText, transactionType: _selectedType, category: _categoryDisplayLabel),\n""")
+          replace_once(tx,
+          """                return _CategoryTile(label: category, selected: category == _selectedCategory, onTap: () => _selectCategory(category));\n""",
+          """                return _CategoryTile(label: category, selected: category == _selectedCategory && (!_requiresExplicitCategory || _categoryExplicitlySelected), onTap: () => _selectCategory(category));\n""")
+          replace_once(tx,
+          """                accountLabel: _selectedAccount,\n""",
+          """                accountLabel: _accountDisplayLabel,\n""")
+          replace_once(tx,
+          """                merchantLabel: _selectedMerchant,\n""",
+          """                merchantLabel: _merchantDisplayLabel,\n""")
+          replace_once(tx,
+          """  bool _canShowInstallmentEntry(List<AccountRecord> accounts) {\n    if (_selectedType != TransactionType.expense) return false;\n""",
+          """  bool _canShowInstallmentEntry(List<AccountRecord> accounts) {\n    // Invoice review handoffs must reach the ordinary explicit Save boundary;\n    // the installment shortcut persists its source transaction before that.\n    if (_stableSeedRecordId != null) return false;\n    if (_selectedType != TransactionType.expense) return false;\n""")
+          replace_once(tx,
+          """  void _selectCategory(String category) => setState(() => _selectedCategory = category);\n""",
+          """  void _selectCategory(String category) => setState(() {\n    _selectedCategory = category;\n    _categoryExplicitlySelected = true;\n  });\n""")
+          replace_once(tx,
+          """    setState(() {\n      _selectedAccount = value;\n      _selectedCurrency = account.currency;\n""",
+          """    setState(() {\n      _selectedAccount = value;\n      _accountExplicitlySelected = true;\n      _selectedCurrency = account.currency;\n""")
+          replace_once(tx,
+          """      selected: _selectedMerchant,\n      onSelected: (value) => setState(() => _selectedMerchant = value),\n""",
+          """      selected: _selectedMerchant,\n      onSelected: (value) => setState(() {\n        _selectedMerchant = value;\n        _merchantExplicitlySelected = true;\n      }),\n""")
+          replace_once(tx,
+          """    final original = widget.initialRecord ?? _savedNewRecord;\n    return TransactionRecord(\n      id: original?.id ?? const Uuid().v4(),\n""",
+          """    final original = widget.initialRecord ?? _savedNewRecord;\n    return TransactionRecord(\n      id: original?.id ?? _stableSeedRecordId ?? const Uuid().v4(),\n""")
+          replace_once(tx,
+          """  Future<void> _saveTransaction() async {\n    if (_isSaving) return;\n    _calculateResult();\n    final record = _buildCurrentRecord();\n""",
+          """  Future<void> _saveTransaction() async {\n    if (_isSaving) return;\n    _calculateResult();\n    if (!_validateExplicitSeedSelections()) return;\n    final record = _buildCurrentRecord();\n""")
+          replace_once(tx,
+          """    setState(() => _isSaving = true);\n    try {\n      await _persistRecord(record);\n""",
+          """    setState(() => _isSaving = true);\n    try {\n      final stableRecordId = _stableSeedRecordId;\n      if (!wasExisting && stableRecordId != null) {\n        final exists = await ref.read(transactionStoreProvider).existsById(stableRecordId);\n        if (exists) {\n          if (mounted) _showTopToast('此發票已建立交易，未重複新增');\n          return;\n        }\n      }\n      await _persistRecord(record);\n""")
+          replace_once(tx,
+          """  void _showTopToast(String message) {\n""",
+          """  bool _validateExplicitSeedSelections() {\n    if (_requiresExplicitAccount && !_accountExplicitlySelected) {\n      _showTopToast('請選擇付款帳戶');\n      return false;\n    }\n    if (_requiresExplicitCategory && !_categoryExplicitlySelected) {\n      _showTopToast('請選擇消費類別');\n      return false;\n    }\n    if (_requiresExplicitMerchant && !_merchantExplicitlySelected) {\n      _showTopToast('請選擇商家');\n      return false;\n    }\n    return true;\n  }\n\n  void _showTopToast(String message) {\n""")
+
+          frozen = 'lib/features/invoice/invoice_frozen_review_page.dart'
+          replace_once(frozen,
+          """import 'package:flutter/material.dart';\n\nimport '../recognition_ai/recognition_ai_status_indicator.dart';\n""",
+          """import 'package:flutter/material.dart';\nimport 'package:go_router/go_router.dart';\n\nimport '../recognition_ai/recognition_ai_status_indicator.dart';\nimport '../transaction/transaction_entry_page.dart';\n""")
+          replace_once(frozen,
+          """import 'invoice_review_form_view_model.dart';\nimport 'mobile_scanner_invoice_qr_decoder.dart';\n""",
+          """import 'invoice_review_form_view_model.dart';\nimport 'invoice_transaction_handoff_review_card.dart';\nimport 'mobile_scanner_invoice_qr_decoder.dart';\n""")
+          replace_once(frozen,
+          """    final isGallery = widget.liveResult.origin == InvoiceCaptureOrigin.gallery;\n    return Scaffold(\n""",
+          """    final handoffReview = local == null || localTaxId.trim().isEmpty\n        ? local?.formModel\n        : local.formModel.updateField(\n            InvoiceReviewFieldKey.sellerTaxId,\n            localTaxId,\n          );\n    final isGallery = widget.liveResult.origin == InvoiceCaptureOrigin.gallery;\n    return Scaffold(\n""")
+          replace_once(frozen,
+          """            ],\n            const SizedBox(height: 12),\n            FilledButton.tonalIcon(\n              key: InvoiceFrozenReviewPage.forceGeminiKey,\n""",
+          """            ],\n            const SizedBox(height: 12),\n            InvoiceTransactionHandoffReviewCard(\n              initialReview: handoffReview!,\n              aiComparisonRequired: ai != null,\n              aiComparisonAcknowledged:\n                  ai == null || _geminiComparisonAcknowledged,\n              comparisonRevision: execution?.requestCount ?? 0,\n              onOpenDraft: (draft) {\n                final amount = draft.amount;\n                final occurredAt = draft.occurredAt;\n                if (amount == null || occurredAt == null) return;\n                final recognizedMerchant =\n                    draft.recognizedMerchantCandidate.trim();\n                final note = <String>[\n                  draft.note,\n                  if (recognizedMerchant.isNotEmpty)\n                    '辨識商家候選：$recognizedMerchant（尚未升格為正式商家）',\n                ].where((value) => value.trim().isNotEmpty).join('\\n');\n                context.pushNamed(\n                  TransactionEntryPage.routeName,\n                  extra: TransactionEntrySeed(\n                    amount: amount,\n                    occurredAt: occurredAt,\n                    note: note,\n                    stableRecordId: draft.idempotencyKey,\n                    requireExplicitAccountSelection: true,\n                    requireExplicitCategorySelection: true,\n                    requireExplicitMerchantSelection: true,\n                  ),\n                );\n              },\n            ),\n            const SizedBox(height: 12),\n            FilledButton.tonalIcon(\n              key: InvoiceFrozenReviewPage.forceGeminiKey,\n""")
+
+          print('P4.19.8 R2 branch patch applied successfully')
+          PY
+          dart format lib/features/transaction/transaction_entry_page.dart lib/features/invoice/invoice_frozen_review_page.dart
+          git diff --check
+          git status --short
+      - name: Commit branch-only R2 source wiring
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No patch delta to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/features/transaction/transaction_entry_page.dart lib/features/invoice/invoice_frozen_review_page.dart
+          git commit -m 'feat(p4.19.8): wire confirmed invoice review into explicit-save transaction entry'
+          git push origin HEAD:p4-19-8-invoice-review-transaction-handoff
