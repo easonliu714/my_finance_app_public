@@ -8,6 +8,7 @@ import 'transaction_ledger_refresh_signal.dart';
 import 'transaction_record.dart';
 import 'auto_top_up_transaction_store.dart';
 import 'transaction_store.dart';
+export 'transaction_store.dart';
 
 final transactionStoreProvider = Provider<TransactionStore>((ref) {
   return AutoTopUpTransactionStore.instance;
