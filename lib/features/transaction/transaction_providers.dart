@@ -8,11 +8,22 @@ import 'transaction_ledger_refresh_signal.dart';
 import 'transaction_record.dart';
 import 'auto_top_up_transaction_store.dart';
 import 'transaction_store.dart';
-export 'transaction_store.dart';
 
 final transactionStoreProvider = Provider<TransactionStore>((ref) {
   return AutoTopUpTransactionStore.instance;
 });
+
+extension TransactionStoreIdentityLookup on TransactionStore {
+  /// Fail-closed duplicate guard for externally seeded formal-write identities.
+  /// Kept on the provider import surface so existing store implementations and
+  /// test fakes do not gain a new required interface member.
+  Future<bool> existsById(String id) async {
+    final normalized = id.trim();
+    if (normalized.isEmpty) return false;
+    final records = await listRecent(limit: 5000);
+    return records.any((record) => record.id == normalized);
+  }
+}
 
 final transactionLedgerProvider =
     StateNotifierProvider<
