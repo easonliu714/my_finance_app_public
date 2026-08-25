@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../recognition_ai/recognition_ai_status_indicator.dart';
+import '../transaction/transaction_entry_page.dart';
 import 'daily_capture_entry_shell.dart';
 import 'gemini/gemini_invoice_review.dart';
 import 'gemini/gemini_invoice_review_client.dart';
@@ -18,6 +20,7 @@ import 'invoice_live_capture_page.dart';
 import 'invoice_local_recognition_coordinator.dart';
 import 'invoice_recognition_evidence_exporter.dart';
 import 'invoice_review_form_view_model.dart';
+import 'invoice_transaction_handoff_review_card.dart';
 import 'mobile_scanner_invoice_qr_decoder.dart';
 import 'traditional_invoice_ocr_review.dart';
 import 'traditional_tax_id_temporal_repair.dart';
@@ -320,6 +323,12 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
             local,
             temporalRepair: repair.accepted ? repair.repairedValue : '',
           );
+    final handoffReview = local == null || localTaxId.trim().isEmpty
+        ? local?.formModel
+        : local.formModel.updateField(
+            InvoiceReviewFieldKey.sellerTaxId,
+            localTaxId,
+          );
     final isGallery = widget.liveResult.origin == InvoiceCaptureOrigin.gallery;
     return Scaffold(
       appBar: AppBar(title: const Text('發票覆核')),
@@ -436,6 +445,38 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
                 title: const Text('我已核對本機與 AI 結果'),
               ),
             ],
+            const SizedBox(height: 12),
+            InvoiceTransactionHandoffReviewCard(
+              initialReview: handoffReview!,
+              aiComparisonRequired: ai != null,
+              aiComparisonAcknowledged:
+                  ai == null || _geminiComparisonAcknowledged,
+              comparisonRevision: execution?.requestCount ?? 0,
+              onOpenDraft: (draft) {
+                final amount = draft.amount;
+                final occurredAt = draft.occurredAt;
+                if (amount == null || occurredAt == null) return;
+                final recognizedMerchant =
+                    draft.recognizedMerchantCandidate.trim();
+                final note = <String>[
+                  draft.note,
+                  if (recognizedMerchant.isNotEmpty)
+                    '辨識商家候選：$recognizedMerchant（尚未升格為正式商家）',
+                ].where((value) => value.trim().isNotEmpty).join('\n');
+                context.pushNamed(
+                  TransactionEntryPage.routeName,
+                  extra: TransactionEntrySeed(
+                    amount: amount,
+                    occurredAt: occurredAt,
+                    note: note,
+                    stableRecordId: draft.idempotencyKey,
+                    requireExplicitAccountSelection: true,
+                    requireExplicitCategorySelection: true,
+                    requireExplicitMerchantSelection: true,
+                  ),
+                );
+              },
+            ),
             const SizedBox(height: 12),
             FilledButton.tonalIcon(
               key: InvoiceFrozenReviewPage.forceGeminiKey,
