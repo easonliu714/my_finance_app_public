@@ -12,20 +12,20 @@ import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_cont
 import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_review_card.dart';
 
 void main() {
-  testWidgets('field pill switch explicitly adopts AI candidate', (tester) async {
-    const ai = GeminiInvoiceReviewCandidate(
-      invoiceNumber: 'CD87654321',
-      invoicePeriod: '115年7-8月份',
-      sellerTaxId: '12345675',
-      invoiceDate: '2026-08-26',
-      invoiceTime: '20:15',
-      merchantName: 'AI 商家',
-      totalAmount: 99,
-      lineItems: <GeminiInvoiceReviewLineItem>[],
-      confidence: <GeminiInvoiceReviewField, double>{},
-      warnings: <String>[],
-    );
+  const ai = GeminiInvoiceReviewCandidate(
+    invoiceNumber: 'CD87654321',
+    invoicePeriod: '115年7-8月份',
+    sellerTaxId: '12345675',
+    invoiceDate: '2026-08-26',
+    invoiceTime: '20:15',
+    merchantName: 'AI 商家',
+    totalAmount: 99,
+    lineItems: <GeminiInvoiceReviewLineItem>[],
+    confidence: <GeminiInvoiceReviewField, double>{},
+    warnings: <String>[],
+  );
 
+  testWidgets('field pill switch explicitly adopts AI candidate', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -56,6 +56,46 @@ void main() {
 
     expect(find.text('CD87654321'), findsOneWidget);
     expect(find.text('權威：使用者明確採用 AI'), findsOneWidget);
+  });
+
+  testWidgets('explicit AI field selection cannot bypass global AI acknowledgement',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: InvoiceTransactionHandoffReviewCard(
+              initialReview: _review(),
+              aiComparisonRequired: true,
+              aiComparisonAcknowledged: false,
+              aiCandidate: ai,
+              onOpenDraft: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final source = find.byKey(
+      InvoiceTransactionHandoffReviewCard.sourceSwitchKey(
+        InvoiceReviewFieldKey.invoiceNumber,
+      ),
+    );
+    final aiButton = find.descendant(
+      of: source,
+      matching: find.byKey(const Key('invoice_source_switch_ai')),
+    );
+    await tester.tap(aiButton);
+    await tester.pumpAndSettle();
+
+    final confirm = find.byKey(InvoiceTransactionHandoffReviewCard.confirmKey);
+    await tester.ensureVisible(confirm);
+    await tester.pumpAndSettle();
+    await tester.tap(confirm);
+    await tester.pump();
+
+    expect(find.text('請先核對本機與 AI 結果，再確認發票覆核。'), findsOneWidget);
+    expect(find.byKey(InvoiceTransactionHandoffReviewCard.handoffKey), findsNothing);
   });
 
   test('right QR line items enrich review and handoff note', () {
@@ -169,6 +209,6 @@ InvoiceReviewFieldViewModel _field(
         key == InvoiceReviewFieldKey.invoiceDate ||
         key == InvoiceReviewFieldKey.invoiceTime ||
         key == InvoiceReviewFieldKey.totalAmount,
-    confidenceLabel: key == InvoiceReviewFieldKey.invoiceNumber ? '本機 OCR' : '本機 OCR',
+    confidenceLabel: '本機 OCR',
   );
 }

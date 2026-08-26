@@ -269,11 +269,13 @@ class _InvoiceTransactionHandoffReviewCardState
             if (widget.aiComparisonRequired) ...<Widget>[
               const SizedBox(height: 4),
               Text(
-                _hasExplicitAiSelection
-                    ? '已透過欄位開關明確採用部分 AI 結果。'
-                    : widget.aiComparisonAcknowledged
-                        ? 'AI 第二意見已由你核對。'
-                        : '目前已有 AI 第二意見；可直接用欄位旁 OCR/AI 開關選擇採用來源。',
+                widget.aiComparisonAcknowledged
+                    ? _hasExplicitAiSelection
+                        ? 'AI 第二意見已由你核對，並已透過欄位開關明確採用部分 AI 結果。'
+                        : 'AI 第二意見已由你核對。'
+                    : _hasExplicitAiSelection
+                        ? '已選擇部分 AI 欄位；仍需勾選「我已核對本機與 AI 結果」後才能確認。'
+                        : '目前已有 AI 第二意見；請先勾選「我已核對本機與 AI 結果」。',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -706,10 +708,8 @@ class _InvoiceTransactionHandoffReviewCardState
       setState(() => _error = '請先完成辨識覆核確認。');
       return;
     }
-    if (widget.aiComparisonRequired &&
-        !widget.aiComparisonAcknowledged &&
-        !_hasExplicitAiSelection) {
-      setState(() => _error = '請先核對 AI 第二意見，或直接用欄位旁 OCR/AI 開關選擇來源。');
+    if (widget.aiComparisonRequired && !widget.aiComparisonAcknowledged) {
+      setState(() => _error = '請先核對本機與 AI 結果，再確認發票覆核。');
       return;
     }
 
