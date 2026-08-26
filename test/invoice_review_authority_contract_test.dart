@@ -1,21 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:my_finance_app/features/invoice/invoice_field_first_evidence.dart';
 import 'package:my_finance_app/features/invoice/invoice_review_authority_contract.dart';
 
 void main() {
   const contract = InvoiceReviewAuthorityContract();
-  const requiredFields = <InvoiceFieldFirstEvidenceKind>{
-    InvoiceFieldFirstEvidenceKind.invoiceId,
-    InvoiceFieldFirstEvidenceKind.issueDate,
-    InvoiceFieldFirstEvidenceKind.issueTime,
-    InvoiceFieldFirstEvidenceKind.totalAmount,
-    InvoiceFieldFirstEvidenceKind.merchant,
-    InvoiceFieldFirstEvidenceKind.lineItems,
+  const requiredFields = <InvoiceReviewAuthorityFieldKind>{
+    InvoiceReviewAuthorityFieldKind.invoiceId,
+    InvoiceReviewAuthorityFieldKind.issueDate,
+    InvoiceReviewAuthorityFieldKind.issueTime,
+    InvoiceReviewAuthorityFieldKind.totalAmount,
+    InvoiceReviewAuthorityFieldKind.merchant,
+    InvoiceReviewAuthorityFieldKind.lineItems,
   };
 
   test('QR authoritative evidence is ready for formal handoff', () {
     final decision = contract.validateRequiredFields(
-      fields: InvoiceFieldFirstEvidenceKind.values.map(
+      fields: InvoiceReviewAuthorityFieldKind.values.map(
         (kind) => _field(
           kind,
           source: InvoiceReviewAuthoritySource.qrPayload,
@@ -33,11 +32,11 @@ void main() {
     final decision = contract.validateRequiredFields(
       fields: [
         _field(
-          InvoiceFieldFirstEvidenceKind.invoiceId,
+          InvoiceReviewAuthorityFieldKind.invoiceId,
           source: InvoiceReviewAuthoritySource.explicitUserCorrection,
         ),
       ],
-      requiredFields: const {InvoiceFieldFirstEvidenceKind.invoiceId},
+      requiredFields: const {InvoiceReviewAuthorityFieldKind.invoiceId},
     );
 
     expect(decision.isReady, isTrue);
@@ -48,20 +47,20 @@ void main() {
     final merchantDecision = contract.validateRequiredFields(
       fields: [
         _field(
-          InvoiceFieldFirstEvidenceKind.merchant,
+          InvoiceReviewAuthorityFieldKind.merchant,
           source: InvoiceReviewAuthoritySource.explicitMasterSelection,
         ),
       ],
-      requiredFields: const {InvoiceFieldFirstEvidenceKind.merchant},
+      requiredFields: const {InvoiceReviewAuthorityFieldKind.merchant},
     );
     final invoiceIdDecision = contract.validateRequiredFields(
       fields: [
         _field(
-          InvoiceFieldFirstEvidenceKind.invoiceId,
+          InvoiceReviewAuthorityFieldKind.invoiceId,
           source: InvoiceReviewAuthoritySource.explicitMasterSelection,
         ),
       ],
-      requiredFields: const {InvoiceFieldFirstEvidenceKind.invoiceId},
+      requiredFields: const {InvoiceReviewAuthorityFieldKind.invoiceId},
     );
 
     expect(merchantDecision.isReady, isTrue);
@@ -72,7 +71,7 @@ void main() {
     );
     expect(
       invoiceIdDecision.blockingField,
-      InvoiceFieldFirstEvidenceKind.invoiceId,
+      InvoiceReviewAuthorityFieldKind.invoiceId,
     );
   });
 
@@ -80,11 +79,11 @@ void main() {
     final decision = contract.validateRequiredFields(
       fields: [
         _field(
-          InvoiceFieldFirstEvidenceKind.totalAmount,
+          InvoiceReviewAuthorityFieldKind.totalAmount,
           source: InvoiceReviewAuthoritySource.defaultProfile,
         ),
       ],
-      requiredFields: const {InvoiceFieldFirstEvidenceKind.totalAmount},
+      requiredFields: const {InvoiceReviewAuthorityFieldKind.totalAmount},
     );
 
     expect(decision.isReady, isFalse);
@@ -94,7 +93,7 @@ void main() {
     );
     expect(
       decision.blockingField,
-      InvoiceFieldFirstEvidenceKind.totalAmount,
+      InvoiceReviewAuthorityFieldKind.totalAmount,
     );
   });
 
@@ -102,33 +101,33 @@ void main() {
     final decision = contract.validateRequiredFields(
       fields: [
         _field(
-          InvoiceFieldFirstEvidenceKind.issueDate,
+          InvoiceReviewAuthorityFieldKind.issueDate,
           source: InvoiceReviewAuthoritySource.qrPayload,
           state: InvoiceReviewAuthorityState.conflict,
         ),
       ],
-      requiredFields: const {InvoiceFieldFirstEvidenceKind.issueDate},
+      requiredFields: const {InvoiceReviewAuthorityFieldKind.issueDate},
     );
 
     expect(decision.isReady, isFalse);
     expect(decision.reasonCode, InvoiceReviewAuthorityReasonCode.fieldConflict);
     expect(
       decision.blockingField,
-      InvoiceFieldFirstEvidenceKind.issueDate,
+      InvoiceReviewAuthorityFieldKind.issueDate,
     );
   });
 
   test('missing required evidence fails closed', () {
     final decision = contract.validateRequiredFields(
       fields: const [],
-      requiredFields: const {InvoiceFieldFirstEvidenceKind.issueTime},
+      requiredFields: const {InvoiceReviewAuthorityFieldKind.issueTime},
     );
 
     expect(decision.isReady, isFalse);
     expect(decision.reasonCode, InvoiceReviewAuthorityReasonCode.fieldMissing);
     expect(
       decision.blockingField,
-      InvoiceFieldFirstEvidenceKind.issueTime,
+      InvoiceReviewAuthorityFieldKind.issueTime,
     );
   });
 
@@ -136,15 +135,15 @@ void main() {
     final decision = contract.validateRequiredFields(
       fields: [
         _field(
-          InvoiceFieldFirstEvidenceKind.merchant,
+          InvoiceReviewAuthorityFieldKind.merchant,
           source: InvoiceReviewAuthoritySource.qrPayload,
         ),
         _field(
-          InvoiceFieldFirstEvidenceKind.merchant,
+          InvoiceReviewAuthorityFieldKind.merchant,
           source: InvoiceReviewAuthoritySource.explicitUserCorrection,
         ),
       ],
-      requiredFields: const {InvoiceFieldFirstEvidenceKind.merchant},
+      requiredFields: const {InvoiceReviewAuthorityFieldKind.merchant},
     );
 
     expect(decision.isReady, isFalse);
@@ -154,7 +153,7 @@ void main() {
     );
     expect(
       decision.blockingField,
-      InvoiceFieldFirstEvidenceKind.merchant,
+      InvoiceReviewAuthorityFieldKind.merchant,
     );
   });
 
@@ -162,12 +161,12 @@ void main() {
     final decision = contract.validateRequiredFields(
       fields: [
         _field(
-          InvoiceFieldFirstEvidenceKind.lineItems,
+          InvoiceReviewAuthorityFieldKind.lineItems,
           source: InvoiceReviewAuthoritySource.qrPayload,
           state: InvoiceReviewAuthorityState.supplemental,
         ),
       ],
-      requiredFields: const {InvoiceFieldFirstEvidenceKind.lineItems},
+      requiredFields: const {InvoiceReviewAuthorityFieldKind.lineItems},
     );
 
     expect(decision.isReady, isFalse);
@@ -177,13 +176,13 @@ void main() {
     );
     expect(
       decision.blockingField,
-      InvoiceFieldFirstEvidenceKind.lineItems,
+      InvoiceReviewAuthorityFieldKind.lineItems,
     );
   });
 }
 
 InvoiceReviewFieldAuthority _field(
-  InvoiceFieldFirstEvidenceKind kind, {
+  InvoiceReviewAuthorityFieldKind kind, {
   required InvoiceReviewAuthoritySource source,
   InvoiceReviewAuthorityState state = InvoiceReviewAuthorityState.authoritative,
 }) {

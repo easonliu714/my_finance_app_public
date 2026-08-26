@@ -1,4 +1,11 @@
-import 'package:my_finance_app/features/invoice/invoice_field_first_evidence.dart';
+enum InvoiceReviewAuthorityFieldKind {
+  invoiceId,
+  issueDate,
+  issueTime,
+  totalAmount,
+  merchant,
+  lineItems,
+}
 
 enum InvoiceReviewAuthoritySource {
   qrPayload,
@@ -21,7 +28,7 @@ class InvoiceReviewFieldAuthority {
     this.source,
   });
 
-  final InvoiceFieldFirstEvidenceKind kind;
+  final InvoiceReviewAuthorityFieldKind kind;
   final InvoiceReviewAuthorityState state;
   final InvoiceReviewAuthoritySource? source;
 
@@ -31,15 +38,15 @@ class InvoiceReviewFieldAuthority {
     }
 
     switch (kind) {
-      case InvoiceFieldFirstEvidenceKind.merchant:
+      case InvoiceReviewAuthorityFieldKind.merchant:
         return source == InvoiceReviewAuthoritySource.qrPayload ||
             source == InvoiceReviewAuthoritySource.explicitUserCorrection ||
             source == InvoiceReviewAuthoritySource.explicitMasterSelection;
-      case InvoiceFieldFirstEvidenceKind.invoiceId:
-      case InvoiceFieldFirstEvidenceKind.issueDate:
-      case InvoiceFieldFirstEvidenceKind.issueTime:
-      case InvoiceFieldFirstEvidenceKind.totalAmount:
-      case InvoiceFieldFirstEvidenceKind.lineItems:
+      case InvoiceReviewAuthorityFieldKind.invoiceId:
+      case InvoiceReviewAuthorityFieldKind.issueDate:
+      case InvoiceReviewAuthorityFieldKind.issueTime:
+      case InvoiceReviewAuthorityFieldKind.totalAmount:
+      case InvoiceReviewAuthorityFieldKind.lineItems:
         return source == InvoiceReviewAuthoritySource.qrPayload ||
             source == InvoiceReviewAuthoritySource.explicitUserCorrection;
     }
@@ -63,7 +70,7 @@ class InvoiceReviewAuthorityDecision {
 
   final bool isReady;
   final InvoiceReviewAuthorityReasonCode reasonCode;
-  final InvoiceFieldFirstEvidenceKind? blockingField;
+  final InvoiceReviewAuthorityFieldKind? blockingField;
 }
 
 class InvoiceReviewAuthorityContract {
@@ -71,15 +78,15 @@ class InvoiceReviewAuthorityContract {
 
   InvoiceReviewAuthorityDecision validateRequiredFields({
     required Iterable<InvoiceReviewFieldAuthority> fields,
-    required Set<InvoiceFieldFirstEvidenceKind> requiredFields,
+    required Set<InvoiceReviewAuthorityFieldKind> requiredFields,
   }) {
     final byKind =
-        <InvoiceFieldFirstEvidenceKind, List<InvoiceReviewFieldAuthority>>{};
+        <InvoiceReviewAuthorityFieldKind, List<InvoiceReviewFieldAuthority>>{};
     for (final field in fields) {
       (byKind[field.kind] ??= <InvoiceReviewFieldAuthority>[]).add(field);
     }
 
-    for (final kind in InvoiceFieldFirstEvidenceKind.values) {
+    for (final kind in InvoiceReviewAuthorityFieldKind.values) {
       if (!requiredFields.contains(kind)) {
         continue;
       }
