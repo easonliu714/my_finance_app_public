@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../account/wallet_top_up_hub_page.dart';
 import '../invoice/cloud_invoice_review_page.dart';
 import '../invoice/lab/private_cloud_invoice_lab_webview_page.dart';
+import '../voice/voice_transaction_entry_page.dart';
 import 'dashboard_page.dart';
 
 class DashboardInvoiceEntryShell extends StatelessWidget {
@@ -15,6 +16,8 @@ class DashboardInvoiceEntryShell extends StatelessWidget {
       Key('dashboard_cloud_invoice_review_entry');
   static const cloudInvoiceWebViewEntryKey =
       Key('dashboard_cloud_invoice_webview_entry');
+  static const voiceTransactionEntryKey =
+      Key('dashboard_voice_transaction_entry');
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +31,15 @@ class DashboardInvoiceEntryShell extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                FloatingActionButton.small(
+                  key: voiceTransactionEntryKey,
+                  heroTag: 'dashboard-voice-transaction-entry',
+                  tooltip: '語音／文字快速記帳',
+                  onPressed: () =>
+                      context.pushNamed(VoiceTransactionEntryPage.routeName),
+                  child: const Icon(Icons.mic_none_outlined),
+                ),
+                const SizedBox(height: 12),
                 FloatingActionButton.small(
                   key: walletTopUpEntryKey,
                   heroTag: 'dashboard-wallet-top-up-recommendation-entry',

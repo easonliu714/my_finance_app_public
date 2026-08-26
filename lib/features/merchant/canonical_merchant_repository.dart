@@ -6,6 +6,17 @@ import 'legacy_merchant_migration_service.dart';
 import 'merchant_record.dart';
 import 'merchant_store.dart';
 
+/// Built-in merchant choices already exposed by the formal transaction-entry
+/// surface. They are read-only reference defaults and are never inferred from
+/// OCR, speech, Gemini, or other recognition output.
+const List<String> canonicalBuiltInTransactionMerchantNames = <String>[
+  'OK便利商店',
+  '7-ELEVEN',
+  '全家便利商店',
+  '麥當勞',
+  '八方雲集',
+];
+
 class CanonicalMerchantRepository implements MerchantStore {
   CanonicalMerchantRepository._();
 
@@ -39,14 +50,54 @@ class CanonicalMerchantRepository implements MerchantStore {
       where: includeArchived ? null : 'is_archived = 0',
       orderBy: 'name COLLATE NOCASE ASC, alias COLLATE NOCASE ASC, id ASC',
     );
-    return rows
+    final records = rows
         .map(_recordFromRow)
         .where(
           (item) =>
               item.id.trim().isNotEmpty && item.name.trim().isNotEmpty,
         )
         .toList();
+
+    if (!includeArchived) {
+      _appendBuiltInTransactionReferences(records);
+      records.sort(
+        (left, right) => left.displayName
+            .toLowerCase()
+            .compareTo(right.displayName.toLowerCase()),
+      );
+    }
+    return records;
   }
+
+  void _appendBuiltInTransactionReferences(List<MerchantRecord> records) {
+    final existing = <String>{
+      for (final record in records) ...<String>{
+        _normalizeReference(record.name),
+        _normalizeReference(record.displayName),
+      },
+    }..remove('');
+
+    for (var index = 0;
+        index < canonicalBuiltInTransactionMerchantNames.length;
+        index += 1) {
+      final name = canonicalBuiltInTransactionMerchantNames[index];
+      if (existing.contains(_normalizeReference(name))) continue;
+      records.add(
+        MerchantRecord(
+          id: 'builtin_transaction_merchant_$index',
+          name: name,
+          note: 'built-in transaction merchant reference',
+        ),
+      );
+      existing.add(_normalizeReference(name));
+    }
+  }
+
+  static String _normalizeReference(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\s·・_\-－—–]'), '')
+      .replaceAll('臺', '台');
 
   @override
   Future<void> upsertMerchant(MerchantRecord merchant) async {

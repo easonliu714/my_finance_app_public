@@ -26,7 +26,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     await tester.tap(find.text('商品'));
-    await tester.pumpAndSettle();
+    // Navigation is the contract under test. ProductCapturePage also starts
+    // platform/repository-backed reference-data loads, so a global
+    // pumpAndSettle can wait on unrelated asynchronous work indefinitely.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byType(ProductCapturePage), findsOneWidget);
     expect(find.text('拍商品'), findsOneWidget);

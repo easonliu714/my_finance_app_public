@@ -30,6 +30,7 @@ import '../features/product/product_capture_page.dart';
 import '../features/profile/my_page.dart';
 import '../features/transaction/transaction_entry_page.dart';
 import '../features/transaction/transaction_record.dart';
+import '../features/voice/voice_transaction_entry_page.dart';
 import 'root_route_back_guard.dart';
 
 final appRouter = GoRouter(
@@ -108,8 +109,6 @@ List<RouteBase> buildAppRoutes({
       name: InvoiceCapturePage.routeName,
       builder: (context, state) => const InvoiceCaptureEntryPage(),
     ),
-    // Legacy still route remains non-discoverable for backward compatibility;
-    // the production entry hub no longer exposes camera capture here.
     GoRoute(
       path: '/invoice-capture/still',
       name: 'invoice-capture-still',
@@ -142,7 +141,6 @@ List<RouteBase> buildAppRoutes({
         );
       },
     ),
-    // Retained as a diagnostic deep-link only; it is no longer a capture mode.
     GoRoute(
       path: GeminiInvoiceValidationPage.routePath,
       name: GeminiInvoiceValidationPage.routeName,
@@ -152,6 +150,11 @@ List<RouteBase> buildAppRoutes({
       path: ProductCapturePage.routePath,
       name: ProductCapturePage.routeName,
       builder: (context, state) => const ProductCapturePage(),
+    ),
+    GoRoute(
+      path: VoiceTransactionEntryPage.routePath,
+      name: VoiceTransactionEntryPage.routeName,
+      builder: (context, state) => const VoiceTransactionEntryPage(),
     ),
     GoRoute(
       path: CloudInvoiceReviewPage.routePath,

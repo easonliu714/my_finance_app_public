@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +8,8 @@ import 'package:uuid/uuid.dart';
 import '../account/account_page.dart';
 import '../account/account_providers.dart';
 import '../account/account_record.dart';
+import '../category/expense_category_repository.dart';
+import '../category/expense_category_schema.dart';
 import '../invoice/cloud_invoice_supplement_note.dart';
 import '../invoice/cloud_invoice_transaction_detail.dart';
 import '../merchant/canonical_merchant_repository.dart';
@@ -20,12 +24,36 @@ class TransactionEntrySeed {
     this.accountName,
     this.fromAccountName,
     this.toAccountName,
+    this.amount,
+    this.category,
+    this.merchantName,
+    this.note,
+    this.occurredAt,
+    this.stableRecordId,
+    this.requireExplicitAccountSelection = false,
+    this.requireExplicitCategorySelection = false,
+    this.requireExplicitMerchantSelection = false,
     this.initialType = TransactionType.expense,
   });
 
   final String? accountName;
   final String? fromAccountName;
   final String? toAccountName;
+  final double? amount;
+  final String? category;
+  final String? merchantName;
+  final String? note;
+  final DateTime? occurredAt;
+
+  /// Stable source identity used to make an external reviewed handoff
+  /// idempotent across double-tap and re-entry.
+  final String? stableRecordId;
+
+  /// These flags keep externally reviewed drafts fail-closed. A visual
+  /// fallback must never count as formal user selection.
+  final bool requireExplicitAccountSelection;
+  final bool requireExplicitCategorySelection;
+  final bool requireExplicitMerchantSelection;
   final TransactionType initialType;
 }
 
@@ -61,6 +89,9 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
   String? _seededFromAccountName;
   String? _seededToAccountName;
   TransactionRecord? _savedNewRecord;
+  bool _accountExplicitlySelected = true;
+  bool _categoryExplicitlySelected = true;
+  bool _merchantExplicitlySelected = true;
 
   String _selectedCategory = '早餐';
   DateTime _selectedTime = DateTime.now();
@@ -74,7 +105,9 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
   CurrencyCode _selectedCurrency = CurrencyCode.twd;
   String _exchangeRateText = '1';
 
-  final List<String> _expenseCategories = const ['早餐', '午餐', '晚餐', '飲料水果', '捷運', '客運', '家居百貨', '利息支出', '電子數碼', '手續費', '電影', '全部'];
+  final List<String> _expenseCategories = <String>[
+    ...canonicalDefaultExpenseCategories,
+  ];
   final List<String> _incomeCategories = const ['福利補貼', '工資薪水', '獎金薪水', '現金回饋', '退款返款', '發票兌獎', '利息', '全部'];
   final List<String> _transferCategories = const ['轉帳', '投資', '贖回', '存錢', '取錢'];
   final List<String> _loanCategories = const ['借入', '借出', '還款', '收款'];
@@ -83,25 +116,78 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
   final List<String> _tags = const ['日常', '工作', '家庭', '報銷', '旅遊'];
 
   bool get _isEditing => widget.initialRecord != null;
+  bool get _requiresExplicitAccount =>
+      widget.seed?.requireExplicitAccountSelection == true;
+  bool get _requiresExplicitCategory =>
+      widget.seed?.requireExplicitCategorySelection == true;
+  bool get _requiresExplicitMerchant =>
+      widget.seed?.requireExplicitMerchantSelection == true;
+  String get _categoryDisplayLabel =>
+      _requiresExplicitCategory && !_categoryExplicitlySelected
+          ? '請選擇消費類別'
+          : _selectedCategory;
+  String get _accountDisplayLabel =>
+      _requiresExplicitAccount && !_accountExplicitlySelected
+          ? '請選擇付款帳戶'
+          : _selectedAccount;
+  String get _merchantDisplayLabel =>
+      _requiresExplicitMerchant && !_merchantExplicitlySelected
+          ? '請選擇商家'
+          : _selectedMerchant;
+  String? get _stableSeedRecordId {
+    final value = widget.seed?.stableRecordId?.trim();
+    return value == null || value.isEmpty ? null : value;
+  }
 
   @override
   void initState() {
     super.initState();
     final record = widget.initialRecord;
     if (record == null) {
-      _selectedType = widget.seed?.initialType ?? widget.initialType;
+      final seed = widget.seed;
+      _selectedType = seed?.initialType ?? widget.initialType;
       _selectedCategory = _categoriesFor(_selectedType).first;
-      final seededAccount = widget.seed?.accountName?.trim();
-      final seededFromAccount = widget.seed?.fromAccountName?.trim();
-      final seededToAccount = widget.seed?.toAccountName?.trim();
+      _selectedTime = seed?.occurredAt ?? DateTime.now();
+      _accountExplicitlySelected = !(seed?.requireExplicitAccountSelection ?? false);
+      _categoryExplicitlySelected = !(seed?.requireExplicitCategorySelection ?? false);
+      _merchantExplicitlySelected = !(seed?.requireExplicitMerchantSelection ?? false);
+      final seededAccount = seed?.accountName?.trim();
+      final seededFromAccount = seed?.fromAccountName?.trim();
+      final seededToAccount = seed?.toAccountName?.trim();
+      final seededCategory = seed?.category?.trim();
+      final seededMerchant = seed?.merchantName?.trim();
+      final seededNote = seed?.note?.trim();
+      final seededAmount = seed?.amount;
       if (seededAccount != null && seededAccount.isNotEmpty) {
         _seededAccountName = seededAccount;
+        _accountExplicitlySelected = true;
       }
       if (seededFromAccount != null && seededFromAccount.isNotEmpty) {
         _seededFromAccountName = seededFromAccount;
       }
       if (seededToAccount != null && seededToAccount.isNotEmpty) {
         _seededToAccountName = seededToAccount;
+      }
+      if (seededCategory != null && seededCategory.isNotEmpty) {
+        if (_selectedType == TransactionType.expense &&
+            !_expenseCategories.contains(seededCategory)) {
+          _expenseCategories.add(seededCategory);
+        }
+        if (_categoriesFor(_selectedType).contains(seededCategory)) {
+          _selectedCategory = seededCategory;
+          _categoryExplicitlySelected = true;
+        }
+      }
+      if (seededMerchant != null && seededMerchant.isNotEmpty) {
+        _selectedMerchant = seededMerchant;
+        _merchantExplicitlySelected = true;
+      }
+      if (seededNote != null && seededNote.isNotEmpty) {
+        _note = seededNote;
+      }
+      if (seededAmount != null && seededAmount.isFinite && seededAmount > 0) {
+        _amountText = _formatAmount(seededAmount);
+        _startNewNumber = true;
       }
       if (_selectedType == TransactionType.transfer) {
         final fromSeed = _seededFromAccountName ?? _seededAccountName;
@@ -112,12 +198,17 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
       } else if (_seededAccountName != null) {
         _selectedAccount = _seededAccountName!;
       }
+      unawaited(_loadExpenseCategories());
       return;
     }
 
     _selectedType = record.type;
     _amountText = _formatAmount(record.amount);
     _selectedCategory = record.category;
+    if (record.type == TransactionType.expense &&
+        !_expenseCategories.contains(record.category)) {
+      _expenseCategories.add(record.category);
+    }
     _selectedTime = record.occurredAt;
     _selectedAccount = record.accountName;
     _selectedFromAccount = record.fromAccountName ?? record.accountName;
@@ -128,6 +219,7 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     _note = record.note;
     _selectedCurrency = record.currency;
     _exchangeRateText = _formatAmount(record.exchangeRateToBase);
+    unawaited(_loadExpenseCategories());
   }
 
   @override
@@ -172,7 +264,7 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-            child: _AmountCard(amountText: _amountText, expressionText: _expressionText, transactionType: _selectedType, category: _selectedCategory),
+            child: _AmountCard(amountText: _amountText, expressionText: _expressionText, transactionType: _selectedType, category: _categoryDisplayLabel),
           ),
           Expanded(
             child: GridView.builder(
@@ -181,7 +273,7 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.96),
               itemBuilder: (context, index) {
                 final category = categories[index];
-                return _CategoryTile(label: category, selected: category == _selectedCategory, onTap: () => _selectCategory(category));
+                return _CategoryTile(label: category, selected: category == _selectedCategory && (!_requiresExplicitCategory || _categoryExplicitlySelected), onTap: () => _selectCategory(category));
               },
             ),
           ),
@@ -197,11 +289,11 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
               return _MetaActionBar(
                 transactionType: _selectedType,
                 selectedTime: _selectedTime,
-                accountLabel: _selectedAccount,
+                accountLabel: _accountDisplayLabel,
                 fromAccountLabel: _selectedFromAccount,
                 toAccountLabel: _selectedToAccount,
                 memberLabel: _selectedMember,
-                merchantLabel: _selectedMerchant,
+                merchantLabel: _merchantDisplayLabel,
                 tagLabel: _selectedTag,
                 currency: _selectedCurrency,
                 exchangeRateText: _exchangeRateText,
@@ -262,6 +354,9 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
   }
 
   bool _canShowInstallmentEntry(List<AccountRecord> accounts) {
+    // Invoice review handoffs must reach the ordinary explicit Save boundary;
+    // the installment shortcut persists its source transaction before that.
+    if (_stableSeedRecordId != null) return false;
     if (_selectedType != TransactionType.expense) return false;
     final rawAmount = double.tryParse(_amountText) ?? 0;
     if (_selectedCurrency.roundAmount(rawAmount.abs()) <= 0) return false;
@@ -269,7 +364,10 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     return account != null && account.type == AccountType.creditCard;
   }
 
-  void _selectCategory(String category) => setState(() => _selectedCategory = category);
+  void _selectCategory(String category) => setState(() {
+    _selectedCategory = category;
+    _categoryExplicitlySelected = true;
+  });
 
   Future<void> _openInstallmentEntryFromCurrentForm() async {
     if (_isOpeningInstallment || _isSaving) return;
@@ -392,6 +490,7 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     final account = _findAccount(accounts, value) ?? accounts.first;
     setState(() {
       _selectedAccount = value;
+      _accountExplicitlySelected = true;
       _selectedCurrency = account.currency;
       _exchangeRateText = _formatAmount(account.currency.defaultRateToTwd);
     });
@@ -425,6 +524,27 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     if (account == null) return;
     _selectedCurrency = account.currency;
     _exchangeRateText = _formatAmount(account.currency.defaultRateToTwd);
+  }
+
+  Future<void> _loadExpenseCategories() async {
+    try {
+      final records = await ExpenseCategoryRepository.instance.listActive();
+      if (!mounted) return;
+      final selected = _selectedCategory;
+      final next = _normalizeChoiceOptions([
+        ...canonicalDefaultExpenseCategories,
+        ...records.map((record) => record.name),
+        if (selected.trim().isNotEmpty) selected,
+      ]);
+      setState(() {
+        _expenseCategories
+          ..clear()
+          ..addAll(next);
+      });
+    } catch (_) {
+      // Keep the built-in canonical defaults when the additive category table
+      // cannot be read. This does not affect formal transaction write safety.
+    }
   }
 
   List<String> _categoriesFor(TransactionType type) {
@@ -725,7 +845,10 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
       title: '選擇商家',
       options: options,
       selected: _selectedMerchant,
-      onSelected: (value) => setState(() => _selectedMerchant = value),
+      onSelected: (value) => setState(() {
+        _selectedMerchant = value;
+        _merchantExplicitlySelected = true;
+      }),
     );
   }
 
@@ -787,7 +910,7 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     }
     final original = widget.initialRecord ?? _savedNewRecord;
     return TransactionRecord(
-      id: original?.id ?? const Uuid().v4(),
+      id: original?.id ?? _stableSeedRecordId ?? const Uuid().v4(),
       type: _selectedType,
       amount: amount,
       category: _selectedCategory,
@@ -815,6 +938,7 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
   Future<void> _saveTransaction() async {
     if (_isSaving) return;
     _calculateResult();
+    if (!_validateExplicitSeedSelections()) return;
     final record = _buildCurrentRecord();
     if (record == null) return;
     final accounts = ref.read(accountListProvider).valueOrNull?.where((account) => !account.isArchived).toList() ?? const <AccountRecord>[];
@@ -825,6 +949,14 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     final wasExisting = widget.initialRecord != null || _savedNewRecord != null;
     setState(() => _isSaving = true);
     try {
+      final stableRecordId = _stableSeedRecordId;
+      if (!wasExisting && stableRecordId != null) {
+        final exists = await ref.read(transactionStoreProvider).existsById(stableRecordId);
+        if (exists) {
+          if (mounted) _showTopToast('此發票已建立交易，未重複新增');
+          return;
+        }
+      }
       await _persistRecord(record);
       _savedNewRecord = record;
       ref.invalidate(accountListProvider);
@@ -837,6 +969,22 @@ class _TransactionEntryPageState extends ConsumerState<TransactionEntryPage> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  bool _validateExplicitSeedSelections() {
+    if (_requiresExplicitAccount && !_accountExplicitlySelected) {
+      _showTopToast('請選擇付款帳戶');
+      return false;
+    }
+    if (_requiresExplicitCategory && !_categoryExplicitlySelected) {
+      _showTopToast('請選擇消費類別');
+      return false;
+    }
+    if (_requiresExplicitMerchant && !_merchantExplicitlySelected) {
+      _showTopToast('請選擇商家');
+      return false;
+    }
+    return true;
   }
 
   void _showTopToast(String message) {
