@@ -9,7 +9,9 @@ enum InvoiceReviewAuthorityFieldKind {
 
 enum InvoiceReviewAuthoritySource {
   qrPayload,
+  localOcr,
   explicitUserCorrection,
+  explicitUserConfirmation,
   explicitMasterSelection,
   defaultProfile,
 }
@@ -48,7 +50,8 @@ class InvoiceReviewFieldAuthority {
       case InvoiceReviewAuthorityFieldKind.totalAmount:
       case InvoiceReviewAuthorityFieldKind.lineItems:
         return source == InvoiceReviewAuthoritySource.qrPayload ||
-            source == InvoiceReviewAuthoritySource.explicitUserCorrection;
+            source == InvoiceReviewAuthoritySource.explicitUserCorrection ||
+            source == InvoiceReviewAuthoritySource.explicitUserConfirmation;
     }
   }
 }

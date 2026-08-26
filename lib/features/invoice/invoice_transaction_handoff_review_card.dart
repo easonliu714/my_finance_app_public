@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'invoice_review_authority_contract.dart';
+import 'invoice_review_authority_runtime_adapter.dart';
 import 'invoice_review_form_view_model.dart';
 import 'invoice_transaction_handoff_contract.dart';
 
@@ -12,6 +14,7 @@ class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
     this.aiComparisonAcknowledged = false,
     this.comparisonRevision = 0,
     this.contract = const InvoiceTransactionHandoffContract(),
+    this.authorityAdapter = const InvoiceReviewAuthorityRuntimeAdapter(),
   });
 
   static const Key confirmKey = Key('invoice_transaction_handoff_confirm');
@@ -23,12 +26,16 @@ class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
   static Key fieldKey(InvoiceReviewFieldKey key) =>
       Key('invoice_transaction_handoff_field_${key.name}');
 
+  static Key authorityKey(InvoiceReviewFieldKey key) =>
+      Key('invoice_transaction_handoff_authority_${key.name}');
+
   final InvoiceReviewFormViewModel initialReview;
   final ValueChanged<InvoiceTransactionHandoffDraft> onOpenDraft;
   final bool aiComparisonRequired;
   final bool aiComparisonAcknowledged;
   final int comparisonRevision;
   final InvoiceTransactionHandoffContract contract;
+  final InvoiceReviewAuthorityRuntimeAdapter authorityAdapter;
 
   @override
   State<InvoiceTransactionHandoffReviewCard> createState() =>
@@ -38,7 +45,10 @@ class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
 class _InvoiceTransactionHandoffReviewCardState
     extends State<InvoiceTransactionHandoffReviewCard> {
   late InvoiceReviewFormViewModel _review;
+  final Set<InvoiceReviewFieldKey> _explicitlyCorrectedFields =
+      <InvoiceReviewFieldKey>{};
   bool _confirmed = false;
+  bool _authorityConfirmed = false;
   bool _needsReconfirm = false;
   bool _edited = false;
   String _error = '';
@@ -54,6 +64,8 @@ class _InvoiceTransactionHandoffReviewCardState
     super.didUpdateWidget(oldWidget);
     if (!_edited && oldWidget.initialReview != widget.initialReview) {
       _review = widget.initialReview;
+      _explicitlyCorrectedFields.clear();
+      _authorityConfirmed = false;
     }
     final comparisonChanged =
         oldWidget.comparisonRevision != widget.comparisonRevision ||
@@ -101,6 +113,16 @@ class _InvoiceTransactionHandoffReviewCardState
                 ),
                 onChanged: (value) => _updateField(field.key, value),
               ),
+              if (_authorityLabel(field).isNotEmpty) ...<Widget>[
+                const SizedBox(height: 4),
+                Text(
+                  _authorityLabel(field),
+                  key: InvoiceTransactionHandoffReviewCard.authorityKey(
+                    field.key,
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
               const SizedBox(height: 10),
             ],
             if (_review.requiresAcknowledgement) ...<Widget>[
@@ -179,9 +201,21 @@ class _InvoiceTransactionHandoffReviewCardState
     return parts.isEmpty ? null : parts.join('；');
   }
 
+  String _authorityLabel(InvoiceReviewFieldViewModel field) {
+    return widget.authorityAdapter.displayLabelForField(
+      field,
+      explicitlyCorrected: _explicitlyCorrectedFields.contains(field.key),
+      explicitlyConfirmed: _authorityConfirmed &&
+          InvoiceReviewAuthorityRuntimeAdapter.transactionCoreFields
+              .contains(field.key),
+    );
+  }
+
   void _updateField(InvoiceReviewFieldKey key, String value) {
     setState(() {
       _review = _review.updateField(key, value);
+      _explicitlyCorrectedFields.add(key);
+      _authorityConfirmed = false;
       _edited = true;
       _error = '';
     });
@@ -189,9 +223,10 @@ class _InvoiceTransactionHandoffReviewCardState
   }
 
   void _invalidateConfirmation() {
-    if (!_confirmed && !_needsReconfirm) return;
+    if (!_confirmed && !_needsReconfirm && !_authorityConfirmed) return;
     setState(() {
       _confirmed = false;
+      _authorityConfirmed = false;
       _needsReconfirm = true;
     });
   }
@@ -214,6 +249,16 @@ class _InvoiceTransactionHandoffReviewCardState
       return;
     }
 
+    final authorityDecision = widget.authorityAdapter.evaluateTransactionDraft(
+      review: _review,
+      explicitlyCorrectedFields: _explicitlyCorrectedFields,
+      explicitCoreConfirmation: true,
+    );
+    if (!authorityDecision.isReady) {
+      setState(() => _error = _authorityError(authorityDecision));
+      return;
+    }
+
     final draft = widget.contract.build(
       review: _review,
       reviewConfirmed: true,
@@ -225,9 +270,26 @@ class _InvoiceTransactionHandoffReviewCardState
 
     setState(() {
       _confirmed = true;
+      _authorityConfirmed = true;
       _needsReconfirm = false;
       _error = '';
     });
+  }
+
+  String _authorityError(InvoiceReviewAuthorityDecision decision) {
+    final field = widget.authorityAdapter.labelForKind(decision.blockingField);
+    switch (decision.reasonCode) {
+      case InvoiceReviewAuthorityReasonCode.fieldMissing:
+        return '$field 缺少可確認的來源證據。';
+      case InvoiceReviewAuthorityReasonCode.fieldConflict:
+        return '$field 證據互相衝突，請先明確修正後再確認。';
+      case InvoiceReviewAuthorityReasonCode.fieldNotAuthoritative:
+        return '$field 目前只有補充證據，請人工確認或修正。';
+      case InvoiceReviewAuthorityReasonCode.duplicateFieldAuthority:
+        return '$field 同時存在多個正式權威，請先解除衝突。';
+      case InvoiceReviewAuthorityReasonCode.ready:
+        return '發票覆核 authority 已就緒。';
+    }
   }
 
   String _coreError(InvoiceTransactionHandoffDraft draft) {
@@ -244,7 +306,22 @@ class _InvoiceTransactionHandoffReviewCardState
   }
 
   void _openDraft() {
-    if (!_confirmed || _needsReconfirm) return;
+    if (!_confirmed || _needsReconfirm || !_authorityConfirmed) return;
+    final authorityDecision = widget.authorityAdapter.evaluateTransactionDraft(
+      review: _review,
+      explicitlyCorrectedFields: _explicitlyCorrectedFields,
+      explicitCoreConfirmation: _authorityConfirmed,
+    );
+    if (!authorityDecision.isReady) {
+      setState(() {
+        _confirmed = false;
+        _authorityConfirmed = false;
+        _needsReconfirm = true;
+        _error = _authorityError(authorityDecision);
+      });
+      return;
+    }
+
     final draft = widget.contract.build(
       review: _review,
       reviewConfirmed: true,
@@ -252,6 +329,7 @@ class _InvoiceTransactionHandoffReviewCardState
     if (!draft.canOpenTransactionDraft) {
       setState(() {
         _confirmed = false;
+        _authorityConfirmed = false;
         _needsReconfirm = true;
         _error = _coreError(draft);
       });
