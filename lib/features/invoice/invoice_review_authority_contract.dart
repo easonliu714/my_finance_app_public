@@ -10,6 +10,7 @@ enum InvoiceReviewAuthorityFieldKind {
 enum InvoiceReviewAuthoritySource {
   qrPayload,
   localOcr,
+  explicitAiSelection,
   explicitUserCorrection,
   explicitUserConfirmation,
   explicitMasterSelection,
@@ -50,6 +51,7 @@ class InvoiceReviewFieldAuthority {
       case InvoiceReviewAuthorityFieldKind.totalAmount:
       case InvoiceReviewAuthorityFieldKind.lineItems:
         return source == InvoiceReviewAuthoritySource.qrPayload ||
+            source == InvoiceReviewAuthoritySource.explicitAiSelection ||
             source == InvoiceReviewAuthoritySource.explicitUserCorrection ||
             source == InvoiceReviewAuthoritySource.explicitUserConfirmation;
     }
@@ -90,9 +92,7 @@ class InvoiceReviewAuthorityContract {
     }
 
     for (final kind in InvoiceReviewAuthorityFieldKind.values) {
-      if (!requiredFields.contains(kind)) {
-        continue;
-      }
+      if (!requiredFields.contains(kind)) continue;
 
       final matches = byKind[kind] ?? const <InvoiceReviewFieldAuthority>[];
       if (matches.length > 1) {

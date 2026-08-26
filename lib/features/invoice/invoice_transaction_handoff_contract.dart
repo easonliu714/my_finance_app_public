@@ -57,9 +57,6 @@ class InvoiceTransactionHandoffDraft {
       occurredAt != null &&
       idempotencyKey.isNotEmpty;
 
-  /// Opening an editable transaction draft is allowed once the invoice review
-  /// itself is confirmed and the invoice identity/amount/date-time are usable.
-  /// Missing formal master selections remain explicit blockers for final Save.
   bool get canOpenTransactionDraft => coreInvoiceFieldsReady;
 
   bool get canSaveFormalTransaction =>
@@ -129,6 +126,7 @@ class InvoiceTransactionHandoffContract {
         sellerTaxId: sellerTaxId,
         invoicePeriod: invoicePeriod,
         randomCode: randomCode,
+        lineItems: review.lineItems,
       ),
       warnings: List<String>.unmodifiable(warnings),
     );
@@ -188,12 +186,23 @@ class InvoiceTransactionHandoffContract {
     required String sellerTaxId,
     required String invoicePeriod,
     required String randomCode,
+    required List<InvoiceReviewLineItemViewModel> lineItems,
   }) {
     final lines = <String>['來源：發票辨識人工覆核'];
     if (invoiceNumber.isNotEmpty) lines.add('發票號碼：$invoiceNumber');
     if (sellerTaxId.isNotEmpty) lines.add('賣方統編：$sellerTaxId');
     if (invoicePeriod.isNotEmpty) lines.add('發票期別：$invoicePeriod');
     if (randomCode.isNotEmpty) lines.add('隨機碼：$randomCode');
+
+    final usableItems = lineItems.where((item) => !item.isBlank).toList();
+    if (usableItems.isNotEmpty) {
+      lines.add('品項明細：');
+      for (final item in usableItems) {
+        final name = item.name.trim().isEmpty ? '未命名品項' : item.name.trim();
+        final amount = item.amountText.trim();
+        lines.add(amount.isEmpty ? '- $name' : '- $name：$amount');
+      }
+    }
     return lines.join('\n');
   }
 }

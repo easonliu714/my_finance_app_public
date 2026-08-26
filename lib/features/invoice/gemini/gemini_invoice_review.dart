@@ -65,6 +65,15 @@ class GeminiInvoiceReviewCandidate {
   final Map<GeminiInvoiceReviewField, double> confidence;
   final List<String> warnings;
 
+  // P4.19.10 compatibility bridge: the production frozen-review page already
+  // owns the current Gemini execution but the handoff-card API predates
+  // field-level source selection. Keep only the latest successfully parsed
+  // candidate and consume it only while that card reports AI comparison data.
+  // A future page refactor can pass the candidate explicitly and remove this.
+  static GeminiInvoiceReviewCandidate? _latestParsedCandidate;
+  static GeminiInvoiceReviewCandidate? get latestParsedCandidate =>
+      _latestParsedCandidate;
+
   bool get usedNetwork => true;
   bool get requiresUserReview => true;
   bool get canCreateFormalRecord => false;
@@ -162,7 +171,7 @@ class GeminiInvoiceReviewCandidate {
       warnings.add('AI 總金額無效，已保持空白。');
     }
 
-    return GeminiInvoiceReviewCandidate(
+    final candidate = GeminiInvoiceReviewCandidate(
       invoiceNumber: invoiceNumber,
       invoicePeriod: _normalizeInvoicePeriod(json['invoicePeriod']),
       randomCode: randomCode,
@@ -177,6 +186,8 @@ class GeminiInvoiceReviewCandidate {
         warnings.map((value) => value.trim()).where((value) => value.isNotEmpty),
       ),
     );
+    _latestParsedCandidate = candidate;
+    return candidate;
   }
 
   Map<String, Object?> toSafeSummary() {
@@ -240,9 +251,6 @@ String _normalizeInvoicePeriod(Object? value) {
     }
   }
 
-  // Gemini may emit a separator-free ROC bimonthly token such as 1150506.
-  // Because the token is ambiguous without separators, accept only canonical
-  // Taiwan invoice two-month periods: odd start month followed by start + 1.
   final compactBimonthly =
       RegExp(r'^(\d{2,3})(\d{2})(\d{2})$').firstMatch(compact);
   if (compactBimonthly != null) {

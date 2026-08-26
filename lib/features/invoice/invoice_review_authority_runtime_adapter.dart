@@ -27,6 +27,7 @@ class InvoiceReviewAuthorityRuntimeAdapter {
   InvoiceReviewAuthorityDecision evaluateTransactionDraft({
     required InvoiceReviewFormViewModel review,
     Set<InvoiceReviewFieldKey> explicitlyCorrectedFields = const {},
+    Set<InvoiceReviewFieldKey> explicitlyAiSelectedFields = const {},
     bool explicitCoreConfirmation = false,
   }) {
     return contract.validateRequiredFields(
@@ -36,6 +37,8 @@ class InvoiceReviewAuthorityRuntimeAdapter {
               field,
               explicitlyCorrected:
                   explicitlyCorrectedFields.contains(field.key),
+              explicitlyAiSelected:
+                  explicitlyAiSelectedFields.contains(field.key),
               explicitlyConfirmed:
                   explicitCoreConfirmation &&
                   transactionCoreFields.contains(field.key),
@@ -49,6 +52,7 @@ class InvoiceReviewAuthorityRuntimeAdapter {
   InvoiceReviewFieldAuthority? authorityForField(
     InvoiceReviewFieldViewModel field, {
     bool explicitlyCorrected = false,
+    bool explicitlyAiSelected = false,
     bool explicitlyConfirmed = false,
   }) {
     final kind = authorityKindFor(field.key);
@@ -66,6 +70,21 @@ class InvoiceReviewAuthorityRuntimeAdapter {
         kind: kind,
         state: InvoiceReviewAuthorityState.authoritative,
         source: InvoiceReviewAuthoritySource.explicitUserCorrection,
+      );
+    }
+
+    if (explicitlyAiSelected) {
+      if (kind == InvoiceReviewAuthorityFieldKind.merchant) {
+        return const InvoiceReviewFieldAuthority(
+          kind: InvoiceReviewAuthorityFieldKind.merchant,
+          state: InvoiceReviewAuthorityState.supplemental,
+          source: InvoiceReviewAuthoritySource.explicitAiSelection,
+        );
+      }
+      return InvoiceReviewFieldAuthority(
+        kind: kind,
+        state: InvoiceReviewAuthorityState.authoritative,
+        source: InvoiceReviewAuthoritySource.explicitAiSelection,
       );
     }
 
@@ -114,14 +133,25 @@ class InvoiceReviewAuthorityRuntimeAdapter {
   String displayLabelForField(
     InvoiceReviewFieldViewModel field, {
     bool explicitlyCorrected = false,
+    bool explicitlyAiSelected = false,
     bool explicitlyConfirmed = false,
+    bool explicitMasterSelected = false,
   }) {
+    if (explicitMasterSelected && field.key == InvoiceReviewFieldKey.sellerName) {
+      return '權威：已新增／綁定正式商家主檔';
+    }
+
     final authority = authorityForField(
       field,
       explicitlyCorrected: explicitlyCorrected,
+      explicitlyAiSelected: explicitlyAiSelected,
       explicitlyConfirmed: explicitlyConfirmed,
     );
-    if (authority == null) return '';
+    if (authority == null) {
+      if (explicitlyAiSelected) return '來源：AI（使用者明確採用）';
+      if (explicitlyCorrected) return '來源：手動修正';
+      return '';
+    }
 
     if (authority.state == InvoiceReviewAuthorityState.missing) {
       return '權威：缺少欄位證據';
@@ -130,12 +160,17 @@ class InvoiceReviewAuthorityRuntimeAdapter {
       return '權威：證據衝突，禁止 handoff';
     }
     if (authority.state == InvoiceReviewAuthorityState.supplemental) {
+      if (authority.source == InvoiceReviewAuthoritySource.explicitAiSelection) {
+        return '來源：AI 候選（尚未綁定正式商家）';
+      }
       return '權威：本機 OCR 補充（待人工確認）';
     }
 
     switch (authority.source) {
       case InvoiceReviewAuthoritySource.qrPayload:
         return '權威：QR 原始資料';
+      case InvoiceReviewAuthoritySource.explicitAiSelection:
+        return '權威：使用者明確採用 AI';
       case InvoiceReviewAuthoritySource.explicitUserCorrection:
         return '權威：使用者明確修正';
       case InvoiceReviewAuthoritySource.explicitUserConfirmation:
