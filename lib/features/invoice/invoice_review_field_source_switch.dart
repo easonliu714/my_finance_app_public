@@ -35,89 +35,107 @@ class InvoiceReviewFieldSourceSwitch extends StatelessWidget {
       label: isManual
           ? '目前使用手動值，可切換 OCR 或 AI'
           : '辨識來源：${selection == InvoiceReviewFieldSourceSelection.local ? localLabel : aiLabel}',
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Container(
-            width: _width,
-            height: _height,
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(_height / 2),
-              border: Border.all(color: scheme.outlineVariant),
-            ),
-            child: Stack(
-              children: <Widget>[
-                AnimatedAlign(
-                  duration: const Duration(milliseconds: 160),
-                  curve: Curves.easeOutCubic,
-                  alignment: selection == InvoiceReviewFieldSourceSelection.ai
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 120),
-                    opacity: isManual ? 0 : 1,
-                    child: Container(
-                      width: (_width - 6) / 2,
-                      height: _height - 4,
-                      decoration: BoxDecoration(
-                        color: scheme.surface,
-                        borderRadius: BorderRadius.circular((_height - 4) / 2),
-                        boxShadow: const <BoxShadow>[
-                          BoxShadow(
-                            blurRadius: 3,
-                            offset: Offset(0, 1),
-                            color: Color(0x33000000),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: SizedBox(
+          width: _width,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(
+                width: _width,
+                height: _height,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(_height / 2),
+                  border: Border.all(color: scheme.outlineVariant),
                 ),
-                Row(
+                child: Stack(
                   children: <Widget>[
-                    Expanded(
-                      child: _SourceButton(
-                        key: const Key('invoice_source_switch_local'),
-                        icon: Icons.document_scanner_outlined,
-                        label: localLabel,
-                        enabled: true,
-                        selected:
-                            selection == InvoiceReviewFieldSourceSelection.local,
-                        onTap: () => onSelected(
-                          InvoiceReviewFieldSourceSelection.local,
+                    AnimatedAlign(
+                      duration: const Duration(milliseconds: 160),
+                      curve: Curves.easeOutCubic,
+                      alignment: selection == InvoiceReviewFieldSourceSelection.ai
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 120),
+                        opacity: isManual ? 0 : 1,
+                        child: Container(
+                          width: (_width - 6) / 2,
+                          height: _height - 4,
+                          decoration: BoxDecoration(
+                            color: scheme.surface,
+                            borderRadius: BorderRadius.circular((_height - 4) / 2),
+                            boxShadow: const <BoxShadow>[
+                              BoxShadow(
+                                blurRadius: 3,
+                                offset: Offset(0, 1),
+                                color: Color(0x33000000),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: _SourceButton(
-                        key: const Key('invoice_source_switch_ai'),
-                        icon: Icons.auto_awesome_outlined,
-                        label: aiLabel,
-                        enabled: aiEnabled,
-                        selected:
-                            selection == InvoiceReviewFieldSourceSelection.ai,
-                        onTap: () => onSelected(
-                          InvoiceReviewFieldSourceSelection.ai,
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: _SourceButton(
+                            key: const Key('invoice_source_switch_local'),
+                            icon: Icons.document_scanner_outlined,
+                            label: localLabel,
+                            enabled: true,
+                            selected: selection ==
+                                InvoiceReviewFieldSourceSelection.local,
+                            onTap: () => onSelected(
+                              InvoiceReviewFieldSourceSelection.local,
+                            ),
+                          ),
                         ),
+                        Expanded(
+                          child: _SourceButton(
+                            key: const Key('invoice_source_switch_ai'),
+                            icon: Icons.auto_awesome_outlined,
+                            label: aiLabel,
+                            enabled: aiEnabled,
+                            selected:
+                                selection == InvoiceReviewFieldSourceSelection.ai,
+                            onTap: () => onSelected(
+                              InvoiceReviewFieldSourceSelection.ai,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (isManual) ...<Widget>[
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(
+                      Icons.edit_outlined,
+                      size: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      '手動',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ],
-            ),
+            ],
           ),
-          if (isManual) ...<Widget>[
-            const SizedBox(width: 6),
-            const Chip(
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              label: Text('手動'),
-              avatar: Icon(Icons.edit_outlined, size: 16),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -150,20 +168,28 @@ class _SourceButton extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: enabled ? onTap : null,
-      child: Center(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(icon, size: 16, color: foreground),
-            const SizedBox(width: 3),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: foreground,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                  ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(icon, size: 16, color: foreground),
+                const SizedBox(width: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: foreground,
+                        fontWeight:
+                            selected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
