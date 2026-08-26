@@ -110,11 +110,11 @@ class InvoiceReviewFieldSourceSwitch extends StatelessWidget {
           ),
           if (isManual) ...<Widget>[
             const SizedBox(width: 6),
-            Chip(
+            const Chip(
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
-              label: const Text('手動'),
-              avatar: const Icon(Icons.edit_outlined, size: 16),
+              label: Text('手動'),
+              avatar: Icon(Icons.edit_outlined, size: 16),
             ),
           ],
         ],

@@ -13,7 +13,7 @@ import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_revi
 
 void main() {
   testWidgets('field pill switch explicitly adopts AI candidate', (tester) async {
-    final ai = GeminiInvoiceReviewCandidate(
+    const ai = GeminiInvoiceReviewCandidate(
       invoiceNumber: 'CD87654321',
       invoicePeriod: '115年7-8月份',
       sellerTaxId: '12345675',
@@ -21,9 +21,9 @@ void main() {
       invoiceTime: '20:15',
       merchantName: 'AI 商家',
       totalAmount: 99,
-      lineItems: const <GeminiInvoiceReviewLineItem>[],
-      confidence: const <GeminiInvoiceReviewField, double>{},
-      warnings: const <String>[],
+      lineItems: <GeminiInvoiceReviewLineItem>[],
+      confidence: <GeminiInvoiceReviewField, double>{},
+      warnings: <String>[],
     );
 
     await tester.pumpWidget(
