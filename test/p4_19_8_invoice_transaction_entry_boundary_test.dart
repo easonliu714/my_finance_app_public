@@ -10,6 +10,9 @@ void main() {
     final frozen = File(
       'lib/features/invoice/invoice_frozen_review_page.dart',
     ).readAsStringSync();
+    final adapter = File(
+      'lib/features/invoice/invoice_transaction_entry_seed_adapter.dart',
+    ).readAsStringSync();
 
     expect(entry, contains('this.occurredAt'));
     expect(entry, contains('this.stableRecordId'));
@@ -29,14 +32,34 @@ void main() {
     );
     expect(entry, contains('if (_stableSeedRecordId != null) return false;'));
 
+    // The frozen-review page owns review and navigation only. Seed construction
+    // is intentionally delegated so this page never becomes a second formal
+    // transaction-write boundary.
     expect(frozen, contains('InvoiceTransactionHandoffReviewCard('));
-    expect(frozen, contains('stableRecordId: draft.idempotencyKey'));
-    expect(frozen, contains('requireExplicitAccountSelection: true'));
-    expect(frozen, contains('requireExplicitCategorySelection: true'));
-    expect(frozen, contains('requireExplicitMerchantSelection: true'));
-    expect(frozen, contains('occurredAt: occurredAt'));
-    expect(frozen, contains('辨識商家候選：'));
+    expect(
+      frozen,
+      contains('buildTransactionEntrySeedFromInvoiceDraft(draft)'),
+    );
     expect(frozen, isNot(contains('transactionLedgerProvider.notifier).add(')));
+
+    // The adapter owns the governed invoice -> TransactionEntrySeed contract.
+    // Keep idempotency and account/category selection fail-closed, while
+    // merchant selection follows whether review already established a formal
+    // master binding.
+    expect(adapter, contains('if (!draft.canOpenTransactionDraft'));
+    expect(adapter, contains("throw StateError('INVOICE_HANDOFF_DRAFT_NOT_READY')"));
+    expect(adapter, contains('stableRecordId: draft.idempotencyKey'));
+    expect(adapter, contains('requireExplicitAccountSelection: true'));
+    expect(adapter, contains('requireExplicitCategorySelection: true'));
+    expect(
+      adapter,
+      contains(
+        'requireExplicitMerchantSelection: draft.requiresExplicitMerchantSelection',
+      ),
+    );
+    expect(adapter, contains('occurredAt: occurredAt'));
+    expect(adapter, contains('辨識商家候選：'));
+    expect(adapter, isNot(contains('transactionLedgerProvider.notifier).add(')));
   });
 
   test('transaction provider exposes stable identity lookup before formal insert', () {
