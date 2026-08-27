@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'gemini/gemini_invoice_review.dart';
 import 'invoice_merchant_master_binding_service.dart';
+import 'invoice_period_policy.dart';
 import 'invoice_review_authority_contract.dart';
 import 'invoice_review_authority_runtime_adapter.dart';
 import 'invoice_review_field_source_switch.dart';
@@ -43,6 +44,9 @@ class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
   static Key sourceSwitchKey(InvoiceReviewFieldKey key) =>
       Key('invoice_transaction_handoff_source_${key.name}');
 
+  static Key pickerKey(InvoiceReviewFieldKey key) =>
+      Key('invoice_transaction_handoff_picker_${key.name}');
+
   final InvoiceReviewFormViewModel initialReview;
   final ValueChanged<InvoiceTransactionHandoffDraft> onOpenDraft;
   final bool aiComparisonRequired;
@@ -77,6 +81,7 @@ class _InvoiceTransactionHandoffReviewCardState
   bool _needsReconfirm = false;
   bool _edited = false;
   bool _merchantBindingBusy = false;
+  bool _periodDerivedFromDate = false;
   String _formalMerchantName = '';
   String _merchantBindingStatus = '';
   String _error = '';
@@ -90,7 +95,7 @@ class _InvoiceTransactionHandoffReviewCardState
   @override
   void initState() {
     super.initState();
-    _review = widget.initialReview;
+    _review = _derivePeriodIfBlank(widget.initialReview);
     _captureLocalBaseline(_review);
     _syncControllers(_review);
   }
@@ -99,7 +104,7 @@ class _InvoiceTransactionHandoffReviewCardState
   void didUpdateWidget(covariant InvoiceTransactionHandoffReviewCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_edited && oldWidget.initialReview != widget.initialReview) {
-      _review = widget.initialReview;
+      _review = _derivePeriodIfBlank(widget.initialReview);
       _explicitlyCorrectedFields.clear();
       _explicitlyAiSelectedFields.clear();
       _aiLineItemsSelected = false;
@@ -147,7 +152,7 @@ class _InvoiceTransactionHandoffReviewCardState
             ),
             const SizedBox(height: 6),
             const Text(
-              '每個欄位可直接選擇本機 OCR／QR 或 AI 候選；手動輸入會轉為「手動」來源。商家主檔必須另外明確新增／綁定，最後按「保存」前不會建立正式交易。',
+              '每個欄位可直接選擇本機 OCR／QR 或 AI 候選；日期、時間與發票期別可用右側標準選擇器快速輸入。商家主檔必須另外明確新增／綁定，最後按「保存」前不會建立正式交易。',
             ),
             const SizedBox(height: 12),
             for (final field in _review.fields) ...<Widget>[
@@ -161,6 +166,8 @@ class _InvoiceTransactionHandoffReviewCardState
                       ),
                       controller: _controllers[field.key],
                       enabled: field.editable,
+                      readOnly: _isStructuredPickerField(field.key),
+                      showCursor: !_isStructuredPickerField(field.key),
                       keyboardType:
                           field.key == InvoiceReviewFieldKey.totalAmount
                               ? const TextInputType.numberWithOptions(
@@ -172,7 +179,19 @@ class _InvoiceTransactionHandoffReviewCardState
                             '${field.label}${field.requiredForReview ? ' *' : ''}',
                         helperText: _helperText(field),
                         border: const OutlineInputBorder(),
+                        suffixIcon: _isStructuredPickerField(field.key)
+                            ? IconButton(
+                                key: InvoiceTransactionHandoffReviewCard
+                                    .pickerKey(field.key),
+                                tooltip: _pickerTooltip(field.key),
+                                onPressed: () => _pickStructuredField(field.key),
+                                icon: Icon(_pickerIcon(field.key)),
+                              )
+                            : null,
                       ),
+                      onTap: _isStructuredPickerField(field.key)
+                          ? () => _pickStructuredField(field.key)
+                          : null,
                       onChanged: (value) => _updateField(field.key, value),
                     ),
                   ),
@@ -384,6 +403,9 @@ class _InvoiceTransactionHandoffReviewCardState
     final parts = <String>[
       if (field.confidenceLabel.trim().isNotEmpty)
         '辨識信心：${field.confidenceLabel.trim()}',
+      if (field.key == InvoiceReviewFieldKey.invoicePeriod &&
+          _periodDerivedFromDate)
+        '由發票日期自動推算；全年只有 6 個雙月份選項，可點右側調整',
       ...field.warnings.where((item) => item.trim().isNotEmpty),
     ];
     return parts.isEmpty ? null : parts.join('；');
@@ -402,6 +424,189 @@ class _InvoiceTransactionHandoffReviewCardState
           _formalMerchantName.isNotEmpty &&
           field.key == InvoiceReviewFieldKey.sellerName,
     );
+  }
+
+  InvoiceReviewFormViewModel _derivePeriodIfBlank(
+    InvoiceReviewFormViewModel model,
+  ) {
+    final period = model.fieldFor(InvoiceReviewFieldKey.invoicePeriod);
+    final date = model.fieldFor(InvoiceReviewFieldKey.invoiceDate)?.value ?? '';
+    if (period == null || period.value.trim().isNotEmpty) {
+      _periodDerivedFromDate = false;
+      return model;
+    }
+    final derived = deriveInvoicePeriodFromDateText(date);
+    if (derived.isEmpty) {
+      _periodDerivedFromDate = false;
+      return model;
+    }
+    _periodDerivedFromDate = true;
+    return model.updateField(InvoiceReviewFieldKey.invoicePeriod, derived);
+  }
+
+  bool _isStructuredPickerField(InvoiceReviewFieldKey key) =>
+      key == InvoiceReviewFieldKey.invoiceDate ||
+      key == InvoiceReviewFieldKey.invoiceTime ||
+      key == InvoiceReviewFieldKey.invoicePeriod;
+
+  IconData _pickerIcon(InvoiceReviewFieldKey key) {
+    switch (key) {
+      case InvoiceReviewFieldKey.invoiceDate:
+        return Icons.calendar_month_outlined;
+      case InvoiceReviewFieldKey.invoiceTime:
+        return Icons.schedule_outlined;
+      case InvoiceReviewFieldKey.invoicePeriod:
+        return Icons.date_range_outlined;
+      default:
+        return Icons.edit_outlined;
+    }
+  }
+
+  String _pickerTooltip(InvoiceReviewFieldKey key) {
+    switch (key) {
+      case InvoiceReviewFieldKey.invoiceDate:
+        return '選擇發票日期';
+      case InvoiceReviewFieldKey.invoiceTime:
+        return '選擇交易時間';
+      case InvoiceReviewFieldKey.invoicePeriod:
+        return '選擇發票期別';
+      default:
+        return '選擇';
+    }
+  }
+
+  Future<void> _pickStructuredField(InvoiceReviewFieldKey key) async {
+    switch (key) {
+      case InvoiceReviewFieldKey.invoiceDate:
+        await _pickDate();
+        return;
+      case InvoiceReviewFieldKey.invoiceTime:
+        await _pickTime();
+        return;
+      case InvoiceReviewFieldKey.invoicePeriod:
+        await _pickInvoicePeriod();
+        return;
+      default:
+        return;
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final raw = _review.fieldFor(InvoiceReviewFieldKey.invoiceDate)?.value ?? '';
+    final now = DateTime.now();
+    final parsed = parseInvoiceReviewDate(raw);
+    final initial = parsed == null || parsed.isAfter(now) ? now : parsed;
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000, 1, 1),
+      lastDate: now,
+      helpText: '選擇發票日期',
+    );
+    if (selected == null || !mounted) return;
+    final dateText = '${selected.year.toString().padLeft(4, '0')}-'
+        '${selected.month.toString().padLeft(2, '0')}-'
+        '${selected.day.toString().padLeft(2, '0')}';
+    final periodText = formatInvoicePeriodForDate(selected);
+    setState(() {
+      _review = _review
+          .updateField(InvoiceReviewFieldKey.invoiceDate, dateText)
+          .updateField(InvoiceReviewFieldKey.invoicePeriod, periodText);
+      _controllers[InvoiceReviewFieldKey.invoiceDate]?.text = dateText;
+      _controllers[InvoiceReviewFieldKey.invoicePeriod]?.text = periodText;
+      _explicitlyCorrectedFields
+        ..add(InvoiceReviewFieldKey.invoiceDate)
+        ..add(InvoiceReviewFieldKey.invoicePeriod);
+      _explicitlyAiSelectedFields
+        ..remove(InvoiceReviewFieldKey.invoiceDate)
+        ..remove(InvoiceReviewFieldKey.invoicePeriod);
+      _periodDerivedFromDate = true;
+      _authorityConfirmed = false;
+      _edited = true;
+      _error = '';
+    });
+    _invalidateConfirmation();
+  }
+
+  Future<void> _pickTime() async {
+    final raw = _review.fieldFor(InvoiceReviewFieldKey.invoiceTime)?.value ?? '';
+    final normalized = raw
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll('：', ':');
+    final match = RegExp(r'^([01]?\d|2[0-3]):([0-5]\d)').firstMatch(normalized);
+    final initial = match == null
+        ? TimeOfDay.now()
+        : TimeOfDay(
+            hour: int.parse(match.group(1)!),
+            minute: int.parse(match.group(2)!),
+          );
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      helpText: '選擇交易時間',
+    );
+    if (selected == null || !mounted) return;
+    final value = '${selected.hour.toString().padLeft(2, '0')}:'
+        '${selected.minute.toString().padLeft(2, '0')}:00';
+    _applyStructuredManualValue(InvoiceReviewFieldKey.invoiceTime, value);
+  }
+
+  Future<void> _pickInvoicePeriod() async {
+    final rawDate =
+        _review.fieldFor(InvoiceReviewFieldKey.invoiceDate)?.value ?? '';
+    final date = parseInvoiceReviewDate(rawDate) ?? DateTime.now();
+    final options = invoicePeriodOptionsForGregorianYear(date.year);
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Text(
+                '選擇發票期別（${date.year - 1911} 年）',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            for (final option in options)
+              ListTile(
+                title: Text(option),
+                trailing: option ==
+                        (_review
+                                .fieldFor(InvoiceReviewFieldKey.invoicePeriod)
+                                ?.value ??
+                            '')
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.of(context).pop(option),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    _periodDerivedFromDate = false;
+    _applyStructuredManualValue(InvoiceReviewFieldKey.invoicePeriod, selected);
+  }
+
+  void _applyStructuredManualValue(InvoiceReviewFieldKey key, String value) {
+    setState(() {
+      _review = _review.updateField(key, value);
+      _controllers[key]?.text = value;
+      _explicitlyCorrectedFields.add(key);
+      _explicitlyAiSelectedFields.remove(key);
+      _authorityConfirmed = false;
+      _edited = true;
+      _error = '';
+      _invalidateMerchantBindingIfNeeded(key);
+    });
+    _invalidateConfirmation();
   }
 
   void _captureLocalBaseline(InvoiceReviewFormViewModel model) {
@@ -475,6 +680,9 @@ class _InvoiceTransactionHandoffReviewCardState
       } else {
         _explicitlyAiSelectedFields.remove(key);
       }
+      if (key == InvoiceReviewFieldKey.invoicePeriod) {
+        _periodDerivedFromDate = false;
+      }
       _edited = true;
       _error = '';
       _invalidateMerchantBindingIfNeeded(key);
@@ -504,6 +712,9 @@ class _InvoiceTransactionHandoffReviewCardState
       _review = _review.updateField(key, value);
       _explicitlyCorrectedFields.add(key);
       _explicitlyAiSelectedFields.remove(key);
+      if (key == InvoiceReviewFieldKey.invoicePeriod) {
+        _periodDerivedFromDate = false;
+      }
       _authorityConfirmed = false;
       _edited = true;
       _error = '';
@@ -624,17 +835,29 @@ class _InvoiceTransactionHandoffReviewCardState
     );
   }
 
+  bool get _sellerTaxIdIsTrustedQrAuthority {
+    final field = _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId);
+    if (field == null ||
+        !field.confidenceLabel.toUpperCase().contains('QR') ||
+        _explicitlyCorrectedFields.contains(InvoiceReviewFieldKey.sellerTaxId) ||
+        _explicitlyAiSelectedFields.contains(InvoiceReviewFieldKey.sellerTaxId)) {
+      return false;
+    }
+    return field.value.trim().isNotEmpty;
+  }
+
   Future<void> _bindMerchantMaster() async {
     final merchant =
         _review.fieldFor(InvoiceReviewFieldKey.sellerName)?.value.trim() ?? '';
     final taxId =
         _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value.trim() ?? '';
+    final trustedQr = _sellerTaxIdIsTrustedQrAuthority;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('新增／綁定正式商家'),
         content: Text(
-          '商家：$merchant\n賣方統編：$taxId\n\n這會寫入商家主檔並建立統編綁定，但不會建立交易。',
+          '商家：$merchant\n賣方統編：$taxId\n來源：${trustedQr ? 'QR 原始資料' : '人工／OCR／AI 覆核'}\n\n這會寫入商家主檔並建立統編綁定，但不會建立交易。',
         ),
         actions: <Widget>[
           TextButton(
@@ -658,6 +881,7 @@ class _InvoiceTransactionHandoffReviewCardState
       final result = await widget.merchantBindingService.bind(
         merchantName: merchant,
         sellerTaxId: taxId,
+        trustedQrSellerIdentifier: trustedQr,
       );
       if (!mounted) return;
       setState(() {
