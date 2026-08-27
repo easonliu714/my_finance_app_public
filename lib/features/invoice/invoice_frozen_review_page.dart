@@ -20,6 +20,7 @@ import 'invoice_live_capture_page.dart';
 import 'invoice_local_recognition_coordinator.dart';
 import 'invoice_recognition_evidence_exporter.dart';
 import 'invoice_review_form_view_model.dart';
+import 'invoice_transaction_entry_seed_adapter.dart';
 import 'invoice_transaction_handoff_review_card.dart';
 import 'mobile_scanner_invoice_qr_decoder.dart';
 import 'traditional_invoice_ocr_review.dart';
@@ -452,28 +453,12 @@ class _InvoiceFrozenReviewPageState extends State<InvoiceFrozenReviewPage> {
               aiComparisonAcknowledged:
                   ai == null || _geminiComparisonAcknowledged,
               comparisonRevision: execution?.requestCount ?? 0,
+              aiCandidate: ai,
               onOpenDraft: (draft) {
-                final amount = draft.amount;
-                final occurredAt = draft.occurredAt;
-                if (amount == null || occurredAt == null) return;
-                final recognizedMerchant =
-                    draft.recognizedMerchantCandidate.trim();
-                final note = <String>[
-                  draft.note,
-                  if (recognizedMerchant.isNotEmpty)
-                    '辨識商家候選：$recognizedMerchant（尚未升格為正式商家）',
-                ].where((value) => value.trim().isNotEmpty).join('\n');
+                final seed = buildTransactionEntrySeedFromInvoiceDraft(draft);
                 context.pushNamed(
                   TransactionEntryPage.routeName,
-                  extra: TransactionEntrySeed(
-                    amount: amount,
-                    occurredAt: occurredAt,
-                    note: note,
-                    stableRecordId: draft.idempotencyKey,
-                    requireExplicitAccountSelection: true,
-                    requireExplicitCategorySelection: true,
-                    requireExplicitMerchantSelection: true,
-                  ),
+                  extra: seed,
                 );
               },
             ),
