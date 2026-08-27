@@ -2,7 +2,7 @@ String formatInvoicePeriodForDate(DateTime date) {
   final rocYear = date.year - 1911;
   final startMonth = date.month.isOdd ? date.month : date.month - 1;
   final endMonth = startMonth + 1;
-  return '${rocYear}年${startMonth.toString().padLeft(2, '0')}-${endMonth.toString().padLeft(2, '0')}月';
+  return '$rocYear年${startMonth.toString().padLeft(2, '0')}-${endMonth.toString().padLeft(2, '0')}月';
 }
 
 List<String> invoicePeriodOptionsForGregorianYear(int year) {
