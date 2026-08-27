@@ -21,27 +21,15 @@ class InvoiceTransactionHandoffDraft {
   final bool reviewConfirmed;
   final double? amount;
   final DateTime? occurredAt;
-
-  /// Recognition evidence only. This value never authorizes a formal merchant
-  /// mapping by itself.
   final String recognizedMerchantCandidate;
-
-  /// Formal accounting selections. Empty means the user still has to choose
-  /// an existing master row (or explicitly create one through the governed UI).
   final String formalMerchantName;
   final String formalAccountName;
   final String formalCategory;
-
   final String invoiceNumber;
   final String sellerTaxId;
   final String invoicePeriod;
   final String randomCode;
-
-  /// Stable identity carried into the transaction draft. Re-entering the same
-  /// reviewed invoice therefore targets the same transaction id instead of
-  /// creating a second formal transaction.
   final String idempotencyKey;
-
   final String note;
   final List<String> warnings;
 
@@ -145,9 +133,19 @@ class InvoiceTransactionHandoffContract {
   }
 
   static DateTime? _parseOccurredAt(String rawDate, String rawTime) {
-    final date = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(rawDate.trim());
-    final time = RegExp(r'^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$')
-        .firstMatch(rawTime.trim());
+    final normalizedDate = rawDate
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll('/', '-')
+        .replaceAll('.', '-');
+    final normalizedTime = rawTime
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll('：', ':');
+    final date = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$')
+        .firstMatch(normalizedDate);
+    final time = RegExp(r'^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$')
+        .firstMatch(normalizedTime);
     if (date == null || time == null) return null;
 
     final year = int.parse(date.group(1)!);
