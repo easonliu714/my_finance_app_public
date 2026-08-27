@@ -87,7 +87,7 @@ void main() {
   test('QR bypass never overrides an existing seller-identifier conflict', () async {
     final store = _FakeMerchantSellerIdentityStore(
       <MerchantRecord>[
-        MerchantRecord(
+        const MerchantRecord(
           id: 'merchant-existing',
           name: '既有商家',
           sellerIdentifier: '60744698',
@@ -107,11 +107,11 @@ void main() {
   });
 
   testWidgets('blank invoice period is auto-derived and six-option period picker is available', (tester) async {
-    final review = InvoiceReviewFormViewModel(
+    const review = InvoiceReviewFormViewModel(
       title: '測試覆核',
       routeReason: 'test',
       disclaimer: 'test',
-      fields: const <InvoiceReviewFieldViewModel>[
+      fields: <InvoiceReviewFieldViewModel>[
         InvoiceReviewFieldViewModel(
           key: InvoiceReviewFieldKey.invoiceDate,
           label: '發票日期',
@@ -137,9 +137,9 @@ void main() {
           confidenceLabel: '未辨識',
         ),
       ],
-      lineItems: const <InvoiceReviewLineItemViewModel>[],
-      warnings: const <String>[],
-      availableOverrides: const [],
+      lineItems: <InvoiceReviewLineItemViewModel>[],
+      warnings: <String>[],
+      availableOverrides: [],
       canOpenReview: true,
       requiresAcknowledgement: false,
       disclaimerAcknowledged: true,
@@ -158,24 +158,27 @@ void main() {
       ),
     );
 
-    final periodField = tester.widget<TextFormField>(
-      find.byKey(
-        InvoiceTransactionHandoffReviewCard.fieldKey(
-          InvoiceReviewFieldKey.invoicePeriod,
-        ),
+    final periodFinder = find.byKey(
+      InvoiceTransactionHandoffReviewCard.fieldKey(
+        InvoiceReviewFieldKey.invoicePeriod,
       ),
     );
+    final periodField = tester.widget<TextFormField>(periodFinder);
     expect(periodField.controller?.text, '115年07-08月');
-    expect(periodField.readOnly, isTrue);
+    final periodEditable = tester.widget<EditableText>(
+      find.descendant(of: periodFinder, matching: find.byType(EditableText)),
+    );
+    expect(periodEditable.readOnly, isTrue);
 
-    final timeField = tester.widget<TextFormField>(
-      find.byKey(
-        InvoiceTransactionHandoffReviewCard.fieldKey(
-          InvoiceReviewFieldKey.invoiceTime,
-        ),
+    final timeFinder = find.byKey(
+      InvoiceTransactionHandoffReviewCard.fieldKey(
+        InvoiceReviewFieldKey.invoiceTime,
       ),
     );
-    expect(timeField.readOnly, isTrue);
+    final timeEditable = tester.widget<EditableText>(
+      find.descendant(of: timeFinder, matching: find.byType(EditableText)),
+    );
+    expect(timeEditable.readOnly, isTrue);
     expect(
       find.byKey(
         InvoiceTransactionHandoffReviewCard.pickerKey(
@@ -201,11 +204,11 @@ void main() {
 
   testWidgets('QR provenance is forwarded to merchant binding from review UI', (tester) async {
     final store = _FakeMerchantSellerIdentityStore();
-    final review = InvoiceReviewFormViewModel(
+    const review = InvoiceReviewFormViewModel(
       title: '電子發票覆核',
       routeReason: 'qr',
       disclaimer: 'test',
-      fields: const <InvoiceReviewFieldViewModel>[
+      fields: <InvoiceReviewFieldViewModel>[
         InvoiceReviewFieldViewModel(
           key: InvoiceReviewFieldKey.sellerName,
           label: '商家名稱',
@@ -223,9 +226,9 @@ void main() {
           confidenceLabel: 'QR 解析',
         ),
       ],
-      lineItems: const <InvoiceReviewLineItemViewModel>[],
-      warnings: const <String>[],
-      availableOverrides: const [],
+      lineItems: <InvoiceReviewLineItemViewModel>[],
+      warnings: <String>[],
+      availableOverrides: [],
       canOpenReview: true,
       requiresAcknowledgement: false,
       disclaimerAcknowledged: true,
