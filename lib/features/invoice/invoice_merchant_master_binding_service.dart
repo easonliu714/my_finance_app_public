@@ -41,15 +41,18 @@ class InvoiceMerchantMasterBindingService {
   Future<InvoiceMerchantMasterBindingResult> bind({
     required String merchantName,
     required String sellerTaxId,
+    bool trustedQrSellerIdentifier = false,
   }) async {
     final name = merchantName.trim();
     final taxId = sellerTaxId.replaceAll(RegExp(r'[^0-9]'), '');
-    if (name.isEmpty ||
-        !isTaiwanTaxIdFormat(taxId) ||
-        !hasValidTaiwanTaxIdChecksum(taxId)) {
-      return const InvoiceMerchantMasterBindingResult(
+    final formatValid = isTaiwanTaxIdFormat(taxId);
+    final checksumValid = formatValid && hasValidTaiwanTaxIdChecksum(taxId);
+    if (name.isEmpty || !formatValid || (!checksumValid && !trustedQrSellerIdentifier)) {
+      return InvoiceMerchantMasterBindingResult(
         status: InvoiceMerchantMasterBindingStatus.invalidInput,
-        message: '商家名稱不可空白，且賣方統編必須是通過校驗的 8 碼統編。',
+        message: trustedQrSellerIdentifier
+            ? '商家名稱不可空白，且 QR 賣方識別碼必須是 8 碼數字。'
+            : '商家名稱不可空白，且人工／OCR 賣方統編必須是通過校驗的 8 碼統編。',
       );
     }
 
@@ -76,13 +79,21 @@ class InvoiceMerchantMasterBindingService {
         return InvoiceMerchantMasterBindingResult(
           status: InvoiceMerchantMasterBindingStatus.boundExistingMerchant,
           merchant: restored,
-          message: '已恢復既有商家並保留統編綁定。',
+          message: _successMessage(
+            '已恢復既有商家並保留統編綁定。',
+            checksumValid: checksumValid,
+            trustedQrSellerIdentifier: trustedQrSellerIdentifier,
+          ),
         );
       }
       return InvoiceMerchantMasterBindingResult(
         status: InvoiceMerchantMasterBindingStatus.selectedExistingBinding,
         merchant: existingByTax,
-        message: '此賣方統編已綁定既有商家。',
+        message: _successMessage(
+          '此賣方統編已綁定既有商家。',
+          checksumValid: checksumValid,
+          trustedQrSellerIdentifier: trustedQrSellerIdentifier,
+        ),
       );
     }
 
@@ -114,7 +125,11 @@ class InvoiceMerchantMasterBindingService {
       return InvoiceMerchantMasterBindingResult(
         status: InvoiceMerchantMasterBindingStatus.boundExistingMerchant,
         merchant: bound,
-        message: '已將賣方統編綁定到既有商家。',
+        message: _successMessage(
+          '已將賣方統編綁定到既有商家。',
+          checksumValid: checksumValid,
+          trustedQrSellerIdentifier: trustedQrSellerIdentifier,
+        ),
       );
     }
 
@@ -122,14 +137,31 @@ class InvoiceMerchantMasterBindingService {
       id: 'merchant-tax-$taxId',
       name: name,
       sellerIdentifier: taxId,
-      note: '由發票覆核畫面經使用者明確確認建立',
+      note: trustedQrSellerIdentifier && !checksumValid
+          ? '由發票覆核畫面經使用者明確確認建立；賣方識別碼來自 QR 原始資料，未通過傳統統編 checksum'
+          : '由發票覆核畫面經使用者明確確認建立',
     );
     await _store.upsertMerchant(created);
     return InvoiceMerchantMasterBindingResult(
       status: InvoiceMerchantMasterBindingStatus.created,
       merchant: created,
-      message: '已新增商家並綁定賣方統編。',
+      message: _successMessage(
+        '已新增商家並綁定賣方統編。',
+        checksumValid: checksumValid,
+        trustedQrSellerIdentifier: trustedQrSellerIdentifier,
+      ),
     );
+  }
+
+  static String _successMessage(
+    String base, {
+    required bool checksumValid,
+    required bool trustedQrSellerIdentifier,
+  }) {
+    if (trustedQrSellerIdentifier && !checksumValid) {
+      return '$base 此 8 碼識別碼由 QR 原始資料提供，未通過傳統統編 checksum，已保留 QR provenance。';
+    }
+    return base;
   }
 
   static String _normalizeName(String value) => value
