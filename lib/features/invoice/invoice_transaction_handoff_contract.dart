@@ -21,27 +21,15 @@ class InvoiceTransactionHandoffDraft {
   final bool reviewConfirmed;
   final double? amount;
   final DateTime? occurredAt;
-
-  /// Recognition evidence only. This value never authorizes a formal merchant
-  /// mapping by itself.
   final String recognizedMerchantCandidate;
-
-  /// Formal accounting selections. Empty means the user still has to choose
-  /// an existing master row (or explicitly create one through the governed UI).
   final String formalMerchantName;
   final String formalAccountName;
   final String formalCategory;
-
   final String invoiceNumber;
   final String sellerTaxId;
   final String invoicePeriod;
   final String randomCode;
-
-  /// Stable identity carried into the transaction draft. Re-entering the same
-  /// reviewed invoice therefore targets the same transaction id instead of
-  /// creating a second formal transaction.
   final String idempotencyKey;
-
   final String note;
   final List<String> warnings;
 
@@ -57,9 +45,6 @@ class InvoiceTransactionHandoffDraft {
       occurredAt != null &&
       idempotencyKey.isNotEmpty;
 
-  /// Opening an editable transaction draft is allowed once the invoice review
-  /// itself is confirmed and the invoice identity/amount/date-time are usable.
-  /// Missing formal master selections remain explicit blockers for final Save.
   bool get canOpenTransactionDraft => coreInvoiceFieldsReady;
 
   bool get canSaveFormalTransaction =>
@@ -129,6 +114,7 @@ class InvoiceTransactionHandoffContract {
         sellerTaxId: sellerTaxId,
         invoicePeriod: invoicePeriod,
         randomCode: randomCode,
+        lineItems: review.lineItems,
       ),
       warnings: List<String>.unmodifiable(warnings),
     );
@@ -147,9 +133,19 @@ class InvoiceTransactionHandoffContract {
   }
 
   static DateTime? _parseOccurredAt(String rawDate, String rawTime) {
-    final date = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(rawDate.trim());
-    final time = RegExp(r'^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$')
-        .firstMatch(rawTime.trim());
+    final normalizedDate = rawDate
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll('/', '-')
+        .replaceAll('.', '-');
+    final normalizedTime = rawTime
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll('：', ':');
+    final date = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$')
+        .firstMatch(normalizedDate);
+    final time = RegExp(r'^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$')
+        .firstMatch(normalizedTime);
     if (date == null || time == null) return null;
 
     final year = int.parse(date.group(1)!);
@@ -188,12 +184,23 @@ class InvoiceTransactionHandoffContract {
     required String sellerTaxId,
     required String invoicePeriod,
     required String randomCode,
+    required List<InvoiceReviewLineItemViewModel> lineItems,
   }) {
     final lines = <String>['來源：發票辨識人工覆核'];
     if (invoiceNumber.isNotEmpty) lines.add('發票號碼：$invoiceNumber');
     if (sellerTaxId.isNotEmpty) lines.add('賣方統編：$sellerTaxId');
     if (invoicePeriod.isNotEmpty) lines.add('發票期別：$invoicePeriod');
     if (randomCode.isNotEmpty) lines.add('隨機碼：$randomCode');
+
+    final usableItems = lineItems.where((item) => !item.isBlank).toList();
+    if (usableItems.isNotEmpty) {
+      lines.add('品項明細：');
+      for (final item in usableItems) {
+        final name = item.name.trim().isEmpty ? '未命名品項' : item.name.trim();
+        final amount = item.amountText.trim();
+        lines.add(amount.isEmpty ? '- $name' : '- $name：$amount');
+      }
+    }
     return lines.join('\n');
   }
 }
