@@ -198,7 +198,7 @@ void main() {
     await tester.pumpAndSettle();
 
     for (final option in invoicePeriodOptionsForGregorianYear(2026)) {
-      expect(find.text(option), findsOneWidget);
+      expect(find.widgetWithText(ListTile, option), findsOneWidget);
     }
   });
 
@@ -237,19 +237,22 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: InvoiceTransactionHandoffReviewCard(
-            initialReview: review,
-            onOpenDraft: (_) {},
-            merchantBindingService:
-                InvoiceMerchantMasterBindingService(store: store),
+          body: SingleChildScrollView(
+            child: InvoiceTransactionHandoffReviewCard(
+              initialReview: review,
+              onOpenDraft: (_) {},
+              merchantBindingService:
+                  InvoiceMerchantMasterBindingService(store: store),
+            ),
           ),
         ),
       ),
     );
 
-    await tester.tap(
-      find.byKey(InvoiceTransactionHandoffReviewCard.bindMerchantKey),
-    );
+    final bindButton =
+        find.byKey(InvoiceTransactionHandoffReviewCard.bindMerchantKey);
+    await tester.ensureVisible(bindButton);
+    await tester.tap(bindButton);
     await tester.pumpAndSettle();
     expect(find.textContaining('來源：QR 原始資料'), findsOneWidget);
     await tester.tap(find.text('確認綁定'));
