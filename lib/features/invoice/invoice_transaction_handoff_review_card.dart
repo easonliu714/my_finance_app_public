@@ -514,9 +514,7 @@ class _InvoiceTransactionHandoffReviewCardState
           .updateField(InvoiceReviewFieldKey.invoicePeriod, periodText);
       _controllers[InvoiceReviewFieldKey.invoiceDate]?.text = dateText;
       _controllers[InvoiceReviewFieldKey.invoicePeriod]?.text = periodText;
-      _explicitlyCorrectedFields
-        ..add(InvoiceReviewFieldKey.invoiceDate)
-        ..add(InvoiceReviewFieldKey.invoicePeriod);
+      _explicitlyCorrectedFields.add(InvoiceReviewFieldKey.invoiceDate);
       _explicitlyAiSelectedFields
         ..remove(InvoiceReviewFieldKey.invoiceDate)
         ..remove(InvoiceReviewFieldKey.invoicePeriod);
@@ -560,33 +558,48 @@ class _InvoiceTransactionHandoffReviewCardState
     final selected = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: Text(
-                '選擇發票期別（${date.year - 1911} 年）',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.75,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text(
+                  '選擇發票期別（${date.year - 1911} 年）',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
               ),
-            ),
-            for (final option in options)
-              ListTile(
-                title: Text(option),
-                trailing: option ==
-                        (_review
-                                .fieldFor(InvoiceReviewFieldKey.invoicePeriod)
-                                ?.value ??
-                            '')
-                    ? const Icon(Icons.check)
-                    : null,
-                onTap: () => Navigator.of(context).pop(option),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: <Widget>[
+                    for (final option in options)
+                      ListTile(
+                        title: Text(option),
+                        trailing: option ==
+                                (_review
+                                        .fieldFor(
+                                          InvoiceReviewFieldKey.invoicePeriod,
+                                        )
+                                        ?.value ??
+                                    '')
+                            ? const Icon(Icons.check)
+                            : null,
+                        onTap: () => Navigator.of(context).pop(option),
+                      ),
+                  ],
+                ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -680,7 +693,9 @@ class _InvoiceTransactionHandoffReviewCardState
       } else {
         _explicitlyAiSelectedFields.remove(key);
       }
-      if (key == InvoiceReviewFieldKey.invoicePeriod) {
+      if (key == InvoiceReviewFieldKey.invoiceDate && _periodDerivedFromDate) {
+        _syncDerivedPeriodFromCurrentDate();
+      } else if (key == InvoiceReviewFieldKey.invoicePeriod) {
         _periodDerivedFromDate = false;
       }
       _edited = true;
@@ -723,6 +738,18 @@ class _InvoiceTransactionHandoffReviewCardState
     _invalidateConfirmation();
   }
 
+  void _syncDerivedPeriodFromCurrentDate() {
+    if (!_periodDerivedFromDate) return;
+    final rawDate =
+        _review.fieldFor(InvoiceReviewFieldKey.invoiceDate)?.value ?? '';
+    final derived = deriveInvoicePeriodFromDateText(rawDate);
+    if (derived.isEmpty) return;
+    _review = _review.updateField(InvoiceReviewFieldKey.invoicePeriod, derived);
+    _controllers[InvoiceReviewFieldKey.invoicePeriod]?.text = derived;
+    _explicitlyCorrectedFields.remove(InvoiceReviewFieldKey.invoicePeriod);
+    _explicitlyAiSelectedFields.remove(InvoiceReviewFieldKey.invoicePeriod);
+  }
+
   void _invalidateMerchantBindingIfNeeded(InvoiceReviewFieldKey key) {
     if (key != InvoiceReviewFieldKey.sellerName &&
         key != InvoiceReviewFieldKey.sellerTaxId) {
@@ -745,6 +772,7 @@ class _InvoiceTransactionHandoffReviewCardState
       _controllers[key]?.text = value;
       _invalidateMerchantBindingIfNeeded(key);
     }
+    _syncDerivedPeriodFromCurrentDate();
     if (_aiLineItemsSelected) {
       final items = _aiLineItems(ai);
       if (items.isEmpty) {
