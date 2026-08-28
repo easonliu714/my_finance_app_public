@@ -87,7 +87,7 @@ void main() {
   test('QR bypass never overrides an existing seller-identifier conflict', () async {
     final store = _FakeMerchantSellerIdentityStore(
       <MerchantRecord>[
-        const MerchantRecord(
+        MerchantRecord(
           id: 'merchant-existing',
           name: '既有商家',
           sellerIdentifier: '60744698',
