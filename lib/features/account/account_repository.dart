@@ -15,7 +15,9 @@ import '../../database/production_schema_v18.dart'
 import '../../database/production_schema_v19.dart'
     show createCanonicalProductionV19Tables;
 import '../../database/production_schema_v20.dart' show createCanonicalProductionV20Tables;
-import '../../database/production_schema_v21.dart';
+import '../../database/production_schema_v21.dart'
+    show createCanonicalProductionV21Tables;
+import '../../database/production_schema_v22.dart';
 
 import '../plan/credit_card_bank_rule_profile.dart';
 import '../plan/credit_card_installment_migration.dart';
@@ -53,7 +55,7 @@ class AccountRepository implements AccountStore, DebitCardAccountStore {
         await _createCreditCardStatementEventsTable(db);
         await _createCreditCardBankRuleTables(db);
         await createCreditCardInstallmentTables(db);
-        await createCanonicalProductionV21Tables(db);
+        await createCanonicalProductionV22Tables(db);
         await _seedDefaultAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -88,6 +90,7 @@ class AccountRepository implements AccountStore, DebitCardAccountStore {
         if (oldVersion < 19) await createCanonicalProductionV19Tables(db);
         if (oldVersion < 20) await createCanonicalProductionV20Tables(db);
         if (oldVersion < 21) await createCanonicalProductionV21Tables(db);
+        if (oldVersion < 22) await createCanonicalProductionV22Tables(db);
         await _ensureAccountIdentityIndexes(db);
       },
     );
