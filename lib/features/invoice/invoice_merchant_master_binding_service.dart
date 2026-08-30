@@ -1,6 +1,7 @@
 import '../merchant/canonical_merchant_repository.dart';
 import '../merchant/merchant_record.dart';
 import '../merchant/merchant_seller_identity_store.dart';
+import 'invoice_merchant_identity_review_service.dart';
 import 'taiwan_tax_id.dart';
 
 enum InvoiceMerchantMasterBindingStatus {
@@ -16,11 +17,17 @@ class InvoiceMerchantMasterBindingResult {
     required this.status,
     this.merchant,
     this.message = '',
+    this.officialLegalName = '',
+    this.registryVersion = '',
+    this.registryCoverage = '',
   });
 
   final InvoiceMerchantMasterBindingStatus status;
   final MerchantRecord? merchant;
   final String message;
+  final String officialLegalName;
+  final String registryVersion;
+  final String registryCoverage;
 
   bool get isSuccess =>
       status == InvoiceMerchantMasterBindingStatus.created ||
@@ -31,23 +38,32 @@ class InvoiceMerchantMasterBindingResult {
 class InvoiceMerchantMasterBindingService {
   const InvoiceMerchantMasterBindingService({
     this.store,
+    this.identityReviewService,
   });
 
   final MerchantSellerIdentityStore? store;
+  final InvoiceMerchantIdentityReviewPort? identityReviewService;
 
   MerchantSellerIdentityStore get _store =>
       store ?? CanonicalMerchantRepository.instance;
+
+  InvoiceMerchantIdentityReviewPort? get _identityReview =>
+      identityReviewService ??
+      (store == null ? const InvoiceMerchantIdentityReviewService() : null);
 
   Future<InvoiceMerchantMasterBindingResult> bind({
     required String merchantName,
     required String sellerTaxId,
     bool trustedQrSellerIdentifier = false,
+    String sourceReference = '',
   }) async {
     final name = merchantName.trim();
     final taxId = sellerTaxId.replaceAll(RegExp(r'[^0-9]'), '');
     final formatValid = isTaiwanTaxIdFormat(taxId);
     final checksumValid = formatValid && hasValidTaiwanTaxIdChecksum(taxId);
-    if (name.isEmpty || !formatValid || (!checksumValid && !trustedQrSellerIdentifier)) {
+    if (name.isEmpty ||
+        !formatValid ||
+        (!checksumValid && !trustedQrSellerIdentifier)) {
       return InvoiceMerchantMasterBindingResult(
         status: InvoiceMerchantMasterBindingStatus.invalidInput,
         message: trustedQrSellerIdentifier
@@ -76,24 +92,32 @@ class InvoiceMerchantMasterBindingService {
           sellerIdentifier: taxId,
         );
         await _store.upsertMerchant(restored);
-        return InvoiceMerchantMasterBindingResult(
+        return _withIdentityContext(
           status: InvoiceMerchantMasterBindingStatus.boundExistingMerchant,
           merchant: restored,
-          message: _successMessage(
+          baseMessage: _successMessage(
             '已恢復既有商家並保留統編綁定。',
             checksumValid: checksumValid,
             trustedQrSellerIdentifier: trustedQrSellerIdentifier,
           ),
+          sellerTaxId: taxId,
+          literalMerchantText: name,
+          trustedQrSellerIdentifier: trustedQrSellerIdentifier,
+          sourceReference: sourceReference,
         );
       }
-      return InvoiceMerchantMasterBindingResult(
+      return _withIdentityContext(
         status: InvoiceMerchantMasterBindingStatus.selectedExistingBinding,
         merchant: existingByTax,
-        message: _successMessage(
+        baseMessage: _successMessage(
           '此賣方統編已綁定既有商家。',
           checksumValid: checksumValid,
           trustedQrSellerIdentifier: trustedQrSellerIdentifier,
         ),
+        sellerTaxId: taxId,
+        literalMerchantText: name,
+        trustedQrSellerIdentifier: trustedQrSellerIdentifier,
+        sourceReference: sourceReference,
       );
     }
 
@@ -122,14 +146,18 @@ class InvoiceMerchantMasterBindingService {
         isArchived: false,
       );
       await _store.upsertMerchant(bound);
-      return InvoiceMerchantMasterBindingResult(
+      return _withIdentityContext(
         status: InvoiceMerchantMasterBindingStatus.boundExistingMerchant,
         merchant: bound,
-        message: _successMessage(
+        baseMessage: _successMessage(
           '已將賣方統編綁定到既有商家。',
           checksumValid: checksumValid,
           trustedQrSellerIdentifier: trustedQrSellerIdentifier,
         ),
+        sellerTaxId: taxId,
+        literalMerchantText: name,
+        trustedQrSellerIdentifier: trustedQrSellerIdentifier,
+        sourceReference: sourceReference,
       );
     }
 
@@ -142,14 +170,65 @@ class InvoiceMerchantMasterBindingService {
           : '由發票覆核畫面經使用者明確確認建立',
     );
     await _store.upsertMerchant(created);
-    return InvoiceMerchantMasterBindingResult(
+    return _withIdentityContext(
       status: InvoiceMerchantMasterBindingStatus.created,
       merchant: created,
-      message: _successMessage(
+      baseMessage: _successMessage(
         '已新增商家並綁定賣方統編。',
         checksumValid: checksumValid,
         trustedQrSellerIdentifier: trustedQrSellerIdentifier,
       ),
+      sellerTaxId: taxId,
+      literalMerchantText: name,
+      trustedQrSellerIdentifier: trustedQrSellerIdentifier,
+      sourceReference: sourceReference,
+    );
+  }
+
+  Future<InvoiceMerchantMasterBindingResult> _withIdentityContext({
+    required InvoiceMerchantMasterBindingStatus status,
+    required MerchantRecord merchant,
+    required String baseMessage,
+    required String sellerTaxId,
+    required String literalMerchantText,
+    required bool trustedQrSellerIdentifier,
+    required String sourceReference,
+  }) async {
+    final service = _identityReview;
+    if (service == null) {
+      return InvoiceMerchantMasterBindingResult(
+        status: status,
+        merchant: merchant,
+        message: baseMessage,
+      );
+    }
+
+    final reference = sourceReference.trim().isEmpty
+        ? 'invoice-review-binding:$sellerTaxId:${_normalizeName(literalMerchantText)}'
+        : sourceReference.trim();
+    final context = await service.confirmBinding(
+      merchant: merchant,
+      sellerIdentifier: sellerTaxId,
+      literalMerchantText: literalMerchantText,
+      evidenceSource: trustedQrSellerIdentifier
+          ? 'invoice_qr_explicit_binding'
+          : 'invoice_review_explicit_binding',
+      sourceReference: reference,
+    );
+    final legalName = context.decision.officialLegalNameSuggestion.trim();
+    final registrySuffix = legalName.isEmpty
+        ? ''
+        : ' 官方登記名稱：$legalName（僅供佐證，不覆寫發票商家文字）。';
+    final subsetSuffix = context.isValidationSubset
+        ? ' 目前官方資料來源為 P4.20 實機驗證子集。'
+        : '';
+    return InvoiceMerchantMasterBindingResult(
+      status: status,
+      merchant: merchant,
+      message: '$baseMessage$registrySuffix$subsetSuffix',
+      officialLegalName: legalName,
+      registryVersion: context.registryVersion,
+      registryCoverage: context.registryCoverage,
     );
   }
 
