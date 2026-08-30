@@ -2,6 +2,8 @@ import 'package:sqflite/sqflite.dart';
 
 import 'production_schema_v21.dart' show createCanonicalProductionV21Tables;
 import 'production_schema_v22_merchant_identity.dart';
+export 'production_schema_v22_merchant_identity.dart'
+    show normalizeMerchantIdentityName;
 
 const int canonicalProductionSchemaVersion = 22;
 
