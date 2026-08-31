@@ -63,19 +63,15 @@ void main() {
     );
   });
 
-  test('Backup Scope V7 adds only the execution ledger after Scope V6', () {
-    expect(FullBackupScope.databaseSchemaVersion, 21);
-    expect(FullBackupScope.backupScopeVersion, 7);
-    expect(FullBackupScope.supportedBackupScopeVersions, containsAll(<int>{
-      2,
-      3,
-      4,
-      5,
-      6,
-      7,
-    }));
+  test('legacy Backup Scope V7 adds only the execution ledger after Scope V6', () {
+    expect(canonicalProductionSchemaVersion, 21);
+    expect(FullBackupScope.backupScopeVersion, 8);
     expect(
-      FullBackupScope.backupTableNames,
+      FullBackupScope.supportedBackupScopeVersions,
+      containsAll(<int>{2, 3, 4, 5, 6, 7, 8}),
+    );
+    expect(
+      FullBackupScope.legacyScopeV7TableNames,
       <String>[
         ...FullBackupScope.legacyScopeV6TableNames,
         'wallet_top_up_executions',
@@ -84,6 +80,13 @@ void main() {
     expect(
       FullBackupScope.scopeV7OptionalForLegacyRestore,
       <String>{'wallet_top_up_executions'},
+    );
+    expect(
+      FullBackupScope.backupTableNames,
+      <String>[
+        ...FullBackupScope.legacyScopeV7TableNames,
+        ...FullBackupScope.merchantIdentityUserTableNames,
+      ],
     );
   });
 }

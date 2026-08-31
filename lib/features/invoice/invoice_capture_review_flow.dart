@@ -2,6 +2,7 @@ import 'image_capture_staging.dart';
 import 'invoice_automatic_recognition_coordinator.dart';
 import 'invoice_review_form_view_model.dart';
 import 'invoice_review_handoff_contract.dart';
+import 'invoice_review_qr_line_item_enricher.dart';
 
 class InvoiceCaptureReviewFlowResult {
   const InvoiceCaptureReviewFlowResult({
@@ -35,11 +36,13 @@ class InvoiceCaptureReviewFlowCoordinator {
     required this.recognitionCoordinator,
     this.handoffPresenter = const InvoiceReviewHandoffPresenter(),
     this.formPresenter = const InvoiceReviewFormPresenter(),
+    this.qrLineItemEnricher = const InvoiceReviewQrLineItemEnricher(),
   });
 
   final InvoiceAutomaticRecognitionCoordinator recognitionCoordinator;
   final InvoiceReviewHandoffPresenter handoffPresenter;
   final InvoiceReviewFormPresenter formPresenter;
+  final InvoiceReviewQrLineItemEnricher qrLineItemEnricher;
 
   Future<InvoiceCaptureReviewFlowResult> recognize({
     required ImageCaptureStagingItem image,
@@ -52,7 +55,11 @@ class InvoiceCaptureReviewFlowCoordinator {
     final handoffState = handoffPresenter.fromAutomaticResult(
       recognitionResult,
     );
-    final formModel = formPresenter.fromHandoff(handoffState);
+    final baseFormModel = formPresenter.fromHandoff(handoffState);
+    final formModel = qrLineItemEnricher.enrich(
+      review: baseFormModel,
+      recognition: recognitionResult,
+    );
 
     return InvoiceCaptureReviewFlowResult(
       recognitionResult: recognitionResult,

@@ -1,0 +1,272 @@
+name: P4.20.0 Public Signed Merchant Identity Registry Canary APK
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/database/production_schema_v22*.dart'
+      - 'lib/database/production_database_coordinator.dart'
+      - 'lib/features/account/account_repository.dart'
+      - 'lib/features/backup/**'
+      - 'lib/features/invoice/**'
+      - 'lib/features/merchant/**'
+      - 'assets/seed/business_registry_validation_pack.json'
+      - 'test/p4_20_0_**'
+      - 'test/full_backup_service_test.dart'
+      - 'test/full_restore_service_test.dart'
+      - 'test/production_database_opener_contract_test.dart'
+      - 'test/p4_12_34_1_version_contract_test.dart'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/p4_20_0_signed_canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-0-public-signed-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate P4.20.0 merchant identity registry canary
+    if: >-
+      ${{ github.head_ref == 'p4-20-0-merchant-identity-foundation' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Frozen real-device ancestry and exact-head gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen_p41911='d4013f390dea7d66099a55e6817ddfc290d430e2'
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$expected_head"
+          git cat-file -e "$frozen_p41911^{commit}"
+          git merge-base --is-ancestor "$frozen_p41911" HEAD
+          printf 'P4.19.11 owner real-device ancestor: PASS (%s)\n' "$frozen_p41911"
+          printf 'P4.20.0 exact head: %s\n' "$actual_head"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+      - name: Version and validation-pack authority gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fxq 'version: 4.20.0+453' pubspec.yaml
+          grep -Fq "validationVersion = '4.20.0+453'" lib/features/invoice/lab/private_cloud_invoice_lab_config.dart
+          grep -Fq "appVersion = '4.20.0+453'" lib/app_build_metadata.dart
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('assets/seed/business_registry_validation_pack.json')
+          data = json.loads(p.read_text())
+          assert data['coverage'] == 'validation_subset'
+          assert data['content_sha256'] == '75992341fadd3a18f8b66b30b9b3187777d2d0258498ddadbffb7d633d2cd46b'
+          assert [e['seller_identifier'] for e in data['entities']] == ['30340553', '60744698']
+          pubspec = Path('pubspec.yaml').read_text()
+          assert 'assets/seed/business_registry_validation_pack.json' in pubspec
+          PY
+      - name: Analyze
+        run: flutter analyze
+      - name: Focused P4.20.0 and regression gates
+        run: |
+          set -euo pipefail
+          flutter test test/p4_20_0_merchant_identity_schema_test.dart
+          flutter test test/p4_20_0_merchant_identity_contract_test.dart
+          flutter test test/p4_20_0_business_registry_pack_test.dart
+          flutter test test/p4_20_0_merchant_identity_runtime_test.dart
+          flutter test test/p4_20_0_schema_activation_backup_restore_test.dart
+          flutter test test/full_backup_service_test.dart
+          flutter test test/full_restore_service_test.dart
+          flutter test test/production_database_opener_contract_test.dart
+          flutter test test/p4_19_11_invoice_input_ux_test.dart
+          flutter test test/p4_19_10_merchant_seller_identity_test.dart
+          flutter test test/p4_19_8_invoice_transaction_entry_boundary_test.dart
+          flutter test test/p4_12_34_1_version_contract_test.dart
+
+  signed-apk:
+    name: Build and inspect P4.20.0 signed merchant identity registry APK
+    needs: validate
+    if: ${{ needs.validate.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact head gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android host without dependency authority
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android --no-pub .
+          git checkout HEAD -- pubspec.yaml pubspec.lock
+      - name: Patch Android permission and desugaring boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          for node in [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+          ]:
+              if node not in text:
+                  text = text.replace(marker, marker + '\n    ' + node, 1)
+          manifest.write_text(text)
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          if 'isCoreLibraryDesugaringEnabled = true' not in text:
+              text = text.replace('compileOptions {', 'compileOptions {\n        isCoreLibraryDesugaringEnabled = true', 1)
+          dep = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          if dep not in text:
+              if 'dependencies {' in text:
+                  text = text.replace('dependencies {', 'dependencies {\n    ' + dep, 1)
+              else:
+                  text += '\n\ndependencies {\n    ' + dep + '\n}\n'
+          gradle.write_text(text)
+          PY
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+      - name: Prepare signing files
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          test -n "$ANDROID_SIGNING_CERT_SHA256"
+          pinned='9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
+          configured="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test "$configured" = "$pinned"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+      - name: Verify configured signing certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          actual="$({ keytool -exportcert -rfc -keystore android/app/upload-keystore.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD"; } | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test "$actual" = '9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
+          printf 'Configured signing certificate SHA-256: %s\n' "$actual"
+      - name: Patch release signing and ML Kit R8 boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('android/app/build.gradle.kts')
+          text = path.read_text()
+          if 'val keystoreProperties' not in text:
+              text = text.replace('plugins {', 'import java.util.Properties\nimport java.io.FileInputStream\n\nplugins {', 1)
+              text = text.replace('android {', 'val keystoreProperties = Properties()\nval keystorePropertiesFile = rootProject.file("key.properties")\nif (keystorePropertiesFile.exists()) { keystoreProperties.load(FileInputStream(keystorePropertiesFile)) }\n\nandroid {', 1)
+          if 'create("release")' not in text:
+              text = text.replace('    buildTypes {\n        release {', '    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }\n\n    buildTypes {\n        release {', 1)
+          text = text.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+          path.write_text(text)
+          Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
+          PY
+      - name: Build signed release APK with registry validation subset
+        run: flutter build apk --release --no-pub --build-number=453 --dart-define=ENABLE_P4_20_REGISTRY_VALIDATION_PACK=true
+      - name: Inspect signed APK boundary
+        env:
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          apk='build/app/outputs/flutter-apk/app-release.apk'
+          apkanalyzer_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort -V | tail -n 1)"
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          permissions="$($apkanalyzer_bin manifest permissions "$apk")"
+          version_name="$($apkanalyzer_bin manifest version-name "$apk")"
+          version_code="$($apkanalyzer_bin manifest version-code "$apk")"
+          signer_output="$($apksigner_bin verify --print-certs "$apk")"
+          normalized="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          printf '%s\n' "$permissions"
+          printf 'APK versionName: %s\nAPK versionCode: %s\n%s\n' "$version_name" "$version_code" "$signer_output"
+          grep -Fq 'android.permission.CAMERA' <<< "$permissions"
+          grep -Fq 'android.permission.INTERNET' <<< "$permissions"
+          grep -Fq 'android.permission.POST_NOTIFICATIONS' <<< "$permissions"
+          grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
+          test "$version_name" = '4.20.0'
+          test "$version_code" = '453'
+          grep -Fq '9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7' <<< "$normalized"
+          unzip -l "$apk" | grep -Fq 'assets/flutter_assets/assets/seed/business_registry_validation_pack.json'
+          {
+            printf 'P4_20_0_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
+            printf 'VERSION_NAME=%s\n' "$version_name"
+            printf 'VERSION_CODE=%s\n' "$version_code"
+            printf 'PRODUCTION_SCHEMA_V22=PASS\n'
+            printf 'BACKUP_SCOPE_V8=PASS\n'
+            printf 'LEGACY_V7_TO_V22_RESTORE=PASS\n'
+            printf 'REGISTRY_VALIDATION_SUBSET_BUNDLED=PASS\n'
+            printf 'REGISTRY_VALIDATION_SUBSET_SHA256=75992341fadd3a18f8b66b30b9b3187777d2d0258498ddadbffb7d633d2cd46b\n'
+            printf 'MERCHANT_BRAND_LEGAL_ENTITY_SEPARATION=PASS\n'
+            printf 'SELLER_ID_CONFLICT_FAIL_CLOSED=PASS\n'
+            printf 'FORMAL_WRITE_EXPLICIT_SAVE_ONLY=PASS\n'
+            printf 'SIGNER_SHA256_PIN=PASS\n'
+            printf 'CAMERA_PERMISSION=PASS\n'
+            printf 'INTERNET_PERMISSION=PASS\n'
+            printf 'POST_NOTIFICATIONS_PERMISSION=PASS\n'
+            printf 'RECORD_AUDIO_PRESENT=PASS\n'
+            printf 'READ_SMS_ABSENT=PASS\n'
+            printf 'READ_CONTACTS_ABSENT=PASS\n'
+          } > p4_20_0_canary_metadata.txt
+      - name: Generate APK checksum
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk | tee p4_20_0_public_signed_merchant_identity_registry_canary.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-0-public-4.20.0+453-signed-merchant-identity-registry-canary
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            p4_20_0_public_signed_merchant_identity_registry_canary.sha256
+            p4_20_0_canary_metadata.txt
+          if-no-files-found: error
+          retention-days: 1

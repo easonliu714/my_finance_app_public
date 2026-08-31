@@ -1,7 +1,7 @@
 name: my_finance_app
 description: Local-first personal finance app for Taiwan daily accounting.
 publish_to: 'none'
-version: 4.19.8+449
+version: 4.20.0+453
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -51,3 +51,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/seed/business_registry_validation_pack.json

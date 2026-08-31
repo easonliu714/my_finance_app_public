@@ -77,7 +77,10 @@ void main() {
             result.preRestoreBackupEnvelope['metadata']!
                 as Map<String, Object?>;
         expect(preRestoreMetadata['export_format_version'], 2);
-        expect(preRestoreMetadata['database_schema_version'], 21);
+        expect(
+          preRestoreMetadata['database_schema_version'],
+          FullBackupService.databaseSchemaVersion,
+        );
         expect(preRestoreMetadata['coverage_complete'], isTrue);
         expect(preRestoreMetadata['created_at'], '2026-06-28T08:30:00.000Z');
         expect(
