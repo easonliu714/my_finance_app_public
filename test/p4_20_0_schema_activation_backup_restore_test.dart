@@ -210,6 +210,7 @@ Future<Database> _openLegacyFixture() async {
   final db = await databaseFactoryFfi.openDatabase(
     inMemoryDatabasePath,
     options: OpenDatabaseOptions(
+      singleInstance: false,
       onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
     ),
   );
@@ -260,6 +261,7 @@ Future<Database> _openV22Fixture({
   final db = await databaseFactoryFfi.openDatabase(
     inMemoryDatabasePath,
     options: OpenDatabaseOptions(
+      singleInstance: false,
       onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
     ),
   );
