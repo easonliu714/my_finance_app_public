@@ -101,6 +101,57 @@ void main() {
       );
       expect(await destination.exists(), isFalse);
     });
+
+    test('rejects streamed bytes beyond manifest ceiling and cleans partial', () async {
+      final payload = utf8.encode('abcd');
+      final destination = File('${tempDir.path}/registry.gz.partial');
+      final downloader = BusinessRegistryBoundedDownloader(
+        client: _StreamingClient(payload: payload, declaredLength: null),
+      );
+
+      await expectLater(
+        downloader.download(
+          manifest: _manifest(
+            compressedSizeBytes: 3,
+            downloadSha256:
+                'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+          ),
+          destinationTempFile: destination,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'REGISTRY_DOWNLOAD_COMPRESSED_SIZE_EXCEEDED',
+          ),
+        ),
+      );
+      expect(await destination.exists(), isFalse);
+    });
+
+    test('rejects non-200 response without leaving partial bytes', () async {
+      final destination = File('${tempDir.path}/registry.gz.partial');
+      final downloader = BusinessRegistryBoundedDownloader(
+        client: _StreamingClient(
+          payload: const <int>[],
+          declaredLength: 0,
+          statusCode: HttpStatus.serviceUnavailable,
+        ),
+      );
+
+      await expectLater(
+        downloader.download(
+          manifest: _manifest(
+            compressedSizeBytes: 3,
+            downloadSha256:
+                'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+          ),
+          destinationTempFile: destination,
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      expect(await destination.exists(), isFalse);
+    });
   });
 }
 
@@ -130,16 +181,21 @@ BusinessRegistryDistributionManifest _manifest({
 }
 
 class _StreamingClient extends http.BaseClient {
-  _StreamingClient({required this.payload, required this.declaredLength});
+  _StreamingClient({
+    required this.payload,
+    required this.declaredLength,
+    this.statusCode = HttpStatus.ok,
+  });
 
   final List<int> payload;
   final int? declaredLength;
+  final int statusCode;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     return http.StreamedResponse(
       Stream<List<int>>.value(payload),
-      HttpStatus.ok,
+      statusCode,
       contentLength: declaredLength,
       request: request,
     );
