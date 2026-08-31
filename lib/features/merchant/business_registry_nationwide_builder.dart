@@ -56,7 +56,10 @@ class BusinessRegistryNationwideBuildPass {
       throw StateError('REGISTRY_BUILDER_ALREADY_CLOSED');
     }
     _closed = true;
-    await _hashSink.close();
+    // HashSink.close() is synchronous in package:cryptography; the digest is
+    // retrieved asynchronously via hash(). Awaiting close() breaks analyzer
+    // because close() returns void.
+    _hashSink.close();
     final hash = await _hashSink.hash();
     return BusinessRegistryNationwideBuildSummary(
       entityCount: _entityCount,
