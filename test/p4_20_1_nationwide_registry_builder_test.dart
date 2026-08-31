@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/merchant/business_registry_nationwide_builder.dart';
 import 'package:my_finance_app/features/merchant/business_registry_pack.dart';
+import 'package:my_finance_app/features/merchant/business_registry_stream_pack.dart';
 
 void main() {
   const company = BusinessRegistryEntity(
@@ -110,6 +113,106 @@ void main() {
         'REGISTRY_BUILDER_SOURCE_DATASET_REQUIRED',
         'REGISTRY_BUILDER_PARENT_IDENTIFIER_INVALID',
       ]),
+    );
+  });
+
+  test('second pass emits deterministic nationwide provenance header', () async {
+    final first = BusinessRegistryNationwideBuildPass();
+    first.add(company);
+    first.add(business);
+    first.add(branch);
+    final summary = await first.close();
+
+    const metadata = BusinessRegistryNationwideBuildMetadata(
+      registryVersion: 'tw-registry-2026-08-31',
+      sourceAuthority: 'MOEA_BUSINESS_ADMINISTRATION_GCIS_PUBLIC_REPORT',
+      sourceDataset: 'company+business+branch',
+      sourceDataDate: '2026-08-31',
+    );
+    final emitter = BusinessRegistryNationwideEmitPass(
+      metadata: metadata,
+      expectedSummary: summary,
+    );
+    final headerJson = Map<String, Object?>.from(
+      jsonDecode(emitter.headerLine) as Map,
+    );
+
+    expect(headerJson['record_type'], 'header');
+    expect(headerJson['registry_version'], 'tw-registry-2026-08-31');
+    expect(headerJson['coverage'], BusinessRegistryPack.nationwideCoverage);
+    expect(headerJson['entity_count'], 3);
+    expect(headerJson['registry_content_sha256'], summary.registryContentSha256);
+
+    final parsed = const BusinessRegistryStreamPackParser()
+        .parseLine(emitter.headerLine) as BusinessRegistryStreamHeaderRecord;
+    expect(parsed.header.entityCount, 3);
+    expect(parsed.header.registryContentSha256, summary.registryContentSha256);
+
+    emitter.add(company);
+    emitter.add(business);
+    emitter.add(branch);
+    final emittedSummary = await emitter.close();
+    expect(emittedSummary.entityCount, summary.entityCount);
+    expect(
+      emittedSummary.registryContentSha256,
+      summary.registryContentSha256,
+    );
+  });
+
+  test('second pass fails closed when source changes after first pass', () async {
+    final first = BusinessRegistryNationwideBuildPass();
+    first.add(company);
+    first.add(business);
+    final summary = await first.close();
+
+    final emitter = BusinessRegistryNationwideEmitPass(
+      metadata: const BusinessRegistryNationwideBuildMetadata(
+        registryVersion: 'tw-registry-2026-08-31',
+        sourceAuthority: 'MOEA_BUSINESS_ADMINISTRATION_GCIS',
+        sourceDataset: 'company+business',
+        sourceDataDate: '2026-08-31',
+      ),
+      expectedSummary: summary,
+    );
+    emitter.add(company);
+    emitter.add(
+      const BusinessRegistryEntity(
+        sellerIdentifier: '22345678',
+        entityType: BusinessRegistryEntityType.business,
+        legalName: '已變更商號',
+        sourceDataset: 'business_registry',
+      ),
+    );
+
+    await expectLater(
+      emitter.close(),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'REGISTRY_BUILDER_SECOND_PASS_SHA256_MISMATCH',
+        ),
+      ),
+    );
+  });
+
+  test('second pass rejects non-nationwide or incomplete provenance', () {
+    expect(
+      () => BusinessRegistryNationwideEmitPass(
+        metadata: const BusinessRegistryNationwideBuildMetadata(
+          registryVersion: '',
+          sourceAuthority: 'UNKNOWN',
+          sourceDataset: '',
+          sourceDataDate: 'not-a-date',
+          coverage: BusinessRegistryPack.validationSubsetCoverage,
+        ),
+        expectedSummary: const BusinessRegistryNationwideBuildSummary(
+          entityCount: 1,
+          registryContentSha256:
+              'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        ),
+      ),
+      throwsA(isA<FormatException>()),
     );
   });
 }
