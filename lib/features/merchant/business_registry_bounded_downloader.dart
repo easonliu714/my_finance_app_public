@@ -30,13 +30,13 @@ class BusinessRegistryBoundedDownloader {
     await destinationTempFile.parent.create(recursive: true);
 
     final request = http.Request('GET', manifest.downloadUri);
-    http.StreamedResponse? response;
     IOSink? output;
     final hashSink = Sha256().newHashSink();
+    var hashClosed = false;
     var bytesWritten = 0;
 
     try {
-      response = await client.send(request);
+      final response = await client.send(request);
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           'REGISTRY_DOWNLOAD_HTTP_STATUS_${response.statusCode}',
@@ -70,6 +70,7 @@ class BusinessRegistryBoundedDownloader {
       }
 
       hashSink.close();
+      hashClosed = true;
       final hash = await hashSink.hash();
       final actualSha256 = hash.bytes
           .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
@@ -88,6 +89,9 @@ class BusinessRegistryBoundedDownloader {
         await output?.close();
       } catch (_) {
         // Best-effort close; the authoritative failure remains the first one.
+      }
+      if (!hashClosed) {
+        hashSink.close();
       }
       await _deleteIfExists(destinationTempFile);
       rethrow;
