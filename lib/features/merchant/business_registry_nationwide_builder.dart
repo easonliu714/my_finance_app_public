@@ -121,6 +121,115 @@ class BusinessRegistryNationwideBuildPass {
   }
 }
 
+/// Immutable provenance required before a nationwide second pass can emit a
+/// stream header. This deliberately contains no download URL or compressed
+/// size fields: those belong to the distribution manifest after the emitted
+/// NDJSON has been compressed and hashed.
+class BusinessRegistryNationwideBuildMetadata {
+  const BusinessRegistryNationwideBuildMetadata({
+    required this.registryVersion,
+    required this.sourceAuthority,
+    required this.sourceDataset,
+    required this.sourceDataDate,
+    this.coverage = BusinessRegistryPack.nationwideCoverage,
+  });
+
+  final String registryVersion;
+  final String sourceAuthority;
+  final String sourceDataset;
+  final String sourceDataDate;
+  final String coverage;
+
+  List<String> validate() {
+    final errors = <String>[];
+    if (registryVersion.trim().isEmpty) {
+      errors.add('REGISTRY_BUILDER_VERSION_REQUIRED');
+    }
+    if (!BusinessRegistryPack.allowedSourceAuthorities
+        .contains(sourceAuthority.trim())) {
+      errors.add('REGISTRY_BUILDER_SOURCE_AUTHORITY_NOT_ALLOWED');
+    }
+    if (sourceDataset.trim().isEmpty) {
+      errors.add('REGISTRY_BUILDER_SOURCE_DATASET_REQUIRED');
+    }
+    if (DateTime.tryParse(sourceDataDate.trim()) == null) {
+      errors.add('REGISTRY_BUILDER_SOURCE_DATA_DATE_INVALID');
+    }
+    if (coverage != BusinessRegistryPack.nationwideCoverage) {
+      errors.add('REGISTRY_BUILDER_MUST_BE_NATIONWIDE');
+    }
+    return List<String>.unmodifiable(errors);
+  }
+}
+
+/// O(1)-memory second pass that emits the canonical stream header and verifies
+/// that the source has not changed since the first pass.
+///
+/// The caller writes [headerLine] once, then writes every line returned by
+/// [add]. [close] must succeed before the uncompressed NDJSON is accepted for
+/// compression/distribution. Any entity-count or payload-hash drift fails
+/// closed, preventing a manifest from describing different bytes than the
+/// registry content that was actually emitted.
+class BusinessRegistryNationwideEmitPass {
+  BusinessRegistryNationwideEmitPass({
+    required this.metadata,
+    required this.expectedSummary,
+  }) : _verificationPass = BusinessRegistryNationwideBuildPass() {
+    final errors = metadata.validate();
+    if (errors.isNotEmpty) {
+      throw FormatException(errors.join(','));
+    }
+    if (expectedSummary.entityCount <= 0) {
+      throw const FormatException('REGISTRY_BUILDER_ENTITY_COUNT_INVALID');
+    }
+    if (!RegExp(r'^[0-9a-f]{64}$')
+        .hasMatch(expectedSummary.registryContentSha256)) {
+      throw const FormatException('REGISTRY_BUILDER_CONTENT_SHA256_INVALID');
+    }
+  }
+
+  final BusinessRegistryNationwideBuildMetadata metadata;
+  final BusinessRegistryNationwideBuildSummary expectedSummary;
+  final BusinessRegistryNationwideBuildPass _verificationPass;
+  bool _closed = false;
+
+  String get headerLine => '${jsonEncode(<String, Object?>{
+        'record_type': 'header',
+        'registry_version': metadata.registryVersion.trim(),
+        'source_authority': metadata.sourceAuthority.trim(),
+        'source_dataset': metadata.sourceDataset.trim(),
+        'source_data_date': metadata.sourceDataDate.trim(),
+        'coverage': metadata.coverage,
+        'entity_count': expectedSummary.entityCount,
+        'registry_content_sha256': expectedSummary.registryContentSha256,
+      })}\n';
+
+  String add(BusinessRegistryEntity source) {
+    if (_closed) {
+      throw StateError('REGISTRY_BUILDER_ALREADY_CLOSED');
+    }
+    return _verificationPass.add(source);
+  }
+
+  Future<BusinessRegistryNationwideBuildSummary> close() async {
+    if (_closed) {
+      throw StateError('REGISTRY_BUILDER_ALREADY_CLOSED');
+    }
+    _closed = true;
+    final actual = await _verificationPass.close();
+    if (actual.entityCount != expectedSummary.entityCount) {
+      throw StateError(
+        'REGISTRY_BUILDER_SECOND_PASS_ENTITY_COUNT_MISMATCH',
+      );
+    }
+    if (actual.registryContentSha256 !=
+        expectedSummary.registryContentSha256) {
+      throw StateError('REGISTRY_BUILDER_SECOND_PASS_SHA256_MISMATCH');
+    }
+    return actual;
+  }
+}
+
 class BusinessRegistryNationwideBuildSummary {
   const BusinessRegistryNationwideBuildSummary({
     required this.entityCount,
