@@ -80,7 +80,12 @@ void main() {
         seller: '87654321',
       );
       await registry.install(pack);
-      final refresh = _FakeRefreshPort(manifest: _manifest('2026-09-01'));
+      final refresh = _FakeRefreshPort(
+        manifest: _manifest(
+          '2026-09-01',
+          contentSha256: pack.contentSha256,
+        ),
+      );
       final service = BusinessRegistryAuthoritativeLookupService(
         identityRepository: identity,
         registryRepository: registry,
@@ -105,6 +110,7 @@ void main() {
         BusinessRegistryAuthoritativeLookupStatus.notFoundCurrentRegistry,
       );
       expect(second.registryLookup?.negativeCacheHit, isTrue);
+      expect(refresh.manifestChecks, 2);
       expect(refresh.updateCalls, 0);
     });
 
@@ -168,7 +174,10 @@ void main() {
   });
 }
 
-BusinessRegistryDistributionManifest _manifest(String version) =>
+BusinessRegistryDistributionManifest _manifest(
+  String version, {
+  String? contentSha256,
+}) =>
     BusinessRegistryDistributionManifest(
       schemaVersion: BusinessRegistryDistributionManifest.currentSchemaVersion,
       registryVersion: version,
@@ -182,7 +191,7 @@ BusinessRegistryDistributionManifest _manifest(String version) =>
         'https://github.com/easonliu714/my_finance_app_public/releases/download/registry-v1/registry.gz',
       ),
       downloadSha256: 'a' * 64,
-      registryContentSha256: 'b' * 64,
+      registryContentSha256: contentSha256 ?? 'b' * 64,
       compressedSizeBytes: 100,
       uncompressedSizeBytes: 200,
       attribution: '經濟部商業發展署 / data.gov.tw',
