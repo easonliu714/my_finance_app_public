@@ -66,6 +66,12 @@ class BusinessRegistryAuthoritativeLookupResult {
 /// and may perform at most one controlled refresh, followed by exactly one local
 /// retry. Every refresh failure is converted into a non-blocking result so the
 /// invoice review remains usable.
+///
+/// P4.20.2 also guards the refresh surface at process/session scope. Repeated UI
+/// resolves for the same seller, repository/refresh-port pair, and installed
+/// snapshot reuse one in-flight/completed refresh result. A new installed
+/// snapshot version naturally creates a new scope. This prevents merchant-text
+/// edits or widget rebuilds from repeatedly probing the distribution endpoint.
 class BusinessRegistryAuthoritativeLookupService {
   const BusinessRegistryAuthoritativeLookupService({
     required this.identityRepository,
@@ -76,6 +82,12 @@ class BusinessRegistryAuthoritativeLookupService {
   final MerchantIdentityRepository identityRepository;
   final BusinessRegistryRepository registryRepository;
   final BusinessRegistryRefreshPort refreshPort;
+
+  static final Map<String, Future<BusinessRegistryAuthoritativeLookupResult>>
+      _inFlightRefreshes =
+      <String, Future<BusinessRegistryAuthoritativeLookupResult>>{};
+  static final Map<String, BusinessRegistryAuthoritativeLookupResult>
+      _completedRefreshes = <String, BusinessRegistryAuthoritativeLookupResult>{};
 
   Future<BusinessRegistryAuthoritativeLookupResult> resolve({
     required String sellerIdentifier,
@@ -117,6 +129,45 @@ class BusinessRegistryAuthoritativeLookupService {
     }
 
     final installed = await registryRepository.installedSnapshot();
+    final scopeKey = _refreshScopeKey(seller, installed);
+    final completed = _completedRefreshes[scopeKey];
+    if (completed != null) return completed;
+
+    final existing = _inFlightRefreshes[scopeKey];
+    if (existing != null) return existing;
+
+    final future = _refreshAfterLocalMiss(
+      seller: seller,
+      local: local,
+      installed: installed,
+    );
+    _inFlightRefreshes[scopeKey] = future;
+    try {
+      final result = await future;
+      _completedRefreshes[scopeKey] = result;
+
+      // A successful update may have advanced the installed registry version.
+      // Seed that new version scope too, otherwise an immediate UI rebuild
+      // would perform one redundant manifest probe against the just-installed
+      // snapshot.
+      if (result.refreshAttempted && result.refreshError.isEmpty) {
+        final installedAfter = await registryRepository.installedSnapshot();
+        final postUpdateKey = _refreshScopeKey(seller, installedAfter);
+        _completedRefreshes[postUpdateKey] = result;
+      }
+      return result;
+    } finally {
+      if (identical(_inFlightRefreshes[scopeKey], future)) {
+        _inFlightRefreshes.remove(scopeKey);
+      }
+    }
+  }
+
+  Future<BusinessRegistryAuthoritativeLookupResult> _refreshAfterLocalMiss({
+    required String seller,
+    required BusinessRegistryLookupResult local,
+    required BusinessRegistrySnapshotInfo? installed,
+  }) async {
     BusinessRegistryDistributionManifest? available;
     try {
       available = await refreshPort.fetchAvailableManifest();
@@ -177,5 +228,15 @@ class BusinessRegistryAuthoritativeLookupService {
         refreshError: error.toString(),
       );
     }
+  }
+
+  String _refreshScopeKey(
+    String seller,
+    BusinessRegistrySnapshotInfo? installed,
+  ) {
+    final version = installed?.version ?? '<none>';
+    final contentSha = installed?.contentSha256 ?? '<none>';
+    return '${identityHashCode(registryRepository)}|'
+        '${identityHashCode(refreshPort)}|$seller|$version|$contentSha';
   }
 }
