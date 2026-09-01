@@ -3,6 +3,6 @@ class AppBuildMetadata {
 
   static const String appName = 'my_finance_app';
   static const String appDisplayName = 'My Finance App';
-  static const String appVersion = '4.20.1+454';
-  static const String phase = 'P4.20.1-registry-production-update';
+  static const String appVersion = '4.20.2+455';
+  static const String phase = 'P4.20.2-invoice-registry-corroboration';
 }
