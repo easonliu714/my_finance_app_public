@@ -162,10 +162,10 @@ BusinessRegistryDistributionManifest _manifest({
   return BusinessRegistryDistributionManifest(
     schemaVersion: BusinessRegistryDistributionManifest.currentSchemaVersion,
     registryVersion: '2026-09-01',
-    sourceAuthority: 'MOEA_GCIS',
+    sourceAuthority: 'MOEA_BUSINESS_ADMINISTRATION_GCIS',
     sourceDataset: 'nationwide_company_business_branch',
     sourceDataDate: '2026-09-01',
-    coverage: 'nationwide',
+    coverage: 'taiwan_nationwide',
     format: BusinessRegistryDistributionFormat.gzipNdjsonV1,
     entityCount: 1,
     downloadUri: Uri.parse(
