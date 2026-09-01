@@ -100,10 +100,7 @@ void main() {
       findsOneWidget,
     );
     final button = tester.widget<FilledButton>(
-      find.descendant(
-        of: find.byKey(BusinessRegistryUpdateCard.refreshKey),
-        matching: find.byType(FilledButton),
-      ),
+      find.byKey(BusinessRegistryUpdateCard.refreshKey),
     );
     expect(button.onPressed, isNull);
   });
