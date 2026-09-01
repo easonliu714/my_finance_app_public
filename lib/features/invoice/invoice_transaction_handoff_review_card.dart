@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'gemini/gemini_invoice_review.dart';
+import 'invoice_merchant_identity_review_service.dart';
 import 'invoice_merchant_master_binding_service.dart';
 import 'invoice_period_policy.dart';
+import 'invoice_registry_corroboration_policy.dart';
 import 'invoice_review_authority_contract.dart';
 import 'invoice_review_authority_runtime_adapter.dart';
 import 'invoice_review_field_source_switch.dart';
@@ -21,6 +25,10 @@ class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
     this.contract = const InvoiceTransactionHandoffContract(),
     this.authorityAdapter = const InvoiceReviewAuthorityRuntimeAdapter(),
     this.merchantBindingService = const InvoiceMerchantMasterBindingService(),
+    this.registryAuthorityPolicy =
+        const InvoiceRegistryCorroborationAuthorityPolicy(),
+    this.merchantIdentityReviewService =
+        const InvoiceMerchantIdentityReviewService(),
   });
 
   static const Key confirmKey = Key('invoice_transaction_handoff_confirm');
@@ -34,6 +42,8 @@ class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
       Key('invoice_transaction_handoff_bind_merchant');
   static const Key merchantBindingStatusKey =
       Key('invoice_transaction_handoff_merchant_binding_status');
+  static const Key registryCorroborationStatusKey =
+      Key('invoice_transaction_handoff_registry_corroboration_status');
 
   static Key fieldKey(InvoiceReviewFieldKey key) =>
       Key('invoice_transaction_handoff_field_${key.name}');
@@ -56,6 +66,8 @@ class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
   final InvoiceTransactionHandoffContract contract;
   final InvoiceReviewAuthorityRuntimeAdapter authorityAdapter;
   final InvoiceMerchantMasterBindingService merchantBindingService;
+  final InvoiceRegistryCorroborationAuthorityPolicy registryAuthorityPolicy;
+  final InvoiceMerchantIdentityReviewPort merchantIdentityReviewService;
 
   @override
   State<InvoiceTransactionHandoffReviewCard> createState() =>
@@ -81,10 +93,16 @@ class _InvoiceTransactionHandoffReviewCardState
   bool _needsReconfirm = false;
   bool _edited = false;
   bool _merchantBindingBusy = false;
+  bool _merchantCorroborationBusy = false;
+  bool _formalMerchantFromCorroboration = false;
   bool _periodDerivedFromDate = false;
+  int _merchantCorroborationRevision = 0;
+  String _lastMerchantCorroborationKey = '';
   String _formalMerchantName = '';
   String _merchantBindingStatus = '';
+  String _merchantCorroborationMessage = '';
   String _error = '';
+  InvoiceMerchantIdentityReviewContext? _merchantCorroboration;
 
   GeminiInvoiceReviewCandidate? get _effectiveAiCandidate =>
       widget.aiCandidate ??
@@ -98,11 +116,15 @@ class _InvoiceTransactionHandoffReviewCardState
     _review = _derivePeriodIfBlank(widget.initialReview);
     _captureLocalBaseline(_review);
     _syncControllers(_review);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => unawaited(_refreshMerchantCorroboration()),
+    );
   }
 
   @override
   void didUpdateWidget(covariant InvoiceTransactionHandoffReviewCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    var needsCorroborationRefresh = false;
     if (!_edited && oldWidget.initialReview != widget.initialReview) {
       _review = _derivePeriodIfBlank(widget.initialReview);
       _explicitlyCorrectedFields.clear();
@@ -110,9 +132,14 @@ class _InvoiceTransactionHandoffReviewCardState
       _aiLineItemsSelected = false;
       _authorityConfirmed = false;
       _formalMerchantName = '';
+      _formalMerchantFromCorroboration = false;
       _merchantBindingStatus = '';
+      _merchantCorroboration = null;
+      _merchantCorroborationMessage = '';
+      _lastMerchantCorroborationKey = '';
       _captureLocalBaseline(_review);
       _syncControllers(_review);
+      needsCorroborationRefresh = true;
     }
 
     final comparisonChanged =
@@ -123,11 +150,20 @@ class _InvoiceTransactionHandoffReviewCardState
     if (comparisonChanged) {
       _refreshSelectedAiValues();
       _invalidateConfirmation();
+      needsCorroborationRefresh = true;
+    }
+    if (oldWidget.aiComparisonAcknowledged !=
+        widget.aiComparisonAcknowledged) {
+      needsCorroborationRefresh = true;
+    }
+    if (needsCorroborationRefresh) {
+      unawaited(_refreshMerchantCorroboration(force: true));
     }
   }
 
   @override
   void dispose() {
+    _merchantCorroborationRevision += 1;
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -347,6 +383,15 @@ class _InvoiceTransactionHandoffReviewCardState
         _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value.trim() ?? '';
     if (merchant.isEmpty && taxId.isEmpty) return const SizedBox.shrink();
 
+    final corroboration = _merchantCorroboration;
+    final officialLegalName =
+        corroboration?.decision.officialLegalNameSuggestion.trim() ?? '';
+    final knownFormalMerchant =
+        corroboration?.decision.formalMerchantName.trim() ?? '';
+    final coverage = corroboration?.isValidationSubset == true
+        ? '實機驗證子集'
+        : (corroboration?.registryCoverage.trim() ?? '');
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: DecoratedBox(
@@ -368,6 +413,59 @@ class _InvoiceTransactionHandoffReviewCardState
               const SizedBox(height: 4),
               Text('候選商家：${merchant.isEmpty ? '未辨識' : merchant}｜賣方統編：${taxId.isEmpty ? '未辨識' : taxId}'),
               const SizedBox(height: 8),
+              if (_merchantCorroborationBusy)
+                const Row(
+                  key: InvoiceTransactionHandoffReviewCard
+                      .registryCorroborationStatusKey,
+                  children: <Widget>[
+                    SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(child: Text('正在查詢本機官方公司行號資料…')),
+                  ],
+                )
+              else if (corroboration != null)
+                Container(
+                  key: InvoiceTransactionHandoffReviewCard
+                      .registryCorroborationStatusKey,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      if (officialLegalName.isNotEmpty)
+                        Text('官方登記名稱：$officialLegalName'),
+                      if (knownFormalMerchant.isNotEmpty)
+                        Text('既有正式商家：$knownFormalMerchant'),
+                      if (corroboration.registryVersion.trim().isNotEmpty)
+                        Text('官方資料版本：${corroboration.registryVersion}'),
+                      if (coverage.isNotEmpty) Text('涵蓋範圍：$coverage'),
+                      const SizedBox(height: 4),
+                      const Text(
+                        '官方登記資料僅供賣方統編佐證，不會覆寫發票商家文字，也不會自動建立新商家。',
+                      ),
+                    ],
+                  ),
+                )
+              else if (_merchantCorroborationMessage.isNotEmpty)
+                Text(
+                  _merchantCorroborationMessage,
+                  key: InvoiceTransactionHandoffReviewCard
+                      .registryCorroborationStatusKey,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              if (_merchantCorroborationBusy ||
+                  corroboration != null ||
+                  _merchantCorroborationMessage.isNotEmpty)
+                const SizedBox(height: 8),
               OutlinedButton.icon(
                 key: InvoiceTransactionHandoffReviewCard.bindMerchantKey,
                 onPressed: _merchantBindingBusy || merchant.isEmpty || taxId.isEmpty
@@ -703,6 +801,9 @@ class _InvoiceTransactionHandoffReviewCardState
       _invalidateMerchantBindingIfNeeded(key);
     });
     _invalidateConfirmation();
+    if (_isMerchantIdentityField(key)) {
+      unawaited(_refreshMerchantCorroboration(force: true));
+    }
   }
 
   void _selectLineItemSource(InvoiceReviewFieldSourceSelection selection) {
@@ -736,6 +837,9 @@ class _InvoiceTransactionHandoffReviewCardState
       _invalidateMerchantBindingIfNeeded(key);
     });
     _invalidateConfirmation();
+    if (_isMerchantIdentityField(key)) {
+      unawaited(_refreshMerchantCorroboration(force: true));
+    }
   }
 
   void _syncDerivedPeriodFromCurrentDate() {
@@ -750,18 +854,21 @@ class _InvoiceTransactionHandoffReviewCardState
     _explicitlyAiSelectedFields.remove(InvoiceReviewFieldKey.invoicePeriod);
   }
 
+  bool _isMerchantIdentityField(InvoiceReviewFieldKey key) =>
+      key == InvoiceReviewFieldKey.sellerName ||
+      key == InvoiceReviewFieldKey.sellerTaxId;
+
   void _invalidateMerchantBindingIfNeeded(InvoiceReviewFieldKey key) {
-    if (key != InvoiceReviewFieldKey.sellerName &&
-        key != InvoiceReviewFieldKey.sellerTaxId) {
-      return;
-    }
+    if (!_isMerchantIdentityField(key)) return;
     _formalMerchantName = '';
+    _formalMerchantFromCorroboration = false;
     _merchantBindingStatus = '商家名稱或統編已變更，請重新確認正式商家綁定。';
   }
 
   void _refreshSelectedAiValues() {
     final ai = _effectiveAiCandidate;
     if (ai == null) return;
+    var merchantIdentityChanged = false;
     for (final key in _explicitlyAiSelectedFields.toList()) {
       final value = _aiValueFor(key, ai);
       if (value.isEmpty) {
@@ -771,6 +878,8 @@ class _InvoiceTransactionHandoffReviewCardState
       _review = _review.updateField(key, value);
       _controllers[key]?.text = value;
       _invalidateMerchantBindingIfNeeded(key);
+      merchantIdentityChanged = merchantIdentityChanged ||
+          _isMerchantIdentityField(key);
     }
     _syncDerivedPeriodFromCurrentDate();
     if (_aiLineItemsSelected) {
@@ -781,6 +890,9 @@ class _InvoiceTransactionHandoffReviewCardState
       } else {
         _review = _copyReviewWithLineItems(items);
       }
+    }
+    if (merchantIdentityChanged) {
+      unawaited(_refreshMerchantCorroboration(force: true));
     }
   }
 
@@ -874,6 +986,104 @@ class _InvoiceTransactionHandoffReviewCardState
     return field.value.trim().isNotEmpty;
   }
 
+  InvoiceRegistryCorroborationAuthorityDecision
+      _currentRegistryAuthorityDecision() {
+    final seller =
+        _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '';
+    return widget.registryAuthorityPolicy.evaluateReviewSelection(
+      sellerIdentifier: seller,
+      localQrAuthority: _sellerTaxIdIsTrustedQrAuthority,
+      explicitlyCorrected: _explicitlyCorrectedFields.contains(
+        InvoiceReviewFieldKey.sellerTaxId,
+      ),
+      explicitlyAiSelected: _explicitlyAiSelectedFields.contains(
+        InvoiceReviewFieldKey.sellerTaxId,
+      ),
+      aiComparisonAcknowledged: widget.aiComparisonAcknowledged,
+      initialLocalSellerIdentifierWasPresent:
+          (_localFieldValues[InvoiceReviewFieldKey.sellerTaxId] ?? '')
+              .trim()
+              .isNotEmpty,
+    );
+  }
+
+  Future<void> _refreshMerchantCorroboration({bool force = false}) async {
+    final authority = _currentRegistryAuthorityDecision();
+    final merchant =
+        _review.fieldFor(InvoiceReviewFieldKey.sellerName)?.value.trim() ?? '';
+    final key = '${authority.sellerIdentifier}|${authority.source.name}|$merchant|'
+        '${widget.aiComparisonAcknowledged}';
+    final revision = ++_merchantCorroborationRevision;
+
+    if (!authority.authoritative) {
+      if (!mounted) return;
+      setState(() {
+        _merchantCorroborationBusy = false;
+        _merchantCorroboration = null;
+        _lastMerchantCorroborationKey = '';
+        _merchantCorroborationMessage = authority.sellerIdentifier.isEmpty
+            ? '辨識出具權威的賣方統編後，才會查詢本機官方公司行號資料。'
+            : '目前賣方統編來源尚未符合官方資料查詢權威；不會用 Registry 反向升格。';
+        if (_formalMerchantFromCorroboration) {
+          _formalMerchantName = '';
+          _formalMerchantFromCorroboration = false;
+        }
+      });
+      return;
+    }
+
+    if (!force && key == _lastMerchantCorroborationKey) return;
+    if (mounted) {
+      setState(() {
+        _merchantCorroborationBusy = true;
+        _merchantCorroborationMessage = '';
+      });
+    }
+
+    try {
+      final context = await widget.merchantIdentityReviewService.resolve(
+        sellerIdentifier: authority.sellerIdentifier,
+        sellerIdentifierAuthoritative: true,
+        literalMerchantText: merchant,
+      );
+      if (!mounted || revision != _merchantCorroborationRevision) return;
+      final formalMerchant = context.decision.formalMerchantName.trim();
+      final refreshSuffix = context.registryRefreshAttempted &&
+              context.registryRefreshError.trim().isNotEmpty
+          ? '；官方資料更新失敗，已保留本機覆核流程'
+          : '';
+      setState(() {
+        _merchantCorroborationBusy = false;
+        _merchantCorroboration = context;
+        _lastMerchantCorroborationKey = key;
+        _merchantCorroborationMessage = context.hasOfficialLegalName ||
+                formalMerchant.isNotEmpty
+            ? ''
+            : '目前官方資料未找到此賣方統編$refreshSuffix。';
+        if (formalMerchant.isNotEmpty) {
+          _formalMerchantName = formalMerchant;
+          _formalMerchantFromCorroboration = true;
+        } else if (_formalMerchantFromCorroboration) {
+          _formalMerchantName = '';
+          _formalMerchantFromCorroboration = false;
+        }
+      });
+    } catch (_) {
+      if (!mounted || revision != _merchantCorroborationRevision) return;
+      setState(() {
+        _merchantCorroborationBusy = false;
+        _merchantCorroboration = null;
+        _lastMerchantCorroborationKey = '';
+        _merchantCorroborationMessage =
+            '官方公司行號資料暫時無法查詢；不影響本機發票覆核。';
+        if (_formalMerchantFromCorroboration) {
+          _formalMerchantName = '';
+          _formalMerchantFromCorroboration = false;
+        }
+      });
+    }
+  }
+
   Future<void> _bindMerchantMaster() async {
     final merchant =
         _review.fieldFor(InvoiceReviewFieldKey.sellerName)?.value.trim() ?? '';
@@ -915,20 +1125,26 @@ class _InvoiceTransactionHandoffReviewCardState
       setState(() {
         if (result.isSuccess && result.merchant != null) {
           _formalMerchantName = result.merchant!.displayName;
+          _formalMerchantFromCorroboration = false;
           _merchantBindingStatus = result.message;
           _needsReconfirm = true;
           _confirmed = false;
           _authorityConfirmed = false;
         } else {
           _formalMerchantName = '';
+          _formalMerchantFromCorroboration = false;
           _merchantBindingStatus = result.message;
           _error = result.message;
         }
       });
+      if (result.isSuccess) {
+        unawaited(_refreshMerchantCorroboration(force: true));
+      }
     } catch (error) {
       if (mounted) {
         setState(() {
           _formalMerchantName = '';
+          _formalMerchantFromCorroboration = false;
           _merchantBindingStatus = '商家綁定失敗，未寫入交易。';
           _error = '商家綁定失敗：${error.runtimeType}';
         });
