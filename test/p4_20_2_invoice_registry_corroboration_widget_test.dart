@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/gemini/gemini_invoice_review.dart';
 import 'package:my_finance_app/features/invoice/invoice_merchant_identity_review_service.dart';
 import 'package:my_finance_app/features/invoice/invoice_review_form_view_model.dart';
-import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_contract.dart';
 import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_review_card.dart';
 import 'package:my_finance_app/features/merchant/business_registry_repository.dart';
 import 'package:my_finance_app/features/merchant/merchant_identity_resolution_policy.dart';
@@ -73,8 +72,16 @@ void main() {
                 aiComparisonRequired: true,
                 aiComparisonAcknowledged: value,
                 aiCandidate: const GeminiInvoiceReviewCandidate(
+                  invoiceNumber: 'AB12345678',
+                  invoicePeriod: '115年07-08月',
                   sellerTaxId: '30340553',
+                  invoiceDate: '2026-08-31',
+                  invoiceTime: '17:00',
                   merchantName: 'AI 商家候選',
+                  totalAmount: 110,
+                  lineItems: <GeminiInvoiceReviewLineItem>[],
+                  confidence: <GeminiInvoiceReviewField, double>{},
+                  warnings: <String>[],
                 ),
                 merchantIdentityReviewService: port,
                 onOpenDraft: (_) {},
