@@ -4,15 +4,11 @@ import 'package:my_finance_app/features/invoice/image_capture_staging.dart';
 import 'package:my_finance_app/features/invoice/invoice_automatic_recognition_coordinator.dart';
 import 'package:my_finance_app/features/invoice/invoice_capture_review_flow.dart';
 import 'package:my_finance_app/features/invoice/invoice_local_recognition_coordinator.dart';
-import 'package:my_finance_app/features/invoice/invoice_merchant_identity_review_service.dart';
 import 'package:my_finance_app/features/invoice/invoice_qr_parser.dart';
 import 'package:my_finance_app/features/invoice/invoice_recognition_router.dart';
 import 'package:my_finance_app/features/invoice/invoice_registry_corroboration_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_review_form_view_model.dart';
 import 'package:my_finance_app/features/invoice/traditional_invoice_ocr_review.dart';
-import 'package:my_finance_app/features/merchant/business_registry_repository.dart';
-import 'package:my_finance_app/features/merchant/merchant_identity_resolution_policy.dart';
-import 'package:my_finance_app/features/merchant/merchant_record.dart';
 
 void main() {
   const policy = InvoiceRegistryCorroborationAuthorityPolicy();
@@ -21,7 +17,6 @@ void main() {
     const parsed = InvoiceQrParseResult(
       rawPayload: 'fixture',
       invoiceNumber: 'AB12345678',
-      invoiceDate: null,
       totalAmount: 110,
       sellerIdentifier: '60744698',
       errors: <String>[],
@@ -54,11 +49,10 @@ void main() {
         routingResult: routing,
       ),
     );
-    final review = _review(sellerTaxId: '60744698');
 
     final decision = policy.evaluate(
       recognition: recognition,
-      review: review,
+      review: _review(sellerTaxId: '60744698'),
     );
 
     expect(decision.authoritative, isTrue);
@@ -98,9 +92,72 @@ void main() {
     expect(decision.source, InvoiceRegistryCorroborationAuthoritySource.none);
   });
 
-  test('authoritative OCR lookup enriches review without replacing literal merchant',
+  test('explicit AI seller id requires acknowledgement and strict checksum', () {
+    final beforeAck = policy.evaluateReviewSelection(
+      sellerIdentifier: '30340553',
+      localQrAuthority: false,
+      explicitlyCorrected: false,
+      explicitlyAiSelected: true,
+      aiComparisonAcknowledged: false,
+      initialLocalSellerIdentifierWasPresent: false,
+    );
+    expect(beforeAck.authoritative, isFalse);
+    expect(beforeAck.reason, 'ai_selection_not_globally_acknowledged');
+
+    final accepted = policy.evaluateReviewSelection(
+      sellerIdentifier: '30340553',
+      localQrAuthority: false,
+      explicitlyCorrected: false,
+      explicitlyAiSelected: true,
+      aiComparisonAcknowledged: true,
+      initialLocalSellerIdentifierWasPresent: false,
+    );
+    expect(accepted.authoritative, isTrue);
+    expect(
+      accepted.source,
+      InvoiceRegistryCorroborationAuthoritySource.explicitAiSelection,
+    );
+
+    final invalidChecksum = policy.evaluateReviewSelection(
+      sellerIdentifier: '60744698',
+      localQrAuthority: false,
+      explicitlyCorrected: false,
+      explicitlyAiSelected: true,
+      aiComparisonAcknowledged: true,
+      initialLocalSellerIdentifierWasPresent: false,
+    );
+    expect(invalidChecksum.authoritative, isFalse);
+    expect(invalidChecksum.reason, 'ai_selection_failed_strict_checksum');
+  });
+
+  test('manual correction uses strict non-QR seller-id validation', () {
+    final accepted = policy.evaluateReviewSelection(
+      sellerIdentifier: '30340553',
+      localQrAuthority: false,
+      explicitlyCorrected: true,
+      explicitlyAiSelected: false,
+      aiComparisonAcknowledged: false,
+      initialLocalSellerIdentifierWasPresent: false,
+    );
+    expect(accepted.authoritative, isTrue);
+    expect(
+      accepted.source,
+      InvoiceRegistryCorroborationAuthoritySource.explicitUserCorrection,
+    );
+
+    final rejected = policy.evaluateReviewSelection(
+      sellerIdentifier: '60744698',
+      localQrAuthority: false,
+      explicitlyCorrected: true,
+      explicitlyAiSelected: false,
+      aiComparisonAcknowledged: false,
+      initialLocalSellerIdentifierWasPresent: false,
+    );
+    expect(rejected.authoritative, isFalse);
+  });
+
+  test('capture coordinator freezes authority only and performs no registry I/O',
       () async {
-    final fakeIdentity = _FakeIdentityReviewPort();
     final coordinator = InvoiceCaptureReviewFlowCoordinator(
       recognitionCoordinator: InvoiceAutomaticRecognitionCoordinator(
         qrRunner: ({required images, required mode}) async =>
@@ -115,7 +172,6 @@ void main() {
           ),
         ),
       ),
-      merchantIdentityReviewService: fakeIdentity,
     );
 
     final result = await coordinator.recognize(
@@ -123,46 +179,12 @@ void main() {
       requestedRoute: InvoiceRecognitionRequestedRoute.traditionalInvoiceOcr,
     );
 
-    expect(fakeIdentity.resolveCalls, 1);
     expect(result.registryAuthorityDecision?.authoritative, isTrue);
-    expect(result.registryContext?.registryStatus, BusinessRegistryLookupStatus.hit);
-    final sellerName = result.formModel.fieldFor(InvoiceReviewFieldKey.sellerName)!;
-    expect(sellerName.value, '發票原文商家');
-    expect(
-      sellerName.warnings.join('|'),
-      contains('官方登記名稱：一品現泡茶店'),
-    );
-    expect(sellerName.warnings.join('|'), contains('實機驗證子集'));
+    expect(result.formModel.fieldFor(InvoiceReviewFieldKey.sellerName)?.value,
+        '發票原文商家');
     expect(result.canCreateFormalRecord, isFalse);
-  });
-
-  test('non-authoritative OCR performs zero registry calls', () async {
-    final fakeIdentity = _FakeIdentityReviewPort();
-    final coordinator = InvoiceCaptureReviewFlowCoordinator(
-      recognitionCoordinator: InvoiceAutomaticRecognitionCoordinator(
-        qrRunner: ({required images, required mode}) async =>
-            throw StateError('QR runner must not execute in OCR-only fixture'),
-        ocrRunner: (_) async => TraditionalInvoiceOcrResult(
-          status: TraditionalInvoiceOcrStatus.success,
-          message: 'fixture',
-          candidate: _ocrCandidate(
-            sellerTaxId: '30340553',
-            sellerTaxIdSource: 'contextual_no_header',
-            sellerName: '發票原文商家',
-          ),
-        ),
-      ),
-      merchantIdentityReviewService: fakeIdentity,
-    );
-
-    final result = await coordinator.recognize(
-      image: _image(),
-      requestedRoute: InvoiceRecognitionRequestedRoute.traditionalInvoiceOcr,
-    );
-
-    expect(fakeIdentity.resolveCalls, 0);
-    expect(result.registryContext, isNull);
-    expect(result.registryAuthorityDecision?.authoritative, isFalse);
+    expect(result.toSafeSummary()['registryLookupOwner'],
+        'transaction_handoff_review');
   });
 }
 
@@ -245,43 +267,4 @@ ImageCaptureStagingItem _image() {
     status: ImageCaptureStagingStatus.pendingReview,
     createdAt: DateTime(2026, 8, 31),
   );
-}
-
-class _FakeIdentityReviewPort implements InvoiceMerchantIdentityReviewPort {
-  int resolveCalls = 0;
-
-  @override
-  Future<InvoiceMerchantIdentityReviewContext> resolve({
-    required String sellerIdentifier,
-    required bool sellerIdentifierAuthoritative,
-    required String literalMerchantText,
-  }) async {
-    resolveCalls += 1;
-    return InvoiceMerchantIdentityReviewContext(
-      decision: MerchantIdentityResolutionDecision(
-        literalMerchantText: literalMerchantText,
-        sellerIdentifier: sellerIdentifier,
-        registryLookupAllowed: true,
-        officialLegalNameSuggestion: '一品現泡茶店',
-        formalMerchantName: '',
-        requiresBrandConfirmation: true,
-        reason: MerchantIdentityResolutionReason.registryLegalNameNeedsBrandConfirmation,
-      ),
-      registryStatus: BusinessRegistryLookupStatus.hit,
-      registryVersion: 'fixture-v1',
-      registryCoverage: 'validation_subset',
-      registrySourceDataDate: '2025-06-02',
-    );
-  }
-
-  @override
-  Future<InvoiceMerchantIdentityReviewContext> confirmBinding({
-    required MerchantRecord merchant,
-    required String sellerIdentifier,
-    required String literalMerchantText,
-    required String evidenceSource,
-    required String sourceReference,
-  }) {
-    throw UnimplementedError();
-  }
 }
