@@ -42,6 +42,15 @@ class BusinessRegistryDistributionManifest {
   static const int maxUncompressedSizeBytes = 1024 * 1024 * 1024;
   static const int maxManifestSizeBytes = 64 * 1024;
 
+  /// Dedicated signed-canary builds may exercise the exact remote download /
+  /// validation / transactional-install path with a tiny, clearly labelled
+  /// validation subset. Production builds leave this false and therefore
+  /// accept only nationwide manifests.
+  static const bool allowValidationSubsetForSignedCanary = bool.fromEnvironment(
+    'ENABLE_P4_20_1_REGISTRY_VALIDATION_DISTRIBUTION',
+    defaultValue: false,
+  );
+
   static const Set<String> allowedDistributionHosts = <String>{
     'github.com',
     'raw.githubusercontent.com',
@@ -118,7 +127,10 @@ class BusinessRegistryDistributionManifest {
     if (sourceDataset.trim().isEmpty) {
       errors.add('REGISTRY_DISTRIBUTION_SOURCE_DATASET_REQUIRED');
     }
-    if (coverage != BusinessRegistryPack.nationwideCoverage) {
+    final coverageAllowed = coverage == BusinessRegistryPack.nationwideCoverage ||
+        (allowValidationSubsetForSignedCanary &&
+            coverage == BusinessRegistryPack.validationSubsetCoverage);
+    if (!coverageAllowed) {
       errors.add('REGISTRY_DISTRIBUTION_MUST_BE_NATIONWIDE');
     }
     final parsedDataDate = DateTime.tryParse(sourceDataDate.trim());
