@@ -131,10 +131,22 @@ class BusinessRegistryAuthoritativeLookupService {
     final installed = await registryRepository.installedSnapshot();
     final scopeKey = _refreshScopeKey(seller, installed);
     final completed = _completedRefreshes[scopeKey];
-    if (completed != null) return completed;
+    if (completed != null) {
+      return _reuseNetworkDecisionWithLocalEvidence(completed, local);
+    }
 
     final existing = _inFlightRefreshes[scopeKey];
-    if (existing != null) return existing;
+    if (existing != null) {
+      final shared = await existing;
+      final currentLocal = await registryRepository.lookup(seller);
+      return currentLocal.isHit
+          ? BusinessRegistryAuthoritativeLookupResult(
+              status: BusinessRegistryAuthoritativeLookupStatus.localRegistryHit,
+              sellerIdentifier: seller,
+              registryLookup: currentLocal,
+            )
+          : _reuseNetworkDecisionWithLocalEvidence(shared, currentLocal);
+    }
 
     final future = _refreshAfterLocalMiss(
       seller: seller,
@@ -228,6 +240,21 @@ class BusinessRegistryAuthoritativeLookupService {
         refreshError: error.toString(),
       );
     }
+  }
+
+  BusinessRegistryAuthoritativeLookupResult
+      _reuseNetworkDecisionWithLocalEvidence(
+    BusinessRegistryAuthoritativeLookupResult cached,
+    BusinessRegistryLookupResult local,
+  ) {
+    return BusinessRegistryAuthoritativeLookupResult(
+      status: cached.status,
+      sellerIdentifier: cached.sellerIdentifier,
+      confirmedIdentity: cached.confirmedIdentity,
+      registryLookup: local,
+      refreshAttempted: cached.refreshAttempted,
+      refreshError: cached.refreshError,
+    );
   }
 
   String _refreshScopeKey(
