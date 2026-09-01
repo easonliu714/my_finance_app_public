@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -23,7 +24,11 @@ class BusinessRegistryUpdateConfiguration {
     final value = manifestUrl.trim();
     if (value.isEmpty) return null;
     final uri = Uri.tryParse(value);
-    if (uri == null || uri.scheme != 'https') return null;
+    if (uri == null ||
+        !BusinessRegistryDistributionManifest.isAllowedDistributionUri(uri) ||
+        !BusinessRegistryDistributionManifest.isAllowedRepositoryPath(uri)) {
+      return null;
+    }
     return uri;
   }
 }
@@ -66,11 +71,18 @@ class BusinessRegistryUpdateService {
   final http.Client? client;
   final Future<Directory> Function()? tempDirectoryProvider;
 
-  bool get isDistributionConfigured =>
-      (manifestUri ?? BusinessRegistryUpdateConfiguration.manifestUri) != null;
+  Uri? get _effectiveManifestUri =>
+      manifestUri ?? BusinessRegistryUpdateConfiguration.manifestUri;
+
+  bool get isDistributionConfigured {
+    final uri = _effectiveManifestUri;
+    return uri != null &&
+        BusinessRegistryDistributionManifest.isAllowedDistributionUri(uri) &&
+        BusinessRegistryDistributionManifest.isAllowedRepositoryPath(uri);
+  }
 
   Future<BusinessRegistryDistributionManifest?> fetchAvailableManifest() async {
-    final uri = manifestUri ?? BusinessRegistryUpdateConfiguration.manifestUri;
+    final uri = _effectiveManifestUri;
     if (uri == null) return null;
     final ownedClient = client == null;
     final activeClient = client ?? http.Client();
@@ -89,7 +101,7 @@ class BusinessRegistryUpdateService {
   Future<BusinessRegistryUpdateResult> update({
     BusinessRegistryDistributionManifest? knownManifest,
   }) async {
-    final uri = manifestUri ?? BusinessRegistryUpdateConfiguration.manifestUri;
+    final uri = _effectiveManifestUri;
     final repository = BusinessRegistryRepository(database: database);
     if (knownManifest == null && uri == null) {
       return BusinessRegistryUpdateResult(
@@ -167,17 +179,36 @@ class BusinessRegistryUpdateService {
     http.Client activeClient,
     Uri uri,
   ) async {
-    final response = await activeClient.get(uri);
+    if (!BusinessRegistryDistributionManifest.isAllowedDistributionUri(uri) ||
+        !BusinessRegistryDistributionManifest.isAllowedRepositoryPath(uri)) {
+      throw StateError('REGISTRY_MANIFEST_URL_NOT_ALLOWED');
+    }
+
+    final request = http.Request('GET', uri);
+    final response = await activeClient.send(request);
     if (response.statusCode != HttpStatus.ok) {
       throw HttpException(
         'REGISTRY_MANIFEST_HTTP_STATUS_${response.statusCode}',
         uri: uri,
       );
     }
-    if (response.bodyBytes.length > 64 * 1024) {
+    final declaredLength = response.contentLength;
+    if (declaredLength != null &&
+        declaredLength >
+            BusinessRegistryDistributionManifest.maxManifestSizeBytes) {
       throw StateError('REGISTRY_MANIFEST_SIZE_EXCEEDED');
     }
-    final text = utf8.decode(response.bodyBytes, allowMalformed: false);
+
+    final bytes = BytesBuilder(copy: false);
+    var size = 0;
+    await for (final chunk in response.stream) {
+      size += chunk.length;
+      if (size > BusinessRegistryDistributionManifest.maxManifestSizeBytes) {
+        throw StateError('REGISTRY_MANIFEST_SIZE_EXCEEDED');
+      }
+      bytes.add(chunk);
+    }
+    final text = utf8.decode(bytes.takeBytes(), allowMalformed: false);
     return BusinessRegistryDistributionManifest.fromJsonText(text);
   }
 
