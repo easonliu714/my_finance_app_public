@@ -41,7 +41,7 @@ class BusinessRegistryStreamValidator {
       throw StateError('REGISTRY_VALIDATE_DOWNLOAD_SHA256_MISMATCH');
     }
 
-    final parser = BusinessRegistryStreamPackParser();
+    const parser = BusinessRegistryStreamPackParser();
     final contentHashSink = Sha256().newHashSink();
     var hashClosed = false;
     var uncompressedBytes = 0;
