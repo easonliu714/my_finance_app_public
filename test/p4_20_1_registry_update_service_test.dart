@@ -280,13 +280,11 @@ class _RegistryFixture {
 class _HttpFixture {
   const _HttpFixture({
     required this.bytes,
-    this.statusCode = HttpStatus.ok,
     this.declaredLength,
     this.chunkSize,
   });
 
   final List<int> bytes;
-  final int statusCode;
   final int? declaredLength;
   final int? chunkSize;
 }
@@ -324,7 +322,7 @@ class _RouteClient extends http.BaseClient {
     }
     return http.StreamedResponse(
       Stream<List<int>>.fromIterable(chunks),
-      fixture.statusCode,
+      HttpStatus.ok,
       contentLength: fixture.declaredLength ?? fixture.bytes.length,
       request: request,
     );
