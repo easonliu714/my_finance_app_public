@@ -6,6 +6,9 @@ enum InvoiceRegistryCorroborationAuthoritySource {
   none,
   qrPayload,
   traditionalExplicitLabel,
+  governedLocalEvidence,
+  explicitUserCorrection,
+  explicitAiSelection,
 }
 
 class InvoiceRegistryCorroborationAuthorityDecision {
@@ -38,14 +41,7 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
     final seller = _digits(
       review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '',
     );
-    if (seller.length != 8) {
-      return InvoiceRegistryCorroborationAuthorityDecision(
-        sellerIdentifier: seller,
-        authoritative: false,
-        source: InvoiceRegistryCorroborationAuthoritySource.none,
-        reason: 'seller_identifier_not_exact_8_digits',
-      );
-    }
+    if (seller.length != 8) return _notAuthoritative(seller, 'seller_identifier_not_exact_8_digits');
 
     if (recognition.status ==
             InvoiceAutomaticRecognitionStatus.qrReviewCandidate &&
@@ -74,12 +70,80 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
       );
     }
 
-    return InvoiceRegistryCorroborationAuthorityDecision(
-      sellerIdentifier: seller,
-      authoritative: false,
-      source: InvoiceRegistryCorroborationAuthoritySource.none,
-      reason: 'invoice_evidence_not_authoritative_for_registry',
+    return _notAuthoritative(
+      seller,
+      'invoice_evidence_not_authoritative_for_registry',
     );
+  }
+
+  /// Re-evaluates authority after the user edits or switches the seller-ID
+  /// source inside the invoice review card.
+  ///
+  /// Current Local review forms only carry a non-empty non-QR seller ID after
+  /// the governed Traditional Frozen explicit-label parser or a governed Live
+  /// temporal-repair path has already accepted it. Weak single-frame
+  /// positional/header candidates remain blank upstream and cannot reach this
+  /// path. Manual/AI selections receive their own stricter checks below.
+  InvoiceRegistryCorroborationAuthorityDecision evaluateReviewSelection({
+    required String sellerIdentifier,
+    required bool localQrAuthority,
+    required bool explicitlyCorrected,
+    required bool explicitlyAiSelected,
+    required bool aiComparisonAcknowledged,
+    required bool initialLocalSellerIdentifierWasPresent,
+  }) {
+    final seller = _digits(sellerIdentifier);
+    if (seller.length != 8) return _notAuthoritative(seller, 'seller_identifier_not_exact_8_digits');
+
+    if (explicitlyAiSelected) {
+      if (!aiComparisonAcknowledged) {
+        return _notAuthoritative(seller, 'ai_selection_not_globally_acknowledged');
+      }
+      if (!hasValidTaiwanTaxIdChecksum(seller)) {
+        return _notAuthoritative(seller, 'ai_selection_failed_strict_checksum');
+      }
+      return InvoiceRegistryCorroborationAuthorityDecision(
+        sellerIdentifier: seller,
+        authoritative: true,
+        source: InvoiceRegistryCorroborationAuthoritySource.explicitAiSelection,
+        reason: 'authoritative_explicit_ai_selection',
+      );
+    }
+
+    if (explicitlyCorrected) {
+      if (!hasValidTaiwanTaxIdChecksum(seller)) {
+        return _notAuthoritative(seller, 'manual_correction_failed_strict_checksum');
+      }
+      return InvoiceRegistryCorroborationAuthorityDecision(
+        sellerIdentifier: seller,
+        authoritative: true,
+        source:
+            InvoiceRegistryCorroborationAuthoritySource.explicitUserCorrection,
+        reason: 'authoritative_explicit_user_correction',
+      );
+    }
+
+    if (localQrAuthority) {
+      return InvoiceRegistryCorroborationAuthorityDecision(
+        sellerIdentifier: seller,
+        authoritative: true,
+        source: InvoiceRegistryCorroborationAuthoritySource.qrPayload,
+        reason: 'authoritative_qr_payload',
+      );
+    }
+
+    if (initialLocalSellerIdentifierWasPresent &&
+        hasValidTaiwanTaxIdChecksum(seller)) {
+      return InvoiceRegistryCorroborationAuthorityDecision(
+        sellerIdentifier: seller,
+        authoritative: true,
+        source:
+            InvoiceRegistryCorroborationAuthoritySource.governedLocalEvidence,
+        reason: 'authoritative_governed_local_seller_identifier',
+      );
+    }
+
+    return _notAuthoritative(seller, 'review_selection_not_authoritative');
   }
 
   String _qrSellerIdentifier(InvoiceAutomaticRecognitionResult recognition) {
@@ -87,6 +151,18 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
     if (pairs == null || pairs.isEmpty) return '';
     return _digits(
       pairs.first.left.leftParseResult?.sellerIdentifier ?? '',
+    );
+  }
+
+  InvoiceRegistryCorroborationAuthorityDecision _notAuthoritative(
+    String seller,
+    String reason,
+  ) {
+    return InvoiceRegistryCorroborationAuthorityDecision(
+      sellerIdentifier: seller,
+      authoritative: false,
+      source: InvoiceRegistryCorroborationAuthoritySource.none,
+      reason: reason,
     );
   }
 
