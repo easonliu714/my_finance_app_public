@@ -62,7 +62,8 @@ class BusinessRegistryTransactionalStreamInstaller {
         throw StateError('REGISTRY_INSTALL_ARTIFACT_MISSING');
       }
 
-      final db = database ?? await ProductionDatabaseCoordinator.instance.database;
+      final db =
+          database ?? await ProductionDatabaseCoordinator.instance.database;
       await createCanonicalProductionV22Tables(db);
 
       final existing = await db.query(
@@ -86,199 +87,215 @@ class BusinessRegistryTransactionalStreamInstaller {
       }
 
       final now = DateTime.now().toUtc().toIso8601String();
-      return db.transaction<BusinessRegistryStreamInstallResult>((txn) async {
-        await txn.insert('business_registry_snapshots', <String, Object?>{
-          'version': manifest.registryVersion,
-          'source_dataset': _snapshotSourceDataset(manifest),
-          'source_data_date': manifest.sourceDataDate,
-          'content_sha256': manifest.registryContentSha256,
-          'status': 'staged',
-          'installed_at': null,
-          'created_at': now,
-        });
+      return await db.transaction<BusinessRegistryStreamInstallResult>(
+        (txn) async {
+          await txn.insert('business_registry_snapshots', <String, Object?>{
+            'version': manifest.registryVersion,
+            'source_dataset': _snapshotSourceDataset(manifest),
+            'source_data_date': manifest.sourceDataDate,
+            'content_sha256': manifest.registryContentSha256,
+            'status': 'staged',
+            'installed_at': null,
+            'created_at': now,
+          });
 
-        const parser = BusinessRegistryStreamPackParser();
-        final compressedHashSink = Sha256().newHashSink();
-        final contentHashSink = Sha256().newHashSink();
-        var compressedHashClosed = false;
-        var contentHashClosed = false;
-        var compressedBytes = 0;
-        var uncompressedBytes = 0;
-        var entityCount = 0;
-        var sawHeader = false;
-        String? lastEntityKey;
-        var batch = txn.batch();
-        var batchCount = 0;
+          const parser = BusinessRegistryStreamPackParser();
+          final compressedHashSink = Sha256().newHashSink();
+          final contentHashSink = Sha256().newHashSink();
+          var compressedHashClosed = false;
+          var contentHashClosed = false;
+          var compressedBytes = 0;
+          var uncompressedBytes = 0;
+          var entityCount = 0;
+          var sawHeader = false;
+          String? lastEntityKey;
+          var batch = txn.batch();
+          var batchCount = 0;
 
-        try {
-          final countedCompressedBytes = artifact.file.openRead().transform<List<int>>(
-                StreamTransformer<List<int>, List<int>>.fromHandlers(
-                  handleData: (chunk, sink) {
-                    compressedBytes += chunk.length;
-                    if (compressedBytes > manifest.compressedSizeBytes ||
-                        compressedBytes >
-                            BusinessRegistryDistributionManifest
-                                .maxCompressedSizeBytes) {
-                      sink.addError(
-                        StateError('REGISTRY_INSTALL_COMPRESSED_SIZE_EXCEEDED'),
-                      );
-                      return;
-                    }
-                    compressedHashSink.add(chunk);
-                    sink.add(chunk);
-                  },
-                ),
-              );
-          final countedInflatedBytes = gzip.decoder
-              .bind(countedCompressedBytes)
-              .transform<List<int>>(
-                StreamTransformer<List<int>, List<int>>.fromHandlers(
-                  handleData: (chunk, sink) {
-                    uncompressedBytes += chunk.length;
-                    if (uncompressedBytes > manifest.uncompressedSizeBytes ||
-                        uncompressedBytes >
-                            BusinessRegistryDistributionManifest
-                                .maxUncompressedSizeBytes) {
-                      sink.addError(
-                        StateError('REGISTRY_INSTALL_UNCOMPRESSED_SIZE_EXCEEDED'),
-                      );
-                      return;
-                    }
-                    sink.add(chunk);
-                  },
-                ),
-              );
-          final lines = countedInflatedBytes
-              .transform(utf8.decoder)
-              .transform(const LineSplitter());
+          try {
+            final countedCompressedBytes =
+                artifact.file.openRead().transform<List<int>>(
+                      StreamTransformer<List<int>, List<int>>.fromHandlers(
+                        handleData: (chunk, sink) {
+                          compressedBytes += chunk.length;
+                          if (compressedBytes > manifest.compressedSizeBytes ||
+                              compressedBytes >
+                                  BusinessRegistryDistributionManifest
+                                      .maxCompressedSizeBytes) {
+                            sink.addError(
+                              StateError(
+                                'REGISTRY_INSTALL_COMPRESSED_SIZE_EXCEEDED',
+                              ),
+                            );
+                            return;
+                          }
+                          compressedHashSink.add(chunk);
+                          sink.add(chunk);
+                        },
+                      ),
+                    );
+            final countedInflatedBytes = gzip.decoder
+                .bind(countedCompressedBytes)
+                .transform<List<int>>(
+                  StreamTransformer<List<int>, List<int>>.fromHandlers(
+                    handleData: (chunk, sink) {
+                      uncompressedBytes += chunk.length;
+                      if (uncompressedBytes > manifest.uncompressedSizeBytes ||
+                          uncompressedBytes >
+                              BusinessRegistryDistributionManifest
+                                  .maxUncompressedSizeBytes) {
+                        sink.addError(
+                          StateError(
+                            'REGISTRY_INSTALL_UNCOMPRESSED_SIZE_EXCEEDED',
+                          ),
+                        );
+                        return;
+                      }
+                      sink.add(chunk);
+                    },
+                  ),
+                );
+            final lines = countedInflatedBytes
+                .transform(utf8.decoder)
+                .transform(const LineSplitter());
 
-          await for (final line in lines) {
-            final record = parser.parseLine(line);
-            switch (record) {
-              case BusinessRegistryStreamHeaderRecord(:final header):
-                if (sawHeader || entityCount != 0) {
-                  throw StateError('REGISTRY_INSTALL_HEADER_POSITION_INVALID');
-                }
-                final errors = header.validateAgainst(manifest);
-                if (errors.isNotEmpty) {
-                  throw FormatException(errors.join(','));
-                }
-                sawHeader = true;
-
-              case BusinessRegistryStreamEntityRecord(:final entity):
-                if (!sawHeader) {
-                  throw StateError('REGISTRY_INSTALL_HEADER_REQUIRED');
-                }
-                final errors = parser.validateEntity(entity);
-                if (errors.isNotEmpty) {
-                  throw FormatException(errors.join(','));
-                }
-                final canonicalLine =
-                    BusinessRegistryNationwideBuildPass.canonicalEntityLine(entity);
-                if (canonicalLine != '$line\n') {
-                  throw StateError('REGISTRY_INSTALL_ENTITY_NOT_CANONICAL');
-                }
-
-                final key =
-                    BusinessRegistryNationwideBuildPass.canonicalEntityKey(entity);
-                final previous = lastEntityKey;
-                if (previous != null) {
-                  final comparison = key.compareTo(previous);
-                  if (comparison < 0) {
-                    throw StateError('REGISTRY_INSTALL_ENTITY_NOT_SORTED');
+            await for (final line in lines) {
+              final record = parser.parseLine(line);
+              switch (record) {
+                case BusinessRegistryStreamHeaderRecord(:final header):
+                  if (sawHeader || entityCount != 0) {
+                    throw StateError(
+                      'REGISTRY_INSTALL_HEADER_POSITION_INVALID',
+                    );
                   }
-                  if (comparison == 0) {
-                    throw StateError('REGISTRY_INSTALL_DUPLICATE_ENTITY_KEY');
+                  final errors = header.validateAgainst(manifest);
+                  if (errors.isNotEmpty) {
+                    throw FormatException(errors.join(','));
                   }
-                }
+                  sawHeader = true;
 
-                contentHashSink.add(utf8.encode(canonicalLine));
-                batch.insert('business_registry_entities', <String, Object?>{
-                  'snapshot_version': manifest.registryVersion,
-                  'jurisdiction': 'TW',
-                  'seller_identifier': entity.sellerIdentifier,
-                  'entity_type': entity.entityType.name,
-                  'legal_name': entity.legalName.trim(),
-                  'registration_status': entity.registrationStatus.trim(),
-                  'parent_seller_identifier':
-                      entity.parentSellerIdentifier.trim(),
-                  'source_dataset': entity.sourceDataset.trim(),
-                });
-                lastEntityKey = key;
-                entityCount += 1;
-                batchCount += 1;
-                if (entityCount > manifest.entityCount) {
-                  throw StateError('REGISTRY_INSTALL_ENTITY_COUNT_EXCEEDED');
-                }
-                if (batchCount >= batchSize) {
-                  await batch.commit(noResult: true);
-                  batch = txn.batch();
-                  batchCount = 0;
-                }
+                case BusinessRegistryStreamEntityRecord(:final entity):
+                  if (!sawHeader) {
+                    throw StateError('REGISTRY_INSTALL_HEADER_REQUIRED');
+                  }
+                  final errors = parser.validateEntity(entity);
+                  if (errors.isNotEmpty) {
+                    throw FormatException(errors.join(','));
+                  }
+                  final canonicalLine = BusinessRegistryNationwideBuildPass
+                      .canonicalEntityLine(entity);
+                  if (canonicalLine != '$line\n') {
+                    throw StateError('REGISTRY_INSTALL_ENTITY_NOT_CANONICAL');
+                  }
+
+                  final key = BusinessRegistryNationwideBuildPass
+                      .canonicalEntityKey(entity);
+                  final previous = lastEntityKey;
+                  if (previous != null) {
+                    final comparison = key.compareTo(previous);
+                    if (comparison < 0) {
+                      throw StateError('REGISTRY_INSTALL_ENTITY_NOT_SORTED');
+                    }
+                    if (comparison == 0) {
+                      throw StateError(
+                        'REGISTRY_INSTALL_DUPLICATE_ENTITY_KEY',
+                      );
+                    }
+                  }
+
+                  contentHashSink.add(utf8.encode(canonicalLine));
+                  batch.insert(
+                    'business_registry_entities',
+                    <String, Object?>{
+                      'snapshot_version': manifest.registryVersion,
+                      'jurisdiction': 'TW',
+                      'seller_identifier': entity.sellerIdentifier,
+                      'entity_type': entity.entityType.name,
+                      'legal_name': entity.legalName.trim(),
+                      'registration_status': entity.registrationStatus.trim(),
+                      'parent_seller_identifier':
+                          entity.parentSellerIdentifier.trim(),
+                      'source_dataset': entity.sourceDataset.trim(),
+                    },
+                  );
+                  lastEntityKey = key;
+                  entityCount += 1;
+                  batchCount += 1;
+                  if (entityCount > manifest.entityCount) {
+                    throw StateError(
+                      'REGISTRY_INSTALL_ENTITY_COUNT_EXCEEDED',
+                    );
+                  }
+                  if (batchCount >= batchSize) {
+                    await batch.commit(noResult: true);
+                    batch = txn.batch();
+                    batchCount = 0;
+                  }
+              }
+            }
+
+            if (batchCount > 0) {
+              await batch.commit(noResult: true);
+            }
+            if (!sawHeader) {
+              throw StateError('REGISTRY_INSTALL_HEADER_REQUIRED');
+            }
+            if (compressedBytes != manifest.compressedSizeBytes) {
+              throw StateError('REGISTRY_INSTALL_COMPRESSED_SIZE_MISMATCH');
+            }
+            if (uncompressedBytes != manifest.uncompressedSizeBytes) {
+              throw StateError('REGISTRY_INSTALL_UNCOMPRESSED_SIZE_MISMATCH');
+            }
+            if (entityCount != manifest.entityCount) {
+              throw StateError('REGISTRY_INSTALL_ENTITY_COUNT_MISMATCH');
+            }
+
+            compressedHashSink.close();
+            compressedHashClosed = true;
+            contentHashSink.close();
+            contentHashClosed = true;
+            final compressedHash = await compressedHashSink.hash();
+            final contentHash = await contentHashSink.hash();
+            final actualDownloadSha256 = _hex(compressedHash.bytes);
+            final actualContentSha256 = _hex(contentHash.bytes);
+            if (actualDownloadSha256 != manifest.downloadSha256) {
+              throw StateError('REGISTRY_INSTALL_DOWNLOAD_SHA256_MISMATCH');
+            }
+            if (actualContentSha256 != manifest.registryContentSha256) {
+              throw StateError('REGISTRY_INSTALL_CONTENT_SHA256_MISMATCH');
+            }
+
+            await txn.update(
+              'business_registry_snapshots',
+              <String, Object?>{'status': 'superseded'},
+              where: "status = 'installed' AND version <> ?",
+              whereArgs: <Object?>[manifest.registryVersion],
+            );
+            await txn.update(
+              'business_registry_snapshots',
+              <String, Object?>{
+                'status': 'installed',
+                'installed_at': now,
+              },
+              where: 'version = ?',
+              whereArgs: <Object?>[manifest.registryVersion],
+            );
+
+            return BusinessRegistryStreamInstallResult(
+              status: BusinessRegistryStreamInstallStatus.installed,
+              version: manifest.registryVersion,
+              entityCount: entityCount,
+            );
+          } finally {
+            if (!compressedHashClosed) {
+              compressedHashSink.close();
+            }
+            if (!contentHashClosed) {
+              contentHashSink.close();
             }
           }
-
-          if (batchCount > 0) {
-            await batch.commit(noResult: true);
-          }
-          if (!sawHeader) {
-            throw StateError('REGISTRY_INSTALL_HEADER_REQUIRED');
-          }
-          if (compressedBytes != manifest.compressedSizeBytes) {
-            throw StateError('REGISTRY_INSTALL_COMPRESSED_SIZE_MISMATCH');
-          }
-          if (uncompressedBytes != manifest.uncompressedSizeBytes) {
-            throw StateError('REGISTRY_INSTALL_UNCOMPRESSED_SIZE_MISMATCH');
-          }
-          if (entityCount != manifest.entityCount) {
-            throw StateError('REGISTRY_INSTALL_ENTITY_COUNT_MISMATCH');
-          }
-
-          compressedHashSink.close();
-          compressedHashClosed = true;
-          contentHashSink.close();
-          contentHashClosed = true;
-          final compressedHash = await compressedHashSink.hash();
-          final contentHash = await contentHashSink.hash();
-          final actualDownloadSha256 = _hex(compressedHash.bytes);
-          final actualContentSha256 = _hex(contentHash.bytes);
-          if (actualDownloadSha256 != manifest.downloadSha256) {
-            throw StateError('REGISTRY_INSTALL_DOWNLOAD_SHA256_MISMATCH');
-          }
-          if (actualContentSha256 != manifest.registryContentSha256) {
-            throw StateError('REGISTRY_INSTALL_CONTENT_SHA256_MISMATCH');
-          }
-
-          await txn.update(
-            'business_registry_snapshots',
-            <String, Object?>{'status': 'superseded'},
-            where: "status = 'installed' AND version <> ?",
-            whereArgs: <Object?>[manifest.registryVersion],
-          );
-          await txn.update(
-            'business_registry_snapshots',
-            <String, Object?>{
-              'status': 'installed',
-              'installed_at': now,
-            },
-            where: 'version = ?',
-            whereArgs: <Object?>[manifest.registryVersion],
-          );
-
-          return BusinessRegistryStreamInstallResult(
-            status: BusinessRegistryStreamInstallStatus.installed,
-            version: manifest.registryVersion,
-            entityCount: entityCount,
-          );
-        } finally {
-          if (!compressedHashClosed) {
-            compressedHashSink.close();
-          }
-          if (!contentHashClosed) {
-            contentHashSink.close();
-          }
-        }
-      });
+        },
+      );
     } finally {
       await _deleteIfExists(artifact.file);
     }
