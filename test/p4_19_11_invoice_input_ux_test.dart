@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/invoice/invoice_merchant_identity_review_service.dart';
 import 'package:my_finance_app/features/invoice/invoice_merchant_master_binding_service.dart';
 import 'package:my_finance_app/features/invoice/invoice_period_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_review_form_view_model.dart';
 import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_contract.dart';
 import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_review_card.dart';
+import 'package:my_finance_app/features/merchant/business_registry_repository.dart';
+import 'package:my_finance_app/features/merchant/merchant_identity_resolution_policy.dart';
 import 'package:my_finance_app/features/merchant/merchant_record.dart';
 import 'package:my_finance_app/features/merchant/merchant_seller_identity_store.dart';
 
@@ -244,6 +247,8 @@ void main() {
               onOpenDraft: (_) {},
               merchantBindingService:
                   InvoiceMerchantMasterBindingService(store: store),
+              merchantIdentityReviewService:
+                  const _NoopMerchantIdentityReviewPort(),
             ),
           ),
         ),
@@ -385,5 +390,36 @@ class _FakeMerchantSellerIdentityStore implements MerchantSellerIdentityStore {
     } else {
       rows[index] = merchant;
     }
+  }
+}
+
+class _NoopMerchantIdentityReviewPort implements InvoiceMerchantIdentityReviewPort {
+  const _NoopMerchantIdentityReviewPort();
+
+  @override
+  Future<InvoiceMerchantIdentityReviewContext> resolve({
+    required String sellerIdentifier,
+    required bool sellerIdentifierAuthoritative,
+    required String literalMerchantText,
+  }) async {
+    return InvoiceMerchantIdentityReviewContext(
+      decision: const MerchantIdentityResolutionPolicy().evaluate(
+        sellerIdentifier: sellerIdentifier,
+        sellerIdentifierAuthoritative: sellerIdentifierAuthoritative,
+        literalMerchantText: literalMerchantText,
+      ),
+      registryStatus: BusinessRegistryLookupStatus.noInstalledRegistry,
+    );
+  }
+
+  @override
+  Future<InvoiceMerchantIdentityReviewContext> confirmBinding({
+    required MerchantRecord merchant,
+    required String sellerIdentifier,
+    required String literalMerchantText,
+    required String evidenceSource,
+    required String sourceReference,
+  }) {
+    throw UnimplementedError();
   }
 }
