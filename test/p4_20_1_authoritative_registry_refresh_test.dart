@@ -188,9 +188,13 @@ void main() {
 
     test('concurrent same-seller misses share one in-flight refresh', () async {
       final gate = Completer<void>();
+      final manifestStarted = Completer<void>();
       final refresh = _FakeRefreshPort(
         manifest: _manifest('2026-09-01'),
-        beforeManifestReturn: () => gate.future,
+        beforeManifestReturn: () async {
+          if (!manifestStarted.isCompleted) manifestStarted.complete();
+          await gate.future;
+        },
         updateError: StateError('offline'),
       );
       final serviceA = BusinessRegistryAuthoritativeLookupService(
@@ -208,19 +212,22 @@ void main() {
         sellerIdentifier: '12345678',
         authoritative: true,
       );
-      await Future<void>.delayed(Duration.zero);
       final secondFuture = serviceB.resolve(
         sellerIdentifier: '12345678',
         authoritative: true,
       );
-      await Future<void>.delayed(Duration.zero);
 
+      await manifestStarted.future;
+      await Future<void>.delayed(Duration.zero);
       expect(refresh.manifestChecks, 1);
+
       gate.complete();
-      final results = await Future.wait(<Future<BusinessRegistryAuthoritativeLookupResult>>[
-        firstFuture,
-        secondFuture,
-      ]);
+      final results = await Future.wait(
+        <Future<BusinessRegistryAuthoritativeLookupResult>>[
+          firstFuture,
+          secondFuture,
+        ],
+      );
 
       expect(
         results.map((item) => item.status),
