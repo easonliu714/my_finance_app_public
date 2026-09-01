@@ -1,6 +1,7 @@
 import 'invoice_automatic_recognition_coordinator.dart';
 import 'invoice_review_form_view_model.dart';
 import 'taiwan_tax_id.dart';
+import 'traditional_tax_id_temporal_repair.dart';
 
 enum InvoiceRegistryCorroborationAuthoritySource {
   none,
@@ -34,6 +35,9 @@ class InvoiceRegistryCorroborationAuthorityDecision {
 class InvoiceRegistryCorroborationAuthorityPolicy {
   const InvoiceRegistryCorroborationAuthorityPolicy();
 
+  static const String qrPayloadSource = 'qr_payload';
+  static const String traditionalExplicitLabelSource = 'explicit_label';
+
   InvoiceRegistryCorroborationAuthorityDecision evaluate({
     required InvoiceAutomaticRecognitionResult recognition,
     required InvoiceReviewFormViewModel review,
@@ -41,7 +45,12 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
     final seller = _digits(
       review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '',
     );
-    if (seller.length != 8) return _notAuthoritative(seller, 'seller_identifier_not_exact_8_digits');
+    if (seller.length != 8) {
+      return _notAuthoritative(
+        seller,
+        'seller_identifier_not_exact_8_digits',
+      );
+    }
 
     if (recognition.status ==
             InvoiceAutomaticRecognitionStatus.qrReviewCandidate &&
@@ -59,15 +68,25 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
             InvoiceAutomaticRecognitionStatus.ocrReviewCandidate &&
         ocr != null &&
         _digits(ocr.sellerTaxId) == seller &&
-        ocr.sellerTaxIdSource == 'explicit_label' &&
         hasValidTaiwanTaxIdChecksum(seller)) {
-      return InvoiceRegistryCorroborationAuthorityDecision(
-        sellerIdentifier: seller,
-        authoritative: true,
-        source:
-            InvoiceRegistryCorroborationAuthoritySource.traditionalExplicitLabel,
-        reason: 'authoritative_traditional_explicit_label',
-      );
+      if (ocr.sellerTaxIdSource == traditionalExplicitLabelSource) {
+        return InvoiceRegistryCorroborationAuthorityDecision(
+          sellerIdentifier: seller,
+          authoritative: true,
+          source: InvoiceRegistryCorroborationAuthoritySource
+              .traditionalExplicitLabel,
+          reason: 'authoritative_traditional_explicit_label',
+        );
+      }
+      if (ocr.sellerTaxIdSource == positionalTaxIdTemporalRepairSource) {
+        return InvoiceRegistryCorroborationAuthorityDecision(
+          sellerIdentifier: seller,
+          authoritative: true,
+          source: InvoiceRegistryCorroborationAuthoritySource
+              .governedLocalEvidence,
+          reason: 'authoritative_temporal_seller_identifier_repair',
+        );
+      }
     }
 
     return _notAuthoritative(
@@ -79,28 +98,37 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
   /// Re-evaluates authority after the user edits or switches the seller-ID
   /// source inside the invoice review card.
   ///
-  /// Current Local review forms only carry a non-empty non-QR seller ID after
-  /// the governed Traditional Frozen explicit-label parser or a governed Live
-  /// temporal-repair path has already accepted it. Weak single-frame
-  /// positional/header candidates remain blank upstream and cannot reach this
-  /// path. Manual/AI selections receive their own stricter checks below.
+  /// The initial Local seller identifier must carry its machine-readable
+  /// provenance from the recognition result. Merely being present or passing
+  /// checksum is not enough to authorize a Registry lookup.
   InvoiceRegistryCorroborationAuthorityDecision evaluateReviewSelection({
     required String sellerIdentifier,
     required bool localQrAuthority,
     required bool explicitlyCorrected,
     required bool explicitlyAiSelected,
     required bool aiComparisonAcknowledged,
-    required bool initialLocalSellerIdentifierWasPresent,
+    required String initialLocalSellerIdentifierSource,
   }) {
     final seller = _digits(sellerIdentifier);
-    if (seller.length != 8) return _notAuthoritative(seller, 'seller_identifier_not_exact_8_digits');
+    if (seller.length != 8) {
+      return _notAuthoritative(
+        seller,
+        'seller_identifier_not_exact_8_digits',
+      );
+    }
 
     if (explicitlyAiSelected) {
       if (!aiComparisonAcknowledged) {
-        return _notAuthoritative(seller, 'ai_selection_not_globally_acknowledged');
+        return _notAuthoritative(
+          seller,
+          'ai_selection_not_globally_acknowledged',
+        );
       }
       if (!hasValidTaiwanTaxIdChecksum(seller)) {
-        return _notAuthoritative(seller, 'ai_selection_failed_strict_checksum');
+        return _notAuthoritative(
+          seller,
+          'ai_selection_failed_strict_checksum',
+        );
       }
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
@@ -112,7 +140,10 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
 
     if (explicitlyCorrected) {
       if (!hasValidTaiwanTaxIdChecksum(seller)) {
-        return _notAuthoritative(seller, 'manual_correction_failed_strict_checksum');
+        return _notAuthoritative(
+          seller,
+          'manual_correction_failed_strict_checksum',
+        );
       }
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
@@ -132,14 +163,25 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
       );
     }
 
-    if (initialLocalSellerIdentifierWasPresent &&
-        hasValidTaiwanTaxIdChecksum(seller)) {
+    final localSource = initialLocalSellerIdentifierSource.trim();
+    if (hasValidTaiwanTaxIdChecksum(seller) &&
+        localSource == traditionalExplicitLabelSource) {
+      return InvoiceRegistryCorroborationAuthorityDecision(
+        sellerIdentifier: seller,
+        authoritative: true,
+        source:
+            InvoiceRegistryCorroborationAuthoritySource.traditionalExplicitLabel,
+        reason: 'authoritative_traditional_explicit_label',
+      );
+    }
+    if (hasValidTaiwanTaxIdChecksum(seller) &&
+        localSource == positionalTaxIdTemporalRepairSource) {
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
         authoritative: true,
         source:
             InvoiceRegistryCorroborationAuthoritySource.governedLocalEvidence,
-        reason: 'authoritative_governed_local_seller_identifier',
+        reason: 'authoritative_temporal_seller_identifier_repair',
       );
     }
 
