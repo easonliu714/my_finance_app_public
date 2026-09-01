@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/gemini/gemini_invoice_review.dart';
 import 'package:my_finance_app/features/invoice/invoice_merchant_identity_review_service.dart';
+import 'package:my_finance_app/features/invoice/invoice_registry_corroboration_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_review_form_view_model.dart';
 import 'package:my_finance_app/features/invoice/invoice_transaction_handoff_review_card.dart';
+import 'package:my_finance_app/features/invoice/traditional_tax_id_temporal_repair.dart';
 import 'package:my_finance_app/features/merchant/business_registry_repository.dart';
 import 'package:my_finance_app/features/merchant/merchant_identity_resolution_policy.dart';
 import 'package:my_finance_app/features/merchant/merchant_record.dart';
@@ -23,6 +25,8 @@ void main() {
           initialReview: _review(
             sellerTaxId: '60744698',
             sellerTaxConfidence: 'QR 解析',
+            sellerTaxIdSource:
+                InvoiceRegistryCorroborationAuthorityPolicy.qrPayloadSource,
             sellerName: '發票原文：一品現泡茶店',
           ),
           merchantIdentityReviewService: port,
@@ -47,6 +51,33 @@ void main() {
     );
   });
 
+  testWidgets('temporal Local seller-id provenance can corroborate automatically',
+      (tester) async {
+    final port = _FakeIdentityReviewPort(
+      formalMerchantName: '',
+      officialLegalName: 'Temporal 官方名稱',
+    );
+
+    await tester.pumpWidget(
+      _host(
+        InvoiceTransactionHandoffReviewCard(
+          initialReview: _review(
+            sellerTaxId: '30340553',
+            sellerTaxConfidence: '本機 OCR',
+            sellerTaxIdSource: positionalTaxIdTemporalRepairSource,
+            sellerName: '發票原文商家',
+          ),
+          merchantIdentityReviewService: port,
+          onOpenDraft: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(port.resolveCalls, 1);
+    expect(find.text('官方登記名稱：Temporal 官方名稱'), findsOneWidget);
+  });
+
   testWidgets('AI seller id performs zero registry lookup before global acknowledgement',
       (tester) async {
     final port = _FakeIdentityReviewPort(
@@ -67,6 +98,7 @@ void main() {
                 initialReview: _review(
                   sellerTaxId: '',
                   sellerTaxConfidence: '未辨識',
+                  sellerTaxIdSource: '',
                   sellerName: '發票原文商家',
                 ),
                 aiComparisonRequired: true,
@@ -134,6 +166,9 @@ void main() {
           initialReview: _review(
             sellerTaxId: '30340553',
             sellerTaxConfidence: '本機 OCR',
+            sellerTaxIdSource:
+                InvoiceRegistryCorroborationAuthorityPolicy
+                    .traditionalExplicitLabelSource,
             sellerName: '發票原文商家',
           ),
           merchantIdentityReviewService: port,
@@ -159,6 +194,33 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('checksum-valid value without provenance never starts registry lookup',
+      (tester) async {
+    final port = _FakeIdentityReviewPort(
+      formalMerchantName: '不應出現',
+      officialLegalName: '不應出現',
+    );
+
+    await tester.pumpWidget(
+      _host(
+        InvoiceTransactionHandoffReviewCard(
+          initialReview: _review(
+            sellerTaxId: '30340553',
+            sellerTaxConfidence: '高',
+            sellerTaxIdSource: '',
+            sellerName: '無 provenance fixture',
+          ),
+          merchantIdentityReviewService: port,
+          onOpenDraft: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(port.resolveCalls, 0);
+    expect(find.textContaining('尚未符合官方資料查詢權威'), findsOneWidget);
+  });
 }
 
 Widget _host(Widget child) {
@@ -172,6 +234,7 @@ Widget _host(Widget child) {
 InvoiceReviewFormViewModel _review({
   required String sellerTaxId,
   required String sellerTaxConfidence,
+  required String sellerTaxIdSource,
   required String sellerName,
 }) {
   return InvoiceReviewFormViewModel(
@@ -234,6 +297,7 @@ InvoiceReviewFormViewModel _review({
     canOpenReview: true,
     requiresAcknowledgement: false,
     disclaimerAcknowledged: true,
+    sellerTaxIdSource: sellerTaxIdSource,
   );
 }
 
