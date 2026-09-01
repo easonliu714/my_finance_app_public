@@ -125,4 +125,50 @@ void main() {
     expect(find.text('正在下載並驗證公司行號資料…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
+
+  testWidgets(
+      'failed update preserves last-known-good status and keeps explicit retry available',
+      (tester) async {
+    final snapshot = BusinessRegistrySnapshotInfo(
+      version: '2026-08-31',
+      sourceDataset: 'nationwide_company_business_branch',
+      sourceDataDate: '2026-08-31',
+      contentSha256: 'c' * 64,
+      coverage: BusinessRegistryPack.nationwideCoverage,
+      installedAt: DateTime.utc(2026, 8, 31),
+    );
+    var retries = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BusinessRegistryUpdateCard(
+            snapshot: snapshot,
+            loading: false,
+            updating: false,
+            distributionConfigured: true,
+            statusMessage: '更新失敗，已保留上一版公司行號資料。',
+            onRefresh: () => retries += 1,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('2026-08-31'), findsNWidgets(2));
+    expect(find.text('全台公司／商業／分公司'), findsOneWidget);
+    expect(
+      find.byKey(BusinessRegistryUpdateCard.statusKey),
+      findsOneWidget,
+    );
+    expect(find.textContaining('已保留上一版公司行號資料'), findsOneWidget);
+
+    final button = tester.widget<FilledButton>(
+      find.byKey(BusinessRegistryUpdateCard.refreshKey),
+    );
+    expect(button.onPressed, isNotNull);
+
+    await tester.tap(find.byKey(BusinessRegistryUpdateCard.refreshKey));
+    await tester.pump();
+    expect(retries, 1);
+  });
 }
