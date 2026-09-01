@@ -232,6 +232,7 @@ void main() {
       canOpenReview: true,
       requiresAcknowledgement: false,
       disclaimerAcknowledged: true,
+      sellerTaxIdSource: 'qr_payload',
     );
 
     await tester.pumpWidget(
