@@ -1,7 +1,7 @@
 name: my_finance_app
 description: Local-first personal finance app for Taiwan daily accounting.
 publish_to: 'none'
-version: 4.20.1+454
+version: 4.20.2+455
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
