@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../merchant/business_registry_pack.dart';
 import '../merchant/business_registry_repository.dart';
 
 class BusinessRegistryUpdateCard extends StatelessWidget {
@@ -133,9 +134,9 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
 
   static String _coverageLabel(String coverage) {
     switch (coverage) {
-      case 'nationwide':
+      case BusinessRegistryPack.nationwideCoverage:
         return '全台公司／商業／分公司';
-      case 'validation_subset':
+      case BusinessRegistryPack.validationSubsetCoverage:
         return '實機驗證子集';
       case '':
         return '—';
