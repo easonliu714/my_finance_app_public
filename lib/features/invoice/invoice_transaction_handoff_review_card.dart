@@ -972,13 +972,15 @@ class _InvoiceTransactionHandoffReviewCardState
       canOpenReview: _review.canOpenReview,
       requiresAcknowledgement: _review.requiresAcknowledgement,
       disclaimerAcknowledged: _review.disclaimerAcknowledged,
+      sellerTaxIdSource: _review.sellerTaxIdSource,
     );
   }
 
   bool get _sellerTaxIdIsTrustedQrAuthority {
     final field = _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId);
     if (field == null ||
-        !field.confidenceLabel.toUpperCase().contains('QR') ||
+        _review.sellerTaxIdSource !=
+            InvoiceRegistryCorroborationAuthorityPolicy.qrPayloadSource ||
         _explicitlyCorrectedFields.contains(InvoiceReviewFieldKey.sellerTaxId) ||
         _explicitlyAiSelectedFields.contains(InvoiceReviewFieldKey.sellerTaxId)) {
       return false;
@@ -1000,10 +1002,7 @@ class _InvoiceTransactionHandoffReviewCardState
         InvoiceReviewFieldKey.sellerTaxId,
       ),
       aiComparisonAcknowledged: widget.aiComparisonAcknowledged,
-      initialLocalSellerIdentifierWasPresent:
-          (_localFieldValues[InvoiceReviewFieldKey.sellerTaxId] ?? '')
-              .trim()
-              .isNotEmpty,
+      initialLocalSellerIdentifierSource: _review.sellerTaxIdSource,
     );
   }
 
