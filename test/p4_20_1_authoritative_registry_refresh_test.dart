@@ -47,7 +47,7 @@ void main() {
 
     test('known confirmed merchant identity performs zero network work', () async {
       await identity.recordConfirmedBinding(
-        merchant: const MerchantRecord(id: 'known-brand', name: '已知品牌'),
+        merchant: MerchantRecord(id: 'known-brand', name: '已知品牌'),
         sellerIdentifier: '12345678',
         literalMerchantText: '發票文字',
         evidenceSource: 'test',
