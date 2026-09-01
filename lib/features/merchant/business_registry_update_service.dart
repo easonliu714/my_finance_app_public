@@ -66,10 +66,32 @@ class BusinessRegistryUpdateService {
   final http.Client? client;
   final Future<Directory> Function()? tempDirectoryProvider;
 
-  Future<BusinessRegistryUpdateResult> update() async {
+  bool get isDistributionConfigured =>
+      (manifestUri ?? BusinessRegistryUpdateConfiguration.manifestUri) != null;
+
+  Future<BusinessRegistryDistributionManifest?> fetchAvailableManifest() async {
+    final uri = manifestUri ?? BusinessRegistryUpdateConfiguration.manifestUri;
+    if (uri == null) return null;
+    final ownedClient = client == null;
+    final activeClient = client ?? http.Client();
+    try {
+      final manifest = await _loadManifest(activeClient, uri);
+      final validation = manifest.validate();
+      if (!validation.isValid) {
+        throw FormatException(validation.errors.join(','));
+      }
+      return manifest;
+    } finally {
+      if (ownedClient) activeClient.close();
+    }
+  }
+
+  Future<BusinessRegistryUpdateResult> update({
+    BusinessRegistryDistributionManifest? knownManifest,
+  }) async {
     final uri = manifestUri ?? BusinessRegistryUpdateConfiguration.manifestUri;
     final repository = BusinessRegistryRepository(database: database);
-    if (uri == null) {
+    if (knownManifest == null && uri == null) {
       return BusinessRegistryUpdateResult(
         status: BusinessRegistryUpdateStatus.distributionNotConfigured,
         snapshot: await repository.installedSnapshot(),
@@ -79,7 +101,7 @@ class BusinessRegistryUpdateService {
     final ownedClient = client == null;
     final activeClient = client ?? http.Client();
     try {
-      final manifest = await _loadManifest(activeClient, uri);
+      final manifest = knownManifest ?? await _loadManifest(activeClient, uri!);
       final validation = manifest.validate();
       if (!validation.isValid) {
         throw FormatException(validation.errors.join(','));
