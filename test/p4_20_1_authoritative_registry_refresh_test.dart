@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/database/production_schema_v22.dart';
 import 'package:my_finance_app/features/merchant/business_registry_authoritative_lookup_service.dart';
@@ -110,7 +112,7 @@ void main() {
         BusinessRegistryAuthoritativeLookupStatus.notFoundCurrentRegistry,
       );
       expect(second.registryLookup?.negativeCacheHit, isTrue);
-      expect(refresh.manifestChecks, 2);
+      expect(refresh.manifestChecks, 1);
       expect(refresh.updateCalls, 0);
     });
 
@@ -153,22 +155,78 @@ void main() {
         manifest: _manifest('2026-09-01'),
         updateError: StateError('offline'),
       );
-
-      final result = await BusinessRegistryAuthoritativeLookupService(
+      final service = BusinessRegistryAuthoritativeLookupService(
         identityRepository: identity,
         registryRepository: registry,
         refreshPort: refresh,
-      ).resolve(
+      );
+
+      final first = await service.resolve(
+        sellerIdentifier: '12345678',
+        authoritative: true,
+      );
+      final second = await service.resolve(
         sellerIdentifier: '12345678',
         authoritative: true,
       );
 
       expect(
-        result.status,
+        first.status,
         BusinessRegistryAuthoritativeLookupStatus.refreshFailed,
       );
-      expect(result.canContinueInvoiceReview, isTrue);
-      expect(result.refreshAttempted, isTrue);
+      expect(
+        second.status,
+        BusinessRegistryAuthoritativeLookupStatus.refreshFailed,
+      );
+      expect(first.canContinueInvoiceReview, isTrue);
+      expect(second.canContinueInvoiceReview, isTrue);
+      expect(first.refreshAttempted, isTrue);
+      expect(second.refreshAttempted, isTrue);
+      expect(refresh.manifestChecks, 1);
+      expect(refresh.updateCalls, 1);
+    });
+
+    test('concurrent same-seller misses share one in-flight refresh', () async {
+      final gate = Completer<void>();
+      final refresh = _FakeRefreshPort(
+        manifest: _manifest('2026-09-01'),
+        beforeManifestReturn: () => gate.future,
+        updateError: StateError('offline'),
+      );
+      final serviceA = BusinessRegistryAuthoritativeLookupService(
+        identityRepository: identity,
+        registryRepository: registry,
+        refreshPort: refresh,
+      );
+      final serviceB = BusinessRegistryAuthoritativeLookupService(
+        identityRepository: identity,
+        registryRepository: registry,
+        refreshPort: refresh,
+      );
+
+      final firstFuture = serviceA.resolve(
+        sellerIdentifier: '12345678',
+        authoritative: true,
+      );
+      await Future<void>.delayed(Duration.zero);
+      final secondFuture = serviceB.resolve(
+        sellerIdentifier: '12345678',
+        authoritative: true,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(refresh.manifestChecks, 1);
+      gate.complete();
+      final results = await Future.wait(<Future<BusinessRegistryAuthoritativeLookupResult>>[
+        firstFuture,
+        secondFuture,
+      ]);
+
+      expect(
+        results.map((item) => item.status),
+        everyElement(BusinessRegistryAuthoritativeLookupStatus.refreshFailed),
+      );
+      expect(refresh.manifestChecks, 1);
       expect(refresh.updateCalls, 1);
     });
   });
@@ -227,17 +285,20 @@ class _FakeRefreshPort implements BusinessRegistryRefreshPort {
     required this.manifest,
     this.onUpdate,
     this.updateError,
+    this.beforeManifestReturn,
   });
 
   final BusinessRegistryDistributionManifest? manifest;
   final Future<void> Function()? onUpdate;
   final Object? updateError;
+  final Future<void> Function()? beforeManifestReturn;
   int manifestChecks = 0;
   int updateCalls = 0;
 
   @override
   Future<BusinessRegistryDistributionManifest?> fetchAvailableManifest() async {
     manifestChecks += 1;
+    await beforeManifestReturn?.call();
     return manifest;
   }
 
