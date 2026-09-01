@@ -123,10 +123,10 @@ Future<_Fixture> _writeFixture({
   final headerLine = '${jsonEncode(<String, Object?>{
     'record_type': 'header',
     'registry_version': '2026-09-01',
-    'source_authority': 'MOEA_GCIS',
+    'source_authority': 'MOEA_BUSINESS_ADMINISTRATION_GCIS',
     'source_dataset': 'nationwide_company_business_branch',
     'source_data_date': '2026-09-01',
-    'coverage': 'nationwide',
+    'coverage': 'taiwan_nationwide',
     'entity_count': entities.length,
     'registry_content_sha256': manifestContentSha,
   })}\n';
@@ -140,10 +140,10 @@ Future<_Fixture> _writeFixture({
   final manifest = BusinessRegistryDistributionManifest(
     schemaVersion: BusinessRegistryDistributionManifest.currentSchemaVersion,
     registryVersion: '2026-09-01',
-    sourceAuthority: 'MOEA_GCIS',
+    sourceAuthority: 'MOEA_BUSINESS_ADMINISTRATION_GCIS',
     sourceDataset: 'nationwide_company_business_branch',
     sourceDataDate: '2026-09-01',
-    coverage: 'nationwide',
+    coverage: 'taiwan_nationwide',
     format: BusinessRegistryDistributionFormat.gzipNdjsonV1,
     entityCount: entities.length,
     downloadUri: Uri.parse(
