@@ -9,6 +9,7 @@ import 'package:my_finance_app/features/invoice/invoice_recognition_router.dart'
 import 'package:my_finance_app/features/invoice/invoice_registry_corroboration_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_review_form_view_model.dart';
 import 'package:my_finance_app/features/invoice/traditional_invoice_ocr_review.dart';
+import 'package:my_finance_app/features/invoice/traditional_tax_id_temporal_repair.dart';
 
 void main() {
   const policy = InvoiceRegistryCorroborationAuthorityPolicy();
@@ -52,7 +53,10 @@ void main() {
 
     final decision = policy.evaluate(
       recognition: recognition,
-      review: _review(sellerTaxId: '60744698'),
+      review: _review(
+        sellerTaxId: '60744698',
+        sellerTaxIdSource: InvoiceRegistryCorroborationAuthorityPolicy.qrPayloadSource,
+      ),
     );
 
     expect(decision.authoritative, isTrue);
@@ -67,7 +71,10 @@ void main() {
 
     final decision = policy.evaluate(
       recognition: recognition,
-      review: _review(sellerTaxId: '30340553'),
+      review: _review(
+        sellerTaxId: '30340553',
+        sellerTaxIdSource: 'explicit_label',
+      ),
     );
 
     expect(decision.authoritative, isTrue);
@@ -75,6 +82,28 @@ void main() {
       decision.source,
       InvoiceRegistryCorroborationAuthoritySource.traditionalExplicitLabel,
     );
+  });
+
+  test('Live temporal seller-id repair is governed local authority', () {
+    final recognition = _ocrRecognition(
+      sellerTaxId: '30340553',
+      sellerTaxIdSource: positionalTaxIdTemporalRepairSource,
+    );
+
+    final decision = policy.evaluate(
+      recognition: recognition,
+      review: _review(
+        sellerTaxId: '30340553',
+        sellerTaxIdSource: positionalTaxIdTemporalRepairSource,
+      ),
+    );
+
+    expect(decision.authoritative, isTrue);
+    expect(
+      decision.source,
+      InvoiceRegistryCorroborationAuthoritySource.governedLocalEvidence,
+    );
+    expect(decision.reason, 'authoritative_temporal_seller_identifier_repair');
   });
 
   test('weak OCR source cannot gain authority through registry eligibility', () {
@@ -85,11 +114,58 @@ void main() {
 
     final decision = policy.evaluate(
       recognition: recognition,
-      review: _review(sellerTaxId: '30340553'),
+      review: _review(
+        sellerTaxId: '30340553',
+        sellerTaxIdSource: 'contextual_no_header',
+      ),
     );
 
     expect(decision.authoritative, isFalse);
     expect(decision.source, InvoiceRegistryCorroborationAuthoritySource.none);
+  });
+
+  test('checksum-valid initial value without provenance stays fail closed', () {
+    final decision = policy.evaluateReviewSelection(
+      sellerIdentifier: '30340553',
+      localQrAuthority: false,
+      explicitlyCorrected: false,
+      explicitlyAiSelected: false,
+      aiComparisonAcknowledged: false,
+      initialLocalSellerIdentifierSource: '',
+    );
+
+    expect(decision.authoritative, isFalse);
+    expect(decision.reason, 'review_selection_not_authoritative');
+  });
+
+  test('explicit and temporal Local provenance survive review re-evaluation', () {
+    final explicit = policy.evaluateReviewSelection(
+      sellerIdentifier: '30340553',
+      localQrAuthority: false,
+      explicitlyCorrected: false,
+      explicitlyAiSelected: false,
+      aiComparisonAcknowledged: false,
+      initialLocalSellerIdentifierSource: 'explicit_label',
+    );
+    expect(explicit.authoritative, isTrue);
+    expect(
+      explicit.source,
+      InvoiceRegistryCorroborationAuthoritySource.traditionalExplicitLabel,
+    );
+
+    final temporal = policy.evaluateReviewSelection(
+      sellerIdentifier: '30340553',
+      localQrAuthority: false,
+      explicitlyCorrected: false,
+      explicitlyAiSelected: false,
+      aiComparisonAcknowledged: false,
+      initialLocalSellerIdentifierSource: positionalTaxIdTemporalRepairSource,
+    );
+    expect(temporal.authoritative, isTrue);
+    expect(
+      temporal.source,
+      InvoiceRegistryCorroborationAuthoritySource.governedLocalEvidence,
+    );
   });
 
   test('explicit AI seller id requires acknowledgement and strict checksum', () {
@@ -99,7 +175,7 @@ void main() {
       explicitlyCorrected: false,
       explicitlyAiSelected: true,
       aiComparisonAcknowledged: false,
-      initialLocalSellerIdentifierWasPresent: false,
+      initialLocalSellerIdentifierSource: '',
     );
     expect(beforeAck.authoritative, isFalse);
     expect(beforeAck.reason, 'ai_selection_not_globally_acknowledged');
@@ -110,7 +186,7 @@ void main() {
       explicitlyCorrected: false,
       explicitlyAiSelected: true,
       aiComparisonAcknowledged: true,
-      initialLocalSellerIdentifierWasPresent: false,
+      initialLocalSellerIdentifierSource: '',
     );
     expect(accepted.authoritative, isTrue);
     expect(
@@ -124,7 +200,7 @@ void main() {
       explicitlyCorrected: false,
       explicitlyAiSelected: true,
       aiComparisonAcknowledged: true,
-      initialLocalSellerIdentifierWasPresent: false,
+      initialLocalSellerIdentifierSource: '',
     );
     expect(invalidChecksum.authoritative, isFalse);
     expect(invalidChecksum.reason, 'ai_selection_failed_strict_checksum');
@@ -137,7 +213,7 @@ void main() {
       explicitlyCorrected: true,
       explicitlyAiSelected: false,
       aiComparisonAcknowledged: false,
-      initialLocalSellerIdentifierWasPresent: false,
+      initialLocalSellerIdentifierSource: '',
     );
     expect(accepted.authoritative, isTrue);
     expect(
@@ -151,7 +227,7 @@ void main() {
       explicitlyCorrected: true,
       explicitlyAiSelected: false,
       aiComparisonAcknowledged: false,
-      initialLocalSellerIdentifierWasPresent: false,
+      initialLocalSellerIdentifierSource: '',
     );
     expect(rejected.authoritative, isFalse);
   });
@@ -180,6 +256,7 @@ void main() {
     );
 
     expect(result.registryAuthorityDecision?.authoritative, isTrue);
+    expect(result.formModel.sellerTaxIdSource, 'explicit_label');
     expect(result.formModel.fieldFor(InvoiceReviewFieldKey.sellerName)?.value,
         '發票原文商家');
     expect(result.canCreateFormalRecord, isFalse);
@@ -234,7 +311,10 @@ TraditionalInvoiceOcrReviewCandidate _ocrCandidate({
   );
 }
 
-InvoiceReviewFormViewModel _review({required String sellerTaxId}) {
+InvoiceReviewFormViewModel _review({
+  required String sellerTaxId,
+  String sellerTaxIdSource = '',
+}) {
   return InvoiceReviewFormViewModel(
     title: 'fixture',
     routeReason: 'fixture',
@@ -254,6 +334,7 @@ InvoiceReviewFormViewModel _review({required String sellerTaxId}) {
     canOpenReview: true,
     requiresAcknowledgement: false,
     disclaimerAcknowledged: false,
+    sellerTaxIdSource: sellerTaxIdSource,
   );
 }
 
