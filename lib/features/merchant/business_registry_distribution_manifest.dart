@@ -40,6 +40,7 @@ class BusinessRegistryDistributionManifest {
   static const int currentSchemaVersion = 1;
   static const int maxCompressedSizeBytes = 256 * 1024 * 1024;
   static const int maxUncompressedSizeBytes = 1024 * 1024 * 1024;
+  static const int maxManifestSizeBytes = 64 * 1024;
 
   static const Set<String> allowedDistributionHosts = <String>{
     'github.com',
@@ -127,20 +128,9 @@ class BusinessRegistryDistributionManifest {
     if (entityCount <= 0) {
       errors.add('REGISTRY_DISTRIBUTION_ENTITY_COUNT_INVALID');
     }
-    if (downloadUri.scheme != 'https' ||
-        !allowedDistributionHosts.contains(downloadUri.host)) {
+    if (!isAllowedDistributionUri(downloadUri)) {
       errors.add('REGISTRY_DISTRIBUTION_DOWNLOAD_URL_NOT_ALLOWED');
-    }
-    if (downloadUri.host == 'github.com' &&
-        !downloadUri.path.startsWith(
-          '/easonliu714/my_finance_app_public/releases/download/',
-        )) {
-      errors.add('REGISTRY_DISTRIBUTION_GITHUB_PATH_NOT_ALLOWED');
-    }
-    if (downloadUri.host == 'raw.githubusercontent.com' &&
-        !downloadUri.path.startsWith(
-          '/easonliu714/my_finance_app_public/',
-        )) {
+    } else if (!isAllowedRepositoryPath(downloadUri)) {
       errors.add('REGISTRY_DISTRIBUTION_GITHUB_PATH_NOT_ALLOWED');
     }
     if (!_isSha256(downloadSha256)) {
@@ -168,6 +158,21 @@ class BusinessRegistryDistributionManifest {
       isValid: errors.isEmpty,
       errors: List<String>.unmodifiable(errors.toSet()),
     );
+  }
+
+  static bool isAllowedDistributionUri(Uri uri) =>
+      uri.scheme == 'https' && allowedDistributionHosts.contains(uri.host);
+
+  static bool isAllowedRepositoryPath(Uri uri) {
+    if (uri.host == 'github.com') {
+      return uri.path.startsWith(
+        '/easonliu714/my_finance_app_public/releases/download/',
+      );
+    }
+    if (uri.host == 'raw.githubusercontent.com') {
+      return uri.path.startsWith('/easonliu714/my_finance_app_public/');
+    }
+    return false;
   }
 
   static int _asInt(Object? value) {
