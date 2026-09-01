@@ -47,7 +47,8 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
       );
     }
 
-    if (recognition.status == InvoiceAutomaticRecognitionStatus.qrReviewCandidate &&
+    if (recognition.status ==
+            InvoiceAutomaticRecognitionStatus.qrReviewCandidate &&
         _qrSellerIdentifier(recognition) == seller) {
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
@@ -58,7 +59,8 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
     }
 
     final ocr = recognition.ocrResult?.candidate;
-    if (recognition.status == InvoiceAutomaticRecognitionStatus.ocrReviewCandidate &&
+    if (recognition.status ==
+            InvoiceAutomaticRecognitionStatus.ocrReviewCandidate &&
         ocr != null &&
         _digits(ocr.sellerTaxId) == seller &&
         ocr.sellerTaxIdSource == 'explicit_label' &&
@@ -66,7 +68,8 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
         authoritative: true,
-        source: InvoiceRegistryCorroborationAuthoritySource.traditionalExplicitLabel,
+        source:
+            InvoiceRegistryCorroborationAuthoritySource.traditionalExplicitLabel,
         reason: 'authoritative_traditional_explicit_label',
       );
     }
@@ -82,7 +85,9 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
   String _qrSellerIdentifier(InvoiceAutomaticRecognitionResult recognition) {
     final pairs = recognition.qrResult?.routingResult?.pairs;
     if (pairs == null || pairs.isEmpty) return '';
-    return _digits(pairs.first.left.leftParseResult.sellerIdentifier ?? '');
+    return _digits(
+      pairs.first.left.leftParseResult?.sellerIdentifier ?? '',
+    );
   }
 
   static String _digits(String value) =>
