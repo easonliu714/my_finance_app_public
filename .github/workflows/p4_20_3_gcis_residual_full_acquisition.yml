@@ -114,14 +114,16 @@ jobs:
           assert len(sellers)==int(os.environ['EXPECTED_RESIDUAL_COUNT'])
           assert len(set(sellers))==len(sellers), 'RESIDUAL_DUPLICATE_SELLER_IDENTIFIER'
           payload_sha=hashlib.sha256(residual.read_bytes()).hexdigest()
+          seller_set_sha=hashlib.sha256(''.join(f'{seller}\n' for seller in sorted(sellers)).encode('utf-8')).hexdigest()
           authority={
-              'schema_version':1,
+              'schema_version':2,
               'gate':'P4.20.3-D-full-residual-acquisition',
               'exact_head':os.environ['EXACT_HEAD'],
               'fia_source_archive_sha256':summary['source_archive_sha256'],
               'fia_source_row_count':int(summary['source_row_count']),
               'residual_seller_count':len(sellers),
               'residual_payload_sha256':payload_sha,
+              'seller_set_sha256':seller_set_sha,
               'shard_count':int(os.environ['SHARD_COUNT']),
               'shard_selection':'sorted_unique_sellers[index::shard_count]',
               'responsible_person_payload_emitted':False,
@@ -195,18 +197,25 @@ jobs:
           import hashlib, json, os
           from pathlib import Path
           shard=int('${{ matrix.shard }}')
-          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'/f'shard-{shard}'
+          base=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'
+          root=base/f'shard-{shard}'
+          residual=base/'input'/'staged'/'enrichment_required.ndjson'
           manifest=json.loads((root/'acquisition_manifest.json').read_text(encoding='utf-8'))
           rows=[json.loads(x) for x in (root/'registration_type_evidence.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
           failures=[json.loads(x) for x in (root/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          frozen_sellers=sorted({str(json.loads(x)['seller_identifier']) for x in residual.read_text(encoding='utf-8').splitlines() if x.strip()})
           expected_total=int(os.environ['EXPECTED_RESIDUAL_COUNT'])
-          expected_selected=len(range(shard, expected_total, int(os.environ['SHARD_COUNT'])))
+          expected_members=frozen_sellers[shard::int(os.environ['SHARD_COUNT'])]
+          expected_selected=len(expected_members)
+          actual_members=sorted(str(r['seller_identifier']) for r in rows)
+          assert len(frozen_sellers)==expected_total
           assert manifest['seller_filter_unique_count']==expected_total, manifest
           assert manifest['selected_shard_seller_count']==expected_selected, manifest
           assert manifest['shard_index']==shard and manifest['shard_count']==int(os.environ['SHARD_COUNT']), manifest
           assert manifest['success_count']==expected_selected, (manifest, failures[:20])
           assert manifest['failure_count']==0, failures[:20]
           assert len(rows)==expected_selected
+          assert actual_members==expected_members, {'shard':shard,'expected_first':expected_members[:10],'actual_first':actual_members[:10]}
           assert all(set(r)=={'seller_identifier','official_types','official_exists_values','official_year_values','source_dataset'} for r in rows)
           assert manifest['responsible_person_payload_emitted'] is False
           assert manifest['merchant_name_inference_used'] is False
@@ -232,6 +241,12 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
+      - name: Download exact residual authority
+        uses: actions/download-artifact@v4
+        with:
+          name: p4-20-3-full-residual-input-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/input
+
       - name: Download all shard evidence
         uses: actions/download-artifact@v4
         with:
@@ -239,43 +254,66 @@ jobs:
           path: ${{ runner.temp }}/p4_20_3_full_residual/all-shards
           merge-multiple: false
 
-      - name: Verify exact 15,753 seller partition and combined evidence SHA
+      - name: Verify exact frozen seller partition and canonical evidence SHA
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
-          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'/'all-shards'
-          sellers=[]
+          base=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'
+          root=base/'all-shards'
+          input_root=base/'input'/'staged'
+          residual=input_root/'enrichment_required.ndjson'
+          authority=json.loads((input_root/'residual_authority.json').read_text(encoding='utf-8'))
+          residual_payload_sha=hashlib.sha256(residual.read_bytes()).hexdigest()
+          assert residual_payload_sha==authority['residual_payload_sha256'], authority
+          assert authority['exact_head']==os.environ['EXACT_HEAD'], authority
+          assert authority['fia_source_archive_sha256']==os.environ['EXPECTED_FIA_SHA256'], authority
+          frozen_rows=[json.loads(x) for x in residual.read_text(encoding='utf-8').splitlines() if x.strip()]
+          frozen_sellers=sorted(str(r['seller_identifier']) for r in frozen_rows)
+          expected=int(os.environ['EXPECTED_RESIDUAL_COUNT'])
+          assert len(frozen_sellers)==expected
+          assert len(set(frozen_sellers))==expected, 'FROZEN_RESIDUAL_DUPLICATE_SELLER'
+          seller_set_sha=hashlib.sha256(''.join(f'{seller}\n' for seller in frozen_sellers).encode('utf-8')).hexdigest()
+          assert seller_set_sha==authority['seller_set_sha256'], authority
+          acquired_rows=[]
           manifests=[]
-          combined=hashlib.sha256()
-          for shard in range(int(os.environ['SHARD_COUNT'])):
+          shard_count=int(os.environ['SHARD_COUNT'])
+          for shard in range(shard_count):
               matches=list(root.glob(f'p4-20-3-full-residual-shard-{shard}-*/registration_type_evidence.ndjson'))
               assert len(matches)==1, (shard,matches)
               evidence=matches[0]
               manifest=json.loads((evidence.parent/'acquisition_manifest.json').read_text(encoding='utf-8'))
               failures=[x for x in (evidence.parent/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
               assert manifest['shard_index']==shard
-              assert manifest['shard_count']==int(os.environ['SHARD_COUNT'])
+              assert manifest['shard_count']==shard_count
               assert manifest['failure_count']==0 and not failures
               rows=[json.loads(x) for x in evidence.read_text(encoding='utf-8').splitlines() if x.strip()]
-              sellers.extend(r['seller_identifier'] for r in rows)
-              for row in sorted(rows,key=lambda r:r['seller_identifier']):
-                  combined.update((json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode('utf-8'))
+              actual_members=sorted(str(r['seller_identifier']) for r in rows)
+              expected_members=frozen_sellers[shard::shard_count]
+              assert actual_members==expected_members, {'shard':shard,'expected_count':len(expected_members),'actual_count':len(actual_members)}
+              acquired_rows.extend(rows)
               manifests.append(manifest)
-          expected=int(os.environ['EXPECTED_RESIDUAL_COUNT'])
-          assert len(sellers)==expected, len(sellers)
-          assert len(set(sellers))==expected, 'FULL_RESIDUAL_DUPLICATE_OR_LOST_SELLER'
+          acquired_sellers=sorted(str(r['seller_identifier']) for r in acquired_rows)
+          assert len(acquired_sellers)==expected, len(acquired_sellers)
+          assert len(set(acquired_sellers))==expected, 'FULL_RESIDUAL_DUPLICATE_OR_LOST_SELLER'
+          assert acquired_sellers==frozen_sellers, 'FULL_RESIDUAL_SELLER_SET_PARITY_MISMATCH'
+          canonical_rows=sorted(acquired_rows,key=lambda r:str(r['seller_identifier']))
+          global_evidence_sha=hashlib.sha256()
+          for row in canonical_rows:
+              global_evidence_sha.update((json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode('utf-8'))
           closure={
-              'schema_version':1,
+              'schema_version':2,
               'gate':'P4.20.3-D-full-residual-acquisition-closure',
               'exact_head':os.environ['EXACT_HEAD'],
               'seller_count':expected,
-              'shard_count':int(os.environ['SHARD_COUNT']),
+              'shard_count':shard_count,
+              'residual_payload_sha256':residual_payload_sha,
+              'seller_set_sha256':seller_set_sha,
               'total_success_count':sum(int(m['success_count']) for m in manifests),
               'total_failure_count':sum(int(m['failure_count']) for m in manifests),
-              'combined_normalized_evidence_sha256':combined.hexdigest(),
+              'globally_sorted_combined_evidence_sha256':global_evidence_sha.hexdigest(),
               'responsible_person_payload_emitted':False,
               'mobile_per_invoice_network_lookup':False,
               'official_type_mapping_applied':False,
@@ -283,8 +321,11 @@ jobs:
           }
           assert closure['total_success_count']==expected
           assert closure['total_failure_count']==0
-          out=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'/'cohort_closure.json'
+          out=base/'cohort_closure.json'
           out.write_text(json.dumps(closure,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_FULL_RESIDUAL_EXACT_SET_PARITY=PASS')
+          print('P4_20_3_FULL_RESIDUAL_SHARD_MEMBERSHIP_PARITY=PASS')
+          print('P4_20_3_FULL_RESIDUAL_CANONICAL_EVIDENCE_SHA=PASS')
           print('P4_20_3_FULL_RESIDUAL_PARTITION_CLOSURE=PASS')
           print(json.dumps(closure,sort_keys=True))
           PY
