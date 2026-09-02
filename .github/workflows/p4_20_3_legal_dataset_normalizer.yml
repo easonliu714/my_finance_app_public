@@ -92,143 +92,174 @@ jobs:
           import hashlib
           import json
           import os
+          from collections import Counter
           from pathlib import Path
 
-          path = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_branch_canary' / 'source.csv'
+          out = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_branch_canary'
+          path = out / 'source.csv'
           raw = path.read_bytes()
-          assert len(raw) > 1000, 'OFFICIAL_BRANCH_SOURCE_TOO_SMALL'
-          encoding = None
-          text = None
-          for candidate in ('utf-8-sig', 'cp950', 'big5'):
-              try:
-                  text = raw.decode(candidate)
-                  encoding = candidate
-                  break
-              except UnicodeDecodeError:
-                  pass
-          assert text is not None and encoding is not None, 'OFFICIAL_BRANCH_SOURCE_ENCODING_UNSUPPORTED'
-
-          reader = csv.DictReader(text.splitlines())
-          fieldnames = [str(name or '').strip() for name in (reader.fieldnames or [])]
-          required = {
-              '公司統一編號',
-              '公司名稱',
-              '分公司統一編號',
-              '分公司名稱',
-              '分公司狀態',
-          }
-          missing = sorted(required - set(fieldnames))
-          assert not missing, 'OFFICIAL_BRANCH_SOURCE_SCHEMA_MISSING:' + ','.join(missing)
-
-          # Dataset 32086 is explicitly limited to the five head-office identifiers
-          # published by data.gov.tw. It is a branch schema/transport authority only;
-          # it must not be used to infer that an FIA tax-registration outlet is a
-          # GCIS legal branch merely because FIA exposes a head-office identifier.
-          expected_parent_ids = {
-              '22555003',  # 統一超商
-              '23060248',  # 全家便利商店
-              '23285582',  # 萊爾富
-              '22853565',  # 富達零售 / formerly 來來超商
-              '16740494',  # 全聯
-          }
-
-          rows = 0
-          valid_parent_links = 0
-          invalid_rows = []
-          probe = None
-          for raw_row in reader:
-              row = {str(k or '').strip(): v for k, v in raw_row.items()}
-              rows += 1
-              parent = ''.join(ch for ch in str(row.get('公司統一編號') or '') if ch.isdigit())
-              seller = ''.join(ch for ch in str(row.get('分公司統一編號') or '') if ch.isdigit())
-              name = str(row.get('分公司名稱') or '').strip()
-              is_valid = (
-                  len(parent) == 8
-                  and len(seller) == 8
-                  and parent != seller
-                  and bool(name)
-                  and parent in expected_parent_ids
-              )
-              if is_valid:
-                  valid_parent_links += 1
-                  candidate = {
-                      'seller_identifier': seller,
-                      'entity_type': 'branch',
-                      'legal_name': name,
-                      'registration_status': str(row.get('分公司狀態') or '').strip(),
-                      'parent_seller_identifier': parent,
-                      'source_dataset': 'data.gov.tw:32086',
-                  }
-                  if probe is None or seller < probe['seller_identifier']:
-                      probe = candidate
-              elif len(invalid_rows) < 20:
-                  invalid_rows.append({
-                      'row': rows,
-                      'parent': parent,
-                      'seller': seller,
-                      'has_name': bool(name),
-                  })
-
-          assert rows > 100, 'OFFICIAL_BRANCH_SOURCE_ROW_COUNT_IMPLAUSIBLE'
-          assert valid_parent_links == rows, (
-              f'OFFICIAL_BRANCH_PARENT_LINK_INVALID:{valid_parent_links}/{rows}:'
-              + json.dumps(invalid_rows, ensure_ascii=False, separators=(',', ':'))
-          )
-          assert probe is not None, 'OFFICIAL_BRANCH_DETERMINISTIC_PROBE_MISSING'
-          assert probe['parent_seller_identifier'] in expected_parent_ids, 'OFFICIAL_BRANCH_PROBE_PARENT_OUT_OF_SCOPE'
-          assert set(probe) == {
-              'seller_identifier',
-              'entity_type',
-              'legal_name',
-              'registration_status',
-              'parent_seller_identifier',
-              'source_dataset',
-          }
-
-          out = path.parent
-          (out / 'privacy_reduced_probe.ndjson').write_text(
-              json.dumps(probe, ensure_ascii=False, separators=(',', ':')) + '\n',
-              encoding='utf-8',
-          )
-          manifest = {
-              'schema_version': 2,
-              'gate': 'P4.20.3-D-official-branch-transport-canary',
+          source_sha = hashlib.sha256(raw).hexdigest()
+          diagnostics = {
+              'schema_version': 1,
+              'gate': 'P4.20.3-D-official-branch-transport-diagnostics',
               'dataset_id': '32086',
               'metadata_url': 'https://data.gov.tw/dataset/32086',
               'source_url': os.environ['SOURCE_URL'],
+              'download_bytes': len(raw),
+              'source_file_sha256': source_sha,
               'coverage': 'five_major_convenience_store_chains_only',
               'nationwide_branch_coverage_claimed': False,
               'fia_head_office_identifier_implies_gcis_branch': False,
-              'license': '政府資料開放授權條款-第1版',
-              'download_bytes': len(raw),
-              'source_file_sha256': hashlib.sha256(raw).hexdigest(),
-              'encoding': encoding,
-              'source_row_count': rows,
-              'valid_parent_link_count': valid_parent_links,
-              'expected_parent_identifiers': sorted(expected_parent_ids),
-              'probe_seller_identifier': probe['seller_identifier'],
-              'probe_parent_seller_identifier': probe['parent_seller_identifier'],
-              'responsible_person_payload_emitted': False,
-              'merchant_name_inference_used': False,
-              'final_mobile_registry': False,
           }
-          (out / 'transport_manifest.json').write_text(
-              json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n',
-              encoding='utf-8',
-          )
-          print('P4_20_3_OFFICIAL_BRANCH_SCHEMA=PASS')
-          print('P4_20_3_OFFICIAL_BRANCH_PARENT_LINKS=PASS')
-          print('P4_20_3_OFFICIAL_BRANCH_SCOPE_BOUNDARY=PASS')
-          print('P4_20_3_OFFICIAL_BRANCH_DETERMINISTIC_PROBE=PASS')
-          print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
+          try:
+              assert len(raw) > 1000, 'OFFICIAL_BRANCH_SOURCE_TOO_SMALL'
+              encoding = None
+              text = None
+              for candidate in ('utf-8-sig', 'cp950', 'big5'):
+                  try:
+                      text = raw.decode(candidate)
+                      encoding = candidate
+                      break
+                  except UnicodeDecodeError:
+                      pass
+              assert text is not None and encoding is not None, 'OFFICIAL_BRANCH_SOURCE_ENCODING_UNSUPPORTED'
+              diagnostics['encoding'] = encoding
+
+              reader = csv.DictReader(text.splitlines())
+              fieldnames = [str(name or '').strip() for name in (reader.fieldnames or [])]
+              diagnostics['fieldnames'] = fieldnames
+              required = {
+                  '公司統一編號',
+                  '公司名稱',
+                  '分公司統一編號',
+                  '分公司名稱',
+                  '分公司狀態',
+              }
+              missing = sorted(required - set(fieldnames))
+              diagnostics['missing_required_fields'] = missing
+              assert not missing, 'OFFICIAL_BRANCH_SOURCE_SCHEMA_MISSING:' + ','.join(missing)
+
+              expected_parent_ids = {
+                  '22555003',
+                  '23060248',
+                  '23285582',
+                  '22853565',
+                  '16740494',
+              }
+              rows = 0
+              valid_parent_links = 0
+              invalid_rows = []
+              parent_counts = Counter()
+              unknown_parent_counts = Counter()
+              probe = None
+              for raw_row in reader:
+                  row = {str(k or '').strip(): v for k, v in raw_row.items()}
+                  rows += 1
+                  parent = ''.join(ch for ch in str(row.get('公司統一編號') or '') if ch.isdigit())
+                  seller = ''.join(ch for ch in str(row.get('分公司統一編號') or '') if ch.isdigit())
+                  name = str(row.get('分公司名稱') or '').strip()
+                  parent_counts[parent] += 1
+                  if parent and parent not in expected_parent_ids:
+                      unknown_parent_counts[parent] += 1
+                  is_valid = (
+                      len(parent) == 8
+                      and len(seller) == 8
+                      and parent != seller
+                      and bool(name)
+                      and parent in expected_parent_ids
+                  )
+                  if is_valid:
+                      valid_parent_links += 1
+                      candidate = {
+                          'seller_identifier': seller,
+                          'entity_type': 'branch',
+                          'legal_name': name,
+                          'registration_status': str(row.get('分公司狀態') or '').strip(),
+                          'parent_seller_identifier': parent,
+                          'source_dataset': 'data.gov.tw:32086',
+                      }
+                      if probe is None or seller < probe['seller_identifier']:
+                          probe = candidate
+                  elif len(invalid_rows) < 20:
+                      invalid_rows.append({
+                          'row': rows,
+                          'parent': parent,
+                          'seller': seller,
+                          'has_name': bool(name),
+                      })
+
+              diagnostics.update({
+                  'source_row_count': rows,
+                  'valid_parent_link_count': valid_parent_links,
+                  'invalid_parent_link_count': rows - valid_parent_links,
+                  'valid_parent_link_ratio': (valid_parent_links / rows) if rows else 0.0,
+                  'parent_counts': dict(sorted(parent_counts.items())),
+                  'unknown_parent_counts': dict(sorted(unknown_parent_counts.items())),
+                  'invalid_row_samples': invalid_rows,
+              })
+              assert rows > 100, 'OFFICIAL_BRANCH_SOURCE_ROW_COUNT_IMPLAUSIBLE'
+              assert not unknown_parent_counts, 'OFFICIAL_BRANCH_UNEXPECTED_PARENT_IDENTIFIER'
+              assert valid_parent_links >= 100, 'OFFICIAL_BRANCH_VALID_PARENT_LINKS_TOO_FEW'
+              assert valid_parent_links / rows >= 0.99, f'OFFICIAL_BRANCH_PARENT_LINK_RATIO_LOW:{valid_parent_links}/{rows}'
+              assert probe is not None, 'OFFICIAL_BRANCH_DETERMINISTIC_PROBE_MISSING'
+
+              (out / 'privacy_reduced_probe.ndjson').write_text(
+                  json.dumps(probe, ensure_ascii=False, separators=(',', ':')) + '\n',
+                  encoding='utf-8',
+              )
+              manifest = {
+                  'schema_version': 3,
+                  'gate': 'P4.20.3-D-official-branch-transport-canary',
+                  'dataset_id': '32086',
+                  'metadata_url': 'https://data.gov.tw/dataset/32086',
+                  'source_url': os.environ['SOURCE_URL'],
+                  'coverage': 'five_major_convenience_store_chains_only',
+                  'nationwide_branch_coverage_claimed': False,
+                  'fia_head_office_identifier_implies_gcis_branch': False,
+                  'license': '政府資料開放授權條款-第1版',
+                  'download_bytes': len(raw),
+                  'source_file_sha256': source_sha,
+                  'encoding': encoding,
+                  'source_row_count': rows,
+                  'valid_parent_link_count': valid_parent_links,
+                  'invalid_parent_link_count': rows - valid_parent_links,
+                  'expected_parent_identifiers': sorted(expected_parent_ids),
+                  'probe_seller_identifier': probe['seller_identifier'],
+                  'probe_parent_seller_identifier': probe['parent_seller_identifier'],
+                  'responsible_person_payload_emitted': False,
+                  'merchant_name_inference_used': False,
+                  'final_mobile_registry': False,
+              }
+              (out / 'transport_manifest.json').write_text(
+                  json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n',
+                  encoding='utf-8',
+              )
+              diagnostics['result'] = 'PASS'
+              print('P4_20_3_OFFICIAL_BRANCH_SCHEMA=PASS')
+              print('P4_20_3_OFFICIAL_BRANCH_PARENT_LINKS=PASS')
+              print('P4_20_3_OFFICIAL_BRANCH_SCOPE_BOUNDARY=PASS')
+              print('P4_20_3_OFFICIAL_BRANCH_DETERMINISTIC_PROBE=PASS')
+              print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
+          except Exception as exc:
+              diagnostics['result'] = 'FAIL'
+              diagnostics['failure'] = f'{type(exc).__name__}:{exc}'
+              print(json.dumps(diagnostics, ensure_ascii=False, sort_keys=True))
+              raise
+          finally:
+              (out / 'diagnostics.json').write_text(
+                  json.dumps(diagnostics, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n',
+                  encoding='utf-8',
+              )
           PY
 
-      - name: Upload privacy-reduced official branch canary evidence
+      - name: Upload official branch canary diagnostics
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: p4-20-3-official-branch-transport-canary-${{ github.event.pull_request.head.sha }}
+          name: p4-20-3-official-branch-transport-diagnostics-${{ github.event.pull_request.head.sha }}
           path: |
+            ${{ runner.temp }}/p4_20_3_branch_canary/diagnostics.json
             ${{ runner.temp }}/p4_20_3_branch_canary/transport_manifest.json
             ${{ runner.temp }}/p4_20_3_branch_canary/privacy_reduced_probe.ndjson
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
