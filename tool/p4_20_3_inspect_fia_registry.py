@@ -3,8 +3,8 @@
 
 This is an acquisition/evidence tool, not the final canonical registry builder.
 It streams the CSV member directly from the ZIP, validates source shape, records
-quality counters and selected real seller-ID probes, and never loads all rows
-into memory.
+quality/classification counters and selected real seller-ID probes, and never
+loads all rows into memory.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import json
 import re
 import sys
 import zipfile
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -76,6 +77,9 @@ def inspect_archive(
         empty_name_count = 0
         invalid_parent_count = 0
         parent_self_reference_count = 0
+        parent_link_count = 0
+        organization_counts: Counter[str] = Counter()
+        uniform_invoice_counts: Counter[str] = Counter()
         found_probes: dict[str, dict[str, str]] = {}
 
         with zf.open(member, "r") as raw:
@@ -95,10 +99,16 @@ def inspect_archive(
                 seller = re.sub(r"\D", "", row.get("統一編號") or "")
                 parent = re.sub(r"\D", "", row.get("總機構統一編號") or "")
                 name = (row.get("營業人名稱") or "").strip()
+                organization = (row.get("組織別名稱") or "").strip() or "<EMPTY>"
+                uniform_invoice = (row.get("使用統一發票") or "").strip() or "<EMPTY>"
+                organization_counts[organization] += 1
+                uniform_invoice_counts[uniform_invoice] += 1
                 if not SELLER_RE.fullmatch(seller):
                     invalid_seller_count += 1
                 if not name:
                     empty_name_count += 1
+                if parent:
+                    parent_link_count += 1
                 if parent and not SELLER_RE.fullmatch(parent):
                     invalid_parent_count += 1
                 if parent and parent == seller:
@@ -116,7 +126,7 @@ def inspect_archive(
         raise RuntimeError(f"FIA_ROW_COUNT_BELOW_NATIONWIDE_FLOOR:{row_count}")
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "dataset": "全國營業(稅籍)登記資料集",
         "provider": "財政部財政資訊中心",
         "catalog_url": "https://data.gov.tw/dataset/9400",
@@ -133,6 +143,12 @@ def inspect_archive(
             "empty_name_count": empty_name_count,
             "invalid_parent_count": invalid_parent_count,
             "parent_self_reference_count": parent_self_reference_count,
+        },
+        "classification_evidence": {
+            "parent_link_count": parent_link_count,
+            "parentless_count": row_count - parent_link_count,
+            "organization_type_counts": dict(sorted(organization_counts.items())),
+            "uniform_invoice_counts": dict(sorted(uniform_invoice_counts.items())),
         },
         "probe_results": {
             probe: found_probes.get(probe) for probe in sorted(probes)
@@ -161,7 +177,7 @@ def main() -> int:
             probes=probes,
             min_rows=args.min_rows,
         )
-    except Exception as exc:  # fail closed with one deterministic marker
+    except Exception as exc:
         print(f"P4_20_3_FIA_INSPECTION=HOLD:{exc}", file=sys.stderr)
         return 2
 
@@ -173,6 +189,9 @@ def main() -> int:
     print("P4_20_3_FIA_INSPECTION=PASS")
     print(f"FIA_ROWS={evidence['row_count']}")
     print(f"FIA_ARCHIVE_SHA256={evidence['archive_sha256']}")
+    classification = evidence["classification_evidence"]
+    print(f"FIA_PARENT_LINK_ROWS={classification['parent_link_count']}")
+    print(f"FIA_PARENTLESS_ROWS={classification['parentless_count']}")
     for seller, result in evidence["probe_results"].items():
         status = "HIT" if result else "MISS"
         print(f"FIA_PROBE_{seller}={status}")
