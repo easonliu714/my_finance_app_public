@@ -4,6 +4,8 @@
 Converts official MOEA/GCIS CSV exports into the privacy-reduced, externally
 sorted NDJSON contract consumed by p4_20_3_reconcile_legal_enrichment.py.
 Responsible-person / representative / manager fields are never serialized.
+An optional seller-ID filter allows a nationwide legal source to be reduced to
+only the unresolved FIA residual cohort without changing source provenance.
 """
 from __future__ import annotations
 
@@ -38,6 +40,31 @@ def _seller(value: object) -> str:
 
 def _line(record: dict[str, object]) -> bytes:
     return (json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _load_seller_filter(path: str) -> set[str]:
+    seller_ids: set[str] = set()
+    with Path(path).open("r", encoding="utf-8-sig") as stream:
+        for line_number, raw_line in enumerate(stream, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            value: object = line
+            if line.startswith("{"):
+                try:
+                    decoded = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"INVALID_FILTER_JSON_LINE:{line_number}") from exc
+                if not isinstance(decoded, dict):
+                    raise ValueError(f"INVALID_FILTER_RECORD:{line_number}")
+                value = decoded.get("seller_identifier", "")
+            seller = _seller(value)
+            if not seller:
+                raise ValueError(f"INVALID_FILTER_SELLER_IDENTIFIER:{line_number}")
+            seller_ids.add(seller)
+    if not seller_ids:
+        raise ValueError("EMPTY_SELLER_FILTER")
+    return seller_ids
 
 
 def _normalize_row(
@@ -132,8 +159,11 @@ def normalize(args: argparse.Namespace) -> dict[str, object]:
     output = output_dir / "legal_evidence.ndjson"
     rejected = output_dir / "rejected.ndjson"
     source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    seller_filter = _load_seller_filter(args.seller_filter) if args.seller_filter else None
     reasons: dict[str, int] = {}
     source_rows = 0
+    candidate_rows = 0
+    filtered_out_rows = 0
     accepted = 0
     peak_buffer_rows = 0
 
@@ -153,6 +183,10 @@ def normalize(args: argparse.Namespace) -> dict[str, object]:
                 raise ValueError("MISSING_REQUIRED_COLUMNS:" + ",".join(missing))
             for raw in reader:
                 source_rows += 1
+                if seller_filter is not None and _seller(raw.get(args.seller_col)) not in seller_filter:
+                    filtered_out_rows += 1
+                    continue
+                candidate_rows += 1
                 record, reason = _normalize_row(
                     raw,
                     entity_type=args.entity_type,
@@ -178,8 +212,12 @@ def normalize(args: argparse.Namespace) -> dict[str, object]:
 
     if output_count != accepted:
         raise AssertionError("OUTPUT_COUNT_MISMATCH")
+    if candidate_rows != accepted + sum(reasons.values()):
+        raise AssertionError("CANDIDATE_PARTITION_MISMATCH")
+    if source_rows != candidate_rows + filtered_out_rows:
+        raise AssertionError("SOURCE_PARTITION_MISMATCH")
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "gate": "P4.20.3-D",
         "entity_type": args.entity_type,
         "source_dataset": args.source_dataset,
@@ -189,8 +227,12 @@ def normalize(args: argparse.Namespace) -> dict[str, object]:
         "license": args.license,
         "source_file_sha256": source_sha,
         "source_row_count": source_rows,
+        "seller_filter_applied": seller_filter is not None,
+        "seller_filter_unique_count": len(seller_filter or ()),
+        "candidate_row_count": candidate_rows,
+        "filtered_out_row_count": filtered_out_rows,
         "accepted_row_count": accepted,
-        "rejected_row_count": source_rows - accepted,
+        "rejected_row_count": candidate_rows - accepted,
         "rejection_reasons": dict(sorted(reasons.items())),
         "payload_sha256": payload_sha,
         "chunk_row_limit": args.chunk_rows,
@@ -214,7 +256,13 @@ def self_test() -> None:
         source = root / "branch.csv"
         source.write_text(
             "公司統一編號,分公司統一編號,分公司名稱,分公司狀態,分公司經理姓名\n"
-            "22853565,31655572,富達零售股份有限公司晶技門市,01,敏感欄位不得輸出\n",
+            "22853565,31655572,富達零售股份有限公司晶技門市,01,敏感欄位不得輸出\n"
+            "60769775,60282181,本米股份有限公司土城中央路營業所,01,另一敏感欄位\n",
+            encoding="utf-8",
+        )
+        seller_filter = root / "residual.ndjson"
+        seller_filter.write_text(
+            '{"seller_identifier":"31655572","reason":"needsLegalTypeEnrichment"}\n',
             encoding="utf-8",
         )
         args = argparse.Namespace(
@@ -232,13 +280,21 @@ def self_test() -> None:
             license=LICENSE,
             encoding="utf-8",
             chunk_rows=1,
+            seller_filter=str(seller_filter),
         )
-        normalize(args)
-        row = json.loads((root / "out" / "legal_evidence.ndjson").read_text(encoding="utf-8"))
+        manifest = normalize(args)
+        rows = [json.loads(line) for line in (root / "out" / "legal_evidence.ndjson").read_text(encoding="utf-8").splitlines()]
+        assert len(rows) == 1
+        row = rows[0]
         assert set(row) == OUTPUT_KEYS
         assert row["seller_identifier"] == "31655572"
         assert row["parent_seller_identifier"] == "22853565"
         assert "分公司經理姓名" not in row
+        assert manifest["source_row_count"] == 2
+        assert manifest["seller_filter_unique_count"] == 1
+        assert manifest["candidate_row_count"] == 1
+        assert manifest["filtered_out_row_count"] == 1
+        assert manifest["accepted_row_count"] == 1
     print("P4_20_3_LEGAL_DATASET_NORMALIZER_SELFTEST=PASS")
 
 
@@ -258,6 +314,7 @@ def main() -> None:
     parser.add_argument("--license", default=LICENSE)
     parser.add_argument("--encoding", default="utf-8-sig")
     parser.add_argument("--chunk-rows", type=int, default=50000)
+    parser.add_argument("--seller-filter", default="")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
