@@ -122,15 +122,34 @@ jobs:
           sha = str(summary['ready_entity_payload_sha256'])
           assert len(sha) == 64 and all(c in '0123456789abcdef' for c in sha)
 
-          # Scan emitted bodies rather than trusting only metadata. The official
-          # source can contain extra personal fields, but the privacy-reduced
-          # projection must never serialize them.
-          forbidden = ('負責人', '代表人', '分公司經理人', 'MUST_NOT_LEAK')
-          for path in (root / 'ready_entities.ndjson', root / 'enrichment_required.ndjson'):
+          # Parse every emitted record and constrain the serialized key surface.
+          # This proves privacy reduction without falsely rejecting a legitimate
+          # business name that happens to contain words such as "代表人".
+          ready_keys = {
+              'record_type',
+              'seller_identifier',
+              'entity_type',
+              'legal_name',
+              'registration_status',
+              'parent_seller_identifier',
+              'source_dataset',
+          }
+          enrichment_keys = {
+              'seller_identifier',
+              'legal_name',
+              'organization_type',
+              'uses_uniform_invoice',
+              'source_dataset',
+          }
+          for path, allowed in (
+              (root / 'ready_entities.ndjson', ready_keys),
+              (root / 'enrichment_required.ndjson', enrichment_keys),
+          ):
               with path.open('r', encoding='utf-8') as stream:
                   for line in stream:
-                      if any(token in line for token in forbidden):
-                          raise SystemExit(f'STAGING_FORBIDDEN_PAYLOAD:{path.name}')
+                      record = json.loads(line)
+                      if set(record) != allowed:
+                          raise SystemExit(f'STAGING_PAYLOAD_SURFACE_MISMATCH:{path.name}')
 
           print('P4_20_3_STAGING_PARTITION=PASS')
           print('P4_20_3_STAGING_BOUNDED_MEMORY=PASS')
@@ -157,6 +176,7 @@ jobs:
               f'- Ready entity payload SHA-256: `{sha}`',
               f'- Ready entity bytes: `{summary["ready_entity_bytes"]}`',
               f'- Enrichment queue bytes: `{summary["enrichment_queue_bytes"]}`',
+              '- Serialized field surface: `exact allowlist / PASS`',
               '- Responsible-person payload emitted: `false`',
               '- Final mobile registry: `false` (staging only; enrichment remains required)',
           ]) + '\n')
