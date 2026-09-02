@@ -91,32 +91,74 @@ jobs:
             --probe 60282181 \
             --probe 30340553
 
-      - name: Summarize acquisition authority
+      - name: Summarize acquisition and classification authority
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
-          data = json.loads(Path('p4_20_3_evidence/fia_nationwide_evidence.json').read_text())
-          with Path().joinpath('/dev/stdout').open('w') as out:
-              out.write('P4_20_3_NATIONWIDE_SOURCE=PASS\n')
-              out.write(f"ROW_COUNT={data['row_count']}\n")
-              out.write(f"ARCHIVE_SHA256={data['archive_sha256']}\n")
-              out.write(f"CSV_MEMBER={data['csv_member']}\n")
-              for seller, result in data['probe_results'].items():
-                  out.write(f"PROBE_{seller}={'HIT' if result else 'MISS'}\n")
-          summary = Path(__import__('os').environ['GITHUB_STEP_SUMMARY'])
+
+          evidence_path = Path('p4_20_3_evidence/fia_nationwide_evidence.json')
+          data = json.loads(evidence_path.read_text())
+          classification = data['classification_evidence']
+          organization_counts = classification['organization_type_counts']
+          invoice_counts = classification['uniform_invoice_counts']
+          row_count = data['row_count']
+          parent_links = classification['parent_link_count']
+          parentless = classification['parentless_count']
+
+          if parent_links + parentless != row_count:
+              raise SystemExit('FIA_CLASSIFICATION_PARENT_PARTITION_MISMATCH')
+          if sum(organization_counts.values()) != row_count:
+              raise SystemExit('FIA_CLASSIFICATION_ORGANIZATION_COUNT_MISMATCH')
+          if sum(invoice_counts.values()) != row_count:
+              raise SystemExit('FIA_CLASSIFICATION_INVOICE_COUNT_MISMATCH')
+
+          distribution_path = Path('p4_20_3_evidence/classification_distribution.tsv')
+          with distribution_path.open('w', encoding='utf-8', newline='') as out:
+              out.write('dimension\tvalue\tcount\n')
+              out.write(f'parent_evidence\thas_parent\t{parent_links}\n')
+              out.write(f'parent_evidence\tparentless\t{parentless}\n')
+              for value, count in sorted(organization_counts.items(), key=lambda item: (-item[1], item[0])):
+                  out.write(f'organization_type\t{value}\t{count}\n')
+              for value, count in sorted(invoice_counts.items(), key=lambda item: (-item[1], item[0])):
+                  out.write(f'uniform_invoice\t{value}\t{count}\n')
+
+          print('P4_20_3_NATIONWIDE_SOURCE=PASS')
+          print('P4_20_3_CLASSIFICATION_DISTRIBUTION=PASS')
+          print(f'ROW_COUNT={row_count}')
+          print(f"ARCHIVE_SHA256={data['archive_sha256']}")
+          print(f"CSV_MEMBER={data['csv_member']}")
+          print(f'PARENT_LINK_ROWS={parent_links}')
+          print(f'PARENTLESS_ROWS={parentless}')
+          for value, count in sorted(organization_counts.items(), key=lambda item: (-item[1], item[0])):
+              print(f'ORGANIZATION_TYPE[{value}]={count}')
+          for seller, result in data['probe_results'].items():
+              print(f"PROBE_{seller}={'HIT' if result else 'MISS'}")
+
+          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
           rows = [
               '## P4.20.3 Nationwide FIA acquisition',
               '',
-              f"- Rows: `{data['row_count']}`",
+              f"- Rows: `{row_count}`",
               f"- Archive SHA-256: `{data['archive_sha256']}`",
               f"- CSV member: `{data['csv_member']}`",
               f"- Invalid seller IDs: `{data['quality']['invalid_seller_count']}`",
               f"- Empty legal names: `{data['quality']['empty_name_count']}`",
               f"- Invalid parent IDs: `{data['quality']['invalid_parent_count']}`",
+              f"- Parent-linked rows: `{parent_links}`",
+              f"- Parentless rows: `{parentless}`",
+              '',
+              '### Organization-type distribution',
+              '',
+              '| FIA organization label | Rows |',
+              '| --- | ---: |',
           ]
+          for value, count in sorted(organization_counts.items(), key=lambda item: (-item[1], item[0])):
+              rows.append(f'| `{value}` | `{count}` |')
+          rows.extend(['', '### Real seller-ID probes', ''])
           for seller, result in data['probe_results'].items():
               rows.append(f"- Probe `{seller}`: `{'HIT' if result else 'MISS'}`")
           summary.write_text('\n'.join(rows) + '\n')
@@ -128,6 +170,7 @@ jobs:
           name: p4-20-3-fia-nationwide-acquisition-${{ github.event.pull_request.head.sha }}
           path: |
             p4_20_3_evidence/fia_nationwide_evidence.json
+            p4_20_3_evidence/classification_distribution.tsv
             p4_20_3_evidence/download_headers.txt
             p4_20_3_evidence/effective_url.txt
           if-no-files-found: error
