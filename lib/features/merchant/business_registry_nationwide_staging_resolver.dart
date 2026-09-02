@@ -66,9 +66,14 @@ class BusinessRegistryNationwideStagingResolver {
     required BusinessRegistryNationwideInvoiceSellerSeed seed,
     required Iterable<BusinessRegistryEntity> candidates,
   }) {
-    final relevant = candidates
-        .where((candidate) => candidate.sellerIdentifier == seed.sellerIdentifier)
-        .toList(growable: false);
+    // GCIS exports can contain byte-for-byte-equivalent duplicate rows across
+    // controlled acquisition pages. Collapse only identical canonical facts;
+    // any type/name/parent/status disagreement remains visible and fails closed.
+    final relevant = _dedupeIdentical(
+      candidates.where(
+        (candidate) => candidate.sellerIdentifier == seed.sellerIdentifier,
+      ),
+    );
 
     if (seed.hasParent) {
       final conflictingType = relevant.any(
@@ -146,6 +151,24 @@ class BusinessRegistryNationwideStagingResolver {
       ),
       reason: 'parentless_fia_row_resolved_by_single_legal_authority',
     );
+  }
+
+  static List<BusinessRegistryEntity> _dedupeIdentical(
+    Iterable<BusinessRegistryEntity> candidates,
+  ) {
+    final unique = <String, BusinessRegistryEntity>{};
+    for (final candidate in candidates) {
+      final key = <String>[
+        candidate.sellerIdentifier,
+        candidate.entityType.name,
+        candidate.legalName.trim(),
+        candidate.registrationStatus.trim(),
+        candidate.parentSellerIdentifier.trim(),
+        candidate.sourceDataset.trim(),
+      ].join('\u001f');
+      unique.putIfAbsent(key, () => candidate);
+    }
+    return unique.values.toList(growable: false);
   }
 
   static String _combinedSource(String fia, String enrichment) {
