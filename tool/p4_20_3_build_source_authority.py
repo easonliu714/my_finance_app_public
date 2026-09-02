@@ -27,6 +27,7 @@ UPDATE_CADENCE = "daily"
 LICENSE_NAME = "政府資料開放授權條款-第1版"
 LICENSE_URL = "https://data.gov.tw/license"
 SOURCE_DATASET = "MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY"
+GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -67,8 +68,8 @@ def build_authority(
 ) -> dict[str, object]:
     head = exact_head.strip().lower()
     archive_sha = source_archive_sha256.strip().lower()
-    if not SHA256_RE.fullmatch(head):
-        raise ValueError("EXACT_HEAD_SHA256_REQUIRED")
+    if not GIT_SHA_RE.fullmatch(head):
+        raise ValueError("EXACT_HEAD_GIT_SHA_REQUIRED")
     if not SHA256_RE.fullmatch(archive_sha):
         raise ValueError("SOURCE_ARCHIVE_SHA256_INVALID")
     if source_archive_bytes <= 0 or source_archive_bytes > 512 * 1024 * 1024:
@@ -128,7 +129,7 @@ def validate_authority(authority: dict[str, object]) -> None:
         if authority.get(key) != expected:
             raise ValueError(f"SOURCE_AUTHORITY_CONSTANT_DRIFT:{key}")
 
-    if not SHA256_RE.fullmatch(str(authority.get("exact_head", ""))):
+    if not GIT_SHA_RE.fullmatch(str(authority.get("exact_head", ""))):
         raise ValueError("SOURCE_AUTHORITY_EXACT_HEAD_INVALID")
     if not SHA256_RE.fullmatch(str(authority.get("source_archive_sha256", ""))):
         raise ValueError("SOURCE_AUTHORITY_ARCHIVE_SHA_INVALID")
@@ -154,7 +155,7 @@ def validate_authority(authority: dict[str, object]) -> None:
 
 def _self_test() -> None:
     authority = build_authority(
-        exact_head="a" * 64,
+        exact_head="a" * 40,
         source_last_modified="Tue, 01 Sep 2026 21:11:34 GMT",
         source_archive_sha256="b" * 64,
         source_archive_bytes=66299794,
@@ -173,6 +174,19 @@ def _self_test() -> None:
         assert str(exc) == "SOURCE_AUTHORITY_SHA_MISMATCH"
     else:
         raise AssertionError("tampered authority unexpectedly passed")
+
+    try:
+        build_authority(
+            exact_head="a" * 64,
+            source_last_modified="Tue, 01 Sep 2026 21:11:34 GMT",
+            source_archive_sha256="b" * 64,
+            source_archive_bytes=66299794,
+            source_row_count=1712892,
+        )
+    except ValueError as exc:
+        assert str(exc) == "EXACT_HEAD_GIT_SHA_REQUIRED"
+    else:
+        raise AssertionError("64-hex non-Git exact head unexpectedly passed")
 
 
 def main() -> int:
