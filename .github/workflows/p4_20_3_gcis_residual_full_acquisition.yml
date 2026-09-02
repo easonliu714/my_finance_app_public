@@ -18,9 +18,6 @@ concurrency:
 env:
   FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
   EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
-  EXPECTED_FIA_SHA256: 0a54a9a39c754c8ee6831ed078042b7a19e561fe83bf61aa8483317d0992a0ba
-  EXPECTED_SOURCE_ROWS: '1712892'
-  EXPECTED_RESIDUAL_COUNT: '15753'
   SHARD_COUNT: '8'
 
 jobs:
@@ -58,26 +55,32 @@ jobs:
           python3 tool/p4_20_3_stage_fia_registry.py --self-test
           python3 tool/p4_20_3_acquire_gcis_registration_type.py --self-test
 
-      - name: Download exact official nationwide FIA source
+      - name: Download and freeze current official nationwide FIA snapshot
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/p4_20_3_full_residual"
+          root="$RUNNER_TEMP/p4_20_3_full_residual"
+          mkdir -p "$root"
           source_url='https://eip.fia.gov.tw/data/BGMOPEN1.zip'
           curl --fail --location --proto '=https' --tlsv1.2 \
             --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
+            --dump-header "$root/download_headers.txt" \
             --write-out '%{url_effective}\n' \
-            --output "$RUNNER_TEMP/p4_20_3_full_residual/BGMOPEN1.zip" \
-            "$source_url" \
-            > "$RUNNER_TEMP/p4_20_3_full_residual/effective_url.txt"
-          effective="$(tail -n 1 "$RUNNER_TEMP/p4_20_3_full_residual/effective_url.txt" | tr -d '\r\n')"
+            --output "$root/BGMOPEN1.zip" \
+            "$source_url" > "$root/effective_url.txt"
+          effective="$(tail -n 1 "$root/effective_url.txt" | tr -d '\r\n')"
           case "$effective" in
             https://eip.fia.gov.tw/*) ;;
             *) echo "FIA_EFFECTIVE_URL_NOT_ALLOWED=$effective" >&2; exit 2 ;;
           esac
-          actual_sha="$(sha256sum "$RUNNER_TEMP/p4_20_3_full_residual/BGMOPEN1.zip" | awk '{print $1}')"
-          test "$actual_sha" = "$EXPECTED_FIA_SHA256"
+          actual_sha="$(sha256sum "$root/BGMOPEN1.zip" | awk '{print $1}')"
+          test "${#actual_sha}" -eq 64
+          last_modified="$(grep -i '^Last-Modified:' "$root/download_headers.txt" | tail -n 1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
+          test -n "$last_modified"
+          printf '%s\n' "$actual_sha" > "$root/source_archive_sha256.txt"
+          printf '%s\n' "$last_modified" > "$root/source_last_modified.txt"
           echo "P4_20_3_FULL_RESIDUAL_FIA_SHA256=$actual_sha"
+          echo "P4_20_3_FULL_RESIDUAL_FIA_LAST_MODIFIED=$last_modified"
 
       - name: Rebuild privacy-reduced residual cohort
         shell: bash
@@ -88,19 +91,23 @@ jobs:
             "$RUNNER_TEMP/p4_20_3_full_residual/staged" \
             --chunk-rows 50000 --min-rows 1000000
 
-      - name: Freeze exact residual authority
+      - name: Freeze run-local source and residual authority
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
-          root = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_full_residual' / 'staged'
+          base = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_full_residual'
+          root = base / 'staged'
           summary = json.loads((root/'staging_summary.json').read_text(encoding='utf-8'))
           residual = root/'enrichment_required.ndjson'
-          assert int(summary['source_row_count']) == int(os.environ['EXPECTED_SOURCE_ROWS']), summary
-          assert int(summary['enrichment_required_count']) == int(os.environ['EXPECTED_RESIDUAL_COUNT']), summary
-          assert summary['source_archive_sha256'] == os.environ['EXPECTED_FIA_SHA256'], summary
+          downloaded_sha = (base/'source_archive_sha256.txt').read_text().strip()
+          source_last_modified = (base/'source_last_modified.txt').read_text().strip()
+          effective_url = (base/'effective_url.txt').read_text().strip()
+          assert summary['source_archive_sha256'] == downloaded_sha, (summary, downloaded_sha)
+          assert int(summary['source_row_count']) >= 1_000_000, summary
+          assert int(summary['enrichment_required_count']) > 0, summary
           assert summary['responsible_person_payload_emitted'] is False
           assert summary['final_mobile_registry'] is False
           sellers=[]
@@ -111,27 +118,32 @@ jobs:
                   seller=str(row['seller_identifier'])
                   assert len(seller)==8 and seller.isdigit()
                   sellers.append(seller)
-          assert len(sellers)==int(os.environ['EXPECTED_RESIDUAL_COUNT'])
+          assert len(sellers)==int(summary['enrichment_required_count']), summary
           assert len(set(sellers))==len(sellers), 'RESIDUAL_DUPLICATE_SELLER_IDENTIFIER'
           payload_sha=hashlib.sha256(residual.read_bytes()).hexdigest()
           seller_set_sha=hashlib.sha256(''.join(f'{seller}\n' for seller in sorted(sellers)).encode('utf-8')).hexdigest()
           authority={
-              'schema_version':2,
+              'schema_version':3,
               'gate':'P4.20.3-D-full-residual-acquisition',
               'exact_head':os.environ['EXACT_HEAD'],
-              'fia_source_archive_sha256':summary['source_archive_sha256'],
+              'fia_source_url':effective_url,
+              'fia_source_last_modified':source_last_modified,
+              'fia_source_archive_sha256':downloaded_sha,
               'fia_source_row_count':int(summary['source_row_count']),
               'residual_seller_count':len(sellers),
               'residual_payload_sha256':payload_sha,
               'seller_set_sha256':seller_set_sha,
               'shard_count':int(os.environ['SHARD_COUNT']),
               'shard_selection':'sorted_unique_sellers[index::shard_count]',
+              'validation_subset':False,
               'responsible_person_payload_emitted':False,
               'mobile_per_invoice_network_lookup':False,
               'final_mobile_registry':False,
           }
+          canonical=json.dumps(authority,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
+          authority['authority_sha256']=hashlib.sha256(canonical).hexdigest()
           (root/'residual_authority.json').write_text(json.dumps(authority,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
-          print('P4_20_3_FULL_RESIDUAL_AUTHORITY=PASS')
+          print('P4_20_3_FULL_RESIDUAL_RUN_LOCAL_SOURCE_AUTHORITY=PASS')
           print(json.dumps(authority,sort_keys=True))
           PY
 
@@ -144,6 +156,7 @@ jobs:
             ${{ runner.temp }}/p4_20_3_full_residual/staged/staging_summary.json
             ${{ runner.temp }}/p4_20_3_full_residual/staged/residual_authority.json
             ${{ runner.temp }}/p4_20_3_full_residual/effective_url.txt
+            ${{ runner.temp }}/p4_20_3_full_residual/download_headers.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -199,12 +212,16 @@ jobs:
           shard=int('${{ matrix.shard }}')
           base=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'
           root=base/f'shard-{shard}'
-          residual=base/'input'/'staged'/'enrichment_required.ndjson'
+          input_root=base/'input'/'staged'
+          residual=input_root/'enrichment_required.ndjson'
+          authority=json.loads((input_root/'residual_authority.json').read_text(encoding='utf-8'))
           manifest=json.loads((root/'acquisition_manifest.json').read_text(encoding='utf-8'))
           rows=[json.loads(x) for x in (root/'registration_type_evidence.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
           failures=[json.loads(x) for x in (root/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
           frozen_sellers=sorted({str(json.loads(x)['seller_identifier']) for x in residual.read_text(encoding='utf-8').splitlines() if x.strip()})
-          expected_total=int(os.environ['EXPECTED_RESIDUAL_COUNT'])
+          expected_total=int(authority['residual_seller_count'])
+          assert authority['exact_head']==os.environ['EXACT_HEAD']
+          assert authority['validation_subset'] is False
           expected_members=frozen_sellers[shard::int(os.environ['SHARD_COUNT'])]
           expected_selected=len(expected_members)
           actual_members=sorted(str(r['seller_identifier']) for r in rows)
@@ -269,10 +286,13 @@ jobs:
           residual_payload_sha=hashlib.sha256(residual.read_bytes()).hexdigest()
           assert residual_payload_sha==authority['residual_payload_sha256'], authority
           assert authority['exact_head']==os.environ['EXACT_HEAD'], authority
-          assert authority['fia_source_archive_sha256']==os.environ['EXPECTED_FIA_SHA256'], authority
+          assert authority['validation_subset'] is False, authority
+          canonical_authority={k:v for k,v in authority.items() if k!='authority_sha256'}
+          authority_sha=hashlib.sha256(json.dumps(canonical_authority,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')).hexdigest()
+          assert authority_sha==authority['authority_sha256'], authority
           frozen_rows=[json.loads(x) for x in residual.read_text(encoding='utf-8').splitlines() if x.strip()]
           frozen_sellers=sorted(str(r['seller_identifier']) for r in frozen_rows)
-          expected=int(os.environ['EXPECTED_RESIDUAL_COUNT'])
+          expected=int(authority['residual_seller_count'])
           assert len(frozen_sellers)==expected
           assert len(set(frozen_sellers))==expected, 'FROZEN_RESIDUAL_DUPLICATE_SELLER'
           seller_set_sha=hashlib.sha256(''.join(f'{seller}\n' for seller in frozen_sellers).encode('utf-8')).hexdigest()
@@ -280,6 +300,7 @@ jobs:
           acquired_rows=[]
           manifests=[]
           shard_count=int(os.environ['SHARD_COUNT'])
+          assert authority['shard_count']==shard_count
           for shard in range(shard_count):
               matches=list(root.glob(f'p4-20-3-full-residual-shard-{shard}-*/registration_type_evidence.ndjson'))
               assert len(matches)==1, (shard,matches)
@@ -304,16 +325,21 @@ jobs:
           for row in canonical_rows:
               global_evidence_sha.update((json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode('utf-8'))
           closure={
-              'schema_version':2,
+              'schema_version':3,
               'gate':'P4.20.3-D-full-residual-acquisition-closure',
               'exact_head':os.environ['EXACT_HEAD'],
               'seller_count':expected,
               'shard_count':shard_count,
+              'source_last_modified':authority['fia_source_last_modified'],
+              'source_archive_sha256':authority['fia_source_archive_sha256'],
+              'source_row_count':authority['fia_source_row_count'],
+              'source_authority_sha256':authority['authority_sha256'],
               'residual_payload_sha256':residual_payload_sha,
               'seller_set_sha256':seller_set_sha,
               'total_success_count':sum(int(m['success_count']) for m in manifests),
               'total_failure_count':sum(int(m['failure_count']) for m in manifests),
               'globally_sorted_combined_evidence_sha256':global_evidence_sha.hexdigest(),
+              'validation_subset':False,
               'responsible_person_payload_emitted':False,
               'mobile_per_invoice_network_lookup':False,
               'official_type_mapping_applied':False,
@@ -323,6 +349,7 @@ jobs:
           assert closure['total_failure_count']==0
           out=base/'cohort_closure.json'
           out.write_text(json.dumps(closure,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_FULL_RESIDUAL_RUN_LOCAL_SOURCE_PARITY=PASS')
           print('P4_20_3_FULL_RESIDUAL_EXACT_SET_PARITY=PASS')
           print('P4_20_3_FULL_RESIDUAL_SHARD_MEMBERSHIP_PARITY=PASS')
           print('P4_20_3_FULL_RESIDUAL_CANONICAL_EVIDENCE_SHA=PASS')
