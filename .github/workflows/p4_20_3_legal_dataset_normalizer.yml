@@ -20,7 +20,7 @@ jobs:
       ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
           github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,3 +68,131 @@ jobs:
           assert 'OUTPUT_KEYS' in text
           print('P4_20_3_NORMALIZER_STATIC_PRIVACY_GATE=PASS')
           PY
+
+      - name: Acquire real official branch schema canary
+        shell: bash
+        env:
+          SOURCE_URL: https://data.gcis.nat.gov.tw/od/file?oid=C054F05C-0A6B-428C-B388-288BDB0618E4
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p4_20_3_branch_canary"
+          curl --fail --location --retry 3 --retry-delay 3 --connect-timeout 20 --max-time 180 \
+            --output "$RUNNER_TEMP/p4_20_3_branch_canary/source.csv" "$SOURCE_URL"
+          test -s "$RUNNER_TEMP/p4_20_3_branch_canary/source.csv"
+          echo "P4_20_3_REAL_BRANCH_SOURCE_DOWNLOAD=PASS"
+
+      - name: Verify official branch schema and known parent-child probe
+        shell: bash
+        env:
+          SOURCE_URL: https://data.gcis.nat.gov.tw/od/file?oid=C054F05C-0A6B-428C-B388-288BDB0618E4
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_branch_canary' / 'source.csv'
+          raw = path.read_bytes()
+          assert len(raw) > 1000, 'OFFICIAL_BRANCH_SOURCE_TOO_SMALL'
+          encoding = None
+          text = None
+          for candidate in ('utf-8-sig', 'cp950', 'big5'):
+              try:
+                  text = raw.decode(candidate)
+                  encoding = candidate
+                  break
+              except UnicodeDecodeError:
+                  pass
+          assert text is not None and encoding is not None, 'OFFICIAL_BRANCH_SOURCE_ENCODING_UNSUPPORTED'
+
+          reader = csv.DictReader(text.splitlines())
+          required = {
+              '公司統一編號',
+              '公司名稱',
+              '分公司統一編號',
+              '分公司名稱',
+              '分公司狀態',
+          }
+          missing = sorted(required - set(reader.fieldnames or []))
+          assert not missing, 'OFFICIAL_BRANCH_SOURCE_SCHEMA_MISSING:' + ','.join(missing)
+
+          rows = 0
+          valid_parent_links = 0
+          probe = None
+          for row in reader:
+              rows += 1
+              parent = ''.join(ch for ch in str(row.get('公司統一編號') or '') if ch.isdigit())
+              seller = ''.join(ch for ch in str(row.get('分公司統一編號') or '') if ch.isdigit())
+              name = str(row.get('分公司名稱') or '').strip()
+              if len(parent) == 8 and len(seller) == 8 and parent != seller and name:
+                  valid_parent_links += 1
+              if seller == '31655572':
+                  probe = {
+                      'seller_identifier': seller,
+                      'entity_type': 'branch',
+                      'legal_name': name,
+                      'registration_status': str(row.get('分公司狀態') or '').strip(),
+                      'parent_seller_identifier': parent,
+                      'source_dataset': 'data.gov.tw:32086',
+                  }
+
+          assert rows > 100, 'OFFICIAL_BRANCH_SOURCE_ROW_COUNT_IMPLAUSIBLE'
+          assert valid_parent_links == rows, f'OFFICIAL_BRANCH_PARENT_LINK_INVALID:{valid_parent_links}/{rows}'
+          assert probe is not None, 'OFFICIAL_BRANCH_PROBE_31655572_MISSING'
+          assert probe['parent_seller_identifier'] == '22853565', 'OFFICIAL_BRANCH_PROBE_PARENT_MISMATCH'
+          assert set(probe) == {
+              'seller_identifier',
+              'entity_type',
+              'legal_name',
+              'registration_status',
+              'parent_seller_identifier',
+              'source_dataset',
+          }
+
+          out = path.parent
+          (out / 'privacy_reduced_probe.ndjson').write_text(
+              json.dumps(probe, ensure_ascii=False, separators=(',', ':')) + '\n',
+              encoding='utf-8',
+          )
+          manifest = {
+              'schema_version': 1,
+              'gate': 'P4.20.3-D-official-branch-transport-canary',
+              'dataset_id': '32086',
+              'metadata_url': 'https://data.gov.tw/dataset/32086',
+              'source_url': os.environ['SOURCE_URL'],
+              'coverage': 'five_major_convenience_store_chains_only',
+              'nationwide_branch_coverage_claimed': False,
+              'license': '政府資料開放授權條款-第1版',
+              'download_bytes': len(raw),
+              'source_file_sha256': hashlib.sha256(raw).hexdigest(),
+              'encoding': encoding,
+              'source_row_count': rows,
+              'valid_parent_link_count': valid_parent_links,
+              'probe_seller_identifier': '31655572',
+              'probe_parent_seller_identifier': probe['parent_seller_identifier'],
+              'responsible_person_payload_emitted': False,
+              'merchant_name_inference_used': False,
+              'final_mobile_registry': False,
+          }
+          (out / 'transport_manifest.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n',
+              encoding='utf-8',
+          )
+          print('P4_20_3_OFFICIAL_BRANCH_SCHEMA=PASS')
+          print('P4_20_3_OFFICIAL_BRANCH_PARENT_LINKS=PASS')
+          print('P4_20_3_OFFICIAL_BRANCH_PROBE_31655572=PASS')
+          print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload privacy-reduced official branch canary evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-official-branch-transport-canary-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_branch_canary/transport_manifest.json
+            ${{ runner.temp }}/p4_20_3_branch_canary/privacy_reduced_probe.ndjson
+          if-no-files-found: error
+          retention-days: 14
