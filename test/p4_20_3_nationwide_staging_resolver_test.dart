@@ -49,14 +49,61 @@ void main() {
     expect(decision.entity?.legalName, '本米股份有限公司土城中央路營業所');
   });
 
-  test('parentless FIA row is not guessed from organization/display text', () {
-    final decision = resolver.stage(seed(seller: '30340553', name: '一品現泡茶店', organization: '獨資'));
-    expect(decision.status, BusinessRegistryNationwideStagingStatus.needsLegalTypeEnrichment);
-    expect(decision.entity, isNull);
+  test('exact FIA sole-proprietorship legal form resolves as business', () {
+    final decision = resolver.stage(
+      seed(seller: '30340553', name: '一品現泡茶店', organization: '獨資'),
+    );
+    expect(
+      decision.status,
+      BusinessRegistryNationwideStagingStatus.legalTypeReadyFromFiaOrganization,
+    );
+    expect(decision.entity?.entityType, BusinessRegistryEntityType.business);
+    expect(decision.reason, 'fia_organization_type_exact_legal_form');
   });
 
-  test('single company/business legal enrichment resolves parentless row', () {
-    final source = seed(seller: '30340553', name: '一品現泡茶店', organization: '獨資');
+  test('exact FIA company legal forms resolve without display-name guessing', () {
+    for (final organization in <String>['有限公司', '股份有限公司', '無限公司', '兩合公司']) {
+      final decision = resolver.stage(
+        seed(seller: '12345675', name: '名稱不作為分類依據', organization: organization),
+      );
+      expect(
+        decision.status,
+        BusinessRegistryNationwideStagingStatus.legalTypeReadyFromFiaOrganization,
+        reason: organization,
+      );
+      expect(decision.entity?.entityType, BusinessRegistryEntityType.company, reason: organization);
+    }
+  });
+
+  test('exact FIA partnership legal form resolves as business', () {
+    final decision = resolver.stage(
+      seed(seller: '12345675', name: '測試商號', organization: '合夥'),
+    );
+    expect(decision.entity?.entityType, BusinessRegistryEntityType.business);
+  });
+
+  test('residual parentless FIA organization labels still require enrichment', () {
+    for (final organization in <String>[
+      '其他',
+      '合作社',
+      '有限合夥',
+      '外國公司在台之辦事處',
+      '',
+    ]) {
+      final decision = resolver.stage(
+        seed(seller: '12345675', name: 'residual', organization: organization),
+      );
+      expect(
+        decision.status,
+        BusinessRegistryNationwideStagingStatus.needsLegalTypeEnrichment,
+        reason: organization,
+      );
+      expect(decision.entity, isNull, reason: organization);
+    }
+  });
+
+  test('single company/business legal enrichment resolves residual parentless row', () {
+    final source = seed(seller: '30340553', name: '一品現泡茶店', organization: '其他');
     final decision = resolver.resolveWithLegalEnrichment(seed: source, candidates: <BusinessRegistryEntity>[
       entity(seller: '30340553', type: BusinessRegistryEntityType.business, name: '一品現泡茶店', source: 'GCIS_BUSINESS'),
     ]);
@@ -66,8 +113,44 @@ void main() {
     expect(decision.entity?.sourceDataset, contains('GCIS_BUSINESS'));
   });
 
+  test('GCIS type disagreement with exact FIA legal form fails closed', () {
+    final source = seed(seller: '30340553', name: '一品現泡茶店', organization: '獨資');
+    final decision = resolver.resolveWithLegalEnrichment(
+      seed: source,
+      candidates: <BusinessRegistryEntity>[
+        entity(
+          seller: '30340553',
+          type: BusinessRegistryEntityType.company,
+          name: '一品現泡茶店',
+          source: 'GCIS_COMPANY',
+        ),
+      ],
+    );
+    expect(decision.status, BusinessRegistryNationwideStagingStatus.holdConflict);
+    expect(decision.entity, isNull);
+    expect(decision.reason, 'gcis_legal_type_conflicts_with_fia_organization_type');
+  });
+
+  test('matching GCIS type may enrich an exact FIA legal-form row', () {
+    final source = seed(seller: '30340553', name: '一品現泡茶店', organization: '獨資');
+    final decision = resolver.resolveWithLegalEnrichment(
+      seed: source,
+      candidates: <BusinessRegistryEntity>[
+        entity(
+          seller: '30340553',
+          type: BusinessRegistryEntityType.business,
+          name: '一品現泡茶店',
+          source: 'GCIS_BUSINESS',
+        ),
+      ],
+    );
+    expect(decision.isReady, isTrue);
+    expect(decision.reason, 'fia_organization_and_gcis_legal_type_agree');
+    expect(decision.entity?.sourceDataset, contains('GCIS_BUSINESS'));
+  });
+
   test('identical duplicate legal enrichment rows collapse deterministically', () {
-    final source = seed(seller: '30340553', name: '一品現泡茶店');
+    final source = seed(seller: '30340553', name: '一品現泡茶店', organization: '其他');
     final duplicate = entity(seller: '30340553', type: BusinessRegistryEntityType.business, name: '一品現泡茶店', source: 'GCIS_BUSINESS');
     final decision = resolver.resolveWithLegalEnrichment(seed: source, candidates: <BusinessRegistryEntity>[duplicate, duplicate]);
     expect(decision.status, BusinessRegistryNationwideStagingStatus.resolvedWithLegalEnrichment);
