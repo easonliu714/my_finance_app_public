@@ -1,16 +1,24 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/production_schema_v21.dart';
+import '../../database/production_schema_v22.dart';
 
 class FullBackupScope {
   const FullBackupScope._();
 
   static const int exportFormatVersion = 2;
-  static const int backupScopeVersion = 7;
+  static const int backupScopeVersion = 8;
   static const int databaseSchemaVersion = canonicalProductionSchemaVersion;
 
   static const Set<int> supportedExportFormatVersions = <int>{1, 2};
-  static const Set<int> supportedBackupScopeVersions = <int>{2, 3, 4, 5, 6, 7};
+  static const Set<int> supportedBackupScopeVersions = <int>{
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+  };
 
   static const List<String> requiredTableNames = <String>[
     'accounts',
@@ -59,9 +67,26 @@ class FullBackupScope {
     'wallet_top_up_audits',
   ];
 
-  static const List<String> backupTableNames = <String>[
+  static const List<String> legacyScopeV7TableNames = <String>[
     ...legacyScopeV6TableNames,
     'wallet_top_up_executions',
+  ];
+
+  /// User-owned merchant identity/history belongs in complete backups.
+  /// Official registry cache is deliberately excluded because it is
+  /// replaceable/redownloadable public reference data.
+  static const List<String> merchantIdentityUserTableNames = <String>[
+    'merchant_brands',
+    'merchant_brand_aliases',
+    'merchant_legal_entities',
+    'merchant_branches_or_outlets',
+    'merchant_brand_legal_links',
+    'merchant_identity_observations',
+  ];
+
+  static const List<String> backupTableNames = <String>[
+    ...legacyScopeV7TableNames,
+    ...merchantIdentityUserTableNames,
   ];
 
   static const Set<String> scopeV3OptionalForLegacyRestore = <String>{
@@ -87,11 +112,18 @@ class FullBackupScope {
     'wallet_top_up_executions',
   };
 
+  static const Set<String> scopeV8OptionalForLegacyRestore = <String>{
+    ...merchantIdentityUserTableNames,
+  };
+
   static const Set<String> explicitlyExcludedTableNames = <String>{
     'production_migration_markers',
     'app_settings',
     'android_metadata',
     'taiwan_business_calendar_days',
+    'business_registry_snapshots',
+    'business_registry_entities',
+    'business_registry_negative_lookups',
   };
 
   static Future<FullBackupCoverageReport> inspect(

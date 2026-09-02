@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../features/account/account_repository.dart';
 import 'production_schema_audit.dart';
-import 'production_schema_v21.dart';
+import 'production_schema_v22.dart';
 
 class ProductionDatabaseCoordinator {
   ProductionDatabaseCoordinator._();

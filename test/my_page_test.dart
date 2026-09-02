@@ -21,18 +21,22 @@ void main() {
     expect(find.text('目前可用功能'), findsNothing);
 
     await tester.tap(find.byTooltip('備份與移轉 說明'));
-    await tester.pumpAndSettle();
+    // P4.20.1 registry status may legitimately keep an indeterminate loading
+    // indicator alive while the local snapshot read is pending. This test is
+    // about static settings/navigation copy, so use bounded pumps instead of
+    // requiring unrelated application-wide animation quiescence.
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('備份與移轉說明'), findsOneWidget);
     expect(find.textContaining('完整模式'), findsOneWidget);
     await tester.tap(find.text('了解'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.scrollUntilVisible(
       find.text('備份提醒'),
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('備份提醒'), findsOneWidget);
     expect(find.text('備份通知'), findsOneWidget);
@@ -43,7 +47,7 @@ void main() {
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('完整備份 / 完整還原'), findsOneWidget);
     expect(find.text('完整備份'), findsOneWidget);
@@ -54,7 +58,7 @@ void main() {
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('readable 匯出 / 匯入'), findsOneWidget);
     expect(find.text('CSV / JSON readable 匯出'), findsOneWidget);

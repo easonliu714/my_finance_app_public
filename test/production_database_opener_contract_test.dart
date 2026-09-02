@@ -4,9 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/database/production_database_coordinator.dart';
 
 void main() {
-  test('canonical production database contract is v21', () {
+  test('canonical production database contract is v22', () {
     expect(ProductionDatabaseCoordinator.databaseName, 'my_finance_app.db');
-    expect(ProductionDatabaseCoordinator.schemaVersion, 21);
+    expect(ProductionDatabaseCoordinator.schemaVersion, 22);
 
     final source = File(
       'lib/features/account/account_repository.dart',
@@ -14,8 +14,10 @@ void main() {
     expect(source, contains('canonicalProductionSchemaVersion'));
     expect(source, contains('createCanonicalProductionV20Tables'));
     expect(source, contains('createCanonicalProductionV21Tables'));
+    expect(source, contains('createCanonicalProductionV22Tables'));
     expect(source, contains('if (oldVersion < 20)'));
     expect(source, contains('if (oldVersion < 21)'));
+    expect(source, contains('if (oldVersion < 22)'));
   });
 
   test('transaction repository has no competing direct opener', () {
