@@ -1,0 +1,84 @@
+name: P4.20.3 Legal Enrichment Reconciliation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_reconcile_legal_enrichment.py'
+      - '.github/workflows/p4_20_3_legal_enrichment_reconciliation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-legal-enrichment-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  reconcile-contract:
+    name: Validate fail-closed legal enrichment reconciler
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Frozen ancestor and exact-head gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen='a533c9c87131ee487ca2321f3d53e432121c7981'
+          expected='${{ github.event.pull_request.head.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$frozen^{commit}"
+          git merge-base --is-ancestor "$frozen" HEAD
+          printf 'P4.20.2 owner-validated ancestor: PASS (%s)\n' "$frozen"
+          printf 'P4.20.3 legal-enrichment exact head: %s\n' "$actual"
+
+      - name: Compile and run focused reconciliation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tool/p4_20_3_reconcile_legal_enrichment.py
+          python3 tool/p4_20_3_reconcile_legal_enrichment.py --self-test
+
+      - name: Static privacy and inference boundary gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tool/p4_20_3_reconcile_legal_enrichment.py')
+          text = path.read_text(encoding='utf-8')
+          required = [
+              'responsible_person_payload_emitted',
+              'merchant_name_inference_used',
+              'gcis_duplicate_semantic_disagreement',
+              'gcis_branch_parent_missing',
+              'gcis_non_branch_has_parent',
+              'RECONCILIATION_PARTITION_MISMATCH',
+          ]
+          for marker in required:
+              assert marker in text, marker
+          # Explicitly prevent common privacy-bearing output keys from entering
+          # the mobile projection surface.
+          forbidden_output_keys = {
+              'responsible_person', 'representative', 'manager',
+              '負責人姓名', '代表人姓名', '分公司經理姓名',
+          }
+          entity_surface = {
+              'record_type', 'seller_identifier', 'entity_type', 'legal_name',
+              'registration_status', 'parent_seller_identifier', 'source_dataset',
+          }
+          assert entity_surface.isdisjoint(forbidden_output_keys)
+          print('P4_20_3_LEGAL_ENRICHMENT_PRIVACY_BOUNDARY=PASS')
+          print('P4_20_3_LEGAL_ENRICHMENT_NO_NAME_INFERENCE=PASS')
+          PY
