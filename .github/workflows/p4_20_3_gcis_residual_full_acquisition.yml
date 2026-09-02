@@ -1,0 +1,298 @@
+name: P4.20.3 GCIS Full Residual Acquisition
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_stage_fia_registry.py'
+      - 'tool/p4_20_3_acquire_gcis_registration_type.py'
+      - '.github/workflows/p4_20_3_gcis_residual_full_acquisition.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-gcis-full-residual-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
+  EXPECTED_FIA_SHA256: 0a54a9a39c754c8ee6831ed078042b7a19e561fe83bf61aa8483317d0992a0ba
+  EXPECTED_SOURCE_ROWS: '1712892'
+  EXPECTED_RESIDUAL_COUNT: '15753'
+  SHARD_COUNT: '8'
+
+jobs:
+  prepare-residual:
+    name: Rebuild exact FIA residual cohort
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$FROZEN_P4_20_2^{commit}"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+          echo "P4_20_3_FULL_RESIDUAL_EXACT_HEAD=$actual"
+
+      - name: Compile bounded staging and acquisition tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tool/p4_20_3_stage_fia_registry.py
+          python3 -m py_compile tool/p4_20_3_acquire_gcis_registration_type.py
+          python3 tool/p4_20_3_stage_fia_registry.py --self-test
+          python3 tool/p4_20_3_acquire_gcis_registration_type.py --self-test
+
+      - name: Download exact official nationwide FIA source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p4_20_3_full_residual"
+          source_url='https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
+            --write-out '%{url_effective}\n' \
+            --output "$RUNNER_TEMP/p4_20_3_full_residual/BGMOPEN1.zip" \
+            "$source_url" \
+            > "$RUNNER_TEMP/p4_20_3_full_residual/effective_url.txt"
+          effective="$(tail -n 1 "$RUNNER_TEMP/p4_20_3_full_residual/effective_url.txt" | tr -d '\r\n')"
+          case "$effective" in
+            https://eip.fia.gov.tw/*) ;;
+            *) echo "FIA_EFFECTIVE_URL_NOT_ALLOWED=$effective" >&2; exit 2 ;;
+          esac
+          actual_sha="$(sha256sum "$RUNNER_TEMP/p4_20_3_full_residual/BGMOPEN1.zip" | awk '{print $1}')"
+          test "$actual_sha" = "$EXPECTED_FIA_SHA256"
+          echo "P4_20_3_FULL_RESIDUAL_FIA_SHA256=$actual_sha"
+
+      - name: Rebuild privacy-reduced residual cohort
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/p4_20_3_stage_fia_registry.py \
+            "$RUNNER_TEMP/p4_20_3_full_residual/BGMOPEN1.zip" \
+            "$RUNNER_TEMP/p4_20_3_full_residual/staged" \
+            --chunk-rows 50000 --min-rows 1000000
+
+      - name: Freeze exact residual authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_full_residual' / 'staged'
+          summary = json.loads((root/'staging_summary.json').read_text(encoding='utf-8'))
+          residual = root/'enrichment_required.ndjson'
+          assert int(summary['source_row_count']) == int(os.environ['EXPECTED_SOURCE_ROWS']), summary
+          assert int(summary['enrichment_required_count']) == int(os.environ['EXPECTED_RESIDUAL_COUNT']), summary
+          assert summary['source_archive_sha256'] == os.environ['EXPECTED_FIA_SHA256'], summary
+          assert summary['responsible_person_payload_emitted'] is False
+          assert summary['final_mobile_registry'] is False
+          sellers=[]
+          with residual.open('r', encoding='utf-8') as stream:
+              for line in stream:
+                  row=json.loads(line)
+                  assert set(row)=={'seller_identifier','legal_name','organization_type','uses_uniform_invoice','source_dataset'}
+                  seller=str(row['seller_identifier'])
+                  assert len(seller)==8 and seller.isdigit()
+                  sellers.append(seller)
+          assert len(sellers)==int(os.environ['EXPECTED_RESIDUAL_COUNT'])
+          assert len(set(sellers))==len(sellers), 'RESIDUAL_DUPLICATE_SELLER_IDENTIFIER'
+          payload_sha=hashlib.sha256(residual.read_bytes()).hexdigest()
+          authority={
+              'schema_version':1,
+              'gate':'P4.20.3-D-full-residual-acquisition',
+              'exact_head':os.environ['GITHUB_SHA'],
+              'fia_source_archive_sha256':summary['source_archive_sha256'],
+              'fia_source_row_count':int(summary['source_row_count']),
+              'residual_seller_count':len(sellers),
+              'residual_payload_sha256':payload_sha,
+              'shard_count':int(os.environ['SHARD_COUNT']),
+              'shard_selection':'sorted_unique_sellers[index::shard_count]',
+              'responsible_person_payload_emitted':False,
+              'mobile_per_invoice_network_lookup':False,
+              'final_mobile_registry':False,
+          }
+          (root/'residual_authority.json').write_text(json.dumps(authority,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_FULL_RESIDUAL_AUTHORITY=PASS')
+          print(json.dumps(authority,sort_keys=True))
+          PY
+
+      - name: Upload exact residual cohort
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-input-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_full_residual/staged/enrichment_required.ndjson
+            ${{ runner.temp }}/p4_20_3_full_residual/staged/staging_summary.json
+            ${{ runner.temp }}/p4_20_3_full_residual/staged/residual_authority.json
+            ${{ runner.temp }}/p4_20_3_full_residual/effective_url.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  acquire-shards:
+    name: GCIS residual shard ${{ matrix.shard }}/8
+    needs: prepare-residual
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+
+      - name: Download exact residual cohort
+        uses: actions/download-artifact@v4
+        with:
+          name: p4-20-3-full-residual-input-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/input
+
+      - name: Execute bounded official GCIS acquisition shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/p4_20_3_acquire_gcis_registration_type.py \
+            "$RUNNER_TEMP/p4_20_3_full_residual/input/enrichment_required.ndjson" \
+            "$RUNNER_TEMP/p4_20_3_full_residual/shard-${{ matrix.shard }}" \
+            --shard-index '${{ matrix.shard }}' \
+            --shard-count "$SHARD_COUNT" \
+            --qps 0.25 \
+            --timeout-seconds 20 \
+            --retries 3
+
+      - name: Verify shard completeness and privacy boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          shard=int('${{ matrix.shard }}')
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'/f'shard-{shard}'
+          manifest=json.loads((root/'acquisition_manifest.json').read_text(encoding='utf-8'))
+          rows=[json.loads(x) for x in (root/'registration_type_evidence.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          failures=[json.loads(x) for x in (root/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          expected_total=int(os.environ['EXPECTED_RESIDUAL_COUNT'])
+          expected_selected=len(range(shard, expected_total, int(os.environ['SHARD_COUNT'])))
+          assert manifest['seller_filter_unique_count']==expected_total, manifest
+          assert manifest['selected_shard_seller_count']==expected_selected, manifest
+          assert manifest['shard_index']==shard and manifest['shard_count']==int(os.environ['SHARD_COUNT']), manifest
+          assert manifest['success_count']==expected_selected, (manifest, failures[:20])
+          assert manifest['failure_count']==0, failures[:20]
+          assert len(rows)==expected_selected
+          assert all(set(r)=={'seller_identifier','official_types','official_exists_values','official_year_values','source_dataset'} for r in rows)
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['merchant_name_inference_used'] is False
+          assert manifest['mobile_per_invoice_network_lookup'] is False
+          assert manifest['official_type_mapping_applied'] is False
+          assert manifest['final_mobile_registry'] is False
+          assert hashlib.sha256((root/'registration_type_evidence.ndjson').read_bytes()).hexdigest()==manifest['evidence_payload_sha256']
+          print(f'P4_20_3_FULL_RESIDUAL_SHARD_{shard}=PASS')
+          PY
+
+      - name: Upload shard evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-shard-${{ matrix.shard }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/shard-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  cohort-closure:
+    name: Full residual cohort partition closure
+    needs: acquire-shards
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Download all shard evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: p4-20-3-full-residual-shard-*-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/all-shards
+          merge-multiple: false
+
+      - name: Verify exact 15,753 seller partition and combined evidence SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'/'all-shards'
+          sellers=[]
+          manifests=[]
+          combined=hashlib.sha256()
+          for shard in range(int(os.environ['SHARD_COUNT'])):
+              matches=list(root.glob(f'p4-20-3-full-residual-shard-{shard}-*/registration_type_evidence.ndjson'))
+              assert len(matches)==1, (shard,matches)
+              evidence=matches[0]
+              manifest=json.loads((evidence.parent/'acquisition_manifest.json').read_text(encoding='utf-8'))
+              failures=[x for x in (evidence.parent/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+              assert manifest['shard_index']==shard
+              assert manifest['shard_count']==int(os.environ['SHARD_COUNT'])
+              assert manifest['failure_count']==0 and not failures
+              rows=[json.loads(x) for x in evidence.read_text(encoding='utf-8').splitlines() if x.strip()]
+              sellers.extend(r['seller_identifier'] for r in rows)
+              for row in sorted(rows,key=lambda r:r['seller_identifier']):
+                  combined.update((json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode('utf-8'))
+              manifests.append(manifest)
+          expected=int(os.environ['EXPECTED_RESIDUAL_COUNT'])
+          assert len(sellers)==expected, len(sellers)
+          assert len(set(sellers))==expected, 'FULL_RESIDUAL_DUPLICATE_OR_LOST_SELLER'
+          closure={
+              'schema_version':1,
+              'gate':'P4.20.3-D-full-residual-acquisition-closure',
+              'exact_head':'${{ github.event.pull_request.head.sha }}',
+              'seller_count':expected,
+              'shard_count':int(os.environ['SHARD_COUNT']),
+              'total_success_count':sum(int(m['success_count']) for m in manifests),
+              'total_failure_count':sum(int(m['failure_count']) for m in manifests),
+              'combined_normalized_evidence_sha256':combined.hexdigest(),
+              'responsible_person_payload_emitted':False,
+              'mobile_per_invoice_network_lookup':False,
+              'official_type_mapping_applied':False,
+              'final_mobile_registry':False,
+          }
+          assert closure['total_success_count']==expected
+          assert closure['total_failure_count']==0
+          out=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'/'cohort_closure.json'
+          out.write_text(json.dumps(closure,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_FULL_RESIDUAL_PARTITION_CLOSURE=PASS')
+          print(json.dumps(closure,sort_keys=True))
+          PY
+
+      - name: Upload cohort closure
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-closure-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/cohort_closure.json
+          if-no-files-found: error
+          retention-days: 30
