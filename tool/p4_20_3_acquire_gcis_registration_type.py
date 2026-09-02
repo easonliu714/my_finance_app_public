@@ -2,12 +2,16 @@
 """P4.20.3 Gate D controlled-build GCIS registration-type acquisition.
 
 Queries the official MOEA/GCIS endpoint "統編查是否為公司、分公司及商業" only
-for a precomputed FIA residual seller cohort.  This is build-time evidence
+for a precomputed FIA residual seller cohort. This is build-time evidence
 acquisition, never a handset/per-invoice lookup path.
 
 The output intentionally preserves the official TYPE values without guessing a
-company/business/branch mapping.  Downstream code must establish that mapping
+company/business/branch mapping. Downstream code must establish that mapping
 from official evidence before producing mobile canonical entities.
+
+Large residual cohorts may be split into deterministic shards. Sharding is
+performed only after exact seller normalization, deduplication and sorting, so
+the same seller filter + shard-count always yields the same membership.
 """
 from __future__ import annotations
 
@@ -72,6 +76,17 @@ def _load_sellers(path: Path) -> list[str]:
     return sorted(sellers)
 
 
+def _select_shard(sellers: list[str], shard_index: int, shard_count: int) -> list[str]:
+    if shard_count <= 0:
+        raise ValueError("SHARD_COUNT_MUST_BE_POSITIVE")
+    if shard_index < 0 or shard_index >= shard_count:
+        raise ValueError("SHARD_INDEX_OUT_OF_RANGE")
+    selected = sellers[shard_index::shard_count]
+    if not selected:
+        raise ValueError("EMPTY_SELECTED_SHARD")
+    return selected
+
+
 def _request_url(seller: str) -> str:
     query = urllib.parse.urlencode({
         "$format": "json",
@@ -91,7 +106,7 @@ def _parse_rows(payload: object, seller: str) -> dict[str, object]:
     for index, row in enumerate(payload):
         if not isinstance(row, dict):
             raise ValueError(f"GCIS_RESPONSE_ROW_NOT_OBJECT:{index}")
-        # Official dataset documentation defines Year / exist / TYPE.  We only
+        # Official dataset documentation defines Year / exist / TYPE. We only
         # project these classification fields and never serialize other payload.
         if "TYPE" not in row or "exist" not in row:
             raise ValueError(f"GCIS_RESPONSE_REQUIRED_FIELDS_MISSING:{index}")
@@ -134,12 +149,19 @@ def acquire(
     qps: float,
     timeout_seconds: float,
     retries: int,
+    source_filter_unique_count: int | None = None,
+    shard_index: int = 0,
+    shard_count: int = 1,
     fetcher: Callable[[str, float], tuple[bytes, dict[str, str]]] = _default_fetch,
 ) -> dict[str, object]:
     if qps <= 0:
         raise ValueError("QPS_MUST_BE_POSITIVE")
     if retries < 0:
         raise ValueError("RETRIES_MUST_BE_NONNEGATIVE")
+    if shard_count <= 0:
+        raise ValueError("SHARD_COUNT_MUST_BE_POSITIVE")
+    if shard_index < 0 or shard_index >= shard_count:
+        raise ValueError("SHARD_INDEX_OUT_OF_RANGE")
     output_dir.mkdir(parents=True, exist_ok=True)
     evidence_path = output_dir / "registration_type_evidence.ndjson"
     failure_path = output_dir / "acquisition_failures.ndjson"
@@ -187,14 +209,19 @@ def acquire(
 
     if success_count + failure_count != len(sellers):
         raise AssertionError("ACQUISITION_PARTITION_MISMATCH")
+    full_filter_count = source_filter_unique_count if source_filter_unique_count is not None else len(sellers)
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "gate": "P4.20.3-D",
         "endpoint_api_id": API_ID,
         "endpoint_url": BASE_URL,
         "source_dataset": SOURCE_DATASET,
         "license": LICENSE,
-        "seller_filter_unique_count": len(sellers),
+        "seller_filter_unique_count": full_filter_count,
+        "selected_shard_seller_count": len(sellers),
+        "shard_index": shard_index,
+        "shard_count": shard_count,
+        "shard_selection": "sorted_unique_sellers[index::shard_count]",
         "success_count": success_count,
         "failure_count": failure_count,
         "qps_limit": qps,
@@ -224,30 +251,57 @@ def self_test() -> None:
         sellers_file = root / "residual.ndjson"
         sellers_file.write_text(
             '{"seller_identifier":"20828393"}\n'
+            '{"seller_identifier":"22555003"}\n'
+            '{"seller_identifier":"22853565"}\n'
             '{"seller_identifier":"31655572"}\n',
             encoding="utf-8",
         )
-        sellers = _load_sellers(sellers_file)
+        all_sellers = _load_sellers(sellers_file)
+        shard0 = _select_shard(all_sellers, 0, 2)
+        shard1 = _select_shard(all_sellers, 1, 2)
+        assert shard0 == ["20828393", "22853565"]
+        assert shard1 == ["22555003", "31655572"]
+        assert sorted(shard0 + shard1) == all_sellers
         fixtures = {
             "20828393": [{"Year": "2026", "exist": "Y", "TYPE": "COMPANY", "ignored_sensitive_field": "never serialized"}],
-            "31655572": [{"Year": "2026", "exist": "Y", "TYPE": "BRANCH", "representative": "never serialized"}],
+            "22853565": [{"Year": "2026", "exist": "Y", "TYPE": "COMPANY", "representative": "never serialized"}],
         }
 
         def fake_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
             assert timeout_seconds == 1.0
-            seller = "20828393" if "20828393" in url else "31655572"
+            seller = "20828393" if "20828393" in url else "22853565"
             return json.dumps(fixtures[seller], ensure_ascii=False).encode("utf-8"), {"last-modified": "fixture"}
 
-        manifest = acquire(sellers, root / "out", qps=1000.0, timeout_seconds=1.0, retries=0, fetcher=fake_fetch)
+        manifest = acquire(
+            shard0,
+            root / "out",
+            qps=1000.0,
+            timeout_seconds=1.0,
+            retries=0,
+            source_filter_unique_count=len(all_sellers),
+            shard_index=0,
+            shard_count=2,
+            fetcher=fake_fetch,
+        )
         rows = [json.loads(line) for line in (root / "out" / "registration_type_evidence.ndjson").read_text(encoding="utf-8").splitlines()]
         assert len(rows) == 2
         assert all(set(row) == OUTPUT_KEYS for row in rows)
         assert "ignored_sensitive_field" not in rows[0]
         assert "representative" not in rows[1]
+        assert manifest["seller_filter_unique_count"] == 4
+        assert manifest["selected_shard_seller_count"] == 2
+        assert manifest["shard_index"] == 0
+        assert manifest["shard_count"] == 2
         assert manifest["success_count"] == 2
         assert manifest["failure_count"] == 0
         assert manifest["official_type_mapping_applied"] is False
         assert manifest["mobile_per_invoice_network_lookup"] is False
+        try:
+            _select_shard(all_sellers, 2, 2)
+        except ValueError as exc:
+            assert str(exc) == "SHARD_INDEX_OUT_OF_RANGE"
+        else:
+            raise AssertionError("SHARD_INDEX_OUT_OF_RANGE_NOT_REJECTED")
     print("P4_20_3_GCIS_REGISTRATION_TYPE_ACQUISITION_SELFTEST=PASS")
 
 
@@ -258,6 +312,8 @@ def main() -> None:
     parser.add_argument("--qps", type=float, default=2.0)
     parser.add_argument("--timeout-seconds", type=float, default=15.0)
     parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -265,13 +321,17 @@ def main() -> None:
         return
     if args.seller_filter is None or args.output_dir is None:
         parser.error("seller_filter and output_dir are required unless --self-test is used")
-    sellers = _load_sellers(args.seller_filter)
+    all_sellers = _load_sellers(args.seller_filter)
+    selected_sellers = _select_shard(all_sellers, args.shard_index, args.shard_count)
     acquire(
-        sellers,
+        selected_sellers,
         args.output_dir,
         qps=args.qps,
         timeout_seconds=args.timeout_seconds,
         retries=args.retries,
+        source_filter_unique_count=len(all_sellers),
+        shard_index=args.shard_index,
+        shard_count=args.shard_count,
     )
 
 
