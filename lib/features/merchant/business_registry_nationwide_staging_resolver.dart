@@ -3,6 +3,7 @@ import 'business_registry_pack.dart';
 
 enum BusinessRegistryNationwideStagingStatus {
   branchReadyFromFiaParent,
+  legalTypeReadyFromFiaOrganization,
   needsLegalTypeEnrichment,
   resolvedWithLegalEnrichment,
   holdConflict,
@@ -29,12 +30,25 @@ class BusinessRegistryNationwideStagingDecision {
 /// decisions before canonical pack emission.
 ///
 /// A non-empty FIA head-office identifier is strong parent-child evidence and
-/// is sufficient to stage the seller as a branch/outlet. Parentless rows are
-/// never guessed as company or business from display name / organization text;
-/// they remain pending until a controlled legal-registration enrichment source
-/// supplies one unambiguous canonical type.
+/// is sufficient to stage the seller as a branch/outlet. For parentless rows,
+/// only exact FIA organization labels that directly encode a Taiwan legal form
+/// are allowed to classify company/business. Residual labels such as `其他`,
+/// cooperatives, limited partnerships, offices, or empty values remain pending
+/// for controlled GCIS legal enrichment; display-name heuristics are forbidden.
 class BusinessRegistryNationwideStagingResolver {
   const BusinessRegistryNationwideStagingResolver();
+
+  static const Set<String> _fiaCompanyLegalForms = <String>{
+    '有限公司',
+    '股份有限公司',
+    '無限公司',
+    '兩合公司',
+  };
+
+  static const Set<String> _fiaBusinessLegalForms = <String>{
+    '獨資',
+    '合夥',
+  };
 
   BusinessRegistryNationwideStagingDecision stage(
     BusinessRegistryNationwideInvoiceSellerSeed seed,
@@ -55,6 +69,24 @@ class BusinessRegistryNationwideStagingResolver {
         reason: 'fia_head_office_identifier_branch_evidence',
       );
     }
+
+    final fiaType = _directFiaEntityType(seed.organizationType);
+    if (fiaType != null) {
+      return BusinessRegistryNationwideStagingDecision(
+        status: BusinessRegistryNationwideStagingStatus
+            .legalTypeReadyFromFiaOrganization,
+        seed: seed,
+        entity: BusinessRegistryEntity(
+          sellerIdentifier: seed.sellerIdentifier,
+          entityType: fiaType,
+          legalName: seed.legalName,
+          registrationStatus: 'active_tax_registration',
+          sourceDataset: seed.sourceDataset,
+        ),
+        reason: 'fia_organization_type_exact_legal_form',
+      );
+    }
+
     return BusinessRegistryNationwideStagingDecision(
       status: BusinessRegistryNationwideStagingStatus.needsLegalTypeEnrichment,
       seed: seed,
@@ -136,6 +168,15 @@ class BusinessRegistryNationwideStagingResolver {
     if (legal.isEmpty) return stage(seed);
 
     final resolved = legal.single;
+    final fiaType = _directFiaEntityType(seed.organizationType);
+    if (fiaType != null && fiaType != resolved.entityType) {
+      return BusinessRegistryNationwideStagingDecision(
+        status: BusinessRegistryNationwideStagingStatus.holdConflict,
+        seed: seed,
+        reason: 'gcis_legal_type_conflicts_with_fia_organization_type',
+      );
+    }
+
     return BusinessRegistryNationwideStagingDecision(
       status:
           BusinessRegistryNationwideStagingStatus.resolvedWithLegalEnrichment,
@@ -149,8 +190,23 @@ class BusinessRegistryNationwideStagingResolver {
         registrationStatus: resolved.registrationStatus,
         sourceDataset: _combinedSource(seed.sourceDataset, resolved.sourceDataset),
       ),
-      reason: 'parentless_fia_row_resolved_by_single_legal_authority',
+      reason: fiaType == null
+          ? 'parentless_fia_row_resolved_by_single_legal_authority'
+          : 'fia_organization_and_gcis_legal_type_agree',
     );
+  }
+
+  static BusinessRegistryEntityType? _directFiaEntityType(
+    String organizationType,
+  ) {
+    final normalized = organizationType.trim();
+    if (_fiaCompanyLegalForms.contains(normalized)) {
+      return BusinessRegistryEntityType.company;
+    }
+    if (_fiaBusinessLegalForms.contains(normalized)) {
+      return BusinessRegistryEntityType.business;
+    }
+    return null;
   }
 
   static List<BusinessRegistryEntity> _dedupeIdentical(
