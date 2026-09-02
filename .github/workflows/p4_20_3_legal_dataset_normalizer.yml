@@ -1,0 +1,70 @@
+name: P4.20.3 Legal Dataset Normalizer
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_normalize_legal_dataset.py'
+      - '.github/workflows/p4_20_3_legal_dataset_normalizer.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-legal-normalizer-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen='a533c9c87131ee487ca2321f3d53e432121c7981'
+          expected='${{ github.event.pull_request.head.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$frozen^{commit}"
+          git merge-base --is-ancestor "$frozen" HEAD
+          echo "P4_20_3_EXACT_HEAD=$actual"
+          echo "P4_20_2_FROZEN_ANCESTOR=PASS"
+
+      - name: Python compile
+        run: python3 -m py_compile tool/p4_20_3_normalize_legal_dataset.py
+
+      - name: Controlled normalizer self-test
+        run: python3 tool/p4_20_3_normalize_legal_dataset.py --self-test
+
+      - name: Static privacy and inference gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('tool/p4_20_3_normalize_legal_dataset.py').read_text(encoding='utf-8')
+          required = [
+              'responsible_person_payload_emitted',
+              'merchant_name_inference_used',
+              'parent_seller_identifier',
+              'source_file_sha256',
+              'payload_sha256',
+              'chunk_row_limit',
+              'peak_buffer_rows',
+          ]
+          for token in required:
+              assert token in text, token
+          assert 'OUTPUT_KEYS' in text
+          print('P4_20_3_NORMALIZER_STATIC_PRIVACY_GATE=PASS')
+          PY
