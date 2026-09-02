@@ -1,0 +1,173 @@
+name: P4.20.3 Nationwide Registry Bounded Staging
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/features/merchant/business_registry_fia_tax_registration_adapter.dart'
+      - 'lib/features/merchant/business_registry_nationwide_staging_resolver.dart'
+      - 'tool/p4_20_3_stage_fia_registry.py'
+      - '.github/workflows/p4_20_3_nationwide_registry_staging.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-nationwide-staging-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  stage-fia-nationwide:
+    name: Stream and stage nationwide FIA registry with bounded memory
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen P4.20.2 ancestry gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen='a533c9c87131ee487ca2321f3d53e432121c7981'
+          expected='${{ github.event.pull_request.head.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$frozen^{commit}"
+          git merge-base --is-ancestor "$frozen" HEAD
+          printf 'P4.20.2 owner-validated ancestor: PASS (%s)\n' "$frozen"
+          printf 'P4.20.3 staging exact head: %s\n' "$actual"
+
+      - name: Validate bounded staging tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tool/p4_20_3_stage_fia_registry.py
+          python3 tool/p4_20_3_stage_fia_registry.py --self-test
+
+      - name: Download official nationwide active tax registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p p4_20_3_staging
+          source_url='https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          curl \
+            --fail \
+            --location \
+            --proto '=https' \
+            --tlsv1.2 \
+            --retry 5 \
+            --retry-delay 3 \
+            --connect-timeout 30 \
+            --max-time 1200 \
+            --write-out '%{url_effective}\n' \
+            --output p4_20_3_staging/BGMOPEN1.zip \
+            "$source_url" \
+            > p4_20_3_staging/effective_url.txt
+          effective="$(tail -n 1 p4_20_3_staging/effective_url.txt | tr -d '\r\n')"
+          case "$effective" in
+            https://eip.fia.gov.tw/*) ;;
+            *) echo "FIA_EFFECTIVE_URL_NOT_ALLOWED=$effective" >&2; exit 2 ;;
+          esac
+          bytes="$(stat -c%s p4_20_3_staging/BGMOPEN1.zip)"
+          test "$bytes" -gt 0
+          test "$bytes" -le $((512 * 1024 * 1024))
+          printf 'FIA_DOWNLOAD_BYTES=%s\n' "$bytes"
+
+      - name: Stage real nationwide source with bounded external sort
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/p4_20_3_stage_fia_registry.py \
+            p4_20_3_staging/BGMOPEN1.zip \
+            p4_20_3_staging/output \
+            --chunk-rows 50000 \
+            --min-rows 1000000
+
+      - name: Verify staging partition and privacy boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('p4_20_3_staging/output')
+          summary = json.loads((root / 'staging_summary.json').read_text())
+          rows = int(summary['source_row_count'])
+          ready = int(summary['ready_entity_count'])
+          pending = int(summary['enrichment_required_count'])
+          hold = int(summary['hold_count'])
+          bound = int(summary['external_sort_chunk_row_bound'])
+          ready_peak = int(summary['ready_peak_buffer_rows'])
+          pending_peak = int(summary['enrichment_peak_buffer_rows'])
+
+          assert rows >= 1_000_000
+          assert ready + pending + hold == rows
+          assert ready > 0
+          assert pending > 0
+          assert ready_peak <= bound == 50_000
+          assert pending_peak <= bound
+          assert summary['final_mobile_registry'] is False
+          assert summary['coverage_claim'] == 'staging_only_not_nationwide_mobile_pack'
+          assert summary['responsible_person_payload_emitted'] is False
+          sha = str(summary['ready_entity_payload_sha256'])
+          assert len(sha) == 64 and all(c in '0123456789abcdef' for c in sha)
+
+          # Scan emitted bodies rather than trusting only metadata. The official
+          # source can contain extra personal fields, but the privacy-reduced
+          # projection must never serialize them.
+          forbidden = ('負責人', '代表人', '分公司經理人', 'MUST_NOT_LEAK')
+          for path in (root / 'ready_entities.ndjson', root / 'enrichment_required.ndjson'):
+              with path.open('r', encoding='utf-8') as stream:
+                  for line in stream:
+                      if any(token in line for token in forbidden):
+                          raise SystemExit(f'STAGING_FORBIDDEN_PAYLOAD:{path.name}')
+
+          print('P4_20_3_STAGING_PARTITION=PASS')
+          print('P4_20_3_STAGING_BOUNDED_MEMORY=PASS')
+          print('P4_20_3_STAGING_PRIVACY_REDUCTION=PASS')
+          print(f'STAGING_SOURCE_ROWS={rows}')
+          print(f'STAGING_READY={ready}')
+          print(f'STAGING_ENRICHMENT_REQUIRED={pending}')
+          print(f'STAGING_HOLD={hold}')
+          print(f'STAGING_READY_SHA256={sha}')
+          print(f'STAGING_READY_BYTES={summary["ready_entity_bytes"]}')
+          print(f'STAGING_ENRICHMENT_BYTES={summary["enrichment_queue_bytes"]}')
+
+          step = Path(os.environ['GITHUB_STEP_SUMMARY'])
+          step.write_text('\n'.join([
+              '## P4.20.3 bounded nationwide FIA staging',
+              '',
+              f'- Source rows: `{rows}`',
+              f'- Ready canonical entities: `{ready}`',
+              f'- Legal-enrichment required: `{pending}`',
+              f'- Fail-closed HOLD rows: `{hold}`',
+              f'- External-sort row bound: `{bound}`',
+              f'- Ready peak buffered rows: `{ready_peak}`',
+              f'- Enrichment peak buffered rows: `{pending_peak}`',
+              f'- Ready entity payload SHA-256: `{sha}`',
+              f'- Ready entity bytes: `{summary["ready_entity_bytes"]}`',
+              f'- Enrichment queue bytes: `{summary["enrichment_queue_bytes"]}`',
+              '- Responsible-person payload emitted: `false`',
+              '- Final mobile registry: `false` (staging only; enrichment remains required)',
+          ]) + '\n')
+          PY
+
+      - name: Upload bounded staging evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-fia-bounded-staging-${{ github.event.pull_request.head.sha }}
+          path: |
+            p4_20_3_staging/output/staging_summary.json
+            p4_20_3_staging/effective_url.txt
+          if-no-files-found: error
+          retention-days: 7
