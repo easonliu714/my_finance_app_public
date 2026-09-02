@@ -17,6 +17,7 @@ concurrency:
 
 env:
   FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
+  EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
   EXPECTED_FIA_SHA256: 0a54a9a39c754c8ee6831ed078042b7a19e561fe83bf61aa8483317d0992a0ba
   EXPECTED_SOURCE_ROWS: '1712892'
   EXPECTED_RESIDUAL_COUNT: '15753'
@@ -42,9 +43,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected='${{ github.event.pull_request.head.sha }}'
           actual="$(git rev-parse HEAD)"
-          test "$actual" = "$expected"
+          test "$actual" = "$EXACT_HEAD"
           git cat-file -e "$FROZEN_P4_20_2^{commit}"
           git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
           echo "P4_20_3_FULL_RESIDUAL_EXACT_HEAD=$actual"
@@ -117,7 +117,7 @@ jobs:
           authority={
               'schema_version':1,
               'gate':'P4.20.3-D-full-residual-acquisition',
-              'exact_head':os.environ['GITHUB_SHA'],
+              'exact_head':os.environ['EXACT_HEAD'],
               'fia_source_archive_sha256':summary['source_archive_sha256'],
               'fia_source_row_count':int(summary['source_row_count']),
               'residual_seller_count':len(sellers),
@@ -165,7 +165,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD"
           git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
 
       - name: Download exact residual cohort
@@ -179,7 +179,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tool/p4_20_3_acquire_gcis_registration_type.py \
-            "$RUNNER_TEMP/p4_20_3_full_residual/input/enrichment_required.ndjson" \
+            "$RUNNER_TEMP/p4_20_3_full_residual/input/staged/enrichment_required.ndjson" \
             "$RUNNER_TEMP/p4_20_3_full_residual/shard-${{ matrix.shard }}" \
             --shard-index '${{ matrix.shard }}' \
             --shard-count "$SHARD_COUNT" \
@@ -270,7 +270,7 @@ jobs:
           closure={
               'schema_version':1,
               'gate':'P4.20.3-D-full-residual-acquisition-closure',
-              'exact_head':'${{ github.event.pull_request.head.sha }}',
+              'exact_head':os.environ['EXACT_HEAD'],
               'seller_count':expected,
               'shard_count':int(os.environ['SHARD_COUNT']),
               'total_success_count':sum(int(m['success_count']) for m in manifests),
