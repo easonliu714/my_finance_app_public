@@ -81,7 +81,7 @@ jobs:
           test -s "$RUNNER_TEMP/p4_20_3_branch_canary/source.csv"
           echo "P4_20_3_REAL_BRANCH_SOURCE_DOWNLOAD=PASS"
 
-      - name: Verify official branch schema and known parent-child probe
+      - name: Verify official branch schema and authoritative parent-child structure
         shell: bash
         env:
           SOURCE_URL: https://data.gcis.nat.gov.tw/od/file?oid=C054F05C-0A6B-428C-B388-288BDB0618E4
@@ -109,6 +109,7 @@ jobs:
           assert text is not None and encoding is not None, 'OFFICIAL_BRANCH_SOURCE_ENCODING_UNSUPPORTED'
 
           reader = csv.DictReader(text.splitlines())
+          fieldnames = [str(name or '').strip() for name in (reader.fieldnames or [])]
           required = {
               '公司統一編號',
               '公司名稱',
@@ -116,21 +117,41 @@ jobs:
               '分公司名稱',
               '分公司狀態',
           }
-          missing = sorted(required - set(reader.fieldnames or []))
+          missing = sorted(required - set(fieldnames))
           assert not missing, 'OFFICIAL_BRANCH_SOURCE_SCHEMA_MISSING:' + ','.join(missing)
+
+          # Dataset 32086 is explicitly limited to the five head-office identifiers
+          # published by data.gov.tw. It is a branch schema/transport authority only;
+          # it must not be used to infer that an FIA tax-registration outlet is a
+          # GCIS legal branch merely because FIA exposes a head-office identifier.
+          expected_parent_ids = {
+              '22555003',  # 統一超商
+              '23060248',  # 全家便利商店
+              '23285582',  # 萊爾富
+              '22853565',  # 富達零售 / formerly 來來超商
+              '16740494',  # 全聯
+          }
 
           rows = 0
           valid_parent_links = 0
+          invalid_rows = []
           probe = None
-          for row in reader:
+          for raw_row in reader:
+              row = {str(k or '').strip(): v for k, v in raw_row.items()}
               rows += 1
               parent = ''.join(ch for ch in str(row.get('公司統一編號') or '') if ch.isdigit())
               seller = ''.join(ch for ch in str(row.get('分公司統一編號') or '') if ch.isdigit())
               name = str(row.get('分公司名稱') or '').strip()
-              if len(parent) == 8 and len(seller) == 8 and parent != seller and name:
+              is_valid = (
+                  len(parent) == 8
+                  and len(seller) == 8
+                  and parent != seller
+                  and bool(name)
+                  and parent in expected_parent_ids
+              )
+              if is_valid:
                   valid_parent_links += 1
-              if seller == '31655572':
-                  probe = {
+                  candidate = {
                       'seller_identifier': seller,
                       'entity_type': 'branch',
                       'legal_name': name,
@@ -138,11 +159,23 @@ jobs:
                       'parent_seller_identifier': parent,
                       'source_dataset': 'data.gov.tw:32086',
                   }
+                  if probe is None or seller < probe['seller_identifier']:
+                      probe = candidate
+              elif len(invalid_rows) < 20:
+                  invalid_rows.append({
+                      'row': rows,
+                      'parent': parent,
+                      'seller': seller,
+                      'has_name': bool(name),
+                  })
 
           assert rows > 100, 'OFFICIAL_BRANCH_SOURCE_ROW_COUNT_IMPLAUSIBLE'
-          assert valid_parent_links == rows, f'OFFICIAL_BRANCH_PARENT_LINK_INVALID:{valid_parent_links}/{rows}'
-          assert probe is not None, 'OFFICIAL_BRANCH_PROBE_31655572_MISSING'
-          assert probe['parent_seller_identifier'] == '22853565', 'OFFICIAL_BRANCH_PROBE_PARENT_MISMATCH'
+          assert valid_parent_links == rows, (
+              f'OFFICIAL_BRANCH_PARENT_LINK_INVALID:{valid_parent_links}/{rows}:'
+              + json.dumps(invalid_rows, ensure_ascii=False, separators=(',', ':'))
+          )
+          assert probe is not None, 'OFFICIAL_BRANCH_DETERMINISTIC_PROBE_MISSING'
+          assert probe['parent_seller_identifier'] in expected_parent_ids, 'OFFICIAL_BRANCH_PROBE_PARENT_OUT_OF_SCOPE'
           assert set(probe) == {
               'seller_identifier',
               'entity_type',
@@ -158,20 +191,22 @@ jobs:
               encoding='utf-8',
           )
           manifest = {
-              'schema_version': 1,
+              'schema_version': 2,
               'gate': 'P4.20.3-D-official-branch-transport-canary',
               'dataset_id': '32086',
               'metadata_url': 'https://data.gov.tw/dataset/32086',
               'source_url': os.environ['SOURCE_URL'],
               'coverage': 'five_major_convenience_store_chains_only',
               'nationwide_branch_coverage_claimed': False,
+              'fia_head_office_identifier_implies_gcis_branch': False,
               'license': '政府資料開放授權條款-第1版',
               'download_bytes': len(raw),
               'source_file_sha256': hashlib.sha256(raw).hexdigest(),
               'encoding': encoding,
               'source_row_count': rows,
               'valid_parent_link_count': valid_parent_links,
-              'probe_seller_identifier': '31655572',
+              'expected_parent_identifiers': sorted(expected_parent_ids),
+              'probe_seller_identifier': probe['seller_identifier'],
               'probe_parent_seller_identifier': probe['parent_seller_identifier'],
               'responsible_person_payload_emitted': False,
               'merchant_name_inference_used': False,
@@ -183,7 +218,8 @@ jobs:
           )
           print('P4_20_3_OFFICIAL_BRANCH_SCHEMA=PASS')
           print('P4_20_3_OFFICIAL_BRANCH_PARENT_LINKS=PASS')
-          print('P4_20_3_OFFICIAL_BRANCH_PROBE_31655572=PASS')
+          print('P4_20_3_OFFICIAL_BRANCH_SCOPE_BOUNDARY=PASS')
+          print('P4_20_3_OFFICIAL_BRANCH_DETERMINISTIC_PROBE=PASS')
           print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
           PY
 
