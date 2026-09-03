@@ -27,6 +27,7 @@ UPDATE_CADENCE = "daily"
 LICENSE_NAME = "政府資料開放授權條款-第1版"
 LICENSE_URL = "https://data.gov.tw/license"
 SOURCE_DATASET = "MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY"
+MAX_SOURCE_ARCHIVE_BYTES = 512 * 1024 * 1024
 GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -58,6 +59,16 @@ def _parse_http_last_modified(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _validate_source_archive_bytes(value: object, *, error_code: str) -> int:
+    try:
+        archive_bytes = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(error_code) from exc
+    if archive_bytes <= 0 or archive_bytes > MAX_SOURCE_ARCHIVE_BYTES:
+        raise ValueError(error_code)
+    return archive_bytes
+
+
 def build_authority(
     *,
     exact_head: str,
@@ -72,8 +83,10 @@ def build_authority(
         raise ValueError("EXACT_HEAD_GIT_SHA_REQUIRED")
     if not SHA256_RE.fullmatch(archive_sha):
         raise ValueError("SOURCE_ARCHIVE_SHA256_INVALID")
-    if source_archive_bytes <= 0 or source_archive_bytes > 512 * 1024 * 1024:
-        raise ValueError("SOURCE_ARCHIVE_BYTES_OUT_OF_BOUND")
+    archive_bytes = _validate_source_archive_bytes(
+        source_archive_bytes,
+        error_code="SOURCE_ARCHIVE_BYTES_OUT_OF_BOUND",
+    )
     if source_row_count <= 0:
         raise ValueError("SOURCE_ROW_COUNT_INVALID")
 
@@ -95,7 +108,7 @@ def build_authority(
         "source_last_modified": modified.strftime("%a, %d %b %Y %H:%M:%S GMT"),
         "source_data_date": source_data_date,
         "source_archive_sha256": archive_sha,
-        "source_archive_bytes": source_archive_bytes,
+        "source_archive_bytes": archive_bytes,
         "source_row_count": source_row_count,
         "license_name": LICENSE_NAME,
         "license_url": LICENSE_URL,
@@ -133,8 +146,10 @@ def validate_authority(authority: dict[str, object]) -> None:
         raise ValueError("SOURCE_AUTHORITY_EXACT_HEAD_INVALID")
     if not SHA256_RE.fullmatch(str(authority.get("source_archive_sha256", ""))):
         raise ValueError("SOURCE_AUTHORITY_ARCHIVE_SHA_INVALID")
-    if int(authority.get("source_archive_bytes", 0)) <= 0:
-        raise ValueError("SOURCE_AUTHORITY_ARCHIVE_BYTES_INVALID")
+    _validate_source_archive_bytes(
+        authority.get("source_archive_bytes", 0),
+        error_code="SOURCE_AUTHORITY_ARCHIVE_BYTES_INVALID",
+    )
     if int(authority.get("source_row_count", 0)) <= 0:
         raise ValueError("SOURCE_AUTHORITY_ROW_COUNT_INVALID")
 
@@ -174,6 +189,20 @@ def _self_test() -> None:
         assert str(exc) == "SOURCE_AUTHORITY_SHA_MISMATCH"
     else:
         raise AssertionError("tampered authority unexpectedly passed")
+
+    oversized_rehashed = dict(authority)
+    oversized_rehashed["source_archive_bytes"] = MAX_SOURCE_ARCHIVE_BYTES + 1
+    oversized_payload = dict(oversized_rehashed)
+    oversized_payload.pop("source_authority_sha256", None)
+    oversized_rehashed["source_authority_sha256"] = hashlib.sha256(
+        _canonical_bytes(oversized_payload)
+    ).hexdigest()
+    try:
+        validate_authority(oversized_rehashed)
+    except ValueError as exc:
+        assert str(exc) == "SOURCE_AUTHORITY_ARCHIVE_BYTES_INVALID"
+    else:
+        raise AssertionError("rehashed oversized authority unexpectedly passed")
 
     try:
         build_authority(
