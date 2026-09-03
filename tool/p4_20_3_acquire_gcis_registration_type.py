@@ -177,31 +177,44 @@ def acquire(
             if index:
                 time.sleep(interval)
             url = _request_url(seller)
-            body: bytes | None = None
-            headers: dict[str, str] = {}
+            record: dict[str, object] | None = None
+            last_reason = ""
             last_error = ""
             for attempt in range(retries + 1):
                 try:
                     body, headers = fetcher(url, timeout_seconds)
-                    break
                 except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                    last_reason = "transport_failure"
                     last_error = f"{type(exc).__name__}:{exc}"
-                    if attempt < retries:
-                        time.sleep(min(2 ** attempt, 8))
-            if body is None:
-                failures.write(_line({"seller_identifier": seller, "reason": "transport_failure", "detail": last_error[:240]}))
+                else:
+                    total_response_bytes += len(body)
+                    if headers.get("last-modified"):
+                        last_modified_values.add(headers["last-modified"])
+                    try:
+                        payload = json.loads(body.decode("utf-8-sig"))
+                        record = _parse_rows(payload, seller)
+                    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                        # HTTP success does not guarantee a valid GCIS JSON contract.
+                        # Empty/HTML/transient upstream bodies must receive the same
+                        # bounded retry treatment as transport failures; otherwise a
+                        # single transient 200 response permanently breaks shard
+                        # completeness despite the official query being replayable.
+                        last_reason = "response_contract_failure"
+                        last_error = str(exc)
+                    else:
+                        break
+                if attempt < retries:
+                    time.sleep(min(2 ** attempt, 8))
+
+            if record is None:
+                failures.write(_line({
+                    "seller_identifier": seller,
+                    "reason": last_reason or "unknown_failure",
+                    "detail": last_error[:240],
+                }))
                 failure_count += 1
                 continue
-            total_response_bytes += len(body)
-            if headers.get("last-modified"):
-                last_modified_values.add(headers["last-modified"])
-            try:
-                payload = json.loads(body.decode("utf-8-sig"))
-                record = _parse_rows(payload, seller)
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-                failures.write(_line({"seller_identifier": seller, "reason": "response_contract_failure", "detail": str(exc)[:240]}))
-                failure_count += 1
-                continue
+
             encoded = _line(record)
             evidence.write(encoded)
             digest.update(encoded)
@@ -296,6 +309,56 @@ def self_test() -> None:
         assert manifest["failure_count"] == 0
         assert manifest["official_type_mapping_applied"] is False
         assert manifest["mobile_per_invoice_network_lookup"] is False
+
+        # Regression: a transient HTTP-success/invalid-body response must be
+        # retried rather than becoming an immediate terminal shard failure.
+        transient_calls = 0
+
+        def transient_contract_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
+            nonlocal transient_calls
+            transient_calls += 1
+            if transient_calls == 1:
+                return b"", {}
+            return json.dumps(fixtures["20828393"]).encode("utf-8"), {}
+
+        transient_manifest = acquire(
+            ["20828393"],
+            root / "transient-contract",
+            qps=1000.0,
+            timeout_seconds=1.0,
+            retries=1,
+            fetcher=transient_contract_fetch,
+        )
+        assert transient_calls == 2
+        assert transient_manifest["success_count"] == 1
+        assert transient_manifest["failure_count"] == 0
+        assert (root / "transient-contract" / "acquisition_failures.ndjson").read_text(encoding="utf-8") == ""
+
+        # Regression: a permanently invalid contract remains an explicit
+        # terminal disposition after the bounded retry budget is exhausted.
+        permanent_calls = 0
+
+        def permanent_contract_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
+            nonlocal permanent_calls
+            permanent_calls += 1
+            return b"", {}
+
+        permanent_manifest = acquire(
+            ["20828393"],
+            root / "permanent-contract",
+            qps=1000.0,
+            timeout_seconds=1.0,
+            retries=2,
+            fetcher=permanent_contract_fetch,
+        )
+        permanent_failure = json.loads(
+            (root / "permanent-contract" / "acquisition_failures.ndjson").read_text(encoding="utf-8").strip()
+        )
+        assert permanent_calls == 3
+        assert permanent_manifest["success_count"] == 0
+        assert permanent_manifest["failure_count"] == 1
+        assert permanent_failure["reason"] == "response_contract_failure"
+
         try:
             _select_shard(all_sellers, 2, 2)
         except ValueError as exc:
