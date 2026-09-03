@@ -86,9 +86,13 @@ def _recover_publish_state(output_path: Path, summary_path: Path) -> None:
             raise RuntimeError("LAST_KNOWN_GOOD_PAIR_INCOMPLETE")
         return
 
-    # Both final members are visible. If they form a cryptographically coherent
-    # generation, publication committed before the crash and backups are stale.
+    # A committed final pair may only coexist with either both prior-generation
+    # backups (crash after candidate commit, before cleanup) or no backups. A
+    # single surviving backup is not reachable through the publication protocol;
+    # treat it as ambiguous/tampered state and preserve all evidence byte-for-byte.
     if output_exists and summary_exists:
+        if backup_output_exists != backup_summary_exists:
+            raise RuntimeError("AMBIGUOUS_PUBLISH_RECOVERY_BACKUP_PARITY")
         try:
             _validate_published_pair(output_path, summary_path)
         except RuntimeError:
@@ -361,6 +365,36 @@ def self_test() -> None:
         assert output.read_bytes() == new_payload
         assert summary.read_bytes() == new_summary
         assert not backup_output.exists() and not backup_summary.exists()
+
+        # Valid final pair plus exactly one backup is an impossible protocol state.
+        # Fail closed and preserve final + backup evidence byte-for-byte.
+        final_payload_before = output.read_bytes()
+        final_summary_before = summary.read_bytes()
+        backup_output.write_bytes(old_payload)
+        payload_backup_before = backup_output.read_bytes()
+        try:
+            _recover_publish_state(output, summary)
+            raise AssertionError("EXPECTED_BACKUP_PARITY_HOLD")
+        except RuntimeError as exc:
+            assert str(exc) == "AMBIGUOUS_PUBLISH_RECOVERY_BACKUP_PARITY"
+        assert output.read_bytes() == final_payload_before
+        assert summary.read_bytes() == final_summary_before
+        assert backup_output.read_bytes() == payload_backup_before
+        assert not backup_summary.exists()
+        backup_output.unlink()
+
+        backup_summary.write_bytes(old_summary)
+        summary_backup_before = backup_summary.read_bytes()
+        try:
+            _recover_publish_state(output, summary)
+            raise AssertionError("EXPECTED_BACKUP_PARITY_HOLD")
+        except RuntimeError as exc:
+            assert str(exc) == "AMBIGUOUS_PUBLISH_RECOVERY_BACKUP_PARITY"
+        assert output.read_bytes() == final_payload_before
+        assert summary.read_bytes() == final_summary_before
+        assert backup_summary.read_bytes() == summary_backup_before
+        assert not backup_output.exists()
+        backup_summary.unlink()
 
         # Ambiguous state without a complete recoverable pair must fail closed.
         output.unlink()
