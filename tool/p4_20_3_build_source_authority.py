@@ -59,12 +59,16 @@ def _parse_http_last_modified(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _validate_exact_positive_int(value: object, *, error_code: str) -> int:
+    """Reject bool/coercible strings/floats; authority JSON requires exact integers."""
+    if type(value) is not int or value <= 0:
+        raise ValueError(error_code)
+    return value
+
+
 def _validate_source_archive_bytes(value: object, *, error_code: str) -> int:
-    try:
-        archive_bytes = int(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(error_code) from exc
-    if archive_bytes <= 0 or archive_bytes > MAX_SOURCE_ARCHIVE_BYTES:
+    archive_bytes = _validate_exact_positive_int(value, error_code=error_code)
+    if archive_bytes > MAX_SOURCE_ARCHIVE_BYTES:
         raise ValueError(error_code)
     return archive_bytes
 
@@ -87,8 +91,10 @@ def build_authority(
         source_archive_bytes,
         error_code="SOURCE_ARCHIVE_BYTES_OUT_OF_BOUND",
     )
-    if source_row_count <= 0:
-        raise ValueError("SOURCE_ROW_COUNT_INVALID")
+    row_count = _validate_exact_positive_int(
+        source_row_count,
+        error_code="SOURCE_ROW_COUNT_INVALID",
+    )
 
     modified = _parse_http_last_modified(source_last_modified)
     source_data_date = modified.date().isoformat()
@@ -109,7 +115,7 @@ def build_authority(
         "source_data_date": source_data_date,
         "source_archive_sha256": archive_sha,
         "source_archive_bytes": archive_bytes,
-        "source_row_count": source_row_count,
+        "source_row_count": row_count,
         "license_name": LICENSE_NAME,
         "license_url": LICENSE_URL,
         "attribution": attribution,
@@ -139,7 +145,8 @@ def validate_authority(authority: dict[str, object]) -> None:
         "mobile_per_invoice_network_lookup": False,
     }
     for key, expected in expected_constants.items():
-        if authority.get(key) != expected:
+        actual = authority.get(key)
+        if type(actual) is not type(expected) or actual != expected:
             raise ValueError(f"SOURCE_AUTHORITY_CONSTANT_DRIFT:{key}")
 
     if not GIT_SHA_RE.fullmatch(str(authority.get("exact_head", ""))):
@@ -150,8 +157,10 @@ def validate_authority(authority: dict[str, object]) -> None:
         authority.get("source_archive_bytes", 0),
         error_code="SOURCE_AUTHORITY_ARCHIVE_BYTES_INVALID",
     )
-    if int(authority.get("source_row_count", 0)) <= 0:
-        raise ValueError("SOURCE_AUTHORITY_ROW_COUNT_INVALID")
+    _validate_exact_positive_int(
+        authority.get("source_row_count", 0),
+        error_code="SOURCE_AUTHORITY_ROW_COUNT_INVALID",
+    )
 
     modified = _parse_http_last_modified(str(authority.get("source_last_modified", "")))
     if authority.get("source_data_date") != modified.date().isoformat():
@@ -166,6 +175,36 @@ def validate_authority(authority: dict[str, object]) -> None:
     expected_sha = hashlib.sha256(_canonical_bytes(payload)).hexdigest()
     if actual_sha != expected_sha:
         raise ValueError("SOURCE_AUTHORITY_SHA_MISMATCH")
+
+
+def _rehash_authority(authority: dict[str, object]) -> dict[str, object]:
+    rehashed = dict(authority)
+    payload = dict(rehashed)
+    payload.pop("source_authority_sha256", None)
+    rehashed["source_authority_sha256"] = hashlib.sha256(
+        _canonical_bytes(payload)
+    ).hexdigest()
+    return rehashed
+
+
+def _assert_rehashed_rejected(
+    authority: dict[str, object],
+    *,
+    field: str,
+    value: object,
+    expected_error: str,
+) -> None:
+    tampered = dict(authority)
+    tampered[field] = value
+    tampered = _rehash_authority(tampered)
+    try:
+        validate_authority(tampered)
+    except ValueError as exc:
+        assert str(exc) == expected_error
+    else:
+        raise AssertionError(
+            f"rehashed semantically invalid authority unexpectedly passed: {field}={value!r}"
+        )
 
 
 def _self_test() -> None:
@@ -190,19 +229,38 @@ def _self_test() -> None:
     else:
         raise AssertionError("tampered authority unexpectedly passed")
 
-    oversized_rehashed = dict(authority)
-    oversized_rehashed["source_archive_bytes"] = MAX_SOURCE_ARCHIVE_BYTES + 1
-    oversized_payload = dict(oversized_rehashed)
-    oversized_payload.pop("source_authority_sha256", None)
-    oversized_rehashed["source_authority_sha256"] = hashlib.sha256(
-        _canonical_bytes(oversized_payload)
-    ).hexdigest()
-    try:
-        validate_authority(oversized_rehashed)
-    except ValueError as exc:
-        assert str(exc) == "SOURCE_AUTHORITY_ARCHIVE_BYTES_INVALID"
-    else:
-        raise AssertionError("rehashed oversized authority unexpectedly passed")
+    _assert_rehashed_rejected(
+        authority,
+        field="source_archive_bytes",
+        value=MAX_SOURCE_ARCHIVE_BYTES + 1,
+        expected_error="SOURCE_AUTHORITY_ARCHIVE_BYTES_INVALID",
+    )
+    for invalid_archive_bytes in (True, "66299794", 66299794.0):
+        _assert_rehashed_rejected(
+            authority,
+            field="source_archive_bytes",
+            value=invalid_archive_bytes,
+            expected_error="SOURCE_AUTHORITY_ARCHIVE_BYTES_INVALID",
+        )
+    for invalid_row_count in (True, "1712892", 1712892.0):
+        _assert_rehashed_rejected(
+            authority,
+            field="source_row_count",
+            value=invalid_row_count,
+            expected_error="SOURCE_AUTHORITY_ROW_COUNT_INVALID",
+        )
+    _assert_rehashed_rejected(
+        authority,
+        field="validation_subset",
+        value=0,
+        expected_error="SOURCE_AUTHORITY_CONSTANT_DRIFT:validation_subset",
+    )
+    _assert_rehashed_rejected(
+        authority,
+        field="schema_version",
+        value=True,
+        expected_error="SOURCE_AUTHORITY_CONSTANT_DRIFT:schema_version",
+    )
 
     try:
         build_authority(
