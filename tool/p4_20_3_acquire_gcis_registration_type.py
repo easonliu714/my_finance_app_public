@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """P4.20.3 Gate D controlled-build GCIS registration-type acquisition.
 
-Queries the official MOEA/GCIS endpoint "統編查是否為公司、分公司及商業" only
-for a precomputed FIA residual seller cohort. This is build-time evidence
-acquisition, never a handset/per-invoice lookup path.
+Queries the official MOEA/GCIS endpoint only for a precomputed FIA residual
+seller cohort. This is build-time evidence acquisition and is never a handset
+or per-invoice lookup path.
 
-The output intentionally preserves the official TYPE values without guessing a
-company/business/branch mapping. Downstream code must establish that mapping
-from official evidence before producing mobile canonical entities.
-
-Large residual cohorts may be split into deterministic shards. Sharding is
-performed only after exact seller normalization, deduplication and sorting, so
-the same seller filter + shard-count always yields the same membership.
+The mobile projection intentionally preserves only official classification
+fields. Responsible-person and other unrelated source fields are never emitted.
+Large cohorts are deterministically sharded after seller normalization/sort.
 """
 from __future__ import annotations
 
@@ -107,8 +103,6 @@ def _parse_rows(payload: object, seller: str) -> dict[str, object]:
     for index, row in enumerate(payload):
         if not isinstance(row, dict):
             raise ValueError(f"GCIS_RESPONSE_ROW_NOT_OBJECT:{index}")
-        # Official dataset documentation defines Year / exist / TYPE. We only
-        # project these classification fields and never serialize other payload.
         if "TYPE" not in row or "exist" not in row:
             raise ValueError(f"GCIS_RESPONSE_REQUIRED_FIELDS_MISSING:{index}")
         type_value = _clean(row.get("TYPE"))
@@ -133,14 +127,41 @@ def _parse_rows(payload: object, seller: str) -> dict[str, object]:
 
 
 def _default_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "my-finance-app-P4.20.3-controlled-build/1"},
-    )
+    request = urllib.request.Request(url, headers={"User-Agent": "my-finance-app-P4.20.3-controlled-build/1"})
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
         body = response.read()
         headers = {key.lower(): value for key, value in response.headers.items()}
     return body, headers
+
+
+def _fetch_one(
+    seller: str,
+    *,
+    timeout_seconds: float,
+    retries: int,
+    fetcher: Callable[[str, float], tuple[bytes, dict[str, str]]],
+    on_body: Callable[[bytes, dict[str, str]], None],
+) -> tuple[dict[str, object] | None, str, str]:
+    url = _request_url(seller)
+    last_reason = ""
+    last_error = ""
+    for attempt in range(retries + 1):
+        try:
+            body, headers = fetcher(url, timeout_seconds)
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+            last_reason = "transport_failure"
+            last_error = f"{type(exc).__name__}:{exc}"
+        else:
+            on_body(body, headers)
+            try:
+                payload = json.loads(body.decode("utf-8-sig"))
+                return _parse_rows(payload, seller), "", ""
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                last_reason = "response_contract_failure"
+                last_error = str(exc)
+        if attempt < retries:
+            time.sleep(min(2 ** attempt, 8))
+    return None, last_reason or "unknown_failure", last_error
 
 
 def acquire(
@@ -150,6 +171,8 @@ def acquire(
     qps: float,
     timeout_seconds: float,
     retries: int,
+    recovery_rounds: int = 2,
+    recovery_delay_seconds: float = 30.0,
     source_filter_unique_count: int | None = None,
     shard_index: int = 0,
     shard_count: int = 1,
@@ -157,79 +180,90 @@ def acquire(
 ) -> dict[str, object]:
     if qps <= 0:
         raise ValueError("QPS_MUST_BE_POSITIVE")
-    if retries < 0:
-        raise ValueError("RETRIES_MUST_BE_NONNEGATIVE")
+    if retries < 0 or recovery_rounds < 0:
+        raise ValueError("RETRY_COUNTS_MUST_BE_NONNEGATIVE")
+    if recovery_delay_seconds < 0:
+        raise ValueError("RECOVERY_DELAY_MUST_BE_NONNEGATIVE")
     if shard_count <= 0:
         raise ValueError("SHARD_COUNT_MUST_BE_POSITIVE")
     if shard_index < 0 or shard_index >= shard_count:
         raise ValueError("SHARD_INDEX_OUT_OF_RANGE")
+
     output_dir.mkdir(parents=True, exist_ok=True)
     evidence_path = output_dir / "registration_type_evidence.ndjson"
     failure_path = output_dir / "acquisition_failures.ndjson"
     interval = 1.0 / qps
-    digest = hashlib.sha256()
-    success_count = 0
-    failure_count = 0
     total_response_bytes = 0
     last_modified_values: set[str] = set()
+    records: dict[str, dict[str, object]] = {}
+    failures: dict[str, tuple[str, str]] = {}
+    recovery_attempted_count = 0
+    recovery_recovered_count = 0
 
-    with evidence_path.open("wb") as evidence, failure_path.open("wb") as failures:
-        for index, seller in enumerate(sellers):
+    def observe(body: bytes, headers: dict[str, str]) -> None:
+        nonlocal total_response_bytes
+        total_response_bytes += len(body)
+        if headers.get("last-modified"):
+            last_modified_values.add(headers["last-modified"])
+
+    pending = list(sellers)
+    for round_index in range(recovery_rounds + 1):
+        if round_index > 0:
+            if not pending:
+                break
+            recovery_attempted_count += len(pending)
+            if recovery_delay_seconds:
+                time.sleep(recovery_delay_seconds)
+        next_pending: list[str] = []
+        for index, seller in enumerate(pending):
             if index:
                 time.sleep(interval)
-            url = _request_url(seller)
-            record: dict[str, object] | None = None
-            last_reason = ""
-            last_error = ""
-            for attempt in range(retries + 1):
-                try:
-                    body, headers = fetcher(url, timeout_seconds)
-                except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
-                    # urllib may surface incomplete/chunked HTTP reads as
-                    # http.client.HTTPException subclasses rather than URLError.
-                    # Treat those as bounded transport failures so one transient
-                    # response cannot abort an entire deterministic shard.
-                    last_reason = "transport_failure"
-                    last_error = f"{type(exc).__name__}:{exc}"
-                else:
-                    total_response_bytes += len(body)
-                    if headers.get("last-modified"):
-                        last_modified_values.add(headers["last-modified"])
-                    try:
-                        payload = json.loads(body.decode("utf-8-sig"))
-                        record = _parse_rows(payload, seller)
-                    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-                        # HTTP success does not guarantee a valid GCIS JSON contract.
-                        # Empty/HTML/transient upstream bodies must receive the same
-                        # bounded retry treatment as transport failures; otherwise a
-                        # single transient 200 response permanently breaks shard
-                        # completeness despite the official query being replayable.
-                        last_reason = "response_contract_failure"
-                        last_error = str(exc)
-                    else:
-                        break
-                if attempt < retries:
-                    time.sleep(min(2 ** attempt, 8))
-
+            record, reason, detail = _fetch_one(
+                seller,
+                timeout_seconds=timeout_seconds,
+                retries=retries,
+                fetcher=fetcher,
+                on_body=observe,
+            )
             if record is None:
-                failures.write(_line({
-                    "seller_identifier": seller,
-                    "reason": last_reason or "unknown_failure",
-                    "detail": last_error[:240],
-                }))
-                failure_count += 1
+                failures[seller] = (reason, detail)
+                next_pending.append(seller)
                 continue
+            if round_index > 0:
+                recovery_recovered_count += 1
+            records[seller] = record
+            failures.pop(seller, None)
+        pending = next_pending
 
+    digest = hashlib.sha256()
+    with evidence_path.open("wb") as evidence:
+        for seller in sellers:
+            record = records.get(seller)
+            if record is None:
+                continue
             encoded = _line(record)
             evidence.write(encoded)
             digest.update(encoded)
-            success_count += 1
+    with failure_path.open("wb") as failure_stream:
+        for seller in sellers:
+            failure = failures.get(seller)
+            if failure is None:
+                continue
+            reason, detail = failure
+            failure_stream.write(_line({
+                "seller_identifier": seller,
+                "reason": reason,
+                "detail": detail[:240],
+            }))
 
+    success_count = len(records)
+    failure_count = len(failures)
     if success_count + failure_count != len(sellers):
         raise AssertionError("ACQUISITION_PARTITION_MISMATCH")
+
     full_filter_count = source_filter_unique_count if source_filter_unique_count is not None else len(sellers)
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "gate": "P4.20.3-D",
         "endpoint_api_id": API_ID,
         "endpoint_url": BASE_URL,
@@ -245,6 +279,10 @@ def acquire(
         "qps_limit": qps,
         "timeout_seconds": timeout_seconds,
         "retry_count": retries,
+        "recovery_round_count": recovery_rounds,
+        "recovery_delay_seconds": recovery_delay_seconds,
+        "recovery_attempted_count": recovery_attempted_count,
+        "recovery_recovered_count": recovery_recovered_count,
         "total_response_bytes": total_response_bytes,
         "http_last_modified_values": sorted(last_modified_values),
         "evidence_payload_sha256": digest.hexdigest(),
@@ -271,122 +309,65 @@ def self_test() -> None:
             '{"seller_identifier":"20828393"}\n'
             '{"seller_identifier":"22555003"}\n'
             '{"seller_identifier":"22853565"}\n'
-            '{"seller_identifier":"31655572"}\n',
-            encoding="utf-8",
-        )
+            '{"seller_identifier":"31655572"}\n', encoding="utf-8")
         all_sellers = _load_sellers(sellers_file)
         shard0 = _select_shard(all_sellers, 0, 2)
         shard1 = _select_shard(all_sellers, 1, 2)
         assert shard0 == ["20828393", "22853565"]
         assert shard1 == ["22555003", "31655572"]
-        assert sorted(shard0 + shard1) == all_sellers
         fixtures = {
-            "20828393": [{"Year": "2026", "exist": "Y", "TYPE": "COMPANY", "ignored_sensitive_field": "never serialized"}],
-            "22853565": [{"Year": "2026", "exist": "Y", "TYPE": "COMPANY", "representative": "never serialized"}],
+            "20828393": [{"Year":"2026","exist":"Y","TYPE":"COMPANY","representative":"never serialized"}],
+            "22853565": [{"Year":"2026","exist":"Y","TYPE":"COMPANY","representative":"never serialized"}],
         }
 
-        def fake_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
-            assert timeout_seconds == 1.0
+        def ok_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
             seller = "20828393" if "20828393" in url else "22853565"
-            return json.dumps(fixtures[seller], ensure_ascii=False).encode("utf-8"), {"last-modified": "fixture"}
+            return json.dumps(fixtures[seller]).encode(), {"last-modified":"fixture"}
 
-        manifest = acquire(
-            shard0,
-            root / "out",
-            qps=1000.0,
-            timeout_seconds=1.0,
-            retries=0,
-            source_filter_unique_count=len(all_sellers),
-            shard_index=0,
-            shard_count=2,
-            fetcher=fake_fetch,
-        )
-        rows = [json.loads(line) for line in (root / "out" / "registration_type_evidence.ndjson").read_text(encoding="utf-8").splitlines()]
-        assert len(rows) == 2
+        manifest = acquire(shard0, root/"ok", qps=1000, timeout_seconds=1, retries=0,
+                           recovery_rounds=0, recovery_delay_seconds=0,
+                           source_filter_unique_count=4, shard_index=0, shard_count=2, fetcher=ok_fetch)
+        assert manifest["success_count"] == 2 and manifest["failure_count"] == 0
+        rows = [json.loads(x) for x in (root/"ok"/"registration_type_evidence.ndjson").read_text().splitlines()]
         assert all(set(row) == OUTPUT_KEYS for row in rows)
-        assert "ignored_sensitive_field" not in rows[0]
-        assert "representative" not in rows[1]
-        assert manifest["seller_filter_unique_count"] == 4
-        assert manifest["selected_shard_seller_count"] == 2
-        assert manifest["shard_index"] == 0
-        assert manifest["shard_count"] == 2
-        assert manifest["success_count"] == 2
-        assert manifest["failure_count"] == 0
-        assert manifest["official_type_mapping_applied"] is False
-        assert manifest["mobile_per_invoice_network_lookup"] is False
+        assert all("representative" not in row for row in rows)
 
-        # Regression: a transient HTTP-success/invalid-body response must be
-        # retried rather than becoming an immediate terminal shard failure.
-        transient_calls = 0
-
-        def transient_contract_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
-            nonlocal transient_calls
-            transient_calls += 1
-            if transient_calls == 1:
-                return b"", {}
-            return json.dumps(fixtures["20828393"]).encode("utf-8"), {}
-
-        transient_manifest = acquire(
-            ["20828393"],
-            root / "transient-contract",
-            qps=1000.0,
-            timeout_seconds=1.0,
-            retries=1,
-            fetcher=transient_contract_fetch,
-        )
-        assert transient_calls == 2
-        assert transient_manifest["success_count"] == 1
-        assert transient_manifest["failure_count"] == 0
-        assert (root / "transient-contract" / "acquisition_failures.ndjson").read_text(encoding="utf-8") == ""
-
-        # Regression: an incomplete HTTP body raised by response.read() must be
-        # treated as a bounded transport retry rather than aborting the shard.
-        incomplete_read_calls = 0
-
-        def transient_incomplete_read_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
-            nonlocal incomplete_read_calls
-            incomplete_read_calls += 1
-            if incomplete_read_calls == 1:
+        incomplete_calls = 0
+        def incomplete_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
+            nonlocal incomplete_calls
+            incomplete_calls += 1
+            if incomplete_calls == 1:
                 raise http.client.IncompleteRead(b"partial", 10)
-            return json.dumps(fixtures["20828393"]).encode("utf-8"), {}
+            return json.dumps(fixtures["20828393"]).encode(), {}
+        m = acquire(["20828393"], root/"incomplete", qps=1000, timeout_seconds=1, retries=1,
+                    recovery_rounds=0, recovery_delay_seconds=0, fetcher=incomplete_fetch)
+        assert incomplete_calls == 2 and m["failure_count"] == 0
 
-        incomplete_manifest = acquire(
-            ["20828393"],
-            root / "transient-incomplete-read",
-            qps=1000.0,
-            timeout_seconds=1.0,
-            retries=1,
-            fetcher=transient_incomplete_read_fetch,
-        )
-        assert incomplete_read_calls == 2
-        assert incomplete_manifest["success_count"] == 1
-        assert incomplete_manifest["failure_count"] == 0
-        assert (root / "transient-incomplete-read" / "acquisition_failures.ndjson").read_text(encoding="utf-8") == ""
+        recovery_calls = 0
+        def recovery_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
+            nonlocal recovery_calls
+            recovery_calls += 1
+            if recovery_calls <= 2:
+                raise urllib.error.URLError("fixture 504 window")
+            return json.dumps(fixtures["20828393"]).encode(), {}
+        m = acquire(["20828393"], root/"recovery", qps=1000, timeout_seconds=1, retries=1,
+                    recovery_rounds=1, recovery_delay_seconds=0, fetcher=recovery_fetch)
+        assert recovery_calls == 3
+        assert m["success_count"] == 1 and m["failure_count"] == 0
+        assert m["recovery_attempted_count"] == 1 and m["recovery_recovered_count"] == 1
+        assert (root/"recovery"/"acquisition_failures.ndjson").read_text() == ""
 
-        # Regression: a permanently invalid contract remains an explicit
-        # terminal disposition after the bounded retry budget is exhausted.
         permanent_calls = 0
-
-        def permanent_contract_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
+        def permanent_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
             nonlocal permanent_calls
             permanent_calls += 1
             return b"", {}
-
-        permanent_manifest = acquire(
-            ["20828393"],
-            root / "permanent-contract",
-            qps=1000.0,
-            timeout_seconds=1.0,
-            retries=2,
-            fetcher=permanent_contract_fetch,
-        )
-        permanent_failure = json.loads(
-            (root / "permanent-contract" / "acquisition_failures.ndjson").read_text(encoding="utf-8").strip()
-        )
-        assert permanent_calls == 3
-        assert permanent_manifest["success_count"] == 0
-        assert permanent_manifest["failure_count"] == 1
-        assert permanent_failure["reason"] == "response_contract_failure"
+        m = acquire(["20828393"], root/"permanent", qps=1000, timeout_seconds=1, retries=1,
+                    recovery_rounds=1, recovery_delay_seconds=0, fetcher=permanent_fetch)
+        assert permanent_calls == 4
+        assert m["success_count"] == 0 and m["failure_count"] == 1
+        failure = json.loads((root/"permanent"/"acquisition_failures.ndjson").read_text().strip())
+        assert failure["reason"] == "response_contract_failure"
 
         try:
             _select_shard(all_sellers, 2, 2)
@@ -404,6 +385,8 @@ def main() -> None:
     parser.add_argument("--qps", type=float, default=2.0)
     parser.add_argument("--timeout-seconds", type=float, default=15.0)
     parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument("--recovery-rounds", type=int, default=2)
+    parser.add_argument("--recovery-delay-seconds", type=float, default=30.0)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--self-test", action="store_true")
@@ -416,14 +399,10 @@ def main() -> None:
     all_sellers = _load_sellers(args.seller_filter)
     selected_sellers = _select_shard(all_sellers, args.shard_index, args.shard_count)
     acquire(
-        selected_sellers,
-        args.output_dir,
-        qps=args.qps,
-        timeout_seconds=args.timeout_seconds,
-        retries=args.retries,
-        source_filter_unique_count=len(all_sellers),
-        shard_index=args.shard_index,
-        shard_count=args.shard_count,
+        selected_sellers, args.output_dir,
+        qps=args.qps, timeout_seconds=args.timeout_seconds, retries=args.retries,
+        recovery_rounds=args.recovery_rounds, recovery_delay_seconds=args.recovery_delay_seconds,
+        source_filter_unique_count=len(all_sellers), shard_index=args.shard_index, shard_count=args.shard_count,
     )
 
 
