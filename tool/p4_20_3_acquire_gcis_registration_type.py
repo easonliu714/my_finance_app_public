@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import time
 import urllib.error
@@ -183,7 +184,11 @@ def acquire(
             for attempt in range(retries + 1):
                 try:
                     body, headers = fetcher(url, timeout_seconds)
-                except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+                    # urllib may surface incomplete/chunked HTTP reads as
+                    # http.client.HTTPException subclasses rather than URLError.
+                    # Treat those as bounded transport failures so one transient
+                    # response cannot abort an entire deterministic shard.
                     last_reason = "transport_failure"
                     last_error = f"{type(exc).__name__}:{exc}"
                 else:
@@ -333,6 +338,30 @@ def self_test() -> None:
         assert transient_manifest["success_count"] == 1
         assert transient_manifest["failure_count"] == 0
         assert (root / "transient-contract" / "acquisition_failures.ndjson").read_text(encoding="utf-8") == ""
+
+        # Regression: an incomplete HTTP body raised by response.read() must be
+        # treated as a bounded transport retry rather than aborting the shard.
+        incomplete_read_calls = 0
+
+        def transient_incomplete_read_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
+            nonlocal incomplete_read_calls
+            incomplete_read_calls += 1
+            if incomplete_read_calls == 1:
+                raise http.client.IncompleteRead(b"partial", 10)
+            return json.dumps(fixtures["20828393"]).encode("utf-8"), {}
+
+        incomplete_manifest = acquire(
+            ["20828393"],
+            root / "transient-incomplete-read",
+            qps=1000.0,
+            timeout_seconds=1.0,
+            retries=1,
+            fetcher=transient_incomplete_read_fetch,
+        )
+        assert incomplete_read_calls == 2
+        assert incomplete_manifest["success_count"] == 1
+        assert incomplete_manifest["failure_count"] == 0
+        assert (root / "transient-incomplete-read" / "acquisition_failures.ndjson").read_text(encoding="utf-8") == ""
 
         # Regression: a permanently invalid contract remains an explicit
         # terminal disposition after the bounded retry budget is exhausted.
