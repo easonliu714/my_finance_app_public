@@ -1,58 +1,60 @@
 #!/usr/bin/env python3
-"""P4.20.3 Gate E canonical production manifest entrypoint.
+"""P4.20.3 Gate E canonical bundle-bound distribution entrypoint.
 
-Consumes a serialized, strict-validated FIA+GCIS authority bundle and derives all
-GCIS provenance from it. The legacy scalar builder remains an internal packaging
-primitive only; production callers must use this entrypoint so workflow/artifact/
-closure identity and the authority bundle self-hash are bound into the manifest.
+Production callers provide one strict serialized FIA+GCIS authority bundle. GCIS
+workflow/artifact/closure/count provenance is derived from that validated bundle;
+there is no production scalar override surface in this entrypoint.
 
-The tool packages only the replaceable Optional Local Dataset. It never reads or
-modifies user-owned MerchantBrand / LegalEntity mappings, history, corrections,
-or transactions, and it never enables per-invoice FIA/GCIS network lookup.
+Only the replaceable Optional Local Dataset is packaged. User-owned MerchantBrand /
+LegalEntity mappings, history, corrections, and transactions are never read or
+modified. Per-invoice FIA/GCIS network lookup remains forbidden.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import tempfile
 from pathlib import Path
 
 from p4_20_3_build_distribution_manifest import (
     _canonical_bytes,
+    _entity,
     _load_json,
     _sha256_file,
-    _source_authority,
     _write_ndjson,
-    _entity,
     build_manifest,
     validate_manifest,
 )
 from p4_20_3_validate_distribution_authorities import (
-    build_authority_bundle,
-    validate_authority_bundle,
     _fixture_closure,
     _fixture_source,
+    build_authority_bundle,
+    validate_authority_bundle,
 )
 
 
-def _manifest_self_hash(manifest: dict[str, object]) -> str:
-    payload = dict(manifest)
+def _manifest_self_hash(value: dict[str, object]) -> str:
+    payload = dict(value)
     payload.pop("manifest_sha256", None)
     return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
 
 
+def _bundle_self_hash(value: dict[str, object]) -> str:
+    payload = dict(value)
+    payload.pop("authority_bundle_sha256", None)
+    return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+
+
 def _validate_source_bundle_binding(
-    source_authority: dict[str, object], bundle: dict[str, object]
+    source: dict[str, object], bundle: dict[str, object]
 ) -> None:
-    checks = {
+    for field, label in {
         "source_authority_sha256": "SOURCE_AUTHORITY_SHA",
         "source_archive_sha256": "SOURCE_ARCHIVE_SHA",
         "source_csv_sha256": "SOURCE_CSV_SHA",
         "source_data_date": "SOURCE_DATA_DATE",
-    }
-    for field, label in checks.items():
-        if source_authority.get(field) != bundle.get(field):
+    }.items():
+        if source.get(field) != bundle.get(field):
             raise RuntimeError(f"AUTHORITY_BUNDLE_{label}_MISMATCH")
 
 
@@ -69,11 +71,11 @@ def build_distribution_from_authority_bundle(
 ) -> dict[str, object]:
     bundle = _load_json(authority_bundle_path, label="AUTHORITY_BUNDLE")
     bundle_sha = validate_authority_bundle(bundle, exact_head)
-    source_authority = _load_json(source_authority_path, label="SOURCE_AUTHORITY")
-    _validate_source_bundle_binding(source_authority, bundle)
+    source = _load_json(source_authority_path, label="SOURCE_AUTHORITY")
+    _validate_source_bundle_binding(source, bundle)
 
-    # The legacy builder is deliberately called only with values derived from the
-    # already validated bundle; production callers have no scalar override surface.
+    # Internal legacy primitive receives only bundle-derived values. Production
+    # callers cannot override GCIS accounting or evidence independently.
     manifest = build_manifest(
         exact_head=exact_head,
         source_authority_path=source_authority_path,
@@ -89,17 +91,20 @@ def build_distribution_from_authority_bundle(
         gcis_evidence_sha256=str(bundle["gcis_closure_sha256"]),
     )
 
-    manifest["authority_bundle_sha256"] = bundle_sha
-    manifest["gcis_full_residual_run_id"] = bundle["gcis_workflow_run_id"]
-    manifest["gcis_artifact_id"] = bundle["gcis_artifact_id"]
-    manifest["gcis_artifact_sha256"] = bundle["gcis_artifact_sha256"]
-    manifest["gcis_closure_sha256"] = bundle["gcis_closure_sha256"]
-    manifest["gcis_requested_count"] = bundle["gcis_seller_count"]
-    manifest["gcis_terminal_accounted_count"] = bundle["gcis_success_count"]
-    manifest["gcis_failure_count"] = bundle["gcis_failure_count"]
-    manifest["gcis_zero_silent_drop"] = bundle["gcis_zero_silent_drop"]
+    manifest.update(
+        {
+            "authority_bundle_sha256": bundle_sha,
+            "gcis_full_residual_run_id": bundle["gcis_workflow_run_id"],
+            "gcis_artifact_id": bundle["gcis_artifact_id"],
+            "gcis_artifact_sha256": bundle["gcis_artifact_sha256"],
+            "gcis_closure_sha256": bundle["gcis_closure_sha256"],
+            "gcis_requested_count": bundle["gcis_seller_count"],
+            "gcis_terminal_accounted_count": bundle["gcis_success_count"],
+            "gcis_failure_count": bundle["gcis_failure_count"],
+            "gcis_zero_silent_drop": bundle["gcis_zero_silent_drop"],
+        }
+    )
     manifest["manifest_sha256"] = _manifest_self_hash(manifest)
-
     validate_manifest(manifest, gzip_path)
     if manifest.get("authority_bundle_sha256") != bundle_sha:
         raise RuntimeError("MANIFEST_AUTHORITY_BUNDLE_SHA_MISMATCH")
@@ -108,45 +113,49 @@ def build_distribution_from_authority_bundle(
     return manifest
 
 
-def _write_fixture_summary(
-    path: Path, canonical_path: Path, *, validation_subset: bool = False
-) -> None:
-    canonical_sha, canonical_bytes = _sha256_file(canonical_path)
-    value = {
-        "schema_version": 1,
-        "gate": "P4.20.3-E",
-        "coverage": "nationwide_candidate",
-        "final_mobile_registry": False,
-        "canonical_uniqueness_key": "seller_identifier",
-        "ready_entity_count": 2,
-        "enriched_entity_count": 1,
-        "canonical_entity_count": 3,
-        "company_count": 1,
-        "business_count": 1,
-        "branch_count": 1,
-        "canonical_entities_sha256": canonical_sha,
-        "canonical_entities_bytes": canonical_bytes,
-        "branch_parent_closure": True,
-        "responsible_person_payload_emitted": False,
-        "validation_subset": validation_subset,
-    }
-    path.write_bytes(_canonical_bytes(value))
+def _write_summary(path: Path, canonical: Path) -> None:
+    canonical_sha, canonical_bytes = _sha256_file(canonical)
+    path.write_bytes(
+        _canonical_bytes(
+            {
+                "schema_version": 1,
+                "gate": "P4.20.3-E",
+                "coverage": "nationwide_candidate",
+                "final_mobile_registry": False,
+                "canonical_uniqueness_key": "seller_identifier",
+                "ready_entity_count": 2,
+                "enriched_entity_count": 1,
+                "canonical_entity_count": 3,
+                "company_count": 1,
+                "business_count": 1,
+                "branch_count": 1,
+                "canonical_entities_sha256": canonical_sha,
+                "canonical_entities_bytes": canonical_bytes,
+                "branch_parent_closure": True,
+                "responsible_person_payload_emitted": False,
+                "validation_subset": False,
+            }
+        )
+    )
+
+
+def _attempt_build(root: Path, head: str) -> dict[str, object]:
+    return build_distribution_from_authority_bundle(
+        exact_head=head,
+        authority_bundle_path=root / "bundle.json",
+        source_authority_path=root / "source.json",
+        ready_path=root / "ready.ndjson",
+        enriched_path=root / "enriched.ndjson",
+        canonical_path=root / "canonical.ndjson",
+        canonical_summary_path=root / "summary.json",
+        gzip_path=root / "registry.ndjson.gz",
+    )
 
 
 def self_test() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
         head = "1" * 40
-        source_path = root / "source.json"
-        bundle_path = root / "bundle.json"
-        ready = root / "ready.ndjson"
-        enriched = root / "enriched.ndjson"
-        canonical = root / "canonical.ndjson"
-        summary = root / "summary.json"
-        gzip_path = root / "registry.ndjson.gz"
-
-        # Use the strict authority validator fixtures because they contain the
-        # complete replay-critical FIA fields required by the bundle contract.
         source = _fixture_source(head)
         closure = _fixture_closure(head, source)
         bundle = build_authority_bundle(
@@ -157,95 +166,59 @@ def self_test() -> None:
             gcis_artifact_id=999,
             gcis_artifact_sha256="9" * 64,
         )
-        source_path.write_bytes(_canonical_bytes(source))
-        bundle_path.write_bytes(_canonical_bytes(bundle))
+        (root / "source.json").write_bytes(_canonical_bytes(source))
+        (root / "bundle.json").write_bytes(_canonical_bytes(bundle))
 
         ready_rows = [
             _entity("11111111", "company"),
             _entity("22222222", "branch", parent="11111111"),
         ]
         enriched_rows = [_entity("33333333", "business")]
-        _write_ndjson(ready, ready_rows)
-        _write_ndjson(enriched, enriched_rows)
+        _write_ndjson(root / "ready.ndjson", ready_rows)
+        _write_ndjson(root / "enriched.ndjson", enriched_rows)
         _write_ndjson(
-            canonical,
+            root / "canonical.ndjson",
             sorted(ready_rows + enriched_rows, key=lambda row: str(row["seller_identifier"])),
         )
-        _write_fixture_summary(summary, canonical)
+        _write_summary(root / "summary.json", root / "canonical.ndjson")
 
-        manifest = build_distribution_from_authority_bundle(
-            exact_head=head,
-            authority_bundle_path=bundle_path,
-            source_authority_path=source_path,
-            ready_path=ready,
-            enriched_path=enriched,
-            canonical_path=canonical,
-            canonical_summary_path=summary,
-            gzip_path=gzip_path,
-        )
+        manifest = _attempt_build(root, head)
         assert manifest["authority_bundle_sha256"] == bundle["authority_bundle_sha256"]
         assert manifest["gcis_full_residual_run_id"] == 18
         assert manifest["gcis_artifact_id"] == 999
         assert manifest["gcis_artifact_sha256"] == "9" * 64
         assert manifest["gcis_closure_sha256"] == bundle["gcis_closure_sha256"]
-        assert manifest["gcis_requested_count"] == bundle["gcis_seller_count"]
-        assert manifest["gcis_terminal_accounted_count"] == bundle["gcis_success_count"]
+        assert manifest["gcis_requested_count"] == manifest["gcis_terminal_accounted_count"]
+        assert manifest["gcis_failure_count"] == 0
 
-        # Tamper + stale bundle SHA must fail closed.
-        tampered = dict(bundle)
-        tampered["gcis_artifact_id"] = int(tampered["gcis_artifact_id"]) + 1
-        bundle_path.write_bytes(_canonical_bytes(tampered))
+        # Content tamper with stale self-hash.
+        bad = dict(bundle)
+        bad["gcis_artifact_id"] = 1000
+        (root / "bundle.json").write_bytes(_canonical_bytes(bad))
         try:
-            build_distribution_from_authority_bundle(
-                exact_head=head,
-                authority_bundle_path=bundle_path,
-                source_authority_path=source_path,
-                ready_path=ready,
-                enriched_path=enriched,
-                canonical_path=canonical,
-                canonical_summary_path=summary,
-                gzip_path=gzip_path,
-            )
+            _attempt_build(root, head)
             raise AssertionError("EXPECTED_BUNDLE_TAMPER_HOLD")
         except RuntimeError as exc:
             assert str(exc) == "AUTHORITY_BUNDLE_SHA_MISMATCH"
 
-        # Re-signed old-head bundle must still be rejected by exact-head gate.
-        old = dict(bundle)
-        old["exact_head"] = "2" * 40
-        old["authority_bundle_sha256"] = _manifest_self_hash(old)
-        bundle_path.write_bytes(_canonical_bytes(old))
+        # Re-hashed old-head bundle is still rejected by exact-head authority.
+        bad = dict(bundle)
+        bad["exact_head"] = "2" * 40
+        bad["authority_bundle_sha256"] = _bundle_self_hash(bad)
+        (root / "bundle.json").write_bytes(_canonical_bytes(bad))
         try:
-            build_distribution_from_authority_bundle(
-                exact_head=head,
-                authority_bundle_path=bundle_path,
-                source_authority_path=source_path,
-                ready_path=ready,
-                enriched_path=enriched,
-                canonical_path=canonical,
-                canonical_summary_path=summary,
-                gzip_path=gzip_path,
-            )
+            _attempt_build(root, head)
             raise AssertionError("EXPECTED_OLD_HEAD_HOLD")
         except RuntimeError as exc:
             assert str(exc) == "AUTHORITY_BUNDLE_EXACT_HEAD_MISMATCH"
 
-        # A validly re-hashed bundle with mixed FIA generation must be rejected.
-        mixed = dict(bundle)
-        mixed["source_archive_sha256"] = "8" * 64
-        mixed["authority_bundle_sha256"] = _manifest_self_hash(mixed)
-        bundle_path.write_bytes(_canonical_bytes(mixed))
+        # Validly re-hashed mixed FIA generation must fail source/bundle binding.
+        bad = dict(bundle)
+        bad["source_archive_sha256"] = "8" * 64
+        bad["authority_bundle_sha256"] = _bundle_self_hash(bad)
+        (root / "bundle.json").write_bytes(_canonical_bytes(bad))
         try:
-            build_distribution_from_authority_bundle(
-                exact_head=head,
-                authority_bundle_path=bundle_path,
-                source_authority_path=source_path,
-                ready_path=ready,
-                enriched_path=enriched,
-                canonical_path=canonical,
-                canonical_summary_path=summary,
-                gzip_path=gzip_path,
-            )
+            _attempt_build(root, head)
             raise AssertionError("EXPECTED_MIXED_GENERATION_HOLD")
         except RuntimeError as exc:
             assert str(exc) == "AUTHORITY_BUNDLE_SOURCE_ARCHIVE_SHA_MISMATCH"
@@ -270,7 +243,6 @@ def main() -> int:
     if args.self_test:
         self_test()
         return 0
-
     required = (
         args.exact_head,
         args.authority_bundle,
