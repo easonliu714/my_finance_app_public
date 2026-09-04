@@ -182,6 +182,80 @@ jobs:
           ]) + '\n')
           PY
 
+      - name: Build deterministic privacy-reduced staging handoff
+        shell: bash
+        env:
+          P4_20_3_EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import gzip
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('p4_20_3_staging/output')
+          handoff = Path('p4_20_3_staging/handoff')
+          handoff.mkdir(parents=True, exist_ok=True)
+          summary = json.loads((root / 'staging_summary.json').read_text(encoding='utf-8'))
+
+          def sha256(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open('rb') as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def deterministic_gzip(source: Path, target: Path) -> None:
+              with source.open('rb') as src, target.open('wb') as raw:
+                  with gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=0) as dst:
+                      for chunk in iter(lambda: src.read(1024 * 1024), b''):
+                          dst.write(chunk)
+
+          ready = root / 'ready_entities.ndjson'
+          pending = root / 'enrichment_required.ndjson'
+          ready_gz = handoff / 'ready_entities.ndjson.gz'
+          pending_gz = handoff / 'enrichment_required.ndjson.gz'
+          deterministic_gzip(ready, ready_gz)
+          deterministic_gzip(pending, pending_gz)
+
+          manifest = {
+              'schema_version': 1,
+              'gate': 'P4.20.3-E-staging-handoff',
+              'exact_head': os.environ['P4_20_3_EXACT_HEAD'],
+              'validation_subset': False,
+              'final_mobile_registry': False,
+              'responsible_person_payload_emitted': False,
+              'normal_invoice_per_record_network_lookup': False,
+              'source_row_count': int(summary['source_row_count']),
+              'ready_entity_count': int(summary['ready_entity_count']),
+              'enrichment_required_count': int(summary['enrichment_required_count']),
+              'hold_count': int(summary['hold_count']),
+              'ready_entities_sha256': sha256(ready),
+              'ready_entities_bytes': ready.stat().st_size,
+              'ready_entities_gzip_sha256': sha256(ready_gz),
+              'ready_entities_gzip_bytes': ready_gz.stat().st_size,
+              'enrichment_required_sha256': sha256(pending),
+              'enrichment_required_bytes': pending.stat().st_size,
+              'enrichment_required_gzip_sha256': sha256(pending_gz),
+              'enrichment_required_gzip_bytes': pending_gz.stat().st_size,
+              'compression': 'gzip-mtime-0',
+              'handoff_purpose': 'same-head deterministic privacy-reduced corpus for GCIS enrichment and canonical registry materialization',
+          }
+          assert manifest['ready_entity_count'] > 0
+          assert manifest['enrichment_required_count'] > 0
+          assert manifest['ready_entity_count'] + manifest['enrichment_required_count'] + manifest['hold_count'] == manifest['source_row_count']
+          assert manifest['ready_entities_sha256'] == str(summary['ready_entity_payload_sha256'])
+
+          manifest_bytes = (json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n').encode('utf-8')
+          (handoff / 'staging_handoff_manifest.json').write_bytes(manifest_bytes)
+          print('P4_20_3_STAGING_HANDOFF=PASS')
+          print(f'STAGING_HANDOFF_READY_GZIP_SHA256={manifest["ready_entities_gzip_sha256"]}')
+          print(f'STAGING_HANDOFF_PENDING_GZIP_SHA256={manifest["enrichment_required_gzip_sha256"]}')
+          print(f'STAGING_HANDOFF_MANIFEST_SHA256={hashlib.sha256(manifest_bytes).hexdigest()}')
+          PY
+
       - name: Upload bounded staging evidence
         uses: actions/upload-artifact@v4
         with:
@@ -190,4 +264,16 @@ jobs:
             p4_20_3_staging/output/staging_summary.json
             p4_20_3_staging/effective_url.txt
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload deterministic staging corpus handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-fia-staging-handoff-${{ github.event.pull_request.head.sha }}
+          path: |
+            p4_20_3_staging/handoff/ready_entities.ndjson.gz
+            p4_20_3_staging/handoff/enrichment_required.ndjson.gz
+            p4_20_3_staging/handoff/staging_handoff_manifest.json
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 7
