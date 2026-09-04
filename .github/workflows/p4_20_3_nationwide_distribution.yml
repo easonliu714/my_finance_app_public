@@ -85,13 +85,14 @@ jobs:
               '--gzip-output',
               '--manifest-output',
           }
-          forbidden_workflow_args = {
-              '--gcis-run-id',
-              '--gcis-requested-count',
-              '--gcis-terminal-accounted-count',
-              '--gcis-failure-count',
-              '--gcis-evidence-sha256',
+          forbidden_gcis_scalar_names = {
+              'gcis-run-id',
+              'gcis-requested-count',
+              'gcis-terminal-accounted-count',
+              'gcis-failure-count',
+              'gcis-evidence-sha256',
           }
+          forbidden_workflow_args = {'--' + name for name in forbidden_gcis_scalar_names}
 
           missing = sorted(arg for arg in required_entry_args if arg not in entry)
           assert not missing, f'BUNDLE_ENTRYPOINT_REQUIRED_ARGS_MISSING={missing}'
