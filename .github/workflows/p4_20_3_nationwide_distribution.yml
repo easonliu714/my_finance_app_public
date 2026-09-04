@@ -1,0 +1,150 @@
+name: P4.20.3 Nationwide Registry Distribution
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_build_distribution_from_authority_bundle.py'
+      - 'tool/p4_20_3_build_distribution_manifest.py'
+      - 'tool/p4_20_3_validate_distribution_authorities.py'
+      - '.github/workflows/p4_20_3_nationwide_distribution.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-nationwide-distribution-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
+  EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  bundle-bound-distribution-contract:
+    name: Bundle-bound production distribution contract
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXACT_HEAD"
+          git cat-file -e "$FROZEN_P4_20_2^{commit}"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+          echo "P4_20_3_DISTRIBUTION_EXACT_HEAD=$actual"
+
+      - name: Compile distribution authority chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tool/p4_20_3_validate_distribution_authorities.py \
+            tool/p4_20_3_build_distribution_manifest.py \
+            tool/p4_20_3_build_distribution_from_authority_bundle.py
+
+      - name: Execute strict bundle-bound focused regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/p4_20_3_validate_distribution_authorities.py --self-test
+          python3 tool/p4_20_3_build_distribution_manifest.py --self-test
+          python3 tool/p4_20_3_build_distribution_from_authority_bundle.py --self-test
+
+      - name: Enforce canonical production CLI boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/p4_20_3_nationwide_distribution.yml').read_text(encoding='utf-8')
+          entry = Path('tool/p4_20_3_build_distribution_from_authority_bundle.py').read_text(encoding='utf-8')
+
+          required_entry_args = {
+              '--exact-head',
+              '--authority-bundle',
+              '--source-authority',
+              '--ready',
+              '--enriched',
+              '--canonical',
+              '--canonical-summary',
+              '--gzip-output',
+              '--manifest-output',
+          }
+          forbidden_workflow_args = {
+              '--gcis-run-id',
+              '--gcis-requested-count',
+              '--gcis-terminal-accounted-count',
+              '--gcis-failure-count',
+              '--gcis-evidence-sha256',
+          }
+
+          missing = sorted(arg for arg in required_entry_args if arg not in entry)
+          assert not missing, f'BUNDLE_ENTRYPOINT_REQUIRED_ARGS_MISSING={missing}'
+          leaked = sorted(arg for arg in forbidden_workflow_args if arg in workflow)
+          assert not leaked, f'WORKFLOW_CALLER_TRUSTED_GCIS_SCALAR_FORBIDDEN={leaked}'
+          assert 'p4_20_3_build_distribution_from_authority_bundle.py' in workflow
+          assert 'p4_20_3_build_distribution_manifest.py --self-test' in workflow
+          assert 'p4_20_3_validate_distribution_authorities.py --self-test' in workflow
+          assert re.search(r'EXACT_HEAD:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}', workflow)
+          print('P4_20_3_DISTRIBUTION_PRODUCTION_CLI_BOUNDARY=PASS')
+          PY
+
+      - name: Publish contract evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/p4_20_3_distribution_contract"
+          mkdir -p "$evidence"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          root = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_distribution_contract'
+          workflow = Path('.github/workflows/p4_20_3_nationwide_distribution.yml')
+          entry = Path('tool/p4_20_3_build_distribution_from_authority_bundle.py')
+          payload = {
+              'schema_version': 1,
+              'gate': 'P4.20.3-E-distribution-orchestration-contract',
+              'exact_head': os.environ['EXACT_HEAD'],
+              'canonical_entrypoint': str(entry),
+              'workflow_sha256': hashlib.sha256(workflow.read_bytes()).hexdigest(),
+              'entrypoint_sha256': hashlib.sha256(entry.read_bytes()).hexdigest(),
+              'authority_bundle_required': True,
+              'caller_trusted_gcis_scalars_allowed': False,
+              'validation_subset_allowed_for_production': False,
+              'responsible_person_payload_allowed': False,
+              'mobile_per_invoice_gcis_lookup_allowed': False,
+              'final_mobile_registry': False,
+              'status': 'CONTRACT_READY_REAL_ARTIFACT_PENDING',
+          }
+          canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+          payload['evidence_sha256'] = hashlib.sha256(canonical).hexdigest()
+          (root / 'distribution_contract_evidence.json').write_text(
+              json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')) + '\n',
+              encoding='utf-8',
+          )
+          print('P4_20_3_DISTRIBUTION_CONTRACT_EVIDENCE=PASS')
+          print(json.dumps(payload, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-distribution-contract-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_distribution_contract/distribution_contract_evidence.json
+          if-no-files-found: error
+          retention-days: 14
