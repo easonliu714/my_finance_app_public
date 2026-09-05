@@ -228,7 +228,33 @@ jobs:
 
       - name: Run tests
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
-        run: flutter test
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee flutter-test.log
+
+      - name: Summarize failed test evidence
+        if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' }}
+        shell: bash
+        run: |
+          if [[ -f flutter-test.log ]]; then
+            {
+              echo '## Flutter full-test failure evidence'
+              echo
+              echo '```text'
+              tail -n 200 flutter-test.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload failed full-test log
+        if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-full-test-failure-${{ github.event.pull_request.head.sha || github.sha }}
+          path: flutter-test.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Build debug APK
         if: >-

@@ -1,0 +1,177 @@
+name: P4.20.3 Nationwide Official Registry Acquisition
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/features/merchant/business_registry_nationwide_source_authority.dart'
+      - 'lib/features/merchant/business_registry_fia_tax_registration_adapter.dart'
+      - 'tool/p4_20_3_inspect_fia_registry.py'
+      - 'test/p4_20_3_**'
+      - '.github/workflows/p4_20_3_nationwide_registry_acquisition.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-nationwide-acquisition-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  acquire-fia-nationwide:
+    name: Acquire and audit nationwide FIA active tax registry
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen P4.20.2 ancestry gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen='a533c9c87131ee487ca2321f3d53e432121c7981'
+          expected='${{ github.event.pull_request.head.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$frozen^{commit}"
+          git merge-base --is-ancestor "$frozen" HEAD
+          printf 'P4.20.2 owner-validated ancestor: PASS (%s)\n' "$frozen"
+          printf 'P4.20.3 exact head: %s\n' "$actual"
+
+      - name: Validate source inspector syntax
+        run: python3 -m py_compile tool/p4_20_3_inspect_fia_registry.py
+
+      - name: Download official nationwide active tax registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p p4_20_3_evidence
+          source_url='https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          curl \
+            --fail \
+            --location \
+            --proto '=https' \
+            --tlsv1.2 \
+            --retry 5 \
+            --retry-delay 3 \
+            --connect-timeout 30 \
+            --max-time 1200 \
+            --dump-header p4_20_3_evidence/download_headers.txt \
+            --write-out '%{url_effective}\n' \
+            --output p4_20_3_evidence/BGMOPEN1.zip \
+            "$source_url" \
+            > p4_20_3_evidence/effective_url.txt
+          effective="$(tail -n 1 p4_20_3_evidence/effective_url.txt | tr -d '\r\n')"
+          case "$effective" in
+            https://eip.fia.gov.tw/*) ;;
+            *) echo "FIA_EFFECTIVE_URL_NOT_ALLOWED=$effective" >&2; exit 2 ;;
+          esac
+          bytes="$(stat -c%s p4_20_3_evidence/BGMOPEN1.zip)"
+          test "$bytes" -gt 0
+          test "$bytes" -le $((512 * 1024 * 1024))
+          printf 'FIA_DOWNLOAD_BYTES=%s\n' "$bytes"
+
+      - name: Inspect real nationwide source and freeze evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/p4_20_3_inspect_fia_registry.py \
+            p4_20_3_evidence/BGMOPEN1.zip \
+            p4_20_3_evidence/fia_nationwide_evidence.json \
+            --min-rows 1000000 \
+            --probe 31655572 \
+            --probe 60282181 \
+            --probe 30340553
+
+      - name: Summarize acquisition and classification authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_path = Path('p4_20_3_evidence/fia_nationwide_evidence.json')
+          data = json.loads(evidence_path.read_text())
+          classification = data['classification_evidence']
+          organization_counts = classification['organization_type_counts']
+          invoice_counts = classification['uniform_invoice_counts']
+          row_count = data['row_count']
+          parent_links = classification['parent_link_count']
+          parentless = classification['parentless_count']
+
+          if parent_links + parentless != row_count:
+              raise SystemExit('FIA_CLASSIFICATION_PARENT_PARTITION_MISMATCH')
+          if sum(organization_counts.values()) != row_count:
+              raise SystemExit('FIA_CLASSIFICATION_ORGANIZATION_COUNT_MISMATCH')
+          if sum(invoice_counts.values()) != row_count:
+              raise SystemExit('FIA_CLASSIFICATION_INVOICE_COUNT_MISMATCH')
+
+          distribution_path = Path('p4_20_3_evidence/classification_distribution.tsv')
+          with distribution_path.open('w', encoding='utf-8', newline='') as out:
+              out.write('dimension\tvalue\tcount\n')
+              out.write(f'parent_evidence\thas_parent\t{parent_links}\n')
+              out.write(f'parent_evidence\tparentless\t{parentless}\n')
+              for value, count in sorted(organization_counts.items(), key=lambda item: (-item[1], item[0])):
+                  out.write(f'organization_type\t{value}\t{count}\n')
+              for value, count in sorted(invoice_counts.items(), key=lambda item: (-item[1], item[0])):
+                  out.write(f'uniform_invoice\t{value}\t{count}\n')
+
+          print('P4_20_3_NATIONWIDE_SOURCE=PASS')
+          print('P4_20_3_CLASSIFICATION_DISTRIBUTION=PASS')
+          print(f'ROW_COUNT={row_count}')
+          print(f"ARCHIVE_SHA256={data['archive_sha256']}")
+          print(f"CSV_MEMBER={data['csv_member']}")
+          print(f'PARENT_LINK_ROWS={parent_links}')
+          print(f'PARENTLESS_ROWS={parentless}')
+          for value, count in sorted(organization_counts.items(), key=lambda item: (-item[1], item[0])):
+              print(f'ORGANIZATION_TYPE[{value}]={count}')
+          for seller, result in data['probe_results'].items():
+              print(f"PROBE_{seller}={'HIT' if result else 'MISS'}")
+
+          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
+          rows = [
+              '## P4.20.3 Nationwide FIA acquisition',
+              '',
+              f"- Rows: `{row_count}`",
+              f"- Archive SHA-256: `{data['archive_sha256']}`",
+              f"- CSV member: `{data['csv_member']}`",
+              f"- Invalid seller IDs: `{data['quality']['invalid_seller_count']}`",
+              f"- Empty legal names: `{data['quality']['empty_name_count']}`",
+              f"- Invalid parent IDs: `{data['quality']['invalid_parent_count']}`",
+              f"- Parent-linked rows: `{parent_links}`",
+              f"- Parentless rows: `{parentless}`",
+              '',
+              '### Organization-type distribution',
+              '',
+              '| FIA organization label | Rows |',
+              '| --- | ---: |',
+          ]
+          for value, count in sorted(organization_counts.items(), key=lambda item: (-item[1], item[0])):
+              rows.append(f'| `{value}` | `{count}` |')
+          rows.extend(['', '### Real seller-ID probes', ''])
+          for seller, result in data['probe_results'].items():
+              rows.append(f"- Probe `{seller}`: `{'HIT' if result else 'MISS'}`")
+          summary.write_text('\n'.join(rows) + '\n')
+          PY
+
+      - name: Upload nationwide acquisition evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-fia-nationwide-acquisition-${{ github.event.pull_request.head.sha }}
+          path: |
+            p4_20_3_evidence/fia_nationwide_evidence.json
+            p4_20_3_evidence/classification_distribution.tsv
+            p4_20_3_evidence/download_headers.txt
+            p4_20_3_evidence/effective_url.txt
+          if-no-files-found: error
+          retention-days: 7
