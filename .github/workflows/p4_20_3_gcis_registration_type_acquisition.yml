@@ -59,14 +59,17 @@ jobs:
               'merchant_name_inference_used',
               'mobile_per_invoice_network_lookup',
               'official_type_mapping_applied',
+              'official_type_exist_pairing_preserved',
               'evidence_payload_sha256',
               'seller_filter_unique_count',
           ]
           for token in required:
               assert token in text, token
+          assert '"schema_version": 4' in text
           assert 'BASE_URL = f"https://data.gcis.nat.gov.tw/od/data/api/' in text
           assert 'OUTPUT_KEYS' in text
           print('P4_20_3_GCIS_TYPE_STATIC_PRIVACY_GATE=PASS')
+          print('P4_20_3_GCIS_TYPE_PAIRED_SEMANTICS_STATIC_GATE=PASS')
           print('P4_20_3_GCIS_TYPE_NO_HANDSET_PER_INVOICE_LOOKUP_GATE=PASS')
           PY
 
@@ -99,6 +102,8 @@ jobs:
           rows = [json.loads(line) for line in (root / 'registration_type_evidence.ndjson').read_text(encoding='utf-8').splitlines() if line.strip()]
           failures = [json.loads(line) for line in (root / 'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if line.strip()]
 
+          assert manifest['schema_version'] >= 4, manifest
+          assert manifest['official_type_exist_pairing_preserved'] is True, manifest
           assert manifest['seller_filter_unique_count'] == 2
           assert manifest['success_count'] == 2, manifest
           assert manifest['failure_count'] == 0, failures
@@ -127,6 +132,7 @@ jobs:
           assert hashlib.sha256(payload).hexdigest() == manifest['evidence_payload_sha256']
           print('P4_20_3_GCIS_TYPE_REAL_TRANSPORT=PASS')
           print('P4_20_3_GCIS_TYPE_RESPONSE_SURFACE=PASS')
+          print('P4_20_3_GCIS_TYPE_PAIRED_SEMANTICS_MANIFEST=PASS')
           print('P4_20_3_GCIS_TYPE_EVIDENCE_SHA=PASS')
           print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
           PY
