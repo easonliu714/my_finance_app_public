@@ -164,7 +164,7 @@ jobs:
     name: GCIS residual shard ${{ matrix.shard }}/8
     needs: prepare-residual
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -202,7 +202,7 @@ jobs:
             --timeout-seconds 20 \
             --retries 3
 
-      - name: Verify shard completeness and privacy boundary
+      - name: Verify shard completeness, paired semantics, and privacy boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -226,6 +226,8 @@ jobs:
           expected_selected=len(expected_members)
           actual_members=sorted(str(r['seller_identifier']) for r in rows)
           assert len(frozen_sellers)==expected_total
+          assert int(manifest.get('schema_version',0))>=4, manifest
+          assert manifest['official_type_exist_pairing_preserved'] is True, manifest
           assert manifest['seller_filter_unique_count']==expected_total, manifest
           assert manifest['selected_shard_seller_count']==expected_selected, manifest
           assert manifest['shard_index']==shard and manifest['shard_count']==int(os.environ['SHARD_COUNT']), manifest
@@ -241,6 +243,7 @@ jobs:
           assert manifest['final_mobile_registry'] is False
           assert hashlib.sha256((root/'registration_type_evidence.ndjson').read_bytes()).hexdigest()==manifest['evidence_payload_sha256']
           print(f'P4_20_3_FULL_RESIDUAL_SHARD_{shard}=PASS')
+          print(f'P4_20_3_FULL_RESIDUAL_SHARD_{shard}_PAIRED_SEMANTICS=PASS')
           PY
 
       - name: Upload shard evidence
@@ -271,7 +274,7 @@ jobs:
           path: ${{ runner.temp }}/p4_20_3_full_residual/all-shards
           merge-multiple: false
 
-      - name: Verify exact frozen seller partition and canonical evidence SHA
+      - name: Verify exact frozen seller partition, paired semantics, and canonical evidence SHA
         shell: bash
         run: |
           set -euo pipefail
@@ -307,9 +310,17 @@ jobs:
               evidence=matches[0]
               manifest=json.loads((evidence.parent/'acquisition_manifest.json').read_text(encoding='utf-8'))
               failures=[x for x in (evidence.parent/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+              assert int(manifest.get('schema_version',0))>=4, manifest
+              assert manifest['official_type_exist_pairing_preserved'] is True, manifest
               assert manifest['shard_index']==shard
               assert manifest['shard_count']==shard_count
               assert manifest['failure_count']==0 and not failures
+              assert manifest['responsible_person_payload_emitted'] is False
+              assert manifest['merchant_name_inference_used'] is False
+              assert manifest['mobile_per_invoice_network_lookup'] is False
+              assert manifest['official_type_mapping_applied'] is False
+              assert manifest['final_mobile_registry'] is False
+              assert hashlib.sha256(evidence.read_bytes()).hexdigest()==manifest['evidence_payload_sha256']
               rows=[json.loads(x) for x in evidence.read_text(encoding='utf-8').splitlines() if x.strip()]
               actual_members=sorted(str(r['seller_identifier']) for r in rows)
               expected_members=frozen_sellers[shard::shard_count]
@@ -325,7 +336,7 @@ jobs:
           for row in canonical_rows:
               global_evidence_sha.update((json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode('utf-8'))
           closure={
-              'schema_version':3,
+              'schema_version':4,
               'gate':'P4.20.3-D-full-residual-acquisition-closure',
               'exact_head':os.environ['EXACT_HEAD'],
               'seller_count':expected,
@@ -340,6 +351,7 @@ jobs:
               'total_failure_count':sum(int(m['failure_count']) for m in manifests),
               'globally_sorted_combined_evidence_sha256':global_evidence_sha.hexdigest(),
               'validation_subset':False,
+              'official_type_exist_pairing_preserved':True,
               'responsible_person_payload_emitted':False,
               'mobile_per_invoice_network_lookup':False,
               'official_type_mapping_applied':False,
@@ -347,11 +359,13 @@ jobs:
           }
           assert closure['total_success_count']==expected
           assert closure['total_failure_count']==0
+          assert closure['official_type_exist_pairing_preserved'] is True
           out=base/'cohort_closure.json'
           out.write_text(json.dumps(closure,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
           print('P4_20_3_FULL_RESIDUAL_RUN_LOCAL_SOURCE_PARITY=PASS')
           print('P4_20_3_FULL_RESIDUAL_EXACT_SET_PARITY=PASS')
           print('P4_20_3_FULL_RESIDUAL_SHARD_MEMBERSHIP_PARITY=PASS')
+          print('P4_20_3_FULL_RESIDUAL_PAIRED_SEMANTICS=PASS')
           print('P4_20_3_FULL_RESIDUAL_CANONICAL_EVIDENCE_SHA=PASS')
           print('P4_20_3_FULL_RESIDUAL_PARTITION_CLOSURE=PASS')
           print(json.dumps(closure,sort_keys=True))
