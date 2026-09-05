@@ -8,6 +8,11 @@ or per-invoice lookup path.
 The mobile projection intentionally preserves only official classification
 fields. Responsible-person and other unrelated source fields are never emitted.
 Large cohorts are deterministically sharded after seller normalization/sort.
+
+``official_types`` contains only TYPE values whose same source row has
+``exist == Y``. TYPE/exist pairing is preserved before aggregation so a
+response containing company=N, branch=Y, business=N cannot be misrepresented
+as three affirmative classifications.
 """
 from __future__ import annotations
 
@@ -97,7 +102,8 @@ def _request_url(seller: str) -> str:
 def _parse_rows(payload: object, seller: str) -> dict[str, object]:
     if not isinstance(payload, list):
         raise ValueError("GCIS_RESPONSE_NOT_LIST")
-    types: set[str] = set()
+
+    affirmative_types: set[str] = set()
     exists_values: set[str] = set()
     years: set[str] = set()
     for index, row in enumerate(payload):
@@ -106,17 +112,20 @@ def _parse_rows(payload: object, seller: str) -> dict[str, object]:
         if "TYPE" not in row or "exist" not in row:
             raise ValueError(f"GCIS_RESPONSE_REQUIRED_FIELDS_MISSING:{index}")
         type_value = _clean(row.get("TYPE"))
-        exists_value = _clean(row.get("exist"))
+        exists_value = _clean(row.get("exist")).upper()
         year_value = _clean(row.get("Year"))
-        if type_value:
-            types.add(type_value)
-        if exists_value:
-            exists_values.add(exists_value)
+        if exists_value not in {"Y", "N"}:
+            raise ValueError(f"GCIS_RESPONSE_EXIST_VALUE_UNSUPPORTED:{index}:{exists_value}")
+        if exists_value == "Y":
+            if not type_value:
+                raise ValueError(f"GCIS_RESPONSE_AFFIRMATIVE_TYPE_MISSING:{index}")
+            affirmative_types.add(type_value)
+        exists_values.add(exists_value)
         if year_value:
             years.add(year_value)
     record = {
         "seller_identifier": seller,
-        "official_types": sorted(types),
+        "official_types": sorted(affirmative_types),
         "official_exists_values": sorted(exists_values),
         "official_year_values": sorted(years),
         "source_dataset": SOURCE_DATASET,
@@ -263,7 +272,7 @@ def acquire(
 
     full_filter_count = source_filter_unique_count if source_filter_unique_count is not None else len(sellers)
     manifest = {
-        "schema_version": 3,
+        "schema_version": 4,
         "gate": "P4.20.3-D",
         "endpoint_api_id": API_ID,
         "endpoint_url": BASE_URL,
@@ -286,6 +295,7 @@ def acquire(
         "total_response_bytes": total_response_bytes,
         "http_last_modified_values": sorted(last_modified_values),
         "evidence_payload_sha256": digest.hexdigest(),
+        "official_type_exist_pairing_preserved": True,
         "responsible_person_payload_emitted": False,
         "merchant_name_inference_used": False,
         "mobile_per_invoice_network_lookup": False,
@@ -328,9 +338,33 @@ def self_test() -> None:
                            recovery_rounds=0, recovery_delay_seconds=0,
                            source_filter_unique_count=4, shard_index=0, shard_count=2, fetcher=ok_fetch)
         assert manifest["success_count"] == 2 and manifest["failure_count"] == 0
+        assert manifest["official_type_exist_pairing_preserved"] is True
         rows = [json.loads(x) for x in (root/"ok"/"registration_type_evidence.ndjson").read_text().splitlines()]
         assert all(set(row) == OUTPUT_KEYS for row in rows)
         assert all("representative" not in row for row in rows)
+
+        paired = _parse_rows([
+            {"Year":"115","exist":"N","TYPE":"公司"},
+            {"Year":"115","exist":"Y","TYPE":"分公司"},
+            {"Year":"115","exist":"N","TYPE":"商業"},
+        ], "31655572")
+        assert paired["official_types"] == ["分公司"], paired
+        assert paired["official_exists_values"] == ["N", "Y"], paired
+
+        no_match = _parse_rows([
+            {"Year":"115","exist":"N","TYPE":"公司"},
+            {"Year":"115","exist":"N","TYPE":"分公司"},
+            {"Year":"115","exist":"N","TYPE":"商業"},
+        ], "22555003")
+        assert no_match["official_types"] == [], no_match
+        assert no_match["official_exists_values"] == ["N"], no_match
+
+        try:
+            _parse_rows([{"Year":"115","exist":"UNKNOWN","TYPE":"公司"}], "20828393")
+        except ValueError as exc:
+            assert str(exc).startswith("GCIS_RESPONSE_EXIST_VALUE_UNSUPPORTED:")
+        else:
+            raise AssertionError("GCIS_UNSUPPORTED_EXIST_VALUE_NOT_REJECTED")
 
         incomplete_calls = 0
         def incomplete_fetch(url: str, timeout_seconds: float) -> tuple[bytes, dict[str, str]]:
