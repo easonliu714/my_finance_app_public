@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'tool/p4_20_3_reconcile_legal_enrichment.py'
+      - 'tool/p4_20_3_package_legal_enrichment.py'
       - '.github/workflows/p4_20_3_legal_enrichment_reconciliation.yml'
 
 permissions:
@@ -16,7 +17,7 @@ concurrency:
 
 jobs:
   reconcile-contract:
-    name: Validate fail-closed legal enrichment reconciler
+    name: Validate fail-closed legal enrichment reconciler and deterministic packager
     if: >-
       ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
@@ -43,22 +44,27 @@ jobs:
           printf 'P4.20.2 owner-validated ancestor: PASS (%s)\n' "$frozen"
           printf 'P4.20.3 legal-enrichment exact head: %s\n' "$actual"
 
-      - name: Compile and run focused reconciliation contract
+      - name: Compile and run focused reconciliation and packaging contracts
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile tool/p4_20_3_reconcile_legal_enrichment.py
+          python3 -m py_compile \
+            tool/p4_20_3_reconcile_legal_enrichment.py \
+            tool/p4_20_3_package_legal_enrichment.py
           python3 tool/p4_20_3_reconcile_legal_enrichment.py --self-test
+          python3 tool/p4_20_3_package_legal_enrichment.py --self-test
+          printf 'P4_20_3_LEGAL_ENRICHMENT_PACKAGER_CANONICAL_CI=PASS\n'
 
-      - name: Static privacy and inference boundary gate
+      - name: Static privacy, inference, and packaging boundary gate
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('tool/p4_20_3_reconcile_legal_enrichment.py')
-          text = path.read_text(encoding='utf-8')
-          required = [
+
+          reconcile_path = Path('tool/p4_20_3_reconcile_legal_enrichment.py')
+          reconcile_text = reconcile_path.read_text(encoding='utf-8')
+          reconcile_required = [
               'responsible_person_payload_emitted',
               'merchant_name_inference_used',
               'gcis_duplicate_semantic_disagreement',
@@ -66,10 +72,25 @@ jobs:
               'gcis_non_branch_has_parent',
               'RECONCILIATION_PARTITION_MISMATCH',
           ]
-          for marker in required:
-              assert marker in text, marker
-          # Explicitly prevent common privacy-bearing output keys from entering
-          # the mobile projection surface.
+          for marker in reconcile_required:
+              assert marker in reconcile_text, marker
+
+          package_path = Path('tool/p4_20_3_package_legal_enrichment.py')
+          package_text = package_path.read_text(encoding='utf-8')
+          package_required = [
+              'validation_subset',
+              'responsible_person_payload_emitted',
+              'merchant_name_inference_used',
+              'normal_invoice_per_record_network_lookup',
+              'final_mobile_registry',
+              'staging_handoff_manifest_sha256',
+              'gcis_full_residual_closure_manifest_sha256',
+              'gzip-mtime-0',
+              'RECONCILIATION_PARTITION_MISMATCH',
+          ]
+          for marker in package_required:
+              assert marker in package_text, marker
+
           forbidden_output_keys = {
               'responsible_person', 'representative', 'manager',
               '負責人姓名', '代表人姓名', '分公司經理姓名',
@@ -81,4 +102,5 @@ jobs:
           assert entity_surface.isdisjoint(forbidden_output_keys)
           print('P4_20_3_LEGAL_ENRICHMENT_PRIVACY_BOUNDARY=PASS')
           print('P4_20_3_LEGAL_ENRICHMENT_NO_NAME_INFERENCE=PASS')
+          print('P4_20_3_LEGAL_ENRICHMENT_PACKAGING_BOUNDARY=PASS')
           PY
