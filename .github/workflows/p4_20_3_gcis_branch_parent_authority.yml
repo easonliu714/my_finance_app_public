@@ -1,0 +1,138 @@
+name: P4.20.3 GCIS Branch Parent Authority
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_acquire_gcis_branch_parent.py'
+      - '.github/workflows/p4_20_3_gcis_branch_parent_authority.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-gcis-branch-parent-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen='a533c9c87131ee487ca2321f3d53e432121c7981'
+          expected='${{ github.event.pull_request.head.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$frozen^{commit}"
+          git merge-base --is-ancestor "$frozen" HEAD
+          echo "P4_20_3_EXACT_HEAD=$actual"
+          echo "P4_20_2_FROZEN_ANCESTOR=PASS"
+
+      - name: Python compile and focused self-test
+        run: |
+          python3 -m py_compile tool/p4_20_3_acquire_gcis_branch_parent.py
+          python3 tool/p4_20_3_acquire_gcis_branch_parent.py --self-test
+
+      - name: Static bounded-authority and privacy gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('tool/p4_20_3_acquire_gcis_branch_parent.py').read_text(encoding='utf-8')
+          required = [
+              '23632BB3-5DB7-4423-9643-1D4AC140D479',
+              'Branch_Office_Business_Accounting_NO',
+              'Business_Accounting_NO',
+              'BRANCH_COHORT_SHA_MISMATCH',
+              'branch_parent_identity_required',
+              'parent_child_identity_preserved',
+              'branch_parent_guessing_used',
+              'responsible_person_payload_emitted',
+              'branch_manager_payload_emitted',
+              'mobile_per_invoice_network_lookup',
+              'validation_subset',
+          ]
+          for token in required:
+              assert token in text, token
+          assert 'Branch_Office_Manager_Name' not in text.split('def self_test()', 1)[0]
+          print('P4_20_3_BRANCH_PARENT_BOUNDED_COHORT_GATE=PASS')
+          print('P4_20_3_BRANCH_PARENT_PRIVACY_GATE=PASS')
+          print('P4_20_3_BRANCH_PARENT_NO_GUESS_GATE=PASS')
+          PY
+
+      - name: Real official GCIS branch-parent transport canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/p4_20_3_branch_parent_canary"
+          mkdir -p "$out"
+          cat > "$out/branch_parent_required.ndjson" <<'EOF'
+          {"candidate_entity_types":["branch"],"reason":"branch_parent_identity_required","seller_identifier":"22956458"}
+          EOF
+          sha="$(sha256sum "$out/branch_parent_required.ndjson" | awk '{print $1}')"
+          python3 tool/p4_20_3_acquire_gcis_branch_parent.py \
+            "$out/branch_parent_required.ndjson" "$out/result" \
+            --expected-input-sha256 "$sha" \
+            --qps 1 --timeout-seconds 20 --retries 2
+
+      - name: Verify real branch-parent evidence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_branch_parent_canary' / 'result'
+          manifest = json.loads((root / 'branch_parent_manifest.json').read_text(encoding='utf-8'))
+          evidence = [json.loads(x) for x in (root / 'branch_parent_evidence.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          unresolved = [json.loads(x) for x in (root / 'branch_parent_unresolved.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          assert manifest['validation_subset'] is False
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['branch_manager_payload_emitted'] is False
+          assert manifest['branch_parent_guessing_used'] is False
+          assert manifest['mobile_per_invoice_network_lookup'] is False
+          assert manifest['parent_child_identity_preserved'] is True
+          assert manifest['input_branch_cohort_seller_count'] == 1
+          assert manifest['resolved_parent_count'] + manifest['unresolved_parent_count'] == 1
+          assert not unresolved, unresolved
+          assert len(evidence) == 1, evidence
+          row = evidence[0]
+          assert set(row) == {'seller_identifier', 'parent_seller_identifier', 'source_dataset'}
+          assert row['seller_identifier'] == '22956458'
+          assert len(row['parent_seller_identifier']) == 8
+          assert row['parent_seller_identifier'] != row['seller_identifier']
+          payload = (root / 'branch_parent_evidence.ndjson').read_bytes()
+          assert hashlib.sha256(payload).hexdigest() == manifest['evidence_payload_sha256']
+          print('P4_20_3_BRANCH_PARENT_REAL_TRANSPORT=PASS')
+          print('P4_20_3_BRANCH_PARENT_RESPONSE_SURFACE=PASS')
+          print('P4_20_3_BRANCH_PARENT_EVIDENCE_SHA=PASS')
+          print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload branch-parent canary evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-gcis-branch-parent-canary-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_branch_parent_canary/result/branch_parent_manifest.json
+            ${{ runner.temp }}/p4_20_3_branch_parent_canary/result/branch_parent_evidence.ndjson
+            ${{ runner.temp }}/p4_20_3_branch_parent_canary/result/branch_parent_unresolved.ndjson
+          if-no-files-found: warn
+          retention-days: 14
