@@ -8,6 +8,11 @@ classification is fail-closed unless an authoritative parent identity exists;
 this bridge has no parent-bearing source, so branch rows are HOLD rather than
 inventing a parent. FIA legal_name is an official tax-registration literal, not
 merchant-name inference.
+
+For bounded follow-up authority acquisition, supported branch/ambiguous HOLDs are
+also emitted to a deterministic privacy-reduced authority_required.ndjson queue.
+This preserves the exact normalized candidate entity types without carrying any
+responsible-person payload or creating handset/per-invoice network behavior.
 """
 from __future__ import annotations
 
@@ -85,9 +90,9 @@ def _iter_exact(path: Path, keys: set[str]) -> Iterator[dict[str, object]]:
             yield row
 
 
-def _classification(types: object) -> tuple[str, str]:
+def _classification(types: object) -> tuple[str, str, list[str]]:
     if not isinstance(types, list):
-        return "", "official_types_not_list"
+        return "", "official_types_not_list", []
     normalized: set[str] = set()
     unknown: set[str] = set()
     for raw in types:
@@ -97,16 +102,17 @@ def _classification(types: object) -> tuple[str, str]:
             normalized.add(mapped)
         elif token:
             unknown.add(token)
+    candidates = sorted(normalized)
     if unknown:
-        return "", "official_type_unsupported"
+        return "", "official_type_unsupported", candidates
     if not normalized:
-        return "", "official_type_no_affirmative_match"
+        return "", "official_type_no_affirmative_match", []
     if len(normalized) != 1:
-        return "", "official_type_ambiguous"
+        return "", "official_type_ambiguous_requires_authority", candidates
     entity_type = next(iter(normalized))
     if entity_type == "branch":
-        return "", "branch_parent_identity_required"
-    return entity_type, ""
+        return "", "branch_parent_identity_required", candidates
+    return entity_type, "", candidates
 
 
 def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str, object]:
@@ -121,13 +127,21 @@ def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str,
     legal_path = output_dir / "legal_evidence.ndjson"
     unresolved_path = output_dir / "unresolved.ndjson"
     hold_path = output_dir / "hold.ndjson"
+    authority_required_path = output_dir / "authority_required.ndjson"
     legal_sha = hashlib.sha256()
+    authority_required_sha = hashlib.sha256()
     classified = unresolved = hold = 0
+    authority_required = branch_parent_required = ambiguous_type_required = 0
 
-    with legal_path.open("wb") as legal, unresolved_path.open("wb") as unresolved_stream, hold_path.open("wb") as hold_stream:
+    with (
+        legal_path.open("wb") as legal,
+        unresolved_path.open("wb") as unresolved_stream,
+        hold_path.open("wb") as hold_stream,
+        authority_required_path.open("wb") as authority_required_stream,
+    ):
         for fia, gcis in zip(queue, evidence, strict=True):
             seller = str(fia["seller_identifier"])
-            entity_type, reason = _classification(gcis["official_types"])
+            entity_type, reason, candidates = _classification(gcis["official_types"])
             if entity_type:
                 legal_name = _clean(fia["legal_name"])
                 if not legal_name:
@@ -152,11 +166,33 @@ def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str,
             else:
                 hold_stream.write(_line({"seller_identifier": seller, "reason": reason}))
                 hold += 1
+                if reason in {
+                    "branch_parent_identity_required",
+                    "official_type_ambiguous_requires_authority",
+                }:
+                    authority_record = {
+                        "seller_identifier": seller,
+                        "candidate_entity_types": candidates,
+                        "reason": reason,
+                    }
+                    encoded = _line(authority_record)
+                    authority_required_stream.write(encoded)
+                    authority_required_sha.update(encoded)
+                    authority_required += 1
+                    if reason == "branch_parent_identity_required":
+                        branch_parent_required += 1
+                    else:
+                        ambiguous_type_required += 1
 
     if classified + unresolved + hold != len(queue):
         raise AssertionError("BRIDGE_PARTITION_MISMATCH")
+    if authority_required != branch_parent_required + ambiguous_type_required:
+        raise AssertionError("AUTHORITY_REQUIRED_PARTITION_MISMATCH")
+    if authority_required > hold:
+        raise AssertionError("AUTHORITY_REQUIRED_EXCEEDS_HOLD")
+
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "gate": "P4.20.3-D-registration-type-to-legal-evidence",
         "validation_subset": False,
         "queue_seller_count": len(queue),
@@ -164,7 +200,16 @@ def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str,
         "classified_legal_entity_count": classified,
         "unresolved_seller_count": unresolved,
         "hold_seller_count": hold,
+        "authority_required_seller_count": authority_required,
+        "branch_parent_authority_required_count": branch_parent_required,
+        "ambiguous_type_authority_required_count": ambiguous_type_required,
         "legal_evidence_payload_sha256": legal_sha.hexdigest(),
+        "authority_required_payload_sha256": authority_required_sha.hexdigest(),
+        "authority_required_surface": [
+            "seller_identifier",
+            "candidate_entity_types",
+            "reason",
+        ],
         "official_type_exist_pairing_preserved": True,
         "parent_child_identity_preserved": True,
         "branch_without_parent_policy": "HOLD",
@@ -192,27 +237,42 @@ def self_test() -> None:
             {"seller_identifier":"22222222","legal_name":"乙商號","organization_type":"獨資","uses_uniform_invoice":"Y","source_dataset":"FIA"},
             {"seller_identifier":"33333333","legal_name":"丙分公司","organization_type":"其他","uses_uniform_invoice":"Y","source_dataset":"FIA"},
             {"seller_identifier":"44444444","legal_name":"丁組織","organization_type":"其他","uses_uniform_invoice":"Y","source_dataset":"FIA"},
+            {"seller_identifier":"55555555","legal_name":"戊組織","organization_type":"其他","uses_uniform_invoice":"Y","source_dataset":"FIA"},
         ]
         evidence_rows = [
             {"seller_identifier":"11111111","official_types":["公司"],"official_exists_values":["N","Y"],"official_year_values":["115"],"source_dataset":"GCIS"},
             {"seller_identifier":"22222222","official_types":["BUSINESS"],"official_exists_values":["Y"],"official_year_values":["2026"],"source_dataset":"GCIS"},
             {"seller_identifier":"33333333","official_types":["分公司"],"official_exists_values":["Y"],"official_year_values":["115"],"source_dataset":"GCIS"},
             {"seller_identifier":"44444444","official_types":[],"official_exists_values":["N"],"official_year_values":["115"],"source_dataset":"GCIS"},
+            {"seller_identifier":"55555555","official_types":["公司","分公司"],"official_exists_values":["Y"],"official_year_values":["115"],"source_dataset":"GCIS"},
         ]
         queue.write_bytes(b"".join(_line(row) for row in queue_rows))
         evidence.write_bytes(b"".join(_line(row) for row in evidence_rows))
         manifest = bridge(queue, evidence, root / "out")
         assert manifest["classified_legal_entity_count"] == 2
-        assert manifest["hold_seller_count"] == 1
+        assert manifest["hold_seller_count"] == 2
         assert manifest["unresolved_seller_count"] == 1
+        assert manifest["authority_required_seller_count"] == 2
+        assert manifest["branch_parent_authority_required_count"] == 1
+        assert manifest["ambiguous_type_authority_required_count"] == 1
         rows = [json.loads(line) for line in (root/"out"/"legal_evidence.ndjson").read_text(encoding="utf-8").splitlines()]
         assert [row["entity_type"] for row in rows] == ["company", "business"]
         assert rows[0]["legal_name"] == "甲股份有限公司"
         assert rows[0]["parent_seller_identifier"] == ""
-        hold = json.loads((root/"out"/"hold.ndjson").read_text(encoding="utf-8").strip())
-        assert hold["reason"] == "branch_parent_identity_required"
+        holds = [json.loads(line) for line in (root/"out"/"hold.ndjson").read_text(encoding="utf-8").splitlines()]
+        assert holds[0]["reason"] == "branch_parent_identity_required"
+        assert holds[1]["reason"] == "official_type_ambiguous_requires_authority"
         unresolved = json.loads((root/"out"/"unresolved.ndjson").read_text(encoding="utf-8").strip())
         assert unresolved["reason"] == "official_type_no_affirmative_match"
+        authority_rows = [json.loads(line) for line in (root/"out"/"authority_required.ndjson").read_text(encoding="utf-8").splitlines()]
+        assert authority_rows == [
+            {"candidate_entity_types":["branch"],"reason":"branch_parent_identity_required","seller_identifier":"33333333"},
+            {"candidate_entity_types":["branch","company"],"reason":"official_type_ambiguous_requires_authority","seller_identifier":"55555555"},
+        ]
+        expected_authority_sha = hashlib.sha256(
+            b"".join(_line(row) for row in authority_rows)
+        ).hexdigest()
+        assert manifest["authority_required_payload_sha256"] == expected_authority_sha
         assert manifest["validation_subset"] is False
         assert manifest["official_type_exist_pairing_preserved"] is True
         assert manifest["parent_child_identity_preserved"] is True
