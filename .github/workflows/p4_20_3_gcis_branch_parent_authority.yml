@@ -46,7 +46,7 @@ jobs:
           python3 -m py_compile tool/p4_20_3_acquire_gcis_branch_parent.py
           python3 tool/p4_20_3_acquire_gcis_branch_parent.py --self-test
 
-      - name: Static bounded-authority and privacy gates
+      - name: Static formal-authority and privacy gates
         shell: bash
         run: |
           set -euo pipefail
@@ -54,27 +54,39 @@ jobs:
           from pathlib import Path
           text = Path('tool/p4_20_3_acquire_gcis_branch_parent.py').read_text(encoding='utf-8')
           required = [
-              '23632BB3-5DB7-4423-9643-1D4AC140D479',
-              'Branch_Office_Business_Accounting_NO',
+              'FDB8D2C8-573D-4276-BFA4-8D3925ABE1CB',
               'Business_Accounting_NO',
-              'BRANCH_COHORT_SHA_MISMATCH',
-              'branch_parent_identity_required',
+              'Branch_Office_Business_Accounting_NO',
+              'PARENT_CANDIDATE_SHA_MISMATCH',
+              'authoritative_parent_candidate_missing',
+              'formal_parent_membership_not_confirmed',
+              'parent_candidate_discovery_required',
+              'test_reverse_endpoint_used',
               'parent_child_identity_preserved',
               'branch_parent_guessing_used',
               'responsible_person_payload_emitted',
               'branch_manager_payload_emitted',
               'mobile_per_invoice_network_lookup',
               'validation_subset',
+              'upstream_ip_authorization_denied',
           ]
           for token in required:
               assert token in text, token
+          forbidden = [
+              '23632BB3-5DB7-4423-9643-1D4AC140D479',
+              'DC9AC6C1-38CC-479A-A492-088BD8C3328E',
+              '6E695697-4B9C-4FE7-AD24-04803F444F04',
+          ]
+          for token in forbidden:
+              assert token not in text, token
           assert 'Branch_Office_Manager_Name' not in text.split('def self_test()', 1)[0]
-          print('P4_20_3_BRANCH_PARENT_BOUNDED_COHORT_GATE=PASS')
+          print('P4_20_3_BRANCH_PARENT_FORMAL_API_GATE=PASS')
+          print('P4_20_3_BRANCH_PARENT_TEST_REVERSE_ENDPOINT_ABSENT=PASS')
           print('P4_20_3_BRANCH_PARENT_PRIVACY_GATE=PASS')
           print('P4_20_3_BRANCH_PARENT_NO_GUESS_GATE=PASS')
           PY
 
-      - name: Real official GCIS branch-parent transport canary
+      - name: Real official GCIS formal parent-membership canary
         shell: bash
         run: |
           set -euo pipefail
@@ -83,13 +95,20 @@ jobs:
           cat > "$out/branch_parent_required.ndjson" <<'EOF'
           {"candidate_entity_types":["branch"],"reason":"branch_parent_identity_required","seller_identifier":"22956458"}
           EOF
-          sha="$(sha256sum "$out/branch_parent_required.ndjson" | awk '{print $1}')"
+          cat > "$out/parent_candidates.ndjson" <<'EOF'
+          {"parent_seller_identifier":"20828393","seller_identifier":"22956458","source_dataset":"P4.20.3_PINNED_OFFICIAL_CANARY_PARENT_CANDIDATE"}
+          EOF
+          cohort_sha="$(sha256sum "$out/branch_parent_required.ndjson" | awk '{print $1}')"
+          candidate_sha="$(sha256sum "$out/parent_candidates.ndjson" | awk '{print $1}')"
           python3 tool/p4_20_3_acquire_gcis_branch_parent.py \
-            "$out/branch_parent_required.ndjson" "$out/result" \
-            --expected-input-sha256 "$sha" \
+            "$out/branch_parent_required.ndjson" \
+            "$out/parent_candidates.ndjson" \
+            "$out/result" \
+            --expected-input-sha256 "$cohort_sha" \
+            --expected-candidate-sha256 "$candidate_sha" \
             --qps 1 --timeout-seconds 20 --retries 2
 
-      - name: Verify real branch-parent evidence contract
+      - name: Verify real formal branch-parent evidence contract
         shell: bash
         run: |
           set -euo pipefail
@@ -102,6 +121,10 @@ jobs:
           manifest = json.loads((root / 'branch_parent_manifest.json').read_text(encoding='utf-8'))
           evidence = [json.loads(x) for x in (root / 'branch_parent_evidence.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
           unresolved = [json.loads(x) for x in (root / 'branch_parent_unresolved.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          assert manifest['schema_version'] == 2
+          assert manifest['formal_verification_api_id'] == 'FDB8D2C8-573D-4276-BFA4-8D3925ABE1CB'
+          assert manifest['test_reverse_endpoint_used'] is False
+          assert manifest['parent_candidate_discovery_required'] is True
           assert manifest['validation_subset'] is False
           assert manifest['responsible_person_payload_emitted'] is False
           assert manifest['branch_manager_payload_emitted'] is False
@@ -109,17 +132,19 @@ jobs:
           assert manifest['mobile_per_invoice_network_lookup'] is False
           assert manifest['parent_child_identity_preserved'] is True
           assert manifest['input_branch_cohort_seller_count'] == 1
+          assert manifest['parent_candidate_count'] == 1
           assert manifest['resolved_parent_count'] + manifest['unresolved_parent_count'] == 1
           assert not unresolved, unresolved
           assert len(evidence) == 1, evidence
           row = evidence[0]
-          assert set(row) == {'seller_identifier', 'parent_seller_identifier', 'source_dataset'}
+          assert set(row) == {'seller_identifier', 'parent_seller_identifier', 'source_dataset', 'candidate_source_dataset'}
           assert row['seller_identifier'] == '22956458'
-          assert len(row['parent_seller_identifier']) == 8
-          assert row['parent_seller_identifier'] != row['seller_identifier']
+          assert row['parent_seller_identifier'] == '20828393'
+          assert row['source_dataset'] == 'GCIS:統編查分公司資料'
           payload = (root / 'branch_parent_evidence.ndjson').read_bytes()
           assert hashlib.sha256(payload).hexdigest() == manifest['evidence_payload_sha256']
-          print('P4_20_3_BRANCH_PARENT_REAL_TRANSPORT=PASS')
+          print('P4_20_3_BRANCH_PARENT_REAL_FORMAL_TRANSPORT=PASS')
+          print('P4_20_3_BRANCH_PARENT_FORMAL_MEMBERSHIP=PASS')
           print('P4_20_3_BRANCH_PARENT_RESPONSE_SURFACE=PASS')
           print('P4_20_3_BRANCH_PARENT_EVIDENCE_SHA=PASS')
           print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
@@ -131,6 +156,8 @@ jobs:
         with:
           name: p4-20-3-gcis-branch-parent-canary-${{ github.event.pull_request.head.sha }}
           path: |
+            ${{ runner.temp }}/p4_20_3_branch_parent_canary/branch_parent_required.ndjson
+            ${{ runner.temp }}/p4_20_3_branch_parent_canary/parent_candidates.ndjson
             ${{ runner.temp }}/p4_20_3_branch_parent_canary/result/branch_parent_manifest.json
             ${{ runner.temp }}/p4_20_3_branch_parent_canary/result/branch_parent_evidence.ndjson
             ${{ runner.temp }}/p4_20_3_branch_parent_canary/result/branch_parent_unresolved.ndjson
