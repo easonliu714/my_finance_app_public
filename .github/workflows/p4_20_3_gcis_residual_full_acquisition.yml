@@ -9,6 +9,7 @@ on:
       - '.github/workflows/p4_20_3_gcis_residual_full_acquisition.yml'
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -376,5 +377,188 @@ jobs:
         with:
           name: p4-20-3-full-residual-closure-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/p4_20_3_full_residual/cohort_closure.json
+          if-no-files-found: error
+          retention-days: 30
+
+  materialize-enrichment:
+    name: Materialize exact-head legal enrichment artifact
+    needs: cohort-closure
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen-ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+
+      - name: Compile and self-test materialization production tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tool/p4_20_3_bridge_registration_type_evidence.py \
+            tool/p4_20_3_reconcile_legal_enrichment.py \
+            tool/p4_20_3_package_legal_enrichment.py
+          python3 tool/p4_20_3_bridge_registration_type_evidence.py --self-test
+          python3 tool/p4_20_3_reconcile_legal_enrichment.py --self-test
+          python3 tool/p4_20_3_package_legal_enrichment.py --self-test
+
+      - name: Download exact residual authority, shards, and closure from this run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: p4-20-3-full-residual-*-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_materialize/residual
+          merge-multiple: false
+
+      - name: Resolve and download same-head FIA staging handoff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_materialize"
+          mkdir -p "$root/staging"
+          name="p4-20-3-fia-staging-handoff-$EXACT_HEAD"
+          json="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100")"
+          mapfile -t ids < <(jq -r --arg head "$EXACT_HEAD" '.artifacts[] | select(.expired == false and .workflow_run.head_sha == $head) | .id' <<<"$json")
+          test "${#ids[@]}" -eq 1
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/${ids[0]}/zip" \
+            -o "$root/staging.zip"
+          unzip -q "$root/staging.zip" -d "$root/staging"
+          test -f "$root/staging/staging_handoff_manifest.json"
+          test -f "$root/staging/enrichment_required.ndjson.gz"
+          echo "P4_20_3_MATERIALIZATION_STAGING_ARTIFACT_ID=${ids[0]}"
+
+      - name: Validate authorities and assemble canonical paired evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import gzip, hashlib, json, os
+          from pathlib import Path
+          exact=os.environ['EXACT_HEAD']
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_materialize'
+          staging=root/'staging'; residual=root/'residual'
+          manifest=json.loads((staging/'staging_handoff_manifest.json').read_text(encoding='utf-8'))
+          assert manifest['exact_head']==exact
+          assert manifest['validation_subset'] is False
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['normal_invoice_per_record_network_lookup'] is False
+          assert manifest['final_mobile_registry'] is False
+          queue=root/'enrichment_required.ndjson'
+          with gzip.open(staging/'enrichment_required.ndjson.gz','rb') as src, queue.open('wb') as dst:
+              while chunk:=src.read(1024*1024): dst.write(chunk)
+          assert hashlib.sha256(queue.read_bytes()).hexdigest()==manifest['enrichment_required_sha256']
+          closures=list(residual.glob(f'p4-20-3-full-residual-closure-{exact}/cohort_closure.json'))
+          assert len(closures)==1, closures
+          closure_path=closures[0]
+          closure=json.loads(closure_path.read_text(encoding='utf-8'))
+          assert closure['exact_head']==exact
+          assert int(closure.get('schema_version',0))>=4
+          assert closure['validation_subset'] is False
+          assert closure['official_type_exist_pairing_preserved'] is True
+          assert int(closure['total_failure_count'])==0
+          assert int(closure['seller_count'])==int(manifest['enrichment_required_count'])
+          assert closure['residual_payload_sha256']==manifest['enrichment_required_sha256']
+          shard_files=sorted(residual.glob(f'p4-20-3-full-residual-shard-*-{exact}/registration_type_evidence.ndjson'))
+          assert len(shard_files)==int(closure['shard_count'])==8
+          rows=[]; seen=set()
+          for path in shard_files:
+              for raw in path.read_text(encoding='utf-8').splitlines():
+                  if not raw.strip(): continue
+                  row=json.loads(raw); seller=str(row['seller_identifier'])
+                  assert seller not in seen; seen.add(seller); rows.append(row)
+          rows.sort(key=lambda r:str(r['seller_identifier']))
+          assert len(rows)==int(closure['seller_count'])
+          combined=root/'registration_type_evidence.ndjson'
+          with combined.open('w',encoding='utf-8',newline='\n') as stream:
+              for row in rows: stream.write(json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n')
+          assert hashlib.sha256(combined.read_bytes()).hexdigest()==closure['globally_sorted_combined_evidence_sha256']
+          authority={
+              'schema_version':1,'gate':'P4.20.3-D-real-legal-enrichment-input-authority','exact_head':exact,
+              'validation_subset':False,
+              'staging_handoff_manifest_sha256':hashlib.sha256((staging/'staging_handoff_manifest.json').read_bytes()).hexdigest(),
+              'gcis_full_residual_closure_manifest_sha256':hashlib.sha256(closure_path.read_bytes()).hexdigest(),
+              'seller_count':len(rows),'source_last_modified':closure['source_last_modified'],
+              'source_archive_sha256':closure['source_archive_sha256'],
+              'official_type_exist_pairing_preserved':True,'responsible_person_payload_emitted':False,
+              'normal_invoice_per_record_network_lookup':False,'final_mobile_registry':False}
+          (root/'input_authority.json').write_text(json.dumps(authority,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_REAL_ENRICHMENT_INPUT_AUTHORITY=PASS')
+          PY
+
+      - name: Execute bridge, reconciliation, and deterministic packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_materialize"
+          python3 tool/p4_20_3_bridge_registration_type_evidence.py "$root/enrichment_required.ndjson" "$root/registration_type_evidence.ndjson" "$root/bridge"
+          python3 tool/p4_20_3_reconcile_legal_enrichment.py "$root/enrichment_required.ndjson" "$root/bridge/legal_evidence.ndjson" "$root/reconciliation"
+          read -r staging_sha closure_sha < <(python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          m=json.loads((Path(os.environ['RUNNER_TEMP'])/'p4_20_3_materialize'/'input_authority.json').read_text(encoding='utf-8'))
+          print(m['staging_handoff_manifest_sha256'],m['gcis_full_residual_closure_manifest_sha256'])
+          PY
+          )
+          python3 tool/p4_20_3_package_legal_enrichment.py "$root/reconciliation" "$root/package" --exact-head "$EXACT_HEAD" --staging-manifest-sha256 "$staging_sha" --gcis-closure-manifest-sha256 "$closure_sha"
+
+      - name: Final materialization audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import gzip, hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_materialize'; package=root/'package'
+          manifest=json.loads((package/'reconciliation_manifest.json').read_text(encoding='utf-8'))
+          authority=json.loads((root/'input_authority.json').read_text(encoding='utf-8'))
+          bridge=json.loads((root/'bridge'/'bridge_manifest.json').read_text(encoding='utf-8'))
+          assert manifest['exact_head']==os.environ['EXACT_HEAD']
+          assert manifest['validation_subset'] is False
+          assert manifest['final_mobile_registry'] is False
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['normal_invoice_per_record_network_lookup'] is False
+          assert manifest['staging_handoff_manifest_sha256']==authority['staging_handoff_manifest_sha256']
+          assert manifest['gcis_full_residual_closure_manifest_sha256']==authority['gcis_full_residual_closure_manifest_sha256']
+          assert bridge['validation_subset'] is False
+          assert bridge['official_type_exist_pairing_preserved'] is True
+          assert bridge['parent_child_identity_preserved'] is True
+          assert bridge['branch_without_parent_policy']=='HOLD'
+          gz=package/'enriched_entities.ndjson.gz'
+          assert hashlib.sha256(gz.read_bytes()).hexdigest()==manifest['enriched_entities_gzip_sha256']
+          assert hashlib.sha256(gzip.decompress(gz.read_bytes())).hexdigest()==manifest['enriched_entities_sha256']
+          print('P4_20_3_REAL_LEGAL_ENRICHMENT_MATERIALIZATION=PASS')
+          print(json.dumps(manifest,sort_keys=True))
+          PY
+
+      - name: Upload exact-head deterministic legal enrichment evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-legal-enrichment-materialization-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_materialize/package/enriched_entities.ndjson.gz
+            ${{ runner.temp }}/p4_20_3_materialize/package/reconciliation_manifest.json
+            ${{ runner.temp }}/p4_20_3_materialize/input_authority.json
+            ${{ runner.temp }}/p4_20_3_materialize/bridge/bridge_manifest.json
+            ${{ runner.temp }}/p4_20_3_materialize/bridge/unresolved.ndjson
+            ${{ runner.temp }}/p4_20_3_materialize/bridge/hold.ndjson
+            ${{ runner.temp }}/p4_20_3_materialize/reconciliation/reconciliation_summary.json
+            ${{ runner.temp }}/p4_20_3_materialize/reconciliation/unresolved.ndjson
+            ${{ runner.temp }}/p4_20_3_materialize/reconciliation/hold.ndjson
           if-no-files-found: error
           retention-days: 30
