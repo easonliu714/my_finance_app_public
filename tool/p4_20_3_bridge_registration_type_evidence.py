@@ -9,10 +9,11 @@ this bridge has no parent-bearing source, so branch rows are HOLD rather than
 inventing a parent. FIA legal_name is an official tax-registration literal, not
 merchant-name inference.
 
-For bounded follow-up authority acquisition, supported branch/ambiguous HOLDs are
-also emitted to a deterministic privacy-reduced authority_required.ndjson queue.
-This preserves the exact normalized candidate entity types without carrying any
-responsible-person payload or creating handset/per-invoice network behavior.
+Every HOLD requiring stronger official authority is emitted in the deterministic,
+privacy-reduced authority queue surface. The same canonical bytes are written to
+both hold.ndjson and authority_required.ndjson. hold.ndjson is already part of the
+published materialization artifact, so downstream authority acquisition remains
+replayable even if an artifact upload list omits the internal alias.
 """
 from __future__ import annotations
 
@@ -45,6 +46,11 @@ LEGAL_KEYS = {
     "parent_seller_identifier",
     "source_dataset",
 }
+AUTHORITY_KEYS = {
+    "seller_identifier",
+    "candidate_entity_types",
+    "reason",
+}
 TYPE_MAP = {
     "COMPANY": "company",
     "公司": "company",
@@ -65,7 +71,10 @@ def _clean(value: object) -> str:
 
 
 def _line(record: dict[str, object]) -> bytes:
-    return (json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    return (
+        json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
 
 
 def _iter_exact(path: Path, keys: set[str]) -> Iterator[dict[str, object]]:
@@ -77,12 +86,18 @@ def _iter_exact(path: Path, keys: set[str]) -> Iterator[dict[str, object]]:
                 continue
             row = json.loads(raw)
             if not isinstance(row, dict) or set(row) != keys:
-                raise ValueError(f"PAYLOAD_SURFACE_MISMATCH:{path.name}:{line_number}")
+                raise ValueError(
+                    f"PAYLOAD_SURFACE_MISMATCH:{path.name}:{line_number}"
+                )
             seller = _seller(row.get("seller_identifier"))
             if not seller:
-                raise ValueError(f"INVALID_SELLER_IDENTIFIER:{path.name}:{line_number}")
+                raise ValueError(
+                    f"INVALID_SELLER_IDENTIFIER:{path.name}:{line_number}"
+                )
             if seller in seen:
-                raise ValueError(f"DUPLICATE_SELLER_IDENTIFIER:{path.name}:{seller}")
+                raise ValueError(
+                    f"DUPLICATE_SELLER_IDENTIFIER:{path.name}:{seller}"
+                )
             if previous and seller < previous:
                 raise ValueError(f"INPUT_NOT_SORTED:{path.name}:{line_number}")
             previous = seller
@@ -104,7 +119,7 @@ def _classification(types: object) -> tuple[str, str, list[str]]:
             unknown.add(token)
     candidates = sorted(normalized)
     if unknown:
-        return "", "official_type_unsupported", candidates
+        return "", "official_type_unsupported_requires_authority", candidates
     if not normalized:
         return "", "official_type_no_affirmative_match", []
     if len(normalized) != 1:
@@ -115,7 +130,9 @@ def _classification(types: object) -> tuple[str, str, list[str]]:
     return entity_type, "", candidates
 
 
-def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str, object]:
+def bridge(
+    queue_path: Path, evidence_path: Path, output_dir: Path
+) -> dict[str, object]:
     queue = list(_iter_exact(queue_path, QUEUE_KEYS))
     evidence = list(_iter_exact(evidence_path, TYPE_KEYS))
     queue_ids = [str(row["seller_identifier"]) for row in queue]
@@ -129,9 +146,12 @@ def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str,
     hold_path = output_dir / "hold.ndjson"
     authority_required_path = output_dir / "authority_required.ndjson"
     legal_sha = hashlib.sha256()
+    hold_sha = hashlib.sha256()
     authority_required_sha = hashlib.sha256()
     classified = unresolved = hold = 0
-    authority_required = branch_parent_required = ambiguous_type_required = 0
+    branch_parent_required = 0
+    ambiguous_type_required = 0
+    unsupported_type_required = 0
 
     with (
         legal_path.open("wb") as legal,
@@ -152,7 +172,10 @@ def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str,
                     "legal_name": legal_name,
                     "registration_status": "",
                     "parent_seller_identifier": "",
-                    "source_dataset": f"{_clean(fia['source_dataset'])}+{_clean(gcis['source_dataset'])}",
+                    "source_dataset": (
+                        f"{_clean(fia['source_dataset'])}+"
+                        f"{_clean(gcis['source_dataset'])}"
+                    ),
                 }
                 if set(record) != LEGAL_KEYS:
                     raise AssertionError("INTERNAL_LEGAL_SURFACE_MISMATCH")
@@ -160,39 +183,56 @@ def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str,
                 legal.write(encoded)
                 legal_sha.update(encoded)
                 classified += 1
-            elif reason == "official_type_no_affirmative_match":
-                unresolved_stream.write(_line({"seller_identifier": seller, "reason": reason}))
-                unresolved += 1
-            else:
-                hold_stream.write(_line({"seller_identifier": seller, "reason": reason}))
-                hold += 1
-                if reason in {
-                    "branch_parent_identity_required",
-                    "official_type_ambiguous_requires_authority",
-                }:
-                    authority_record = {
-                        "seller_identifier": seller,
-                        "candidate_entity_types": candidates,
-                        "reason": reason,
-                    }
-                    encoded = _line(authority_record)
-                    authority_required_stream.write(encoded)
-                    authority_required_sha.update(encoded)
-                    authority_required += 1
-                    if reason == "branch_parent_identity_required":
-                        branch_parent_required += 1
-                    else:
-                        ambiguous_type_required += 1
+                continue
 
+            if reason == "official_type_no_affirmative_match":
+                unresolved_stream.write(
+                    _line({"seller_identifier": seller, "reason": reason})
+                )
+                unresolved += 1
+                continue
+
+            authority_record = {
+                "seller_identifier": seller,
+                "candidate_entity_types": candidates,
+                "reason": reason,
+            }
+            if set(authority_record) != AUTHORITY_KEYS:
+                raise AssertionError("INTERNAL_AUTHORITY_SURFACE_MISMATCH")
+            encoded = _line(authority_record)
+            hold_stream.write(encoded)
+            authority_required_stream.write(encoded)
+            hold_sha.update(encoded)
+            authority_required_sha.update(encoded)
+            hold += 1
+            if reason == "branch_parent_identity_required":
+                branch_parent_required += 1
+            elif reason == "official_type_ambiguous_requires_authority":
+                ambiguous_type_required += 1
+            elif reason in {
+                "official_type_unsupported_requires_authority",
+                "official_types_not_list",
+            }:
+                unsupported_type_required += 1
+            else:
+                raise AssertionError(f"UNCLASSIFIED_HOLD_REASON:{reason}")
+
+    authority_required = hold
     if classified + unresolved + hold != len(queue):
         raise AssertionError("BRIDGE_PARTITION_MISMATCH")
-    if authority_required != branch_parent_required + ambiguous_type_required:
+    if authority_required != (
+        branch_parent_required
+        + ambiguous_type_required
+        + unsupported_type_required
+    ):
         raise AssertionError("AUTHORITY_REQUIRED_PARTITION_MISMATCH")
-    if authority_required > hold:
-        raise AssertionError("AUTHORITY_REQUIRED_EXCEEDS_HOLD")
+    if hold_sha.hexdigest() != authority_required_sha.hexdigest():
+        raise AssertionError("HOLD_AUTHORITY_REQUIRED_SHA_MISMATCH")
+    if hold_path.read_bytes() != authority_required_path.read_bytes():
+        raise AssertionError("HOLD_AUTHORITY_REQUIRED_BYTES_MISMATCH")
 
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "gate": "P4.20.3-D-registration-type-to-legal-evidence",
         "validation_subset": False,
         "queue_seller_count": len(queue),
@@ -203,13 +243,18 @@ def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str,
         "authority_required_seller_count": authority_required,
         "branch_parent_authority_required_count": branch_parent_required,
         "ambiguous_type_authority_required_count": ambiguous_type_required,
+        "unsupported_type_authority_required_count": unsupported_type_required,
         "legal_evidence_payload_sha256": legal_sha.hexdigest(),
+        "hold_payload_sha256": hold_sha.hexdigest(),
         "authority_required_payload_sha256": authority_required_sha.hexdigest(),
         "authority_required_surface": [
             "seller_identifier",
             "candidate_entity_types",
             "reason",
         ],
+        "published_authority_queue_path": "bridge/hold.ndjson",
+        "internal_authority_queue_alias": "bridge/authority_required.ndjson",
+        "hold_is_authority_required_queue": True,
         "official_type_exist_pairing_preserved": True,
         "parent_child_identity_preserved": True,
         "branch_without_parent_policy": "HOLD",
@@ -219,7 +264,13 @@ def bridge(queue_path: Path, evidence_path: Path, output_dir: Path) -> dict[str,
         "final_mobile_registry": False,
     }
     (output_dir / "bridge_manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
+        json.dumps(
+            manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n",
         encoding="utf-8",
     )
     print("P4_20_3_REGISTRATION_TYPE_LEGAL_BRIDGE=PASS")
@@ -238,6 +289,7 @@ def self_test() -> None:
             {"seller_identifier":"33333333","legal_name":"丙分公司","organization_type":"其他","uses_uniform_invoice":"Y","source_dataset":"FIA"},
             {"seller_identifier":"44444444","legal_name":"丁組織","organization_type":"其他","uses_uniform_invoice":"Y","source_dataset":"FIA"},
             {"seller_identifier":"55555555","legal_name":"戊組織","organization_type":"其他","uses_uniform_invoice":"Y","source_dataset":"FIA"},
+            {"seller_identifier":"66666666","legal_name":"己組織","organization_type":"其他","uses_uniform_invoice":"Y","source_dataset":"FIA"},
         ]
         evidence_rows = [
             {"seller_identifier":"11111111","official_types":["公司"],"official_exists_values":["N","Y"],"official_year_values":["115"],"source_dataset":"GCIS"},
@@ -245,33 +297,60 @@ def self_test() -> None:
             {"seller_identifier":"33333333","official_types":["分公司"],"official_exists_values":["Y"],"official_year_values":["115"],"source_dataset":"GCIS"},
             {"seller_identifier":"44444444","official_types":[],"official_exists_values":["N"],"official_year_values":["115"],"source_dataset":"GCIS"},
             {"seller_identifier":"55555555","official_types":["公司","分公司"],"official_exists_values":["Y"],"official_year_values":["115"],"source_dataset":"GCIS"},
+            {"seller_identifier":"66666666","official_types":["UNKNOWN_TYPE"],"official_exists_values":["Y"],"official_year_values":["115"],"source_dataset":"GCIS"},
         ]
         queue.write_bytes(b"".join(_line(row) for row in queue_rows))
         evidence.write_bytes(b"".join(_line(row) for row in evidence_rows))
         manifest = bridge(queue, evidence, root / "out")
         assert manifest["classified_legal_entity_count"] == 2
-        assert manifest["hold_seller_count"] == 2
+        assert manifest["hold_seller_count"] == 3
         assert manifest["unresolved_seller_count"] == 1
-        assert manifest["authority_required_seller_count"] == 2
+        assert manifest["authority_required_seller_count"] == 3
         assert manifest["branch_parent_authority_required_count"] == 1
         assert manifest["ambiguous_type_authority_required_count"] == 1
-        rows = [json.loads(line) for line in (root/"out"/"legal_evidence.ndjson").read_text(encoding="utf-8").splitlines()]
+        assert manifest["unsupported_type_authority_required_count"] == 1
+        assert manifest["hold_is_authority_required_queue"] is True
+        assert manifest["published_authority_queue_path"] == "bridge/hold.ndjson"
+
+        rows = [
+            json.loads(line)
+            for line in (root/"out"/"legal_evidence.ndjson")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
         assert [row["entity_type"] for row in rows] == ["company", "business"]
         assert rows[0]["legal_name"] == "甲股份有限公司"
         assert rows[0]["parent_seller_identifier"] == ""
-        holds = [json.loads(line) for line in (root/"out"/"hold.ndjson").read_text(encoding="utf-8").splitlines()]
-        assert holds[0]["reason"] == "branch_parent_identity_required"
-        assert holds[1]["reason"] == "official_type_ambiguous_requires_authority"
-        unresolved = json.loads((root/"out"/"unresolved.ndjson").read_text(encoding="utf-8").strip())
-        assert unresolved["reason"] == "official_type_no_affirmative_match"
-        authority_rows = [json.loads(line) for line in (root/"out"/"authority_required.ndjson").read_text(encoding="utf-8").splitlines()]
-        assert authority_rows == [
+
+        unresolved_row = json.loads(
+            (root/"out"/"unresolved.ndjson").read_text(encoding="utf-8").strip()
+        )
+        assert unresolved_row["reason"] == "official_type_no_affirmative_match"
+
+        expected_authority_rows = [
             {"candidate_entity_types":["branch"],"reason":"branch_parent_identity_required","seller_identifier":"33333333"},
             {"candidate_entity_types":["branch","company"],"reason":"official_type_ambiguous_requires_authority","seller_identifier":"55555555"},
+            {"candidate_entity_types":[],"reason":"official_type_unsupported_requires_authority","seller_identifier":"66666666"},
         ]
+        hold_rows = [
+            json.loads(line)
+            for line in (root/"out"/"hold.ndjson").read_text(encoding="utf-8").splitlines()
+        ]
+        authority_rows = [
+            json.loads(line)
+            for line in (root/"out"/"authority_required.ndjson")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        assert hold_rows == expected_authority_rows
+        assert authority_rows == expected_authority_rows
+        assert (root/"out"/"hold.ndjson").read_bytes() == (
+            root/"out"/"authority_required.ndjson"
+        ).read_bytes()
         expected_authority_sha = hashlib.sha256(
-            b"".join(_line(row) for row in authority_rows)
+            b"".join(_line(row) for row in expected_authority_rows)
         ).hexdigest()
+        assert manifest["hold_payload_sha256"] == expected_authority_sha
         assert manifest["authority_required_payload_sha256"] == expected_authority_sha
         assert manifest["validation_subset"] is False
         assert manifest["official_type_exist_pairing_preserved"] is True
@@ -292,8 +371,14 @@ def main() -> None:
     if args.self_test:
         self_test()
         return
-    if args.queue is None or args.registration_type_evidence is None or args.output_dir is None:
-        parser.error("queue, registration_type_evidence and output_dir are required unless --self-test is used")
+    if (
+        args.queue is None
+        or args.registration_type_evidence is None
+        or args.output_dir is None
+    ):
+        parser.error(
+            "queue, registration_type_evidence and output_dir are required unless --self-test is used"
+        )
     bridge(args.queue, args.registration_type_evidence, args.output_dir)
 
 
