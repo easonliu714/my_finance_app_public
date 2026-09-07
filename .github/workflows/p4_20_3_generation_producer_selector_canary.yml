@@ -1,0 +1,43 @@
+name: P4.20.3 Generation Producer Selector Canary
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_select_reusable_full_generation.py'
+      - '.github/workflows/p4_20_3_generation_producer_selector_canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  selector-contract:
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Compile and execute selector regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tool/p4_20_3_select_reusable_full_generation.py
+          python3 tool/p4_20_3_select_reusable_full_generation.py --self-test
+          echo 'P4_20_3_GENERATION_PRODUCER_SELECTOR_CANARY=PASS'
+      - name: Cost boundary audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('tool/p4_20_3_select_reusable_full_generation.py').read_text(encoding='utf-8').lower()
+          forbidden = ('eip.fia.gov.tw', 'gcis.nat.gov.tw', '--qps', 'acquire_gcis_registration_type')
+          assert not any(token in text for token in forbidden), 'SELECTOR_MUST_NOT_ACQUIRE_OFFICIAL_DATA'
+          print('P4_20_3_GENERATION_SELECTOR_NO_ACQUISITION=PASS')
+          PY
