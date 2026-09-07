@@ -68,20 +68,20 @@ def decide(
         and len(prior_source_archive_sha256) == 64
     )
 
-    # A paid generation is eligible only for a real generation/semantic change
-    # (or first bootstrap with no prior authority).  Merely touching the request
-    # file on the same generation must never cause another full acquisition.
+    # Unknown source state is itself a fail-closed generation hold.  It may
+    # require a request, but it can never authorize paid acquisition until the
+    # source probe is available again.
     generation_change_eligible = bool(
-        not prior_authority_available or source_changed or semantic_changed
+        not prior_authority_available
+        or not source_probe_available
+        or source_changed
+        or semantic_changed
     )
     acquisition_request_required = bool(generation_change_eligible)
     acquisition_request_authorized = bool(
         explicit_request and generation_change_eligible and source_probe_available
     )
 
-    # Reuse is allowed only when the prior authority exists and both source and
-    # semantic inputs are unchanged.  Unknown source state fails closed: neither
-    # reuse nor paid acquisition is authorized.
     generation_artifact_reuse = bool(
         prior_authority_available
         and source_probe_available
@@ -204,8 +204,6 @@ def _self_test() -> None:
         assert workflow_only["run_expensive"] is False
         assert workflow_only["generation_artifact_reuse"] is True
 
-        # Source transition without the governed request must HOLD: it may not
-        # reuse the old generation and may not start paid acquisition.
         source_change_hold = decide(
             changed_files=["lib/example.dart"],
             **{
@@ -221,8 +219,6 @@ def _self_test() -> None:
         assert "SOURCE_GENERATION_CHANGED" in source_change_hold["reasons"]
         assert "FULL_ACQUISITION_REQUEST_REQUIRED" in source_change_hold["reasons"]
 
-        # The same source transition plus the exact governed request authorizes
-        # exactly one expensive generation on that head.
         source_change_authorized = decide(
             changed_files=[EXPLICIT_REQUEST],
             **{
@@ -255,8 +251,6 @@ def _self_test() -> None:
         assert semantic_authorized["run_expensive"] is True
         assert semantic_authorized["acquisition_request_authorized"] is True
 
-        # A request by itself on an unchanged generation is rejected and the
-        # existing generation remains reusable.
         stale_request = decide(changed_files=[EXPLICIT_REQUEST], **common)
         assert stale_request["run_expensive"] is False
         assert stale_request["generation_artifact_reuse"] is True
@@ -270,6 +264,7 @@ def _self_test() -> None:
         assert missing_probe["run_expensive"] is False
         assert missing_probe["generation_artifact_reuse"] is False
         assert missing_probe["acquisition_request_authorized"] is False
+        assert missing_probe["acquisition_request_required"] is True
         assert "FULL_ACQUISITION_REQUEST_BLOCKED_SOURCE_PROBE_UNAVAILABLE" in missing_probe["reasons"]
 
     print("P4_20_3_FULL_RESIDUAL_GENERATION_GATE_SELF_TEST=PASS")
