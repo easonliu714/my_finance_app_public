@@ -1,0 +1,100 @@
+name: P4.20.3 GCIS Cost Governance Canary
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_gcis_generation_key.py'
+      - '.github/workflows/p4_20_3_gcis_cost_governance_canary.yml'
+      - '.github/workflows/p4_20_3_gcis_residual_full_acquisition.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
+
+jobs:
+  generation-key-contract:
+    name: Generation-addressed evidence reuse contract
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+           github.event.pull_request.head.repo.full_name == github.repository &&
+           github.actor == 'easonliu714') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Frozen ancestor and exact-head authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$FROZEN_P4_20_2^{commit}"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+          actual="$(git rev-parse HEAD)"
+          if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+            test "$actual" = '${{ github.event.pull_request.head.sha }}'
+          fi
+          echo "P4_20_3_GCIS_COST_CANARY_HEAD=$actual"
+
+      - name: Compile and self-test content-addressed generation key
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tool/p4_20_3_gcis_generation_key.py
+          python3 tool/p4_20_3_gcis_generation_key.py --self-test
+
+      - name: Static cost-governance boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          generation = Path('tool/p4_20_3_gcis_generation_key.py').read_text(encoding='utf-8')
+          expensive = Path('.github/workflows/p4_20_3_gcis_residual_full_acquisition.yml').read_text(encoding='utf-8')
+
+          # Generation identity must be source/semantics addressed, not PR-head addressed.
+          assert 'fia_source_archive_sha256' in generation
+          assert 'fia_source_last_modified' in generation
+          assert 'staging_tool_sha256' in generation
+          assert 'acquisition_tool_sha256' in generation
+          assert 'privacy_policy_version' in generation
+          assert 'exact_head' not in generation.split('class GenerationAuthority:', 1)[1].split('def canonical_payload', 1)[0]
+
+          # Cheap canary must never itself execute the GCIS acquisition client.
+          canary = Path('.github/workflows/p4_20_3_gcis_cost_governance_canary.yml').read_text(encoding='utf-8')
+          forbidden = [
+              'Execute bounded official GCIS acquisition shard',
+              '--qps 0.25',
+              'registration_type_evidence.ndjson',
+          ]
+          for token in forbidden:
+              assert token not in canary, token
+
+          # Current expensive workflow is audited, not silently treated as compliant.
+          # Until the next production patch removes automatic PR execution, expose
+          # that state explicitly instead of burning another 8-shard run to test YAML.
+          pr_triggered = 'pull_request:' in expensive.split('permissions:', 1)[0]
+          print(f'P4_20_3_EXPENSIVE_WORKFLOW_PR_TRIGGERED={str(pr_triggered).upper()}')
+          print('P4_20_3_GENERATION_ADDRESSED_REUSE_PRIMITIVE=PASS')
+          print('P4_20_3_CHEAP_COST_GOVERNANCE_CANARY=PASS')
+          PY
+
+      - name: Publish cost-governance summary
+        shell: bash
+        run: |
+          {
+            echo '## P4.20.3 GCIS cost governance'
+            echo
+            echo '- Cheap static/self-test path: PASS'
+            echo '- Content-addressed generation-key primitive: PASS'
+            echo '- Full GCIS acquisition executed by this workflow: NO'
+            echo '- Next production gate: remove automatic PR-triggered full acquisition and reuse frozen generation artifacts when source+semantics match.'
+          } >> "$GITHUB_STEP_SUMMARY"
