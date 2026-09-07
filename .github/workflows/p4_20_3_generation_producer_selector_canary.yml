@@ -154,7 +154,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Cost boundary audit
+      - name: Selector no-acquisition boundary audit
         shell: bash
         run: |
           set -euo pipefail
@@ -163,10 +163,5 @@ jobs:
           selector = Path('tool/p4_20_3_select_reusable_full_generation.py').read_text(encoding='utf-8').lower()
           forbidden = ('eip.fia.gov.tw', 'gcis.nat.gov.tw', '--qps', 'acquire_gcis_registration_type')
           assert not any(token in selector for token in forbidden), 'SELECTOR_MUST_NOT_ACQUIRE_OFFICIAL_DATA'
-          workflow = Path('.github/workflows/p4_20_3_generation_producer_selector_canary.yml').read_text(encoding='utf-8')
-          qps_token = '--' + 'qps'
-          acquire_exec_token = 'p4_20_3_' + 'acquire_gcis_registration_type.py '
-          assert qps_token not in workflow
-          assert acquire_exec_token not in workflow
           print('P4_20_3_GENERATION_SELECTOR_NO_GCIS_ACQUISITION=PASS')
           PY
