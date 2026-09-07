@@ -74,9 +74,9 @@ jobs:
           # Cheap canary must never itself execute the GCIS acquisition client.
           canary = Path('.github/workflows/p4_20_3_gcis_cost_governance_canary.yml').read_text(encoding='utf-8')
           forbidden = [
-              'Execute bounded official GCIS acquisition shard',
-              '--qps 0.25',
-              'registration_type_evidence.ndjson',
+              'Execute bounded official GCIS ' + 'acquisition shard',
+              '--qps ' + '0.25',
+              'registration_type_' + 'evidence.ndjson',
           ]
           for token in forbidden:
               assert token not in canary, token
