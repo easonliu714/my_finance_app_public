@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Plan a bounded P4.20.3 stronger-authority delta without network access.
 
-The current authority queue is compared with a prior terminal-authority index.
-Only NEW / CHANGED / MISSING_AUTHORITY / EXPIRED sellers are emitted into the
-queryable delta. Same-fingerprint, unexpired terminal authority is reused.
+The current authority queue is compared with a prior authority index. Only NEW /
+CHANGED / EXPIRED sellers are emitted into the queryable delta. Same-fingerprint,
+unexpired terminal authority is reused. Same-fingerprint sellers that were
+previously attempted but still lack terminal authority are held, not re-queried,
+unless a later governed authority-path change makes them CHANGED or a separate
+explicit retry/revalidation policy authorizes them.
 """
 from __future__ import annotations
 
@@ -29,7 +32,11 @@ CATEGORIES = (
     "MISSING_AUTHORITY",
     "EXPIRED",
 )
-QUERYABLE = {"NEW", "CHANGED", "MISSING_AUTHORITY", "EXPIRED"}
+# Cost-governance invariant: an unchanged seller that already went through the
+# authority path but remains nonterminal must not be queried again merely because
+# a downstream/checkpoint head changed. Retry/revalidation is a separate governed
+# surface. This keeps same-generation MISSING_AUTHORITY fail-closed.
+QUERYABLE = {"NEW", "CHANGED", "EXPIRED"}
 
 
 def _seller(value: object) -> str:
@@ -173,7 +180,7 @@ def build(
     (output_dir / "query_delta.ndjson").write_bytes(query_payload)
     query_count = sum(len(buckets[name]) for name in QUERYABLE)
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "gate": "P4.20.3-D-delta-authority-resolution-plan",
         "validation_subset": False,
         "as_of": as_of.isoformat().replace("+00:00", "Z"),
@@ -183,6 +190,8 @@ def build(
             name: len(buckets[name]) for name in CATEGORIES
         },
         "queryable_classes": sorted(QUERYABLE),
+        "nonqueryable_unchanged_missing_authority": True,
+        "missing_authority_retry_policy": "SEPARATE_EXPLICIT_GOVERNED_SURFACE_ONLY",
         "query_delta_seller_count": query_count,
         "query_delta_payload_sha256": hashlib.sha256(query_payload).hexdigest(),
         "reuse_terminal_seller_count": len(buckets["REUSE_TERMINAL"]),
@@ -279,8 +288,12 @@ def self_test() -> None:
             "MISSING_AUTHORITY": 1,
             "EXPIRED": 1,
         }, result
-        assert result["query_delta_seller_count"] == 4
+        # MISSING_AUTHORITY is intentionally held: same fingerprint + same
+        # generation must not become an automatic paid retry.
+        assert result["query_delta_seller_count"] == 3
         assert result["reuse_terminal_seller_count"] == 1
+        assert result["queryable_classes"] == ["CHANGED", "EXPIRED", "NEW"]
+        assert result["nonqueryable_unchanged_missing_authority"] is True
         assert result["validation_subset"] is False
         assert result["responsible_person_payload_emitted"] is False
         print("P4_20_3_DELTA_AUTHORITY_RESOLUTION_PLAN_SELFTEST=PASS")
