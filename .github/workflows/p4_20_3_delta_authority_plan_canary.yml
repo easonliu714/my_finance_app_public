@@ -53,16 +53,27 @@ jobs:
           mkdir -p "$root/reuse" "$root/producer"
 
           reuse_name="p4-20-3-full-residual-reuse-authority-$EXACT_HEAD"
-          curl --fail --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$reuse_name&per_page=100" \
-            -o "$root/reuse_artifacts.json"
-
-          mapfile -t reuse_ids < <(jq -r --arg head "$EXACT_HEAD" '.artifacts[] | select(.expired == false and .workflow_run.head_sha == $head) | .id' "$root/reuse_artifacts.json")
-          test "${#reuse_ids[@]}" -eq 1
-          reuse_id="${reuse_ids[0]}"
-          reuse_digest="$(jq -r --argjson id "$reuse_id" '.artifacts[] | select(.id == $id) | .digest' "$root/reuse_artifacts.json")"
+          reuse_id=''
+          reuse_digest=''
+          for attempt in $(seq 1 60); do
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$reuse_name&per_page=100" \
+              -o "$root/reuse_artifacts.json"
+            mapfile -t reuse_ids < <(jq -r --arg head "$EXACT_HEAD" '.artifacts[] | select(.expired == false and .workflow_run.head_sha == $head) | .id' "$root/reuse_artifacts.json")
+            if [ "${#reuse_ids[@]}" -eq 1 ]; then
+              reuse_id="${reuse_ids[0]}"
+              reuse_digest="$(jq -r --argjson id "$reuse_id" '.artifacts[] | select(.id == $id) | .digest' "$root/reuse_artifacts.json")"
+              break
+            fi
+            if [ "${#reuse_ids[@]}" -gt 1 ]; then
+              echo 'DELTA_REUSE_AUTHORITY_DUPLICATE' >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          test -n "$reuse_id"
           test "${reuse_digest#sha256:}" != "$reuse_digest"
 
           curl --fail --location --silent --show-error \
@@ -116,6 +127,7 @@ jobs:
 
           python3 - <<'PY'
           import hashlib, json, os
+          from datetime import timezone
           from email.utils import parsedate_to_datetime
           from pathlib import Path
           root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_delta_authority'
@@ -138,7 +150,7 @@ jobs:
           assert package['validation_subset'] is False, package
           assert package['responsible_person_payload_emitted'] is False, package
           assert package['normal_invoice_per_record_network_lookup'] is False, package
-          observed=parsedate_to_datetime(reuse['source_last_modified']).astimezone().astimezone(__import__('datetime').timezone.utc)
+          observed=parsedate_to_datetime(reuse['source_last_modified']).astimezone(timezone.utc)
           iso=observed.isoformat().replace('+00:00','Z')
           (root/'observed_at.txt').write_text(iso+'\n',encoding='utf-8')
           print('P4_20_3_DELTA_PRODUCER_QUEUE_AUTHORITY=PASS')
@@ -174,13 +186,7 @@ jobs:
           reuse_id=int((root/'reuse_artifact_id.txt').read_text().strip())
           reuse_digest=(root/'reuse_artifact_digest.txt').read_text().strip()
           count=int(bridge['authority_required_seller_count'])
-          expected={
-              'REUSE_TERMINAL':0,
-              'NEW':0,
-              'CHANGED':0,
-              'MISSING_AUTHORITY':count,
-              'EXPIRED':0,
-          }
+          expected={'REUSE_TERMINAL':0,'NEW':0,'CHANGED':0,'MISSING_AUTHORITY':count,'EXPIRED':0}
           assert prior['authority_queue_seller_count']==count, prior
           assert prior['terminal_overlap_seller_count']==0, prior
           assert prior['missing_authority_seller_count']==count, prior
@@ -195,30 +201,21 @@ jobs:
           assert delta['responsible_person_payload_emitted'] is False, delta
           assert delta['mobile_per_invoice_network_lookup'] is False, delta
           evidence={
-              'schema_version':1,
-              'gate':'P4.20.3-D-real-delta-authority-plan',
+              'schema_version':1,'gate':'P4.20.3-D-real-delta-authority-plan',
               'consumer_exact_head':os.environ['EXACT_HEAD'],
-              'producer_head':reuse['producer_head'],
-              'producer_run_id':reuse['producer_run_id'],
+              'producer_head':reuse['producer_head'],'producer_run_id':reuse['producer_run_id'],
               'producer_materialization_artifact_id':reuse['materialization_artifact_id'],
-              'reuse_authority_artifact_id':reuse_id,
-              'reuse_authority_artifact_digest':reuse_digest,
-              'source_last_modified':reuse['source_last_modified'],
-              'source_archive_sha256':reuse['source_archive_sha256'],
-              'expensive_full_run_triggered':False,
-              'generation_artifact_reuse':True,
+              'reuse_authority_artifact_id':reuse_id,'reuse_authority_artifact_digest':reuse_digest,
+              'source_last_modified':reuse['source_last_modified'],'source_archive_sha256':reuse['source_archive_sha256'],
+              'expensive_full_run_triggered':False,'generation_artifact_reuse':True,
               'estimated_linux_minutes_avoided':1250,
-              'authority_queue_seller_count':count,
-              'authority_queue_sha256':bridge['hold_payload_sha256'],
+              'authority_queue_seller_count':count,'authority_queue_sha256':bridge['hold_payload_sha256'],
               'prior_authority_index_sha256':prior['prior_authority_index_sha256'],
-              'classification_counts':expected,
-              'query_delta_seller_count':0,
-              'query_delta_payload_sha256':delta['query_delta_payload_sha256'],
-              'paid_gcis_query_authorized':False,
+              'classification_counts':expected,'query_delta_seller_count':0,
+              'query_delta_payload_sha256':delta['query_delta_payload_sha256'],'paid_gcis_query_authorized':False,
               'missing_authority_retry_policy':delta['missing_authority_retry_policy'],
               'full_revalidation_policy':delta['full_revalidation_policy'],
-              'validation_subset':False,
-              'responsible_person_payload_emitted':False,
+              'validation_subset':False,'responsible_person_payload_emitted':False,
               'mobile_per_invoice_network_lookup':False,
           }
           canonical=json.dumps(evidence,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()
@@ -254,10 +251,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          paths=[
-              Path('tool/p4_20_3_build_prior_authority_index.py'),
-              Path('tool/p4_20_3_delta_authority_resolution_plan.py'),
-          ]
+          paths=[Path('tool/p4_20_3_build_prior_authority_index.py'),Path('tool/p4_20_3_delta_authority_resolution_plan.py')]
           forbidden=('eip.fia.gov.tw','gcis.nat.gov.tw','--qps','acquire_gcis_registration_type','acquire_gcis_branch_parent')
           for path in paths:
               text=path.read_text(encoding='utf-8').lower()
