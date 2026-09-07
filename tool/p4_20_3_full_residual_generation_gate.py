@@ -60,6 +60,8 @@ def decide(
         prior_success_head
         and prior_run_id > 0
         and prior_closure_artifact_id > 0
+        and prior_materialization_artifact_id is not None
+        and prior_materialization_artifact_id > 0
         and prior_source_last_modified
         and len(prior_source_archive_sha256) == 64
     )
