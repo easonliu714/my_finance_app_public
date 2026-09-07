@@ -44,12 +44,15 @@ jobs:
           fi
           echo "P4_20_3_GCIS_COST_CANARY_HEAD=$actual"
 
-      - name: Compile and self-test content-addressed generation key
+      - name: Compile and self-test content-addressed generation gates
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile tool/p4_20_3_gcis_generation_key.py
+          python3 -m py_compile \
+            tool/p4_20_3_gcis_generation_key.py \
+            tool/p4_20_3_full_residual_generation_gate.py
           python3 tool/p4_20_3_gcis_generation_key.py --self-test
+          python3 tool/p4_20_3_full_residual_generation_gate.py --self-test
 
       - name: Static cost-governance boundary
         shell: bash
@@ -78,11 +81,25 @@ jobs:
           for token in forbidden:
               assert token not in canary, token
 
-          # Current expensive workflow is audited, not silently treated as compliant.
-          # Until the next production patch removes automatic PR execution, expose
-          # that state explicitly instead of burning another 8-shard run to test YAML.
+          # The PR event may still enter this workflow cheaply, but the 8-shard
+          # acquisition must sit behind the generation decision.  A downstream-only
+          # head must never cancel an already-paid full generation.
+          assert 'generation-gate:' in expensive
+          assert 'Generation reuse / full-acquisition cost gate' in expensive
+          assert "needs: generation-gate" in expensive
+          assert "needs.generation-gate.outputs.run_expensive == 'true'" in expensive
+          assert 'cancel-in-progress: false' in expensive
+          assert 'tool/p4_20_3_full_residual_generation_gate.py' in expensive
+          assert 'authority/p4_20_3_full_acquisition_request.json' in expensive
+          assert 'EXPENSIVE_FULL_RUN_TRIGGERED=' in expensive
+          assert 'GENERATION_ARTIFACT_REUSE=' in expensive
+          assert 'ESTIMATED_LINUX_MINUTES_AVOIDED=' in expensive
+
           pr_triggered = 'pull_request:' in expensive.split('permissions:', 1)[0]
-          print(f'P4_20_3_EXPENSIVE_WORKFLOW_PR_TRIGGERED={str(pr_triggered).upper()}')
+          assert pr_triggered is True
+          print('P4_20_3_EXPENSIVE_WORKFLOW_PR_FRONT_DOOR=CHEAP_GENERATION_GATE')
+          print('P4_20_3_EXPENSIVE_JOB_CONDITIONAL=PASS')
+          print('P4_20_3_INFLIGHT_FULL_RUN_CANCELLATION_BLOCKED=PASS')
           print('P4_20_3_GENERATION_ADDRESSED_REUSE_PRIMITIVE=PASS')
           print('P4_20_3_CHEAP_COST_GOVERNANCE_CANARY=PASS')
           PY
@@ -96,5 +113,8 @@ jobs:
             echo '- Cheap static/self-test path: PASS'
             echo '- Content-addressed generation-key primitive: PASS'
             echo '- Full GCIS acquisition executed by this workflow: NO'
-            echo '- Next production gate: remove automatic PR-triggered full acquisition and reuse frozen generation artifacts when source+semantics match.'
+            echo '- PR front door: cheap generation gate only'
+            echo '- 8-shard acquisition: source/semantics/explicit-request conditional'
+            echo '- In-flight full acquisition cancellation by downstream-only heads: blocked'
+            echo '- Same-generation frozen evidence reuse contract: enforced'
           } >> "$GITHUB_STEP_SUMMARY"
