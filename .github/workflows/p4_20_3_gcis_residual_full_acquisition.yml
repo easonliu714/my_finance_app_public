@@ -6,6 +6,8 @@ on:
     paths:
       - 'tool/p4_20_3_stage_fia_registry.py'
       - 'tool/p4_20_3_acquire_gcis_registration_type.py'
+      - 'tool/p4_20_3_full_residual_generation_gate.py'
+      - 'authority/p4_20_3_full_acquisition_request.json'
       - '.github/workflows/p4_20_3_gcis_residual_full_acquisition.yml'
 
 permissions:
@@ -14,18 +16,159 @@ permissions:
 
 concurrency:
   group: p4-20-3-gcis-full-residual-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  # Never cancel an already-paid full acquisition because a later PR-head
+  # commit may be a downstream-only change that the generation gate will skip.
+  cancel-in-progress: false
 
 env:
   FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
+  TARGET_BRANCH: p4-20-3-nationwide-official-registry
   EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
   SHARD_COUNT: '8'
 
 jobs:
-  prepare-residual:
-    name: Rebuild exact FIA residual cohort
+  generation-gate:
+    name: Generation reuse / full-acquisition cost gate
     if: >-
       ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      run_expensive: ${{ steps.decision.outputs.run_expensive }}
+      generation_artifact_reuse: ${{ steps.decision.outputs.generation_artifact_reuse }}
+      prior_success_head: ${{ steps.decision.outputs.prior_success_head }}
+      prior_run_id: ${{ steps.decision.outputs.prior_run_id }}
+      estimated_linux_minutes_avoided: ${{ steps.decision.outputs.estimated_linux_minutes_avoided }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compile and self-test generation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tool/p4_20_3_full_residual_generation_gate.py
+          python3 tool/p4_20_3_full_residual_generation_gate.py --self-test
+
+      - name: Resolve prior successful generation and current source probe
+        id: decision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_generation_gate"
+          mkdir -p "$root"
+
+          before="${EVENT_BEFORE:-}"
+          if ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+            before="$(git rev-parse HEAD^)"
+          fi
+          git diff --name-only "$before" "$EXACT_HEAD" > "$root/changed_files.txt"
+          echo "P4_20_3_GENERATION_GATE_BEFORE=$before"
+          echo "P4_20_3_GENERATION_GATE_CHANGED_FILES_START"
+          cat "$root/changed_files.txt"
+          echo "P4_20_3_GENERATION_GATE_CHANGED_FILES_END"
+
+          runs_json="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/p4_20_3_gcis_residual_full_acquisition.yml/runs?branch=$TARGET_BRANCH&event=pull_request&status=success&per_page=30")"
+          prior_run_id="$(jq -r --arg current "$GITHUB_RUN_ID" \
+            '[.workflow_runs[] | select((.id|tostring) != $current)] | first | .id // empty' <<<"$runs_json")"
+          prior_head="$(jq -r --arg current "$GITHUB_RUN_ID" \
+            '[.workflow_runs[] | select((.id|tostring) != $current)] | first | .head_sha // empty' <<<"$runs_json")"
+          if [[ -z "$prior_run_id" || -z "$prior_head" ]]; then
+            echo "NO_PRIOR_SUCCESSFUL_FULL_RESIDUAL=1"
+            cat > "$root/decision.json" <<JSON
+          {"schema_version":1,"gate":"P4.20.3-full-residual-generation-gate","current_head":"$EXACT_HEAD","run_expensive":true,"generation_artifact_reuse":false,"reasons":["NO_PRIOR_SUCCESS_AUTHORITY"],"estimated_linux_minutes_avoided":0,"validation_subset":false,"responsible_person_payload_emitted":false,"mobile_per_invoice_network_lookup":false}
+          JSON
+          else
+            artifacts_json="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$prior_run_id/artifacts?per_page=100")"
+            closure_name="p4-20-3-full-residual-closure-$prior_head"
+            materialization_name="p4-20-3-legal-enrichment-materialization-$prior_head"
+            closure_id="$(jq -r --arg n "$closure_name" '.artifacts[] | select(.name==$n and .expired==false) | .id' <<<"$artifacts_json" | head -n1)"
+            materialization_id="$(jq -r --arg n "$materialization_name" '.artifacts[] | select(.name==$n and .expired==false) | .id' <<<"$artifacts_json" | head -n1)"
+            test -n "$closure_id"
+            test -n "$materialization_id"
+
+            curl --fail --location --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$closure_id/zip" \
+              -o "$root/closure.zip"
+            unzip -q "$root/closure.zip" -d "$root/closure"
+            closure_path="$(find "$root/closure" -name cohort_closure.json -type f | head -n1)"
+            test -f "$closure_path"
+            prior_last_modified="$(jq -r '.source_last_modified' "$closure_path")"
+            prior_archive_sha="$(jq -r '.source_archive_sha256' "$closure_path")"
+            test -n "$prior_last_modified"
+            test "${#prior_archive_sha}" -eq 64
+
+            source_url='https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+            curl --fail --location --head --proto '=https' --tlsv1.2 \
+              --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 120 \
+              --dump-header "$root/current_headers.txt" \
+              --write-out '%{url_effective}\n' \
+              "$source_url" > "$root/current_effective_url.txt"
+            effective="$(tail -n1 "$root/current_effective_url.txt" | tr -d '\r\n')"
+            case "$effective" in
+              https://eip.fia.gov.tw/*) ;;
+              *) echo "FIA_EFFECTIVE_URL_NOT_ALLOWED=$effective" >&2; exit 2 ;;
+            esac
+            current_last_modified="$(grep -i '^Last-Modified:' "$root/current_headers.txt" | tail -n1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
+
+            python3 tool/p4_20_3_full_residual_generation_gate.py \
+              --current-head "$EXACT_HEAD" \
+              --prior-success-head "$prior_head" \
+              --prior-run-id "$prior_run_id" \
+              --prior-closure-artifact-id "$closure_id" \
+              --prior-materialization-artifact-id "$materialization_id" \
+              --prior-source-last-modified "$prior_last_modified" \
+              --prior-source-archive-sha256 "$prior_archive_sha" \
+              --current-source-last-modified "$current_last_modified" \
+              --changed-files-file "$root/changed_files.txt" \
+              --output "$root/decision.json"
+          fi
+
+          run_expensive="$(jq -r '.run_expensive' "$root/decision.json")"
+          reuse="$(jq -r '.generation_artifact_reuse' "$root/decision.json")"
+          prior_head_out="$(jq -r '.prior_success_head // ""' "$root/decision.json")"
+          prior_run_out="$(jq -r '.prior_success_run_id // 0' "$root/decision.json")"
+          avoided="$(jq -r '.estimated_linux_minutes_avoided // 0' "$root/decision.json")"
+          echo "run_expensive=$run_expensive" >> "$GITHUB_OUTPUT"
+          echo "generation_artifact_reuse=$reuse" >> "$GITHUB_OUTPUT"
+          echo "prior_success_head=$prior_head_out" >> "$GITHUB_OUTPUT"
+          echo "prior_run_id=$prior_run_out" >> "$GITHUB_OUTPUT"
+          echo "estimated_linux_minutes_avoided=$avoided" >> "$GITHUB_OUTPUT"
+          echo "EXPENSIVE_FULL_RUN_TRIGGERED=$run_expensive"
+          echo "GENERATION_ARTIFACT_REUSE=$reuse"
+          echo "ESTIMATED_LINUX_MINUTES_AVOIDED=$avoided"
+          cat "$root/decision.json"
+
+      - name: Upload generation gate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-generation-gate-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_generation_gate/decision.json
+          if-no-files-found: error
+          retention-days: 14
+
+  prepare-residual:
+    name: Rebuild exact FIA residual cohort
+    needs: generation-gate
+    if: >-
+      ${{ needs.generation-gate.outputs.run_expensive == 'true' &&
+          github.head_ref == 'p4-20-3-nationwide-official-registry' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
           github.actor == 'easonliu714' }}
     runs-on: ubuntu-22.04
