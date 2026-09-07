@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """P4.20.3 reusable GCIS generation -> consumer-head lineage envelope.
 
-This is a cheap downstream authority primitive. It never acquires GCIS data and
-never rewrites producer evidence. It binds immutable producer-generation evidence
-to the exact consumer/release head only after a same-generation reuse gate has
+Cheap downstream authority primitive. It never acquires GCIS data and never
+rewrites producer evidence. It binds immutable producer-generation evidence to
+the exact consumer/release head only after a same-generation reuse gate has
 explicitly approved reuse.
 """
 from __future__ import annotations
@@ -16,6 +16,7 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 GATE = "P4.20.3-generation-lineage-envelope"
+GENERATION_GATE = "P4.20.3-full-residual-generation-gate"
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -36,10 +37,10 @@ def _sha256_file(path: Path) -> str:
 
 
 def _require_sha256(value: object, label: str) -> str:
-    text = str(value or "")
-    if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text.lower()):
+    text = str(value or "").lower()
+    if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text):
         raise RuntimeError(f"{label}_INVALID")
-    return text.lower()
+    return text
 
 
 def _load_json(path: Path, label: str) -> dict[str, object]:
@@ -52,6 +53,55 @@ def _load_json(path: Path, label: str) -> dict[str, object]:
     return value
 
 
+def _expected_generation_key(gate: dict[str, object]) -> str:
+    policy_version = str(gate.get("policy_version") or "")
+    source_last_modified = str(
+        gate.get("current_source_last_modified")
+        or gate.get("prior_source_last_modified")
+        or ""
+    ).strip()
+    if not policy_version:
+        raise RuntimeError("GENERATION_POLICY_VERSION_MISSING")
+    if not source_last_modified:
+        raise RuntimeError("SOURCE_LAST_MODIFIED_MISSING")
+    basis = {
+        "policy_version": policy_version,
+        "source_last_modified": source_last_modified,
+        "source_archive_sha256": _require_sha256(
+            gate.get("source_archive_sha256"), "SOURCE_ARCHIVE_SHA256"
+        ),
+        "stage_tool_sha256": _require_sha256(
+            gate.get("stage_tool_sha256"), "STAGE_TOOL_SHA256"
+        ),
+        "acquisition_tool_sha256": _require_sha256(
+            gate.get("acquisition_tool_sha256"), "ACQUISITION_TOOL_SHA256"
+        ),
+    }
+    return _sha256_bytes(_canonical_bytes(basis))
+
+
+def _validate_generation_gate(gate: dict[str, object], consumer_exact_head: str) -> None:
+    if gate.get("gate") != GENERATION_GATE:
+        raise RuntimeError("GENERATION_GATE_IDENTITY_MISMATCH")
+    if gate.get("current_head") != consumer_exact_head:
+        raise RuntimeError("GENERATION_GATE_CONSUMER_HEAD_MISMATCH")
+    if gate.get("run_expensive") is not False:
+        raise RuntimeError("GENERATION_GATE_REUSE_NOT_APPROVED")
+    if gate.get("generation_artifact_reuse") is not True:
+        raise RuntimeError("GENERATION_GATE_REUSE_NOT_APPROVED")
+    if gate.get("reasons") != ["SAME_GENERATION_REUSE_APPROVED"]:
+        raise RuntimeError("GENERATION_GATE_REUSE_REASON_MISMATCH")
+    if gate.get("validation_subset") is not False:
+        raise RuntimeError("GENERATION_GATE_VALIDATION_SUBSET_FORBIDDEN")
+    if gate.get("responsible_person_payload_emitted") is not False:
+        raise RuntimeError("GENERATION_GATE_RESPONSIBLE_PERSON_FORBIDDEN")
+    if gate.get("mobile_per_invoice_network_lookup") is not False:
+        raise RuntimeError("GENERATION_GATE_PER_INVOICE_NETWORK_FORBIDDEN")
+    supplied_key = _require_sha256(gate.get("generation_key"), "GENERATION_KEY")
+    if supplied_key != _expected_generation_key(gate):
+        raise RuntimeError("GENERATION_GATE_GENERATION_KEY_MISMATCH")
+
+
 def build_lineage_envelope(
     *,
     consumer_exact_head: str,
@@ -61,24 +111,7 @@ def build_lineage_envelope(
 ) -> dict[str, object]:
     gate = _load_json(generation_gate_path, "GENERATION_GATE")
     gate_sha = _sha256_file(generation_gate_path)
-
-    if gate.get("gate") != "P4.20.3-full-residual-generation-gate":
-        raise RuntimeError("GENERATION_GATE_IDENTITY_MISMATCH")
-    if gate.get("current_head") != consumer_exact_head:
-        raise RuntimeError("GENERATION_GATE_CONSUMER_HEAD_MISMATCH")
-    if gate.get("run_expensive") is not False:
-        raise RuntimeError("GENERATION_GATE_REUSE_NOT_APPROVED")
-    if gate.get("generation_artifact_reuse") is not True:
-        raise RuntimeError("GENERATION_GATE_REUSE_NOT_APPROVED")
-    reasons = gate.get("reasons")
-    if reasons != ["SAME_GENERATION_REUSE_APPROVED"]:
-        raise RuntimeError("GENERATION_GATE_REUSE_REASON_MISMATCH")
-    if gate.get("validation_subset") is not False:
-        raise RuntimeError("GENERATION_GATE_VALIDATION_SUBSET_FORBIDDEN")
-    if gate.get("responsible_person_payload_emitted") is not False:
-        raise RuntimeError("GENERATION_GATE_RESPONSIBLE_PERSON_FORBIDDEN")
-    if gate.get("mobile_per_invoice_network_lookup") is not False:
-        raise RuntimeError("GENERATION_GATE_PER_INVOICE_NETWORK_FORBIDDEN")
+    _validate_generation_gate(gate, consumer_exact_head)
 
     producer_head = str(gate.get("prior_success_head") or "")
     if len(producer_head) != 40:
@@ -91,6 +124,11 @@ def build_lineage_envelope(
     if min(producer_run_id, closure_artifact_id, materialization_artifact_id) <= 0:
         raise RuntimeError("PRODUCER_ARTIFACT_AUTHORITY_INCOMPLETE")
 
+    source_last_modified = str(
+        gate.get("current_source_last_modified")
+        or gate.get("prior_source_last_modified")
+        or ""
+    ).strip()
     envelope: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "gate": GATE,
@@ -104,13 +142,11 @@ def build_lineage_envelope(
         "producer_materialization_sha256": _require_sha256(
             producer_materialization_sha256, "PRODUCER_MATERIALIZATION_SHA256"
         ),
-        "generation_key": _require_sha256(
-            gate.get("generation_key"), "GENERATION_KEY"
-        ),
+        "generation_key": _require_sha256(gate.get("generation_key"), "GENERATION_KEY"),
         "source_archive_sha256": _require_sha256(
             gate.get("source_archive_sha256"), "SOURCE_ARCHIVE_SHA256"
         ),
-        "source_last_modified": str(gate.get("prior_source_last_modified") or ""),
+        "source_last_modified": source_last_modified,
         "stage_tool_sha256": _require_sha256(
             gate.get("stage_tool_sha256"), "STAGE_TOOL_SHA256"
         ),
@@ -124,8 +160,6 @@ def build_lineage_envelope(
         "responsible_person_payload_emitted": False,
         "mobile_per_invoice_network_lookup": False,
     }
-    if not envelope["source_last_modified"]:
-        raise RuntimeError("SOURCE_LAST_MODIFIED_MISSING")
     envelope["lineage_envelope_sha256"] = _sha256_bytes(_canonical_bytes(envelope))
     return envelope
 
@@ -138,8 +172,7 @@ def validate_lineage_envelope(
     )
     payload = dict(envelope)
     payload.pop("lineage_envelope_sha256", None)
-    actual = _sha256_bytes(_canonical_bytes(payload))
-    if actual != supplied:
+    if _sha256_bytes(_canonical_bytes(payload)) != supplied:
         raise RuntimeError("LINEAGE_ENVELOPE_SHA_MISMATCH")
     if envelope.get("gate") != GATE:
         raise RuntimeError("LINEAGE_ENVELOPE_GATE_MISMATCH")
@@ -167,19 +200,20 @@ def validate_lineage_envelope(
 
 
 def _fixture_gate(consumer_head: str, producer_head: str) -> dict[str, object]:
-    return {
+    gate: dict[str, object] = {
         "schema_version": 1,
-        "gate": "P4.20.3-full-residual-generation-gate",
+        "gate": GENERATION_GATE,
+        "policy_version": "p4.20.3-full-residual-generation-v1",
         "current_head": consumer_head,
         "prior_success_head": producer_head,
         "prior_success_run_id": 41,
         "prior_closure_artifact_id": 1001,
         "prior_materialization_artifact_id": 1002,
         "prior_source_last_modified": "Sun, 06 Sep 2026 21:13:30 GMT",
+        "current_source_last_modified": "Sun, 06 Sep 2026 21:13:30 GMT",
         "source_archive_sha256": "1" * 64,
         "stage_tool_sha256": "2" * 64,
         "acquisition_tool_sha256": "3" * 64,
-        "generation_key": "4" * 64,
         "run_expensive": False,
         "generation_artifact_reuse": True,
         "reasons": ["SAME_GENERATION_REUSE_APPROVED"],
@@ -187,6 +221,8 @@ def _fixture_gate(consumer_head: str, producer_head: str) -> dict[str, object]:
         "responsible_person_payload_emitted": False,
         "mobile_per_invoice_network_lookup": False,
     }
+    gate["generation_key"] = _expected_generation_key(gate)
+    return gate
 
 
 def self_test() -> None:
@@ -208,7 +244,6 @@ def self_test() -> None:
         assert envelope["consumer_exact_head"] == consumer
         validate_lineage_envelope(envelope, consumer_exact_head=consumer)
 
-        # Consumer rebinding without same-head generation-gate evidence must fail.
         try:
             build_lineage_envelope(
                 consumer_exact_head="c" * 40,
@@ -220,19 +255,23 @@ def self_test() -> None:
         except RuntimeError as exc:
             assert str(exc) == "GENERATION_GATE_CONSUMER_HEAD_MISMATCH"
 
-        # Source/generation authority mutation changes the gate digest and cannot
-        # preserve an already-issued envelope.
-        gate["source_archive_sha256"] = "7" * 64
-        gate_path.write_bytes(_canonical_bytes(gate))
-        mutated = build_lineage_envelope(
-            consumer_exact_head=consumer,
-            generation_gate_path=gate_path,
-            producer_closure_sha256="5" * 64,
-            producer_materialization_sha256="6" * 64,
-        )
-        assert mutated["generation_gate_sha256"] != envelope["generation_gate_sha256"]
+        # Source mutation with stale generation key must fail-stop, rather than
+        # merely issuing a new envelope around internally inconsistent evidence.
+        bad_gate = dict(gate)
+        bad_gate["source_archive_sha256"] = "7" * 64
+        gate_path.write_bytes(_canonical_bytes(bad_gate))
+        try:
+            build_lineage_envelope(
+                consumer_exact_head=consumer,
+                generation_gate_path=gate_path,
+                producer_closure_sha256="5" * 64,
+                producer_materialization_sha256="6" * 64,
+            )
+            raise AssertionError("EXPECTED_GENERATION_KEY_HOLD")
+        except RuntimeError as exc:
+            assert str(exc) == "GENERATION_GATE_GENERATION_KEY_MISMATCH"
 
-        # Producer evidence mutation with stale envelope self-hash must fail.
+        gate_path.write_bytes(_canonical_bytes(gate))
         bad = dict(envelope)
         bad["producer_closure_sha256"] = "8" * 64
         try:
@@ -241,7 +280,6 @@ def self_test() -> None:
         except RuntimeError as exc:
             assert str(exc) == "LINEAGE_ENVELOPE_SHA_MISMATCH"
 
-        # Envelope is explicitly dual-lineage; consumer lineage is mandatory.
         bad = dict(envelope)
         bad.pop("consumer_exact_head")
         payload = dict(bad)
@@ -288,7 +326,10 @@ def main() -> int:
     validate_lineage_envelope(envelope, consumer_exact_head=args.consumer_exact_head)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(_canonical_bytes(envelope) + b"\n")
-    print(f"P4_20_3_GENERATION_LINEAGE_ENVELOPE_SHA256={envelope['lineage_envelope_sha256']}")
+    print(
+        f"P4_20_3_GENERATION_LINEAGE_ENVELOPE_SHA256="
+        f"{envelope['lineage_envelope_sha256']}"
+    )
     print("P4_20_3_GENERATION_LINEAGE_ENVELOPE=PASS")
     return 0
 
