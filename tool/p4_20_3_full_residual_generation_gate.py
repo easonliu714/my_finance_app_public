@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""P4.20.3 full-residual generation reuse gate.
+"""P4.20.3 full-residual generation reuse and paid-acquisition gate.
 
-This module decides whether a PR-head change needs another expensive GCIS
-full-residual acquisition or can reuse the latest successful generation
-authority.  It intentionally does not inspect merchant names or emit
-responsible-person data.
+This module separates generation-change eligibility from paid acquisition
+authorization.  A new FIA source generation or acquisition-semantic change may
+require a new generation, but the expensive GCIS run is authorized only when
+the exact PR-head also changes the explicit governed acquisition request.
+It intentionally does not inspect merchant names or emit responsible-person
+data.
 """
 from __future__ import annotations
 
@@ -14,9 +16,9 @@ import json
 from pathlib import Path
 from typing import Iterable
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 GATE = "P4.20.3-full-residual-generation-gate"
-POLICY_VERSION = "p4.20.3-full-residual-generation-v1"
+POLICY_VERSION = "p4.20.3-full-residual-generation-v2-request-authorized"
 
 SEMANTIC_INPUTS = {
     "tool/p4_20_3_stage_fia_registry.py",
@@ -52,9 +54,9 @@ def decide(
     semantic_changed = sorted(set(changed) & SEMANTIC_INPUTS)
     explicit_request = EXPLICIT_REQUEST in changed
     source_probe_available = bool(current_source_last_modified.strip())
-    source_changed = (
-        not source_probe_available
-        or current_source_last_modified.strip() != prior_source_last_modified.strip()
+    source_changed = bool(
+        source_probe_available
+        and current_source_last_modified.strip() != prior_source_last_modified.strip()
     )
     prior_authority_available = bool(
         prior_success_head
@@ -65,6 +67,28 @@ def decide(
         and prior_source_last_modified
         and len(prior_source_archive_sha256) == 64
     )
+
+    # A paid generation is eligible only for a real generation/semantic change
+    # (or first bootstrap with no prior authority).  Merely touching the request
+    # file on the same generation must never cause another full acquisition.
+    generation_change_eligible = bool(
+        not prior_authority_available or source_changed or semantic_changed
+    )
+    acquisition_request_required = bool(generation_change_eligible)
+    acquisition_request_authorized = bool(
+        explicit_request and generation_change_eligible and source_probe_available
+    )
+
+    # Reuse is allowed only when the prior authority exists and both source and
+    # semantic inputs are unchanged.  Unknown source state fails closed: neither
+    # reuse nor paid acquisition is authorized.
+    generation_artifact_reuse = bool(
+        prior_authority_available
+        and source_probe_available
+        and not source_changed
+        and not semantic_changed
+    )
+    run_expensive = acquisition_request_authorized
 
     reasons: list[str] = []
     if not prior_authority_available:
@@ -77,8 +101,15 @@ def decide(
         reasons.append("ACQUISITION_SEMANTICS_CHANGED")
     if explicit_request:
         reasons.append("EXPLICIT_FULL_ACQUISITION_REQUEST")
+    if generation_change_eligible and not explicit_request:
+        reasons.append("FULL_ACQUISITION_REQUEST_REQUIRED")
+    if explicit_request and not generation_change_eligible:
+        reasons.append("FULL_ACQUISITION_REQUEST_REJECTED_SAME_GENERATION")
+    if explicit_request and generation_change_eligible and not source_probe_available:
+        reasons.append("FULL_ACQUISITION_REQUEST_BLOCKED_SOURCE_PROBE_UNAVAILABLE")
+    if generation_artifact_reuse and not reasons:
+        reasons.append("SAME_GENERATION_REUSE_APPROVED")
 
-    run_expensive = bool(reasons)
     stage_sha = _sha256_file(stage_tool)
     acquisition_sha = _sha256_file(acquisition_tool)
     generation_basis = {
@@ -117,15 +148,18 @@ def decide(
         "source_generation_changed": source_changed,
         "semantic_changed_files": semantic_changed,
         "explicit_request_changed": explicit_request,
+        "generation_change_eligible": generation_change_eligible,
+        "acquisition_request_required": acquisition_request_required,
+        "acquisition_request_authorized": acquisition_request_authorized,
         "changed_files": changed,
         "stage_tool_sha256": stage_sha,
         "acquisition_tool_sha256": acquisition_sha,
         "generation_key": generation_key,
         "run_expensive": run_expensive,
-        "generation_artifact_reuse": not run_expensive,
-        "reasons": reasons if reasons else ["SAME_GENERATION_REUSE_APPROVED"],
+        "generation_artifact_reuse": generation_artifact_reuse,
+        "reasons": reasons,
         "estimated_linux_minutes_avoided": (
-            0 if run_expensive else ESTIMATED_FULL_RUN_LINUX_MINUTES
+            ESTIMATED_FULL_RUN_LINUX_MINUTES if generation_artifact_reuse else 0
         ),
         "validation_subset": False,
         "responsible_person_payload_emitted": False,
@@ -159,6 +193,7 @@ def _self_test() -> None:
         assert downstream["run_expensive"] is False
         assert downstream["generation_artifact_reuse"] is True
         assert downstream["estimated_linux_minutes_avoided"] == 1250
+        assert downstream["acquisition_request_required"] is False
 
         workflow_only = decide(
             changed_files=[
@@ -167,35 +202,75 @@ def _self_test() -> None:
             **common,
         )
         assert workflow_only["run_expensive"] is False
+        assert workflow_only["generation_artifact_reuse"] is True
 
-        source_change = decide(
+        # Source transition without the governed request must HOLD: it may not
+        # reuse the old generation and may not start paid acquisition.
+        source_change_hold = decide(
             changed_files=["lib/example.dart"],
             **{
                 **common,
-                "current_source_last_modified": "Mon, 07 Sep 2026 21:13:30 GMT",
+                "current_source_last_modified": "Mon, 07 Sep 2026 21:11:35 GMT",
             },
         )
-        assert source_change["run_expensive"] is True
-        assert "SOURCE_GENERATION_CHANGED" in source_change["reasons"]
+        assert source_change_hold["run_expensive"] is False
+        assert source_change_hold["generation_artifact_reuse"] is False
+        assert source_change_hold["generation_change_eligible"] is True
+        assert source_change_hold["acquisition_request_required"] is True
+        assert source_change_hold["acquisition_request_authorized"] is False
+        assert "SOURCE_GENERATION_CHANGED" in source_change_hold["reasons"]
+        assert "FULL_ACQUISITION_REQUEST_REQUIRED" in source_change_hold["reasons"]
 
-        semantic = decide(
+        # The same source transition plus the exact governed request authorizes
+        # exactly one expensive generation on that head.
+        source_change_authorized = decide(
+            changed_files=[EXPLICIT_REQUEST],
+            **{
+                **common,
+                "current_source_last_modified": "Mon, 07 Sep 2026 21:11:35 GMT",
+            },
+        )
+        assert source_change_authorized["run_expensive"] is True
+        assert source_change_authorized["generation_artifact_reuse"] is False
+        assert source_change_authorized["acquisition_request_authorized"] is True
+
+        semantic_hold = decide(
             changed_files=["tool/p4_20_3_stage_fia_registry.py"],
             **common,
         )
-        assert semantic["run_expensive"] is True
-        assert semantic["semantic_changed_files"] == [
+        assert semantic_hold["run_expensive"] is False
+        assert semantic_hold["generation_artifact_reuse"] is False
+        assert semantic_hold["semantic_changed_files"] == [
             "tool/p4_20_3_stage_fia_registry.py"
         ]
+        assert semantic_hold["acquisition_request_required"] is True
 
-        explicit = decide(changed_files=[EXPLICIT_REQUEST], **common)
-        assert explicit["run_expensive"] is True
-        assert explicit["explicit_request_changed"] is True
+        semantic_authorized = decide(
+            changed_files=[
+                "tool/p4_20_3_stage_fia_registry.py",
+                EXPLICIT_REQUEST,
+            ],
+            **common,
+        )
+        assert semantic_authorized["run_expensive"] is True
+        assert semantic_authorized["acquisition_request_authorized"] is True
+
+        # A request by itself on an unchanged generation is rejected and the
+        # existing generation remains reusable.
+        stale_request = decide(changed_files=[EXPLICIT_REQUEST], **common)
+        assert stale_request["run_expensive"] is False
+        assert stale_request["generation_artifact_reuse"] is True
+        assert stale_request["acquisition_request_authorized"] is False
+        assert "FULL_ACQUISITION_REQUEST_REJECTED_SAME_GENERATION" in stale_request["reasons"]
 
         missing_probe = decide(
-            changed_files=["docs/readme.md"],
+            changed_files=[EXPLICIT_REQUEST],
             **{**common, "current_source_last_modified": ""},
         )
-        assert missing_probe["run_expensive"] is True
+        assert missing_probe["run_expensive"] is False
+        assert missing_probe["generation_artifact_reuse"] is False
+        assert missing_probe["acquisition_request_authorized"] is False
+        assert "FULL_ACQUISITION_REQUEST_BLOCKED_SOURCE_PROBE_UNAVAILABLE" in missing_probe["reasons"]
 
     print("P4_20_3_FULL_RESIDUAL_GENERATION_GATE_SELF_TEST=PASS")
 
