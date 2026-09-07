@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: p4-20-3-gcis-full-residual-${{ github.event.pull_request.number }}
+  group: p4-20-3-gcis-full-residual-generation-v2-${{ github.event.pull_request.number }}
   # Never cancel an already-paid full acquisition because a later PR-head
   # commit may be a downstream-only change that the generation gate will skip.
   cancel-in-progress: false
