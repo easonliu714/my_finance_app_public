@@ -1,0 +1,266 @@
+name: P4.20.3 Delta Authority Plan Canary
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_build_prior_authority_index.py'
+      - 'tool/p4_20_3_delta_authority_resolution_plan.py'
+      - '.github/workflows/p4_20_3_delta_authority_plan_canary.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_BRANCH: p4-20-3-nationwide-official-registry
+  EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  real-delta-plan:
+    name: Real same-generation delta authority evidence
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Exact-head and focused self-test gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD"
+          python3 -m py_compile \
+            tool/p4_20_3_build_prior_authority_index.py \
+            tool/p4_20_3_delta_authority_resolution_plan.py
+          python3 tool/p4_20_3_build_prior_authority_index.py --self-test
+          python3 tool/p4_20_3_delta_authority_resolution_plan.py --self-test
+
+      - name: Resolve exact-head reuse authority and frozen producer materialization
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_delta_authority"
+          mkdir -p "$root/reuse" "$root/producer"
+
+          reuse_name="p4-20-3-full-residual-reuse-authority-$EXACT_HEAD"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$reuse_name&per_page=100" \
+            -o "$root/reuse_artifacts.json"
+
+          mapfile -t reuse_ids < <(jq -r --arg head "$EXACT_HEAD" '.artifacts[] | select(.expired == false and .workflow_run.head_sha == $head) | .id' "$root/reuse_artifacts.json")
+          test "${#reuse_ids[@]}" -eq 1
+          reuse_id="${reuse_ids[0]}"
+          reuse_digest="$(jq -r --argjson id "$reuse_id" '.artifacts[] | select(.id == $id) | .digest' "$root/reuse_artifacts.json")"
+          test "${reuse_digest#sha256:}" != "$reuse_digest"
+
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$reuse_id/zip" \
+            -o "$root/reuse.zip"
+          unzip -q "$root/reuse.zip" -d "$root/reuse"
+          test -f "$root/reuse/authority.json"
+
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_delta_authority'
+          authority=json.loads((root/'reuse'/'authority.json').read_text(encoding='utf-8'))
+          assert authority['exact_head']==os.environ['EXACT_HEAD'], authority
+          assert authority['expensive_full_run_triggered'] is False, authority
+          assert authority['generation_artifact_reuse'] is True, authority
+          assert authority['estimated_linux_minutes_avoided']==1250, authority
+          assert authority['validation_subset'] is False, authority
+          assert authority['responsible_person_payload_emitted'] is False, authority
+          assert authority['mobile_per_invoice_network_lookup'] is False, authority
+          assert len(authority['producer_head'])==40, authority
+          assert int(authority['producer_run_id'])>0, authority
+          assert int(authority['materialization_artifact_id'])>0, authority
+          assert len(authority['source_archive_sha256'])==64, authority
+          print('P4_20_3_DELTA_REUSE_AUTHORITY=PASS')
+          PY
+
+          producer_materialization_id="$(jq -r '.materialization_artifact_id' "$root/reuse/authority.json")"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$producer_materialization_id/zip" \
+            -o "$root/producer.zip"
+          unzip -q "$root/producer.zip" -d "$root/producer"
+          test -f "$root/producer/bridge/hold.ndjson"
+          test -f "$root/producer/bridge/bridge_manifest.json"
+          test -f "$root/producer/package/enriched_entities.ndjson.gz"
+          test -f "$root/producer/package/reconciliation_manifest.json"
+
+          echo "$reuse_id" > "$root/reuse_artifact_id.txt"
+          echo "$reuse_digest" > "$root/reuse_artifact_digest.txt"
+
+      - name: Verify frozen producer authority queue and build real delta plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_delta_authority"
+          mkdir -p "$root/prior" "$root/delta"
+
+          python3 - <<'PY'
+          import hashlib, json, os
+          from email.utils import parsedate_to_datetime
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_delta_authority'
+          reuse=json.loads((root/'reuse'/'authority.json').read_text(encoding='utf-8'))
+          bridge=json.loads((root/'producer'/'bridge'/'bridge_manifest.json').read_text(encoding='utf-8'))
+          package=json.loads((root/'producer'/'package'/'reconciliation_manifest.json').read_text(encoding='utf-8'))
+          hold=root/'producer'/'bridge'/'hold.ndjson'
+          payload=hold.read_bytes()
+          digest=hashlib.sha256(payload).hexdigest()
+          assert bridge['validation_subset'] is False, bridge
+          assert bridge['responsible_person_payload_emitted'] is False, bridge
+          assert bridge['mobile_per_invoice_network_lookup'] is False, bridge
+          assert bridge['published_authority_queue_path']=='bridge/hold.ndjson', bridge
+          assert digest==bridge['hold_payload_sha256']==bridge['authority_required_payload_sha256'], bridge
+          rows=[json.loads(x) for x in payload.decode('utf-8').splitlines() if x.strip()]
+          assert len(rows)==bridge['authority_required_seller_count'], bridge
+          sellers=[str(r['seller_identifier']) for r in rows]
+          assert sellers==sorted(sellers), 'AUTHORITY_QUEUE_NOT_SORTED'
+          assert len(sellers)==len(set(sellers)), 'AUTHORITY_QUEUE_DUPLICATE_SELLER'
+          assert package['validation_subset'] is False, package
+          assert package['responsible_person_payload_emitted'] is False, package
+          assert package['normal_invoice_per_record_network_lookup'] is False, package
+          observed=parsedate_to_datetime(reuse['source_last_modified']).astimezone().astimezone(__import__('datetime').timezone.utc)
+          iso=observed.isoformat().replace('+00:00','Z')
+          (root/'observed_at.txt').write_text(iso+'\n',encoding='utf-8')
+          print('P4_20_3_DELTA_PRODUCER_QUEUE_AUTHORITY=PASS')
+          print('P4_20_3_DELTA_AUTHORITY_QUEUE_COUNT='+str(len(rows)))
+          print('P4_20_3_DELTA_AUTHORITY_QUEUE_SHA256='+digest)
+          PY
+
+          observed_at="$(tr -d '\r\n' < "$root/observed_at.txt")"
+          python3 tool/p4_20_3_build_prior_authority_index.py \
+            "$root/producer/bridge/hold.ndjson" \
+            "$root/producer/package/enriched_entities.ndjson.gz" \
+            "$root/prior" \
+            --observed-at "$observed_at"
+
+          python3 tool/p4_20_3_delta_authority_resolution_plan.py \
+            "$root/producer/bridge/hold.ndjson" \
+            "$root/prior/prior_authority_index.ndjson" \
+            "$root/delta" \
+            --as-of "$observed_at"
+
+      - name: Fail-closed real delta evidence audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_delta_authority'
+          reuse=json.loads((root/'reuse'/'authority.json').read_text(encoding='utf-8'))
+          bridge=json.loads((root/'producer'/'bridge'/'bridge_manifest.json').read_text(encoding='utf-8'))
+          prior=json.loads((root/'prior'/'prior_authority_index_manifest.json').read_text(encoding='utf-8'))
+          delta=json.loads((root/'delta'/'delta_authority_manifest.json').read_text(encoding='utf-8'))
+          reuse_id=int((root/'reuse_artifact_id.txt').read_text().strip())
+          reuse_digest=(root/'reuse_artifact_digest.txt').read_text().strip()
+          count=int(bridge['authority_required_seller_count'])
+          expected={
+              'REUSE_TERMINAL':0,
+              'NEW':0,
+              'CHANGED':0,
+              'MISSING_AUTHORITY':count,
+              'EXPIRED':0,
+          }
+          assert prior['authority_queue_seller_count']==count, prior
+          assert prior['terminal_overlap_seller_count']==0, prior
+          assert prior['missing_authority_seller_count']==count, prior
+          assert prior['unchanged_missing_authority_queryable'] is False, prior
+          assert delta['current_seller_count']==count, delta
+          assert delta['prior_authority_count']==count, delta
+          assert delta['classification_counts']==expected, delta
+          assert delta['queryable_classes']==['CHANGED','EXPIRED','NEW'], delta
+          assert delta['query_delta_seller_count']==0, delta
+          assert delta['query_delta_payload_sha256']==hashlib.sha256(b'').hexdigest(), delta
+          assert delta['validation_subset'] is False, delta
+          assert delta['responsible_person_payload_emitted'] is False, delta
+          assert delta['mobile_per_invoice_network_lookup'] is False, delta
+          evidence={
+              'schema_version':1,
+              'gate':'P4.20.3-D-real-delta-authority-plan',
+              'consumer_exact_head':os.environ['EXACT_HEAD'],
+              'producer_head':reuse['producer_head'],
+              'producer_run_id':reuse['producer_run_id'],
+              'producer_materialization_artifact_id':reuse['materialization_artifact_id'],
+              'reuse_authority_artifact_id':reuse_id,
+              'reuse_authority_artifact_digest':reuse_digest,
+              'source_last_modified':reuse['source_last_modified'],
+              'source_archive_sha256':reuse['source_archive_sha256'],
+              'expensive_full_run_triggered':False,
+              'generation_artifact_reuse':True,
+              'estimated_linux_minutes_avoided':1250,
+              'authority_queue_seller_count':count,
+              'authority_queue_sha256':bridge['hold_payload_sha256'],
+              'prior_authority_index_sha256':prior['prior_authority_index_sha256'],
+              'classification_counts':expected,
+              'query_delta_seller_count':0,
+              'query_delta_payload_sha256':delta['query_delta_payload_sha256'],
+              'paid_gcis_query_authorized':False,
+              'missing_authority_retry_policy':delta['missing_authority_retry_policy'],
+              'full_revalidation_policy':delta['full_revalidation_policy'],
+              'validation_subset':False,
+              'responsible_person_payload_emitted':False,
+              'mobile_per_invoice_network_lookup':False,
+          }
+          canonical=json.dumps(evidence,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()
+          evidence['evidence_sha256']=hashlib.sha256(canonical).hexdigest()
+          (root/'real_delta_plan_evidence.json').write_text(json.dumps(evidence,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_REAL_DELTA_PLAN=PASS')
+          print('REUSE_TERMINAL=0')
+          print('NEW=0')
+          print('CHANGED=0')
+          print('MISSING_AUTHORITY='+str(count))
+          print('EXPIRED=0')
+          print('QUERY_DELTA_SELLER_COUNT=0')
+          print('PAID_GCIS_QUERY_AUTHORIZED=false')
+          print(json.dumps(evidence,ensure_ascii=False,sort_keys=True))
+          PY
+
+      - name: Upload exact-head real delta-plan evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-real-delta-authority-plan-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_delta_authority/real_delta_plan_evidence.json
+            ${{ runner.temp }}/p4_20_3_delta_authority/prior/prior_authority_index_manifest.json
+            ${{ runner.temp }}/p4_20_3_delta_authority/prior/prior_authority_index.ndjson
+            ${{ runner.temp }}/p4_20_3_delta_authority/delta/delta_authority_manifest.json
+            ${{ runner.temp }}/p4_20_3_delta_authority/delta/query_delta.ndjson
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: No-acquisition boundary audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          paths=[
+              Path('tool/p4_20_3_build_prior_authority_index.py'),
+              Path('tool/p4_20_3_delta_authority_resolution_plan.py'),
+          ]
+          forbidden=('eip.fia.gov.tw','gcis.nat.gov.tw','--qps','acquire_gcis_registration_type','acquire_gcis_branch_parent')
+          for path in paths:
+              text=path.read_text(encoding='utf-8').lower()
+              assert not any(token in text for token in forbidden), f'DELTA_PLAN_MUST_NOT_ACQUIRE:{path}'
+          print('P4_20_3_DELTA_PLAN_NO_ACQUISITION=PASS')
+          PY
