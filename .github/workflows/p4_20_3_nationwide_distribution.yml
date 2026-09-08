@@ -16,7 +16,7 @@ on:
       - '.github/workflows/p4_20_3_nationwide_distribution.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: p4-20-3-nationwide-distribution-${{ github.event.pull_request.number }}
@@ -205,3 +205,55 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+      - name: Publish production registry update endpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: p4.20.3-registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "$root/manifest.json" \
+              "$root/nationwide_registry.ndjson.gz" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "$root/manifest.json" \
+              "$root/nationwide_registry.ndjson.gz" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$EXACT_HEAD" \
+              --title 'P4.20.3 Nationwide Official Registry' \
+              --notes 'Owner-governed FIA nationwide optional local registry update endpoint. PR remains Merge Authority HOLD.' \
+              --prerelease
+          fi
+
+      - name: Verify published production registry endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          base='https://github.com/easonliu714/my_finance_app_public/releases/download/p4.20.3-registry'
+          curl --fail --location --retry 5 --retry-delay 2 \
+            "$base/manifest.json" -o "$root/published_manifest.json"
+          curl --fail --location --retry 5 --retry-delay 2 \
+            "$base/nationwide_registry.ndjson.gz" -o "$root/published_registry.ndjson.gz"
+          ROOT="$root" python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ['ROOT'])
+          expected=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
+          published=json.loads((root/'published_manifest.json').read_text(encoding='utf-8'))
+          assert published == expected
+          payload=root/'published_registry.ndjson.gz'
+          assert payload.stat().st_size == int(expected['compressed_size_bytes'])
+          sha=hashlib.sha256(payload.read_bytes()).hexdigest()
+          assert sha == expected['download_sha256'] == expected['artifact_sha256']
+          assert expected['download_url'] == 'https://github.com/easonliu714/my_finance_app_public/releases/download/p4.20.3-registry/nationwide_registry.ndjson.gz'
+          assert expected['final_mobile_registry'] is True
+          print('P4_20_3_PRODUCTION_MANIFEST_ENDPOINT=PASS')
+          print('P4_20_3_PRODUCTION_DOWNLOAD_ENDPOINT=PASS')
+          print(f'P4_20_3_PRODUCTION_DOWNLOAD_SHA256={sha}')
+          PY
