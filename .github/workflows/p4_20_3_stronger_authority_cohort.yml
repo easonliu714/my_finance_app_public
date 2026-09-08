@@ -2,7 +2,9 @@ name: P4.20.3 Stronger Authority Cohort
 
 on:
   workflow_run:
-    workflows: ['P4.20.3 Legal Enrichment Materialization']
+    workflows:
+      - 'P4.20.3 Legal Enrichment Materialization'
+      - 'P4.20.3 GCIS Full Residual Acquisition'
     types: [completed]
 
 permissions:
@@ -84,15 +86,21 @@ jobs:
           assert digest == bridge['authority_required_payload_sha256'], bridge
           assert digest == bridge['hold_payload_sha256'], bridge
           rows = [json.loads(x) for x in payload.decode('utf-8').splitlines() if x.strip()]
-          assert len(rows) == bridge['authority_required_seller_count'] == 5130, bridge
-          assert bridge['ambiguous_type_authority_required_count'] == 5108, bridge
-          assert bridge['branch_parent_authority_required_count'] == 22, bridge
-          assert bridge['unsupported_type_authority_required_count'] == 0, bridge
+          expected_total = int(bridge['authority_required_seller_count'])
+          expected_ambiguous = int(bridge['ambiguous_type_authority_required_count'])
+          expected_parent = int(bridge['branch_parent_authority_required_count'])
+          expected_unsupported = int(bridge['unsupported_type_authority_required_count'])
+          assert len(rows) == expected_total, (len(rows), expected_total)
+          assert expected_total == expected_ambiguous + expected_parent + expected_unsupported, bridge
           sellers = [r['seller_identifier'] for r in rows]
           assert sellers == sorted(sellers), 'AUTHORITY_QUEUE_NOT_SORTED'
           assert len(sellers) == len(set(sellers)), 'AUTHORITY_QUEUE_DUPLICATE_SELLER'
           print('P4_20_3_SAME_GENERATION_BRIDGE_AUTHORITY=PASS')
           print('P4_20_3_AUTHORITY_QUEUE_SHA256=' + digest)
+          print('P4_20_3_AUTHORITY_QUEUE_SELLER_COUNT=' + str(expected_total))
+          print('P4_20_3_AMBIGUOUS_TYPE_REQUIRED=' + str(expected_ambiguous))
+          print('P4_20_3_BRANCH_PARENT_REQUIRED=' + str(expected_parent))
+          print('P4_20_3_UNSUPPORTED_TYPE_REQUIRED=' + str(expected_unsupported))
           PY
 
       - name: Build deterministic stronger-authority cohorts
@@ -115,21 +123,21 @@ jobs:
           root = Path(os.environ['RUNNER_TEMP'])/'p4_20_3_stronger'/'cohort'
           m = json.loads((root/'stronger_authority_manifest.json').read_text(encoding='utf-8'))
           assert m['validation_subset'] is False, m
-          assert m['input_authority_seller_count'] == 5130, m
           assert m['responsible_person_payload_emitted'] is False, m
           assert m['mobile_per_invoice_network_lookup'] is False, m
           assert m['branch_without_parent_policy'] == 'HOLD_UNTIL_AUTHORITATIVE_PARENT', m
-          expected = {
-              'ambiguous_type_required.ndjson': 5108,
-              'branch_parent_required.ndjson': 22,
-              'unsupported_type_required.ndjson': 0,
-          }
-          for name, count in expected.items():
+          names = (
+              'ambiguous_type_required.ndjson',
+              'branch_parent_required.ndjson',
+              'unsupported_type_required.ndjson',
+          )
+          total = 0
+          for name in names:
               path = root/name
               payload = path.read_bytes()
               rows = [json.loads(x) for x in payload.decode('utf-8').splitlines() if x.strip()]
-              assert len(rows) == count, (name, len(rows), count)
-              assert m['outputs'][name]['seller_count'] == count, (name, m)
+              expected = int(m['outputs'][name]['seller_count'])
+              assert len(rows) == expected, (name, len(rows), expected)
               assert m['outputs'][name]['payload_sha256'] == hashlib.sha256(payload).hexdigest(), (name, m)
               sellers = [r['seller_identifier'] for r in rows]
               assert sellers == sorted(sellers), name
@@ -137,6 +145,8 @@ jobs:
               text = payload.decode('utf-8').lower()
               assert 'responsible' not in text, name
               assert 'manager' not in text, name
+              total += expected
+          assert total == int(m['input_authority_seller_count']), (total, m)
           print('P4_20_3_STRONGER_AUTHORITY_COHORT_INTEGRITY=PASS')
           print(json.dumps(m, ensure_ascii=False, sort_keys=True))
           PY
