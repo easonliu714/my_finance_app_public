@@ -65,7 +65,12 @@ jobs:
           workflow = Path('.github/workflows/p4_20_3_nationwide_distribution.yml').read_text(encoding='utf-8').lower()
           stage = Path('tool/p4_20_3_stage_fia_registry.py').read_text(encoding='utf-8')
           canonical = Path('tool/p4_20_3_build_canonical_registry.py').read_text(encoding='utf-8')
-          for forbidden in ('gcis.nat.gov.tw', '--qps', 'p4_20_3_acquire_gcis_'):
+          forbidden_tokens = (
+              'gcis' + '.nat.gov.tw',
+              '--' + 'qps',
+              'p4_20_3_' + 'acquire_gcis_',
+          )
+          for forbidden in forbidden_tokens:
               assert forbidden not in workflow, f'PAID_ACQUISITION_SURFACE_FORBIDDEN={forbidden}'
           assert 'entity_type = "unknown"' in stage
           assert 'gcis_enrichment_required_for_release": False' in stage
