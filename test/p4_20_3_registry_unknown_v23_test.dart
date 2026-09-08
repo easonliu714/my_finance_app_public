@@ -74,6 +74,36 @@ void main() {
     expect(await db.query('business_registry_entities'), isEmpty);
   });
 
+  test('concurrent first-use V23 activation is serialized and idempotent',
+      () async {
+    final db = await databaseFactoryFfi.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    addTearDown(db.close);
+    await createCanonicalProductionV22Tables(db);
+
+    await Future.wait(<Future<void>>[
+      v23.createCanonicalProductionV23Tables(db),
+      v23.createCanonicalProductionV23Tables(db),
+      v23.createCanonicalProductionV23Tables(db),
+    ]);
+
+    final schema = await db.rawQuery(
+      'SELECT sql FROM sqlite_master '
+      "WHERE type = 'table' AND name = 'business_registry_entities'",
+    );
+    expect(schema, hasLength(1));
+    expect(schema.single['sql']?.toString(), contains("'unknown'"));
+
+    await v23.createCanonicalProductionV23Tables(db);
+    final after = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM sqlite_master '
+      "WHERE type = 'table' AND name = 'business_registry_entities'",
+    );
+    expect(after.single['count'], 1);
+  });
+
   test('registry wire model round-trips unknown without subtype promotion', () {
     const entity = BusinessRegistryEntity(
       sellerIdentifier: '33333333',

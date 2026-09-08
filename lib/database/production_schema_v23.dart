@@ -4,9 +4,35 @@ import 'production_schema_v22.dart' show createCanonicalProductionV22Tables;
 
 const int canonicalProductionSchemaVersion = 23;
 
+/// Schema activation can be reached concurrently by multiple local lookups.
+/// Serialize activation per DatabaseExecutor so two first-use callers cannot
+/// both observe the V22 table and race the ALTER TABLE migration.
+final Expando<Future<void>> _v23ActivationByExecutor =
+    Expando<Future<void>>('canonical-production-v23-activation');
+
 /// Expands only the replaceable official-registry cache taxonomy.
 /// User-owned merchant identity tables remain unchanged.
 Future<void> createCanonicalProductionV23Tables(DatabaseExecutor db) async {
+  final inFlight = _v23ActivationByExecutor[db];
+  if (inFlight != null) {
+    await inFlight;
+    return;
+  }
+
+  final activation = _activateCanonicalProductionV23Tables(db);
+  _v23ActivationByExecutor[db] = activation;
+  try {
+    await activation;
+  } catch (_) {
+    // Allow a later caller to retry if activation failed before completion.
+    _v23ActivationByExecutor[db] = null;
+    rethrow;
+  }
+}
+
+Future<void> _activateCanonicalProductionV23Tables(
+  DatabaseExecutor db,
+) async {
   await createCanonicalProductionV22Tables(db);
   await upgradeBusinessRegistryEntityTypeToV23(db);
 }

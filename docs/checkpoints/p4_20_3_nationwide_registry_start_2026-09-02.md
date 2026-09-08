@@ -1,5 +1,11 @@
 # P4.20.3 Nationwide Official Registry — Start Checkpoint
 
+> **SUPERSEDED PRODUCT-DIRECTION NOTE (2026-09-08):**  
+> The original 2026-09-02 start plan below required GCIS legal subtype and parent-child closure as part of the main productization path. The owner has since approved a narrower consumer-accounting contract. The current authoritative product-direction document is:
+> `docs/p4_20_3_invoice_lookup_registry_product_contract_2026-09-08.md`.
+>
+> Current rule: FIA `seller_identifier + legal_name` is the nationwide invoice-lookup core. GCIS subtype/parent enrichment is optional metadata refinement and is **not** a P4.20.3 release prerequisite.
+
 ## Frozen ancestor
 
 - P4.20.2 package: `4.20.2+455`
@@ -9,29 +15,58 @@
 
 P4.20.3 branch starts from the exact owner-validated P4.20.2 commit. P4.20.4 Merchant Decision Composer remains locked until nationwide official data acquisition/install/lookup is closed.
 
-## P4.20.3 data architecture
+## Current P4.20.3 data architecture
 
-For invoice seller-ID nationwide coverage, the controlled build pipeline uses the Ministry of Finance / Fiscal Information Agency `全國營業(稅籍)登記資料集` as the replayable bulk coverage spine. It is a nationwide active-business dataset keyed by the same 8-digit seller identifier used on invoices and exposes head-office linkage.
+For consumer expense accounting, the official registry is an optional local corroboration dataset keyed by the same 8-digit seller identifier found on invoices.
 
-GCIS remains the legal-registration enrichment authority for:
+Current production path:
 
-- company registration;
-- business registration;
-- branch registration / parent-company linkage.
+```text
+MOF/FIA BGMOPEN1 nationwide bulk source
+→ bounded privacy-reduced staging
+→ every valid seller_identifier + legal_name
+→ optional subtype/parent metadata
+→ deterministic gzip NDJSON + manifest/SHA/provenance
+→ bounded transactional handset install / LKG
+→ local-only invoice seller lookup
+```
 
-Normal handset invoice recognition does not call FIA/GCIS directly. Official sources are acquired by the controlled build/distribution pipeline, privacy-reduced, normalized, hashed, packaged, and installed locally through the P4.20.1 bounded transactional update path.
+GCIS is no longer mandatory for release closure. It may refine legal subtype or parent information but must not trigger full per-seller auditing.
 
-## Privacy boundary
+## Merchant identity boundary
 
-Mobile registry projection excludes responsible-person / branch-manager names. User-owned MerchantBrand / identity history remains separate from replaceable official registry cache.
+Official registered name and consumer MerchantBrand are separate.
 
-## Next Gates
+Example:
 
-1. Acquire the real nationwide FIA bulk source and freeze source SHA / byte count / row count / acquisition timestamp.
-2. Deterministic streaming CSV decode and normalized coverage-spine staging.
-3. GCIS company/business/branch enrichment with bounded controlled-build requests and resumable evidence.
-4. Resolve duplicate/type/parent-child identity into canonical nationwide entities.
-5. Build deterministic gzip NDJSON + manifest + SHA + source date + attribution/license.
-6. Publish controlled production endpoint and install through existing bounded transactional updater.
-7. Verify seller IDs never previously bound in Merchant DB resolve purely from the nationwide registry.
-8. Canonical CI + signed release APK + owner real-device validation.
+```text
+31655572
+official: 富達零售股份有限公司晶技門市
+consumer MerchantBrand: OK Mart
+```
+
+Registry evidence must not silently replace `OK Mart` with the official registered name. This allows consumer-facing expense history to remain stable even when the operating legal entity changes.
+
+## Privacy and accounting boundary
+
+Responsible-person / branch-manager names are excluded from the mobile registry. User-owned MerchantBrand / identity history remains separate from replaceable official registry cache.
+
+Formal transaction boundary remains:
+
+```text
+reviewed invoice → TransactionEntrySeed → editable draft → explicit Save → formal transaction
+```
+
+## Current release-critical Gates
+
+1. FIA nationwide valid seller-identity pack and deterministic evidence.
+2. Canonical Flutter CI.
+3. Production distribution manifest/update endpoint.
+4. Optional bounded download / stream validation / V23 transactional install.
+5. LKG and no-registry fallback.
+6. Never-bound seller offline lookup.
+7. Invoice Review corroboration + MerchantBrand separation.
+8. P4.20.3 version/build + dedicated signed APK.
+9. Owner real-device validation.
+
+Legal subtype closure, GCIS full residual acquisition, and full branch-parent closure are not release blockers.
