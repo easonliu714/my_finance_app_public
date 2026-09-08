@@ -274,11 +274,26 @@ jobs:
           flutter build apk --debug
           --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB="$ENABLE_PRIVATE_CLOUD_INVOICE_LAB"
 
+      - name: Record debug APK SHA256
+        if: >-
+          ${{ steps.changes.outputs.run_heavy == 'true' &&
+              ((github.event_name == 'pull_request' && github.event.pull_request.number == 41) ||
+               (github.event_name == 'workflow_dispatch' && inputs.upload_debug_artifact == 'true')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum build/app/outputs/flutter-apk/app-debug.apk | tee app-debug.apk.sha256
+
       - name: Upload debug APK artifact
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_debug_artifact == 'true' }}
+        if: >-
+          ${{ steps.changes.outputs.run_heavy == 'true' &&
+              ((github.event_name == 'pull_request' && github.event.pull_request.number == 41) ||
+               (github.event_name == 'workflow_dispatch' && inputs.upload_debug_artifact == 'true')) }}
         uses: actions/upload-artifact@v4
         with:
-          name: my-finance-app-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: my-finance-app-debug-apk-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 1
