@@ -298,52 +298,7 @@ class BusinessRegistryRepository {
     String sellerIdentifier,
   ) async {
     final seller = sellerIdentifier.replaceAll(RegExp(r'[^0-9]'), '');
-    if (!RegExp(r'^\d{8}
-      '${pack.sourceAuthority}|${pack.coverage}|${pack.sourceDataset}';
-
-  BusinessRegistrySnapshotInfo _snapshotFromRow(Map<String, Object?> row) {
-    final encodedSource = row['source_dataset']?.toString() ?? '';
-    final parts = encodedSource.split('|');
-    final coverage = parts.length >= 3 ? parts[1] : '';
-    final sourceDataset = parts.length >= 3
-        ? parts.sublist(2).join('|')
-        : encodedSource;
-    return BusinessRegistrySnapshotInfo(
-      version: row['version']?.toString() ?? '',
-      sourceDataset: sourceDataset,
-      sourceDataDate: row['source_data_date']?.toString() ?? '',
-      contentSha256: row['content_sha256']?.toString() ?? '',
-      coverage: coverage,
-      installedAt: DateTime.tryParse(row['installed_at']?.toString() ?? ''),
-    );
-  }
-
-  BusinessRegistryEntity _entityFromRow(Map<String, Object?> row) {
-    final type = row['entity_type']?.toString() ?? '';
-    return BusinessRegistryEntity(
-      sellerIdentifier: row['seller_identifier']?.toString() ?? '',
-      entityType: BusinessRegistryEntityType.values.firstWhere(
-        (item) => item.name == type,
-      ),
-      legalName: row['legal_name']?.toString() ?? '',
-      registrationStatus: row['registration_status']?.toString() ?? '',
-      parentSellerIdentifier:
-          row['parent_seller_identifier']?.toString() ?? '',
-      sourceDataset: row['source_dataset']?.toString() ?? '',
-    );
-  }
-
-  Future<T> _runTransaction<T>(
-    DatabaseExecutor db,
-    Future<T> Function(DatabaseExecutor txn) action,
-  ) async {
-    if (db is Database) {
-      return db.transaction<T>((txn) => action(txn));
-    }
-    return action(db);
-  }
-}
-).hasMatch(seller)) {
+    if (!RegExp(r'^\d{8}$').hasMatch(seller)) {
       return const BusinessRegistryOfficialDetailLookupResult(
         status:
             BusinessRegistryOfficialDetailLookupStatus.invalidSellerIdentifier,
@@ -367,14 +322,14 @@ class BusinessRegistryRepository {
       limit: 1,
     );
     if (details.isNotEmpty) {
-      final decoded = jsonDecode(details.first['official_json']?.toString() ?? '');
+      final decoded =
+          jsonDecode(details.first['official_json']?.toString() ?? '');
       if (decoded is! Map) {
         throw const FormatException('REGISTRY_OFFICIAL_DETAIL_JSON_INVALID');
       }
       final fields = <String, String>{};
       for (final field in BusinessRegistryEntity.officialFieldOrder) {
-        final value = decoded[field];
-        fields[field] = value?.toString() ?? '';
+        fields[field] = decoded[field]?.toString() ?? '';
       }
       return BusinessRegistryOfficialDetailLookupResult(
         status: BusinessRegistryOfficialDetailLookupStatus.hit,

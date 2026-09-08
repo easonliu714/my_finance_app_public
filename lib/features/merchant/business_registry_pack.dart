@@ -208,55 +208,7 @@ class BusinessRegistryPack {
         errors.add('REGISTRY_ENTITY_SOURCE_REQUIRED');
       }
       if (entity.parentSellerIdentifier.isNotEmpty &&
-          !RegExp(r'^\d{8}
-          '${entity.sellerIdentifier}|${entity.entityType.name}';
-      if (!keys.add(key)) errors.add('REGISTRY_DUPLICATE_ENTITY_KEY');
-    }
-
-    final actualSha = await computeBusinessRegistryPayloadSha256(entities);
-    if (contentSha256.isNotEmpty && actualSha != contentSha256) {
-      errors.add('REGISTRY_SHA256_MISMATCH');
-    }
-    return BusinessRegistryPackValidation(
-      isValid: errors.isEmpty,
-      errors: List<String>.unmodifiable(errors.toSet()),
-      actualContentSha256: actualSha,
-    );
-  }
-}
-
-class BusinessRegistryPackValidation {
-  const BusinessRegistryPackValidation({
-    required this.isValid,
-    required this.errors,
-    required this.actualContentSha256,
-  });
-
-  final bool isValid;
-  final List<String> errors;
-  final String actualContentSha256;
-}
-
-Future<String> computeBusinessRegistryPayloadSha256(
-  Iterable<BusinessRegistryEntity> source,
-) async {
-  final entities = source.toList(growable: false)
-    ..sort((left, right) {
-      final seller = left.sellerIdentifier.compareTo(right.sellerIdentifier);
-      if (seller != 0) return seller;
-      final type = left.entityType.name.compareTo(right.entityType.name);
-      if (type != 0) return type;
-      return left.legalName.compareTo(right.legalName);
-    });
-  final canonicalJson = jsonEncode(
-    entities.map((item) => item.toCanonicalJson()).toList(growable: false),
-  );
-  final digest = await Sha256().hash(utf8.encode(canonicalJson));
-  return digest.bytes
-      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-      .join();
-}
-).hasMatch(entity.parentSellerIdentifier)) {
+          !RegExp(r'^\d{8}$').hasMatch(entity.parentSellerIdentifier)) {
         errors.add('REGISTRY_PARENT_IDENTIFIER_INVALID');
       }
       if (entity.officialFields.isNotEmpty) {
@@ -269,7 +221,8 @@ Future<String> computeBusinessRegistryPayloadSha256(
         final officialSeller =
             entity.officialFields['統一編號']?.replaceAll(RegExp(r'[^0-9]'), '') ??
                 '';
-        if (officialSeller.isNotEmpty && officialSeller != entity.sellerIdentifier) {
+        if (officialSeller.isNotEmpty &&
+            officialSeller != entity.sellerIdentifier) {
           errors.add('REGISTRY_OFFICIAL_DETAIL_SELLER_MISMATCH');
         }
         final officialName = entity.officialFields['營業人名稱']?.trim() ?? '';
