@@ -6,8 +6,13 @@ on:
     paths:
       - 'tool/p4_20_3_stage_fia_registry.py'
       - 'tool/p4_20_3_build_canonical_registry.py'
+      - 'tool/p4_20_3_materialize_distribution_stream.py'
       - 'lib/features/merchant/business_registry_pack.dart'
       - 'lib/features/merchant/business_registry_repository.dart'
+      - 'lib/features/merchant/business_registry_distribution_manifest.dart'
+      - 'lib/features/merchant/business_registry_stream_pack.dart'
+      - 'lib/features/merchant/business_registry_stream_validator.dart'
+      - 'lib/features/merchant/business_registry_transactional_stream_installer.dart'
       - '.github/workflows/p4_20_3_nationwide_distribution.yml'
 
 permissions:
@@ -52,7 +57,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile             tool/p4_20_3_stage_fia_registry.py             tool/p4_20_3_build_canonical_registry.py
+          python3 -m py_compile \
+            tool/p4_20_3_stage_fia_registry.py \
+            tool/p4_20_3_build_canonical_registry.py \
+            tool/p4_20_3_materialize_distribution_stream.py
           python3 tool/p4_20_3_stage_fia_registry.py --self-test
           python3 tool/p4_20_3_build_canonical_registry.py --self-test
 
@@ -65,23 +73,25 @@ jobs:
           workflow = Path('.github/workflows/p4_20_3_nationwide_distribution.yml').read_text(encoding='utf-8').lower()
           stage = Path('tool/p4_20_3_stage_fia_registry.py').read_text(encoding='utf-8')
           canonical = Path('tool/p4_20_3_build_canonical_registry.py').read_text(encoding='utf-8')
-          forbidden_tokens = (
-              'gcis' + '.nat.gov.tw',
-              '--' + 'qps',
-              'p4_20_3_' + 'acquire_gcis_',
-          )
+          materializer = Path('tool/p4_20_3_materialize_distribution_stream.py').read_text(encoding='utf-8')
+          forbidden_tokens = ('gcis' + '.nat.gov.tw', '--' + 'qps', 'p4_20_3_' + 'acquire_gcis_')
           for forbidden in forbidden_tokens:
               assert forbidden not in workflow, f'PAID_ACQUISITION_SURFACE_FORBIDDEN={forbidden}'
           assert 'entity_type = "unknown"' in stage
           assert 'gcis_enrichment_required_for_release": False' in stage
           assert 'BRANCH_PARENT_NOT_IN_CANONICAL_REGISTRY' not in canonical
           assert 'branch_parent_closure_required_for_release' in canonical
+          assert 'gzip_ndjson_v1' in materializer
+          assert '"record_type": "header"' in materializer
+          assert '"record_type": "entity"' in materializer
+          assert 'official_detail_16_field_count' in materializer
           print('P4_20_3_INVOICE_LOOKUP_SCOPE_CONTRACT=PASS')
           print('P4_20_3_NO_PAID_GCIS_DISTRIBUTION_DEPENDENCY=PASS')
+          print('P4_20_3_INSTALLABLE_STREAM_CONTRACT=PASS')
           PY
 
   real-fia-mobile-pack:
-    name: Materialize FIA valid-seller mobile registry
+    name: Materialize FIA valid-seller installable mobile registry
     needs: invoice-lookup-distribution-contract
     runs-on: ubuntu-22.04
     timeout-minutes: 45
@@ -98,7 +108,12 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/p4_20_3_fia_mobile"
           mkdir -p "$root"
-          curl             --fail --location --proto '=https' --tlsv1.2             --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 1200             --dump-header "$root/source_headers.txt"             --output "$root/BGMOPEN1.zip"             'https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          curl \
+            --fail --location --proto '=https' --tlsv1.2 \
+            --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
+            --dump-header "$root/source_headers.txt" \
+            --output "$root/BGMOPEN1.zip" \
+            'https://eip.fia.gov.tw/data/BGMOPEN1.zip'
           test "$(stat -c%s "$root/BGMOPEN1.zip")" -gt 0
 
       - name: Stage every valid official seller identity without legal-subtype blocking
@@ -106,7 +121,9 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/p4_20_3_fia_mobile"
-          python3 tool/p4_20_3_stage_fia_registry.py             "$root/BGMOPEN1.zip" "$root/staging"             --chunk-rows 50000 --min-rows 1000000
+          python3 tool/p4_20_3_stage_fia_registry.py \
+            "$root/BGMOPEN1.zip" "$root/staging" \
+            --chunk-rows 50000 --min-rows 1000000
           python3 - <<'PY'
           import json, os
           from pathlib import Path
@@ -132,86 +149,52 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/p4_20_3_fia_mobile"
           : > "$root/empty_enriched.ndjson"
-          python3 tool/p4_20_3_build_canonical_registry.py             "$root/staging/ready_entities.ndjson"             "$root/empty_enriched.ndjson"             "$root/nationwide_registry.ndjson"             "$root/canonical_summary.json"
+          python3 tool/p4_20_3_build_canonical_registry.py \
+            "$root/staging/ready_entities.ndjson" \
+            "$root/empty_enriched.ndjson" \
+            "$root/nationwide_registry.ndjson" \
+            "$root/canonical_summary.json"
 
-      - name: Materialize deterministic gzip and production-usable manifest
+      - name: Materialize gzip_ndjson_v1 installable stream and manifest
         shell: bash
         run: |
           set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          python3 tool/p4_20_3_materialize_distribution_stream.py "$root" --exact-head "$EXACT_HEAD"
+
+      - name: Audit installable stream header and manifest binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
           python3 - <<'PY'
           import gzip, hashlib, json, os
           from pathlib import Path
           root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_fia_mobile'
-          stage=json.loads((root/'staging'/'staging_summary.json').read_text(encoding='utf-8'))
-          canonical=json.loads((root/'canonical_summary.json').read_text(encoding='utf-8'))
-          raw=root/'nationwide_registry.ndjson'
+          manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
           gz=root/'nationwide_registry.ndjson.gz'
-          with raw.open('rb') as src, gz.open('wb') as sink:
-              with gzip.GzipFile(filename='',mode='wb',fileobj=sink,compresslevel=9,mtime=0) as dst:
-                  for chunk in iter(lambda:src.read(1024*1024),b''):
-                      dst.write(chunk)
-          sha=lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
-          last_modified=''
-          for line in (root/'source_headers.txt').read_text(errors='replace').splitlines():
-              if line.lower().startswith('last-modified:'):
-                  last_modified=line.split(':',1)[1].strip()
-          rows=int(stage['source_row_count'])
-          invalid=int(stage['source_invalid_row_count'])
-          valid=int(stage['source_valid_identity_count'])
-          emitted=int(canonical['canonical_entity_count'])
-          assert emitted == valid == rows-invalid
-          manifest={
-              'schema_version':2,
-              'gate':'P4.20.3-E-fia-invoice-lookup-mobile-registry',
-              'exact_head':os.environ['EXACT_HEAD'],
-              'source_authority':'MOF_FIA_ACTIVE_TAX_REGISTRY',
-              'source_dataset':'MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY',
-              'official_dataset_identifier':'data.gov.tw/dataset/9400',
-              'source_last_modified':last_modified,
-              'source_archive_sha256':stage['source_archive_sha256'],
-              'source_row_count':rows,
-              'source_invalid_row_count':invalid,
-              'source_valid_identity_count':valid,
-              'canonical_entity_count':emitted,
-              'company_count':canonical['company_count'],
-              'business_count':canonical['business_count'],
-              'branch_count':canonical['branch_count'],
-              'unknown_count':canonical['unknown_count'],
-              'unresolved_parent_reference_count':canonical['unresolved_parent_reference_count'],
-              'parent_reference_points_to_branch_count':canonical['parent_reference_points_to_branch_count'],
-              'parent_reference_is_release_blocker':False,
-              'legal_subtype_is_release_blocker':False,
-              'gcis_enrichment_required_for_release':False,
-              'coverage':'taiwan_nationwide_valid_seller_identity',
-              'source_valid_identity_coverage_complete':True,
-              'production_registry_usable':True,
-              'final_mobile_registry':True,
-              'optional_local_dataset':True,
-              'validation_subset':False,
-              'mobile_per_invoice_network_lookup':False,
-              'responsible_person_payload_emitted':False,
-              'user_owned_mapping_or_history_mutated':False,
-              'artifact_encoding':'gzip+ndjson',
-              'artifact_sha256':sha(gz),
-              'artifact_bytes':gz.stat().st_size,
-              'canonical_entities_sha256':sha(raw),
-              'canonical_entities_bytes':raw.stat().st_size,
-              'license_name':'政府資料開放授權條款',
-              'license_url':'https://data.gov.tw/license',
-              'attribution':'財政部財政資訊中心',
-          }
-          payload=(json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode()
-          manifest['manifest_sha256']=hashlib.sha256(payload).hexdigest()
-          (root/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
-          print('P4_20_3_REAL_FIA_MOBILE_PACK=PASS')
-          print(f'P4_20_3_REAL_FIA_MOBILE_ENTITY_COUNT={emitted}')
-          print(f'P4_20_3_REAL_FIA_MOBILE_UNKNOWN_SUBTYPE={canonical["unknown_count"]}')
-          print(f'P4_20_3_REAL_FIA_MOBILE_UNRESOLVED_PARENT={canonical["unresolved_parent_reference_count"]}')
-          print(f'P4_20_3_REAL_FIA_MOBILE_ARTIFACT_SHA256={manifest["artifact_sha256"]}')
-          print('P4_20_3_REAL_FIA_MOBILE_FINAL=true')
+          with gzip.open(gz,'rt',encoding='utf-8') as src:
+              header=json.loads(next(src)); first=json.loads(next(src))
+          assert manifest['format'] == 'gzip_ndjson_v1'
+          assert manifest['artifact_encoding'] == 'gzip_ndjson_v1'
+          assert header['record_type'] == 'header'
+          assert first['record_type'] == 'entity'
+          assert header['entity_count'] == manifest['entity_count']
+          assert header['registry_content_sha256'] == manifest['registry_content_sha256']
+          assert manifest['official_detail_16_field_count'] == manifest['entity_count']
+          assert manifest['compressed_size_bytes'] == gz.stat().st_size
+          actual=hashlib.sha256(gz.read_bytes()).hexdigest()
+          assert actual == manifest['download_sha256'] == manifest['artifact_sha256']
+          assert manifest['compressed_size_bytes'] <= 256*1024*1024
+          assert manifest['uncompressed_size_bytes'] <= 1024*1024*1024
+          print('P4_20_3_INSTALLABLE_STREAM_HEADER=PASS')
+          print('P4_20_3_INSTALLABLE_STREAM_MANIFEST_BINDING=PASS')
+          print(f"P4_20_3_INSTALLABLE_COMPRESSED_BYTES={manifest['compressed_size_bytes']}")
+          print(f"P4_20_3_INSTALLABLE_UNCOMPRESSED_BYTES={manifest['uncompressed_size_bytes']}")
+          print(f"P4_20_3_OFFICIAL_DETAIL_16_FIELD_COUNT={manifest['official_detail_16_field_count']}")
           PY
 
-      - name: Upload final-data mobile registry candidate
+      - name: Upload final-data installable mobile registry candidate
         uses: actions/upload-artifact@v4
         with:
           name: p4-20-3-fia-mobile-registry-${{ github.event.pull_request.head.sha }}
