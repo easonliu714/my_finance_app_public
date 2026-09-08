@@ -136,6 +136,7 @@ jobs:
               'registration_status',
               'parent_seller_identifier',
               'source_dataset',
+              'official_fields',
           }
           enrichment_keys = {
               'seller_identifier',
@@ -153,10 +154,25 @@ jobs:
                       record = json.loads(line)
                       if set(record) != allowed:
                           raise SystemExit(f'STAGING_PAYLOAD_SURFACE_MISMATCH:{path.name}')
+                      if path.name == 'ready_entities.ndjson':
+                          official = record.get('official_fields')
+                          expected_official = {
+                              '營業地址','統一編號','總機構統一編號','營業人名稱',
+                              '資本額','設立日期','組織別名稱','使用統一發票',
+                              '行業代號','名稱','行業代號1','名稱1',
+                              '行業代號2','名稱2','行業代號3','名稱3',
+                          }
+                          if not isinstance(official, dict) or set(official) != expected_official:
+                              raise SystemExit('STAGING_OFFICIAL_DETAIL_SURFACE_MISMATCH')
+                          if official['統一編號'] != record['seller_identifier']:
+                              raise SystemExit('STAGING_OFFICIAL_DETAIL_SELLER_MISMATCH')
+                          if official['營業人名稱'] != record['legal_name']:
+                              raise SystemExit('STAGING_OFFICIAL_DETAIL_NAME_MISMATCH')
 
           print('P4_20_3_STAGING_PARTITION=PASS')
           print('P4_20_3_STAGING_BOUNDED_MEMORY=PASS')
           print('P4_20_3_STAGING_PRIVACY_REDUCTION=PASS')
+          print('P4_20_3_STAGING_COMPLETE_FIA_DETAIL=PASS')
           print(f'STAGING_SOURCE_ROWS={rows}')
           print(f'STAGING_READY={ready}')
           print(f'STAGING_ENRICHMENT_REQUIRED={pending}')
@@ -180,6 +196,7 @@ jobs:
               f'- Ready entity bytes: `{summary["ready_entity_bytes"]}`',
               f'- Enrichment queue bytes: `{summary["enrichment_queue_bytes"]}`',
               '- Serialized field surface: `exact allowlist / PASS`',
+              '- Complete FIA official detail: `16 fields / PASS`',
               '- Responsible-person payload emitted: `false`',
               '- Final mobile registry: `false` (staging artifact only)',
               '- Valid FIA seller identities: release-usable without GCIS subtype closure',

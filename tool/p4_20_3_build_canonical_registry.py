@@ -29,7 +29,7 @@ from typing import Iterator
 
 SELLER_RE = re.compile(r"^\d{8}$")
 ALLOWED_ENTITY_TYPES = frozenset({"company", "business", "branch", "unknown"})
-ENTITY_KEYS = frozenset({
+CORE_ENTITY_KEYS = frozenset({
     "record_type",
     "seller_identifier",
     "entity_type",
@@ -38,6 +38,14 @@ ENTITY_KEYS = frozenset({
     "parent_seller_identifier",
     "source_dataset",
 })
+OFFICIAL_DETAIL_COLUMNS = (
+    "營業地址", "統一編號", "總機構統一編號", "營業人名稱",
+    "資本額", "設立日期", "組織別名稱", "使用統一發票",
+    "行業代號", "名稱", "行業代號1", "名稱1",
+    "行業代號2", "名稱2", "行業代號3", "名稱3",
+)
+OFFICIAL_DETAIL_KEYS = frozenset(OFFICIAL_DETAIL_COLUMNS)
+FIA_SOURCE_DATASET = "MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY"
 MAX_LINE_BYTES = 64 * 1024
 
 
@@ -59,8 +67,11 @@ def _seller(value: object) -> str:
 
 def _normalize_entity(
     record: object, *, path: Path, line_number: int
-) -> dict[str, str]:
-    if not isinstance(record, dict) or frozenset(record) != ENTITY_KEYS:
+) -> dict[str, object]:
+    if not isinstance(record, dict):
+        raise RuntimeError(f"ENTITY_SURFACE_MISMATCH:{path.name}:{line_number}")
+    keys = frozenset(record)
+    if keys not in (CORE_ENTITY_KEYS, CORE_ENTITY_KEYS | {"official_fields"}):
         raise RuntimeError(f"ENTITY_SURFACE_MISMATCH:{path.name}:{line_number}")
 
     if record.get("record_type") != "entity":
@@ -101,7 +112,30 @@ def _normalize_entity(
     if not source_dataset:
         raise RuntimeError(f"ENTITY_SOURCE_DATASET_REQUIRED:{path.name}:{line_number}")
 
-    return {
+    raw_details = record.get("official_fields")
+    official_fields: dict[str, str] | None = None
+    if raw_details is not None:
+        if not isinstance(raw_details, dict) or frozenset(raw_details) != OFFICIAL_DETAIL_KEYS:
+            raise RuntimeError(
+                f"ENTITY_OFFICIAL_DETAIL_SURFACE_MISMATCH:{path.name}:{line_number}"
+            )
+        official_fields = {
+            field: _clean(raw_details.get(field)) for field in OFFICIAL_DETAIL_COLUMNS
+        }
+        if _seller(official_fields["統一編號"]) != seller:
+            raise RuntimeError(
+                f"ENTITY_OFFICIAL_DETAIL_SELLER_MISMATCH:{path.name}:{line_number}"
+            )
+        if official_fields["營業人名稱"] != legal_name:
+            raise RuntimeError(
+                f"ENTITY_OFFICIAL_DETAIL_NAME_MISMATCH:{path.name}:{line_number}"
+            )
+    if source_dataset == FIA_SOURCE_DATASET and official_fields is None:
+        raise RuntimeError(
+            f"ENTITY_FIA_OFFICIAL_DETAIL_REQUIRED:{path.name}:{line_number}"
+        )
+
+    normalized: dict[str, object] = {
         "record_type": "entity",
         "seller_identifier": seller,
         "entity_type": entity_type,
@@ -110,9 +144,12 @@ def _normalize_entity(
         "parent_seller_identifier": parent,
         "source_dataset": source_dataset,
     }
+    if official_fields is not None:
+        normalized["official_fields"] = official_fields
+    return normalized
 
 
-def _iter_entities(path: Path) -> Iterator[dict[str, str]]:
+def _iter_entities(path: Path) -> Iterator[dict[str, object]]:
     previous = ""
     with path.open("rb") as stream:
         for line_number, raw in enumerate(stream, 1):
@@ -144,9 +181,10 @@ class MergeStats:
     business_count: int = 0
     branch_count: int = 0
     unknown_count: int = 0
+    official_detail_count: int = 0
 
 
-def _next(iterator: Iterator[dict[str, str]]) -> dict[str, str] | None:
+def _next(iterator: Iterator[dict[str, object]]) -> dict[str, object] | None:
     return next(iterator, None)
 
 
@@ -238,6 +276,8 @@ def build_canonical_registry(
                     stats.unknown_count += 1
                 else:
                     raise AssertionError("UNREACHABLE_ENTITY_TYPE")
+                if "official_fields" in entity:
+                    stats.official_detail_count += 1
 
                 try:
                     conn.execute(
@@ -308,6 +348,8 @@ def build_canonical_registry(
             "business_count": stats.business_count,
             "branch_count": stats.branch_count,
             "unknown_count": stats.unknown_count,
+            "official_detail_count": stats.official_detail_count,
+            "official_detail_field_count": len(OFFICIAL_DETAIL_COLUMNS),
             "canonical_entities_sha256": payload_sha.hexdigest(),
             "canonical_entities_bytes": temp_output.stat().st_size,
             "branch_parent_closure_required_for_release": False,

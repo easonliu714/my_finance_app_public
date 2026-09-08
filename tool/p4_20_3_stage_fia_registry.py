@@ -8,8 +8,10 @@ optional metadata: a valid FIA seller identity with an unclassified subtype is
 materialized as `unknown` instead of being sent to a mandatory GCIS queue.
 Malformed source rows are counted and skipped without blocking valid coverage.
 
-Only public business-registration fields required by the mobile registry are
-projected. Responsible-person / branch-manager data is never emitted.
+All 16 public fields documented by the FIA coverage-spine dataset are retained
+inside Registry-only official_fields for explicit user inspection. They are not
+copied into accounting transactions. Responsible-person / branch-manager data
+is never emitted.
 """
 
 from __future__ import annotations
@@ -29,13 +31,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator
 
-REQUIRED_COLUMNS = (
+OFFICIAL_DETAIL_COLUMNS = (
+    "營業地址",
     "統一編號",
     "總機構統一編號",
     "營業人名稱",
+    "資本額",
+    "設立日期",
     "組織別名稱",
     "使用統一發票",
+    "行業代號",
+    "名稱",
+    "行業代號1",
+    "名稱1",
+    "行業代號2",
+    "名稱2",
+    "行業代號3",
+    "名稱3",
 )
+REQUIRED_COLUMNS = OFFICIAL_DETAIL_COLUMNS
 SELLER_RE = re.compile(r"^\d{8}$")
 SOURCE_DATASET = "MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY"
 COMPANY_FORMS = frozenset({"有限公司", "股份有限公司", "無限公司", "兩合公司"})
@@ -72,6 +86,10 @@ def stage_row(row: dict[str, str]) -> StageRecord:
     legal_name = (row.get("營業人名稱") or "").strip()
     organization = (row.get("組織別名稱") or "").strip()
     uniform_invoice = (row.get("使用統一發票") or "").strip()
+    official_fields = {
+        field: (row.get(field) or "").strip()
+        for field in OFFICIAL_DETAIL_COLUMNS
+    }
 
     if not SELLER_RE.fullmatch(seller):
         return StageRecord("hold", reason="seller_identifier_invalid")
@@ -101,6 +119,7 @@ def stage_row(row: dict[str, str]) -> StageRecord:
         "registration_status": "active_tax_registration",
         "parent_seller_identifier": parent if entity_type == "branch" else "",
         "source_dataset": SOURCE_DATASET,
+        "official_fields": official_fields,
     }
     return StageRecord(
         "ready",
@@ -333,7 +352,7 @@ def _self_test() -> None:
         csv_text = io.StringIO(newline="")
         writer = csv.DictWriter(
             csv_text,
-            fieldnames=(*REQUIRED_COLUMNS, "負責人姓名"),
+            fieldnames=(*OFFICIAL_DETAIL_COLUMNS, "負責人姓名"),
             lineterminator="\n",
         )
         writer.writeheader()
@@ -419,6 +438,12 @@ def _self_test() -> None:
             "business",
             "unknown",
         ]
+        assert all(
+            set(item["official_fields"]) == set(OFFICIAL_DETAIL_COLUMNS)
+            for item in parsed
+        )
+        assert parsed[0]["official_fields"]["統一編號"] == "22222222"
+        assert parsed[0]["official_fields"]["營業人名稱"] == "分支測試"
         assert queue == ""
 
 

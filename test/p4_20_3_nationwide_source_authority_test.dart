@@ -61,14 +61,10 @@ void main() {
 
     test('requires exact official coverage-spine columns', () {
       expect(
-        adapter.validateHeader(const <String>[
-          '統一編號',
-          '總機構統一編號',
-          '營業人名稱',
-          '組織別名稱',
-          '使用統一發票',
-          '營業地址',
-        ]),
+        adapter.validateHeader(
+          BusinessRegistryNationwideSourceAuthority
+              .fiaActiveTaxRegistry.requiredSourceFields,
+        ),
         isEmpty,
       );
       expect(
