@@ -15,13 +15,13 @@ Future<void> upgradeBusinessRegistryEntityTypeToV23(
   DatabaseExecutor db,
 ) async {
   var rows = await db.rawQuery(
-    "SELECT sql FROM sqlite_master "
+    'SELECT sql FROM sqlite_master '
     "WHERE type = 'table' AND name = 'business_registry_entities'",
   );
   if (rows.isEmpty) {
     await createCanonicalProductionV22Tables(db);
     rows = await db.rawQuery(
-      "SELECT sql FROM sqlite_master "
+      'SELECT sql FROM sqlite_master '
       "WHERE type = 'table' AND name = 'business_registry_entities'",
     );
   }
