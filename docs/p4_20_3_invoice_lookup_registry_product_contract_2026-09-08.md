@@ -114,6 +114,8 @@ transactions / merchant history
 The detail query is local-only against the installed optional dataset. A query must not trigger a manifest probe or background Registry refresh.
 
 Storage/wire optimization: because the 16-field schema is fixed by this product contract, the nationwide stream stores the values as one fixed-order 16-value array rather than repeating 16 field-name strings in every one of the ~1.7M entity records. The UI reconstructs the named field map using the canonical field order. This reduces optional-dataset storage without coupling any field to accounting transactions.
+
+The first named-object full-detail staging experiment measured **1,250,561,071 uncompressed bytes** for 1,712,864 valid identities, exceeding the existing 1 GiB bounded-install ceiling. The fixed-order array representation is therefore a required storage optimization, not a relaxation of the 16-field detail contract.
 ## 4. Release-critical vs optional metadata
 
 ### Release-critical
@@ -253,9 +255,9 @@ Update failure:
 ## 10. Remaining P4.20.3 release-critical roadmap
 
 1. **FIA valid-identity nationwide pack** — DATA GATE PASS; retain same-head authority as CI advances.
-2. **Canonical Flutter CI** — ACTIVE; close current V23 concurrent first-use schema race.
+2. **Canonical Flutter CI** — ACTIVE; validate V24 Registry-detail schema and full regression suite.
 3. **Production distribution manifest / endpoint contract** — NEXT.
-4. **Optional bounded download + stream validation + V23 transactional install** — NEXT.
+4. **Optional bounded download + stream validation + V24 transactional install** — NEXT.
 5. **LKG + no-registry fallback** — NEXT.
 6. **Never-bound offline seller lookup** — prove at least `31655572`, `60282181`, and one additional unseen seller.
 7. **Invoice Review / MerchantBrand separation regression** — prove official legal name is corroboration only.
