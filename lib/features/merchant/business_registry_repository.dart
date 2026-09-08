@@ -1,7 +1,9 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/production_database_coordinator.dart';
-import '../../database/production_schema_v23.dart';
+import '../../database/production_schema_v24.dart';
 import 'business_registry_pack.dart';
 
 enum BusinessRegistryInstallStatus {
@@ -33,6 +35,30 @@ enum BusinessRegistryLookupStatus {
   notFound,
   noInstalledRegistry,
   invalidSellerIdentifier,
+}
+enum BusinessRegistryOfficialDetailLookupStatus {
+  hit,
+  notFound,
+  detailUnavailable,
+  noInstalledRegistry,
+  invalidSellerIdentifier,
+}
+
+class BusinessRegistryOfficialDetailLookupResult {
+  const BusinessRegistryOfficialDetailLookupResult({
+    required this.status,
+    this.snapshotVersion = '',
+    this.sourceDataDate = '',
+    this.fields = const <String, String>{},
+  });
+
+  final BusinessRegistryOfficialDetailLookupStatus status;
+  final String snapshotVersion;
+  final String sourceDataDate;
+  final Map<String, String> fields;
+
+  bool get isHit =>
+      status == BusinessRegistryOfficialDetailLookupStatus.hit;
 }
 
 class BusinessRegistryLookupResult {
@@ -89,7 +115,7 @@ class BusinessRegistryRepository {
   Future<DatabaseExecutor> get _db async {
     final resolved =
         database ?? await ProductionDatabaseCoordinator.instance.database;
-    await createCanonicalProductionV23Tables(resolved);
+    await createCanonicalProductionV24Tables(resolved);
     return resolved;
   }
 
@@ -151,6 +177,21 @@ class BusinessRegistryRepository {
           'parent_seller_identifier': entity.parentSellerIdentifier.trim(),
           'source_dataset': entity.sourceDataset.trim(),
         });
+        if (entity.officialFields.isNotEmpty) {
+          await txn.insert(
+            'business_registry_official_details',
+            <String, Object?>{
+              'snapshot_version': pack.version,
+              'jurisdiction': 'TW',
+              'seller_identifier': entity.sellerIdentifier,
+              'official_json': jsonEncode(
+                BusinessRegistryEntity.normalizeOfficialFields(
+                  entity.officialFields,
+                ),
+              ),
+            },
+          );
+        }
       }
 
       await txn.update(
@@ -253,6 +294,112 @@ class BusinessRegistryRepository {
     );
   }
 
+  Future<BusinessRegistryOfficialDetailLookupResult> lookupOfficialDetail(
+    String sellerIdentifier,
+  ) async {
+    final seller = sellerIdentifier.replaceAll(RegExp(r'[^0-9]'), '');
+    if (!RegExp(r'^\d{8}
+      '${pack.sourceAuthority}|${pack.coverage}|${pack.sourceDataset}';
+
+  BusinessRegistrySnapshotInfo _snapshotFromRow(Map<String, Object?> row) {
+    final encodedSource = row['source_dataset']?.toString() ?? '';
+    final parts = encodedSource.split('|');
+    final coverage = parts.length >= 3 ? parts[1] : '';
+    final sourceDataset = parts.length >= 3
+        ? parts.sublist(2).join('|')
+        : encodedSource;
+    return BusinessRegistrySnapshotInfo(
+      version: row['version']?.toString() ?? '',
+      sourceDataset: sourceDataset,
+      sourceDataDate: row['source_data_date']?.toString() ?? '',
+      contentSha256: row['content_sha256']?.toString() ?? '',
+      coverage: coverage,
+      installedAt: DateTime.tryParse(row['installed_at']?.toString() ?? ''),
+    );
+  }
+
+  BusinessRegistryEntity _entityFromRow(Map<String, Object?> row) {
+    final type = row['entity_type']?.toString() ?? '';
+    return BusinessRegistryEntity(
+      sellerIdentifier: row['seller_identifier']?.toString() ?? '',
+      entityType: BusinessRegistryEntityType.values.firstWhere(
+        (item) => item.name == type,
+      ),
+      legalName: row['legal_name']?.toString() ?? '',
+      registrationStatus: row['registration_status']?.toString() ?? '',
+      parentSellerIdentifier:
+          row['parent_seller_identifier']?.toString() ?? '',
+      sourceDataset: row['source_dataset']?.toString() ?? '',
+    );
+  }
+
+  Future<T> _runTransaction<T>(
+    DatabaseExecutor db,
+    Future<T> Function(DatabaseExecutor txn) action,
+  ) async {
+    if (db is Database) {
+      return db.transaction<T>((txn) => action(txn));
+    }
+    return action(db);
+  }
+}
+).hasMatch(seller)) {
+      return const BusinessRegistryOfficialDetailLookupResult(
+        status:
+            BusinessRegistryOfficialDetailLookupStatus.invalidSellerIdentifier,
+      );
+    }
+
+    final snapshot = await installedSnapshot();
+    if (snapshot == null) {
+      return const BusinessRegistryOfficialDetailLookupResult(
+        status: BusinessRegistryOfficialDetailLookupStatus.noInstalledRegistry,
+      );
+    }
+
+    final db = await _db;
+    final details = await db.query(
+      'business_registry_official_details',
+      columns: const <String>['official_json'],
+      where:
+          'snapshot_version = ? AND jurisdiction = ? AND seller_identifier = ?',
+      whereArgs: <Object?>[snapshot.version, 'TW', seller],
+      limit: 1,
+    );
+    if (details.isNotEmpty) {
+      final decoded = jsonDecode(details.first['official_json']?.toString() ?? '');
+      if (decoded is! Map) {
+        throw const FormatException('REGISTRY_OFFICIAL_DETAIL_JSON_INVALID');
+      }
+      final fields = <String, String>{};
+      for (final field in BusinessRegistryEntity.officialFieldOrder) {
+        final value = decoded[field];
+        fields[field] = value?.toString() ?? '';
+      }
+      return BusinessRegistryOfficialDetailLookupResult(
+        status: BusinessRegistryOfficialDetailLookupStatus.hit,
+        snapshotVersion: snapshot.version,
+        sourceDataDate: snapshot.sourceDataDate,
+        fields: Map<String, String>.unmodifiable(fields),
+      );
+    }
+
+    final core = await db.query(
+      'business_registry_entities',
+      columns: const <String>['seller_identifier'],
+      where:
+          'snapshot_version = ? AND jurisdiction = ? AND seller_identifier = ?',
+      whereArgs: <Object?>[snapshot.version, 'TW', seller],
+      limit: 1,
+    );
+    return BusinessRegistryOfficialDetailLookupResult(
+      status: core.isEmpty
+          ? BusinessRegistryOfficialDetailLookupStatus.notFound
+          : BusinessRegistryOfficialDetailLookupStatus.detailUnavailable,
+      snapshotVersion: snapshot.version,
+      sourceDataDate: snapshot.sourceDataDate,
+    );
+  }
   String _snapshotSourceDataset(BusinessRegistryPack pack) =>
       '${pack.sourceAuthority}|${pack.coverage}|${pack.sourceDataset}';
 

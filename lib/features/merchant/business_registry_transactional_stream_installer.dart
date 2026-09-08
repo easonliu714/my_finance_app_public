@@ -6,7 +6,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/production_database_coordinator.dart';
-import '../../database/production_schema_v23.dart';
+import '../../database/production_schema_v24.dart';
 import 'business_registry_distribution_manifest.dart';
 import 'business_registry_nationwide_builder.dart';
 import 'business_registry_stream_pack.dart';
@@ -64,7 +64,7 @@ class BusinessRegistryTransactionalStreamInstaller {
 
       final db =
           database ?? await ProductionDatabaseCoordinator.instance.database;
-      await createCanonicalProductionV23Tables(db);
+      await createCanonicalProductionV24Tables(db);
 
       final existing = await db.query(
         'business_registry_snapshots',
@@ -218,6 +218,21 @@ class BusinessRegistryTransactionalStreamInstaller {
                       'source_dataset': entity.sourceDataset.trim(),
                     },
                   );
+                  if (entity.officialFields.isNotEmpty) {
+                    batch.insert(
+                      'business_registry_official_details',
+                      <String, Object?>{
+                        'snapshot_version': manifest.registryVersion,
+                        'jurisdiction': 'TW',
+                        'seller_identifier': entity.sellerIdentifier,
+                        'official_json': jsonEncode(
+                          BusinessRegistryEntity.normalizeOfficialFields(
+                            entity.officialFields,
+                          ),
+                        ),
+                      },
+                    );
+                  }
                   lastEntityKey = key;
                   entityCount += 1;
                   batchCount += 1;
