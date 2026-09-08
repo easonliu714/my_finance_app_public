@@ -22,7 +22,7 @@ void main() {
     expect(source, isNot(contains('BusinessRegistryUpdateService')));
     expect(source, isNot(contains('refreshPort')));
     expect(source, contains('registryRepository.lookup(seller)'));
-    expect(source, contains('normal invoice review performs local-only'));
+    expect(source, contains('invoice review performs local-only'));
   });
 
   test('OK Mart keeps consumer MerchantBrand separate from FIA legal name',
