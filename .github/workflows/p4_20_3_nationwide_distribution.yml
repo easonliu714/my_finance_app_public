@@ -363,9 +363,13 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           text=Path('.github/workflows/p4_20_3_nationwide_distribution.yml').read_text(encoding='utf-8').lower()
-          assert 'gcis.nat.gov.tw' not in text
-          assert '--qps' not in text
-          assert 'p4_20_3_acquire_gcis_registration_type.py' not in text
+          forbidden=(
+              'gcis'+'.nat.gov.tw',
+              '--'+'qps',
+              'p4_20_3_'+'acquire_gcis_registration_type.py',
+          )
+          leaked=[token for token in forbidden if token in text]
+          assert not leaked, f'PAID_ACQUISITION_SURFACE_FORBIDDEN={leaked}'
           assert "--head --proto '=https'" in text
           print('P4_20_3_REAL_MOBILE_NO_PAID_ACQUISITION=PASS')
           PY
