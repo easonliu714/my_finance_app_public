@@ -9,6 +9,7 @@ import '../../database/production_database_coordinator.dart';
 import '../../database/production_schema_v24.dart';
 import 'business_registry_distribution_manifest.dart';
 import 'business_registry_nationwide_builder.dart';
+import 'business_registry_pack.dart';
 import 'business_registry_stream_pack.dart';
 import 'business_registry_stream_validator.dart';
 
