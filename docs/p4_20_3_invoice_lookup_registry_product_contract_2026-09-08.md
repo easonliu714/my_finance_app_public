@@ -77,6 +77,41 @@ FIA nationwide bulk source
 → local-only sellerTaxId lookup
 ```
 
+## 3.1 Official-detail lookup in the Registry update UI
+
+Owner decision (2026-09-08): the **官方統編資料更新** surface provides an explicit sellerTaxId search for the complete current FIA public row.
+
+This does **not** expand the accounting transaction schema. The complete official row is stored once in the replaceable Registry cache and queried only from the Registry management/detail surface.
+
+Current FIA detail projection uses the 16 published fields:
+
+- 營業地址
+- 統一編號
+- 總機構統一編號
+- 營業人名稱
+- 資本額
+- 設立日期
+- 組織別名稱
+- 使用統一發票
+- 行業代號 / 名稱
+- 行業代號1 / 名稱1
+- 行業代號2 / 名稱2
+- 行業代號3 / 名稱3
+
+Storage boundary:
+
+```text
+business_registry_entities
+  → core seller identity used by invoice corroboration
+
+business_registry_official_details
+  → replaceable full FIA row for explicit Registry UI inspection only
+
+transactions / merchant history
+  → do not duplicate the 16 FIA fields
+```
+
+The detail query is local-only against the installed optional dataset. A query must not trigger a manifest probe or background Registry refresh.
 ## 4. Release-critical vs optional metadata
 
 ### Release-critical

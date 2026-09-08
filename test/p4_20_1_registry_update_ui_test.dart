@@ -47,6 +47,83 @@ void main() {
     expect(refreshes, 1);
   });
 
+  testWidgets('registry update card queries complete official fields locally',
+      (tester) async {
+    final snapshot = BusinessRegistrySnapshotInfo(
+      version: '2026-09-08',
+      sourceDataset: 'MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY',
+      sourceDataDate: '2026-09-08',
+      contentSha256: 'd' * 64,
+      coverage: BusinessRegistryPack.nationwideCoverage,
+      installedAt: DateTime.utc(2026, 9, 8),
+    );
+    var lookups = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: BusinessRegistryUpdateCard(
+              snapshot: snapshot,
+              loading: false,
+              updating: false,
+              distributionConfigured: true,
+              statusMessage: '',
+              onRefresh: () {},
+              onLookupOfficialDetail: (seller) async {
+                lookups += 1;
+                expect(seller, '31655572');
+                return const BusinessRegistryOfficialDetailLookupResult(
+                  status: BusinessRegistryOfficialDetailLookupStatus.hit,
+                  snapshotVersion: '2026-09-08',
+                  sourceDataDate: '2026-09-08',
+                  fields: <String, String>{
+                    '營業地址': '新北市土城區測試路1號',
+                    '統一編號': '31655572',
+                    '總機構統一編號': '22853565',
+                    '營業人名稱': '富達零售股份有限公司晶技門市',
+                    '資本額': '1000000',
+                    '設立日期': '20200101',
+                    '組織別名稱': '其他',
+                    '使用統一發票': 'Y',
+                    '行業代號': '471112',
+                    '名稱': '直營連鎖式便利商店',
+                    '行業代號1': '',
+                    '名稱1': '',
+                    '行業代號2': '',
+                    '名稱2': '',
+                    '行業代號3': '',
+                    '名稱3': '',
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('用統編查詢完整官方資料'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(BusinessRegistryOfficialDetailLookupPanel.sellerFieldKey),
+      '31655572',
+    );
+    await tester.tap(
+      find.byKey(BusinessRegistryOfficialDetailLookupPanel.lookupKey),
+    );
+    await tester.pumpAndSettle();
+
+    expect(lookups, 1);
+    expect(
+      find.byKey(BusinessRegistryOfficialDetailLookupPanel.resultKey),
+      findsOneWidget,
+    );
+    expect(find.text('富達零售股份有限公司晶技門市'), findsOneWidget);
+    expect(find.text('新北市土城區測試路1號'), findsOneWidget);
+    expect(find.text('471112'), findsOneWidget);
+    expect(find.textContaining('不會寫入記帳明細'), findsOneWidget);
+  });
   testWidgets('validation subset is never presented as nationwide',
       (tester) async {
     final snapshot = BusinessRegistrySnapshotInfo(

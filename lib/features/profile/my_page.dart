@@ -122,6 +122,12 @@ class _MyPageState extends State<MyPage> {
           onRefresh: _registryDistributionConfigured
               ? () => _updateBusinessRegistry(context)
               : null,
+          onLookupOfficialDetail: _registrySnapshot == null
+              ? null
+              : (sellerIdentifier) async {
+                  final repository = await _businessRegistryRepository();
+                  return repository.lookupOfficialDetail(sellerIdentifier);
+                },
         ),
         onReminderEnabledChanged: _handleReminderEnabledChanged,
         onReminderIntervalDaysChanged: _handleReminderIntervalDaysChanged,
