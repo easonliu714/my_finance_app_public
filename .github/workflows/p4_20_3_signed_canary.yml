@@ -93,10 +93,12 @@ jobs:
       - name: Wait for exact-head distribution publication and verify bounded payload
         env:
           GH_TOKEN: ${{ github.token }}
+          EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          exact='${{ github.event.pull_request.head.sha }}'
+          exact="$EXACT_HEAD"
+          test "$(git rev-parse HEAD)" = "$exact"
           tag='p4.20.3-registry'
           manifest_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/manifest.json"
           payload_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/nationwide_registry.ndjson.gz"
@@ -112,7 +114,7 @@ jobs:
           import json, os
           from pathlib import Path
           m=json.loads(Path('manifest.json').read_text(encoding='utf-8'))
-          exact=os.environ['GITHUB_SHA']
+          exact=os.environ['EXACT_HEAD']
           assert m['exact_head'] == exact, (m.get('exact_head'), exact)
           assert m['format'] == 'gzip_ndjson_v1'
           assert m['source_valid_identity_coverage_complete'] is True
