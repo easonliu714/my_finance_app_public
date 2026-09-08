@@ -73,8 +73,8 @@ jobs:
         run: |
           set -euo pipefail
           flutter test test/p4_20_3_unknown_stream_installer_test.dart
-          flutter test test/p4_20_3_invoice_lookup_product_contract_test.dart
-          flutter test test/p4_20_3_invoice_lookup_product_contract_widget_test.dart
+          flutter test test/p4_20_3_invoice_registry_local_only_contract_test.dart
+          flutter test test/p4_20_3_registry_official_detail_lookup_test.dart
       - name: Full regression suite
         run: flutter test
 
