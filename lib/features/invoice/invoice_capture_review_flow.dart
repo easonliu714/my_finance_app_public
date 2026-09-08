@@ -73,9 +73,9 @@ class InvoiceCaptureReviewFlowCoordinator {
     );
 
     // Only freeze the recognition-time authority decision here. The review
-    // card is the single owner of actual registry lookup/refresh because the
+    // card is the single owner of actual local registry lookup because the
     // seller ID and its source may change after OCR/QR through user or AI
-    // review. This prevents duplicate refreshes and stale corroboration.
+    // review. Normal invoice review never triggers registry network refresh.
     final authorityDecision = registryAuthorityPolicy.evaluate(
       recognition: recognitionResult,
       review: formModel,

@@ -1047,10 +1047,6 @@ class _InvoiceTransactionHandoffReviewCardState
       );
       if (!mounted || revision != _merchantCorroborationRevision) return;
       final formalMerchant = context.decision.formalMerchantName.trim();
-      final refreshSuffix = context.registryRefreshAttempted &&
-              context.registryRefreshError.trim().isNotEmpty
-          ? '；官方資料更新失敗，已保留本機覆核流程'
-          : '';
       setState(() {
         _merchantCorroborationBusy = false;
         _merchantCorroboration = context;
@@ -1058,7 +1054,7 @@ class _InvoiceTransactionHandoffReviewCardState
         _merchantCorroborationMessage = context.hasOfficialLegalName ||
                 formalMerchant.isNotEmpty
             ? ''
-            : '目前官方資料未找到此賣方統編$refreshSuffix。';
+            : '目前本機官方資料未找到此賣方統編。';
         if (formalMerchant.isNotEmpty) {
           _formalMerchantName = formalMerchant;
           _formalMerchantFromCorroboration = true;
@@ -1074,7 +1070,7 @@ class _InvoiceTransactionHandoffReviewCardState
         _merchantCorroboration = null;
         _lastMerchantCorroborationKey = '';
         _merchantCorroborationMessage =
-            '官方公司行號資料暫時無法查詢；不影響本機發票覆核。';
+            '本機官方資料暫時無法查詢；不影響發票覆核。';
         if (_formalMerchantFromCorroboration) {
           _formalMerchantName = '';
           _formalMerchantFromCorroboration = false;

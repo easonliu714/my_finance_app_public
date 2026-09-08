@@ -62,6 +62,8 @@ The Ministry of Finance / Fiscal Information Agency dataset `全國營業(稅籍
 
 Normal handset invoice recognition must never call FIA or GCIS per invoice.
 
+**Hard runtime boundary:** an Invoice Review local-registry miss returns a local miss. It must not probe the distribution manifest and must not trigger a registry refresh. Dataset download/update is an independent explicit user operation.
+
 Controlled-build flow:
 
 ```text
