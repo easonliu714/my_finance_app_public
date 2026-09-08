@@ -14,7 +14,7 @@ void main() {
   });
 
   group('FullBackupService', () {
-    test('exports canonical V22 Scope V8 envelope', () async {
+    test('exports canonical V23 Scope V8 envelope', () async {
       final db = await openDatabase(inMemoryDatabasePath);
       addTearDown(db.close);
       await _createSampleTables(db);
@@ -32,7 +32,7 @@ void main() {
       expect(metadata['app_name'], AppBuildMetadata.appName);
       expect(metadata['app_version'], AppBuildMetadata.appVersion);
       expect(metadata['phase'], AppBuildMetadata.phase);
-      expect(metadata['database_schema_version'], 22);
+      expect(metadata['database_schema_version'], 23);
       expect(metadata['backup_scope_version'], 8);
       expect(metadata['coverage_complete'], isTrue);
       expect(metadata['unknown_tables'], isEmpty);
@@ -177,7 +177,7 @@ void main() {
       final decoded = jsonDecode(await file.readAsString())
           as Map<String, Object?>;
       final metadata = decoded['metadata']! as Map<String, Object?>;
-      expect(metadata['database_schema_version'], 22);
+      expect(metadata['database_schema_version'], 23);
       expect(metadata['backup_scope_version'], 8);
       expect(metadata['created_at'], '2026-06-28T07:15:00.000Z');
       expect(metadata['coverage_complete'], isTrue);
