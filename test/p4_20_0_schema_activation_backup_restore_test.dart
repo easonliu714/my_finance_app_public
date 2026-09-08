@@ -94,7 +94,7 @@ void main() {
     final metadata = envelope['metadata']! as Map<String, Object?>;
     final data = envelope['data']! as Map<String, Object?>;
     expect(metadata['backup_scope_version'], 8);
-    expect(metadata['database_schema_version'], 22);
+    expect(metadata['database_schema_version'], 23);
     expect(data['merchant_brands'], isA<List>());
     expect(data['merchant_identity_observations'], isA<List>());
     expect(data.containsKey('business_registry_snapshots'), isFalse);

@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/production_schema_v22.dart';
+import '../../database/production_schema_v23.dart';
 
 class FullBackupScope {
   const FullBackupScope._();

@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 
-enum BusinessRegistryEntityType { company, business, branch }
+enum BusinessRegistryEntityType { company, business, branch, unknown }
 
 class BusinessRegistryEntity {
   const BusinessRegistryEntity({

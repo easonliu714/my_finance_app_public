@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Iterator
 
 SELLER_RE = re.compile(r"^\d{8}$")
-ALLOWED_ENTITY_TYPES = frozenset({"company", "business", "branch"})
+ALLOWED_ENTITY_TYPES = frozenset({"company", "business", "branch", "unknown"})
 ENTITY_KEYS = frozenset({
     "record_type",
     "seller_identifier",
@@ -142,6 +142,7 @@ class MergeStats:
     company_count: int = 0
     business_count: int = 0
     branch_count: int = 0
+    unknown_count: int = 0
 
 
 def _next(iterator: Iterator[dict[str, str]]) -> dict[str, str] | None:
@@ -232,6 +233,8 @@ def build_canonical_registry(
                     stats.business_count += 1
                 elif entity_type == "branch":
                     stats.branch_count += 1
+                elif entity_type == "unknown":
+                    stats.unknown_count += 1
                 else:
                     raise AssertionError("UNREACHABLE_ENTITY_TYPE")
 
@@ -293,7 +296,10 @@ def build_canonical_registry(
         if stats.canonical_count != stats.ready_count + stats.enriched_count:
             raise AssertionError("CANONICAL_COUNT_PARTITION_MISMATCH")
         if stats.canonical_count != (
-            stats.company_count + stats.business_count + stats.branch_count
+            stats.company_count
+            + stats.business_count
+            + stats.branch_count
+            + stats.unknown_count
         ):
             raise AssertionError("CANONICAL_TYPE_COUNT_MISMATCH")
 
@@ -309,6 +315,7 @@ def build_canonical_registry(
             "company_count": stats.company_count,
             "business_count": stats.business_count,
             "branch_count": stats.branch_count,
+            "unknown_count": stats.unknown_count,
             "canonical_entities_sha256": payload_sha.hexdigest(),
             "canonical_entities_bytes": temp_output.stat().st_size,
             "branch_parent_closure": True,
@@ -378,6 +385,7 @@ def self_test() -> None:
                 _entity("11111111", "company", "甲公司"),
                 _entity("22222222", "branch", "甲分店", parent="11111111"),
                 _entity("44444444", "business", "丁商號"),
+                _entity("55555555", "unknown", "戊稅籍實體"),
             ],
         )
         _write(
@@ -385,16 +393,23 @@ def self_test() -> None:
             [_entity("33333333", "business", "丙商號", source="FIA+GCIS")],
         )
         result = build_canonical_registry(ready, enriched, output, summary)
-        assert result["canonical_entity_count"] == 4
+        assert result["canonical_entity_count"] == 5
         assert result["company_count"] == 1
         assert result["business_count"] == 2
         assert result["branch_count"] == 1
+        assert result["unknown_count"] == 1
         assert result["branch_parent_closure"] is True
         sellers = [
             json.loads(line)["seller_identifier"]
             for line in output.read_text(encoding="utf-8").splitlines()
         ]
-        assert sellers == ["11111111", "22222222", "33333333", "44444444"]
+        assert sellers == [
+            "11111111",
+            "22222222",
+            "33333333",
+            "44444444",
+            "55555555",
+        ]
 
         # Same seller across input streams must fail even when facts match.
         _write(ready, [_entity("11111111", "company", "甲公司")])
