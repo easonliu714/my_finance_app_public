@@ -113,11 +113,14 @@ jobs:
           assert rows >= 1_000_000
           assert ready + pending + hold == rows
           assert ready > 0
-          assert pending > 0
+          assert pending == 0
+          assert ready == rows - hold
           assert ready_peak <= bound == 50_000
           assert pending_peak <= bound
           assert summary['final_mobile_registry'] is False
-          assert summary['coverage_claim'] == 'staging_only_not_nationwide_mobile_pack'
+          assert summary['coverage_claim'] == 'all_valid_fia_seller_identities_release_usable'
+          assert summary['source_valid_identity_coverage_complete'] is True
+          assert summary['gcis_enrichment_required_for_release'] is False
           assert summary['responsible_person_payload_emitted'] is False
           sha = str(summary['ready_entity_payload_sha256'])
           assert len(sha) == 64 and all(c in '0123456789abcdef' for c in sha)
@@ -168,8 +171,8 @@ jobs:
               '',
               f'- Source rows: `{rows}`',
               f'- Ready canonical entities: `{ready}`',
-              f'- Legal-enrichment required: `{pending}`',
-              f'- Fail-closed HOLD rows: `{hold}`',
+              f'- Mandatory GCIS enrichment for release: `{pending}`',
+              f'- Source-invalid rows skipped: `{hold}`',
               f'- External-sort row bound: `{bound}`',
               f'- Ready peak buffered rows: `{ready_peak}`',
               f'- Enrichment peak buffered rows: `{pending_peak}`',
@@ -178,7 +181,8 @@ jobs:
               f'- Enrichment queue bytes: `{summary["enrichment_queue_bytes"]}`',
               '- Serialized field surface: `exact allowlist / PASS`',
               '- Responsible-person payload emitted: `false`',
-              '- Final mobile registry: `false` (staging only; enrichment remains required)',
+              '- Final mobile registry: `false` (staging artifact only)',
+              '- Valid FIA seller identities: release-usable without GCIS subtype closure',
           ]) + '\n')
           PY
 
@@ -232,6 +236,11 @@ jobs:
               'ready_entity_count': int(summary['ready_entity_count']),
               'enrichment_required_count': int(summary['enrichment_required_count']),
               'hold_count': int(summary['hold_count']),
+              'source_invalid_row_count': int(summary['source_invalid_row_count']),
+              'source_valid_identity_count': int(summary['source_valid_identity_count']),
+              'source_valid_identity_coverage_complete': bool(summary['source_valid_identity_coverage_complete']),
+              'gcis_enrichment_required_for_release': False,
+              'source_archive_sha256': str(summary['source_archive_sha256']),
               'ready_entities_sha256': sha256(ready),
               'ready_entities_bytes': ready.stat().st_size,
               'ready_entities_gzip_sha256': sha256(ready_gz),
@@ -241,10 +250,12 @@ jobs:
               'enrichment_required_gzip_sha256': sha256(pending_gz),
               'enrichment_required_gzip_bytes': pending_gz.stat().st_size,
               'compression': 'gzip-mtime-0',
-              'handoff_purpose': 'same-head deterministic privacy-reduced corpus for GCIS enrichment and canonical registry materialization',
+              'handoff_purpose': 'same-head deterministic privacy-reduced FIA seller-identity corpus for canonical mobile registry materialization',
           }
           assert manifest['ready_entity_count'] > 0
-          assert manifest['enrichment_required_count'] > 0
+          assert manifest['enrichment_required_count'] == 0
+          assert manifest['ready_entity_count'] == manifest['source_valid_identity_count']
+          assert manifest['source_valid_identity_coverage_complete'] is True
           assert manifest['ready_entity_count'] + manifest['enrichment_required_count'] + manifest['hold_count'] == manifest['source_row_count']
           assert manifest['ready_entities_sha256'] == str(summary['ready_entity_payload_sha256'])
 

@@ -3,8 +3,10 @@
 
 This tool is deliberately *not* the final nationwide mobile registry builder.
 It proves that the full BGMOPEN1 CSV can be converted with bounded memory into
-canonical ready entities plus a deterministic legal-enrichment queue while
-preserving fail-closed rows separately by count.
+release-usable official seller identities. Company/business/branch subtype is
+optional metadata: a valid FIA seller identity with an unclassified subtype is
+materialized as `unknown` instead of being sent to a mandatory GCIS queue.
+Malformed source rows are counted and skipped without blocking valid coverage.
 
 Only public business-registration fields required by the mobile registry are
 projected. Responsible-person / branch-manager data is never emitted.
@@ -87,19 +89,9 @@ def stage_row(row: dict[str, str]) -> StageRecord:
     elif organization in BUSINESS_FORMS:
         entity_type = "business"
     else:
-        queue_record = {
-            "seller_identifier": seller,
-            "legal_name": legal_name,
-            "organization_type": organization,
-            "uses_uniform_invoice": uniform_invoice,
-            "source_dataset": SOURCE_DATASET,
-        }
-        return StageRecord(
-            "enrichment_required",
-            key=seller,
-            line=_canonical_json(queue_record),
-            reason="parentless_fia_row_requires_company_or_business_authority",
-        )
+        # Product contract: FIA seller identity + official legal name is enough
+        # for invoice corroboration. Legal subtype refinement is optional.
+        entity_type = "unknown"
 
     entity = {
         "record_type": "entity",
@@ -300,7 +292,15 @@ def stage_archive(
             "source_row_count": row_count,
             "ready_entity_count": ready_count,
             "enrichment_required_count": enrichment_count,
+            # Legacy hold_count is retained as a compatibility alias for
+            # source-invalid rows. It is not a release blocker.
             "hold_count": hold_count,
+            "source_invalid_row_count": hold_count,
+            "source_valid_identity_count": row_count - hold_count,
+            "source_valid_identity_coverage_complete": (
+                ready_count == row_count - hold_count
+            ),
+            "gcis_enrichment_required_for_release": False,
             "hold_reason_counts": dict(sorted(hold_reasons.items())),
             "ready_entity_payload_sha256": ready_sha,
             "ready_entity_bytes": ready_bytes,
@@ -308,7 +308,7 @@ def stage_archive(
             "external_sort_chunk_row_bound": max_chunk_rows,
             "ready_peak_buffer_rows": ready_sorter.peak_buffer_rows,
             "enrichment_peak_buffer_rows": enrichment_sorter.peak_buffer_rows,
-            "coverage_claim": "staging_only_not_nationwide_mobile_pack",
+            "coverage_claim": "all_valid_fia_seller_identities_release_usable",
             "responsible_person_payload_emitted": False,
         }
         summary_output.write_text(
@@ -391,9 +391,13 @@ def _self_test() -> None:
             min_rows=1,
         )
         assert summary["source_row_count"] == 5
-        assert summary["ready_entity_count"] == 3
-        assert summary["enrichment_required_count"] == 1
+        assert summary["ready_entity_count"] == 4
+        assert summary["enrichment_required_count"] == 0
         assert summary["hold_count"] == 1
+        assert summary["source_invalid_row_count"] == 1
+        assert summary["source_valid_identity_count"] == 4
+        assert summary["source_valid_identity_coverage_complete"] is True
+        assert summary["gcis_enrichment_required_for_release"] is False
         assert summary["ready_peak_buffer_rows"] <= 2
         assert summary["enrichment_peak_buffer_rows"] <= 2
         ready = (root / "out" / "ready_entities.ndjson").read_text(encoding="utf-8")
@@ -407,13 +411,15 @@ def _self_test() -> None:
             "22222222",
             "33333333",
             "44444444",
+            "55555555",
         ]
         assert [item["entity_type"] for item in parsed] == [
             "branch",
             "company",
             "business",
+            "unknown",
         ]
-        assert json.loads(queue)["seller_identifier"] == "55555555"
+        assert queue == ""
 
 
 def main() -> int:
@@ -446,7 +452,11 @@ def main() -> int:
     print(f"STAGING_SOURCE_ROWS={summary['source_row_count']}")
     print(f"STAGING_READY_ENTITIES={summary['ready_entity_count']}")
     print(f"STAGING_ENRICHMENT_REQUIRED={summary['enrichment_required_count']}")
-    print(f"STAGING_HOLD_ROWS={summary['hold_count']}")
+    print(f"STAGING_SOURCE_INVALID_ROWS={summary['source_invalid_row_count']}")
+    print(
+        "STAGING_VALID_IDENTITY_COVERAGE_COMPLETE="
+        f"{str(summary['source_valid_identity_coverage_complete']).lower()}"
+    )
     print(f"STAGING_READY_SHA256={summary['ready_entity_payload_sha256']}")
     print(f"STAGING_CHUNK_ROW_BOUND={summary['external_sort_chunk_row_bound']}")
     return 0

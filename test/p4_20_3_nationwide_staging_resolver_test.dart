@@ -82,7 +82,7 @@ void main() {
     expect(decision.entity?.entityType, BusinessRegistryEntityType.business);
   });
 
-  test('residual parentless FIA organization labels still require enrichment', () {
+  test('residual parentless FIA labels remain usable with unknown subtype', () {
     for (final organization in <String>[
       '其他',
       '合作社',
@@ -95,10 +95,13 @@ void main() {
       );
       expect(
         decision.status,
-        BusinessRegistryNationwideStagingStatus.needsLegalTypeEnrichment,
+        BusinessRegistryNationwideStagingStatus.officialIdentityReadySubtypeUnknown,
         reason: organization,
       );
-      expect(decision.entity, isNull, reason: organization);
+      expect(decision.entity?.entityType, BusinessRegistryEntityType.unknown,
+          reason: organization);
+      expect(decision.entity?.legalName, 'residual', reason: organization);
+      expect(decision.isReady, isTrue, reason: organization);
     }
   });
 

@@ -4,15 +4,13 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'tool/p4_20_3_build_distribution_from_authority_bundle.py'
-      - 'tool/p4_20_3_build_distribution_manifest.py'
-      - 'tool/p4_20_3_validate_distribution_authorities.py'
-      - 'tool/p4_20_3_materialize_unresolved_tax_identity.py'
+      - 'tool/p4_20_3_stage_fia_registry.py'
       - 'tool/p4_20_3_build_canonical_registry.py'
+      - 'lib/features/merchant/business_registry_pack.dart'
+      - 'lib/features/merchant/business_registry_repository.dart'
       - '.github/workflows/p4_20_3_nationwide_distribution.yml'
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
@@ -25,8 +23,8 @@ env:
   EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
 
 jobs:
-  bundle-bound-distribution-contract:
-    name: Bundle-bound production distribution contract
+  invoice-lookup-distribution-contract:
+    name: FIA invoice-lookup production distribution contract
     if: >-
       ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
@@ -50,100 +48,38 @@ jobs:
           git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
           echo "P4_20_3_DISTRIBUTION_EXACT_HEAD=$actual"
 
-      - name: Compile distribution authority chain
+      - name: Compile and execute focused product-contract regressions
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile \
-            tool/p4_20_3_validate_distribution_authorities.py \
-            tool/p4_20_3_build_distribution_manifest.py \
-            tool/p4_20_3_build_distribution_from_authority_bundle.py \
-            tool/p4_20_3_materialize_unresolved_tax_identity.py \
-            tool/p4_20_3_build_canonical_registry.py
-
-      - name: Execute strict bundle-bound focused regressions
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tool/p4_20_3_validate_distribution_authorities.py --self-test
-          python3 tool/p4_20_3_build_distribution_manifest.py --self-test
-          python3 tool/p4_20_3_build_distribution_from_authority_bundle.py --self-test
-          python3 tool/p4_20_3_materialize_unresolved_tax_identity.py --self-test
+          python3 -m py_compile             tool/p4_20_3_stage_fia_registry.py             tool/p4_20_3_build_canonical_registry.py
+          python3 tool/p4_20_3_stage_fia_registry.py --self-test
           python3 tool/p4_20_3_build_canonical_registry.py --self-test
 
-      - name: Enforce canonical production CLI boundary
+      - name: Enforce invoice-lookup scope and no paid-acquisition dependency
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re
           from pathlib import Path
-          workflow = Path('.github/workflows/p4_20_3_nationwide_distribution.yml').read_text(encoding='utf-8')
-          entry = Path('tool/p4_20_3_build_distribution_from_authority_bundle.py').read_text(encoding='utf-8')
-          required_entry_args = {
-              '--exact-head','--authority-bundle','--source-authority','--ready',
-              '--enriched','--canonical','--canonical-summary','--gzip-output','--manifest-output',
-          }
-          forbidden_gcis_scalar_names = {
-              'gcis-run-id','gcis-requested-count','gcis-terminal-accounted-count',
-              'gcis-failure-count','gcis-evidence-sha256',
-          }
-          forbidden_workflow_args = {'--' + name for name in forbidden_gcis_scalar_names}
-          missing = sorted(arg for arg in required_entry_args if arg not in entry)
-          assert not missing, f'BUNDLE_ENTRYPOINT_REQUIRED_ARGS_MISSING={missing}'
-          leaked = sorted(arg for arg in forbidden_workflow_args if arg in workflow)
-          assert not leaked, f'WORKFLOW_CALLER_TRUSTED_GCIS_SCALAR_FORBIDDEN={leaked}'
-          assert re.search(r'EXACT_HEAD:\s*\$\{\{ github\.event\.pull_request\.head\.sha \}\}', workflow)
-          print('P4_20_3_DISTRIBUTION_PRODUCTION_CLI_BOUNDARY=PASS')
+          workflow = Path('.github/workflows/p4_20_3_nationwide_distribution.yml').read_text(encoding='utf-8').lower()
+          stage = Path('tool/p4_20_3_stage_fia_registry.py').read_text(encoding='utf-8')
+          canonical = Path('tool/p4_20_3_build_canonical_registry.py').read_text(encoding='utf-8')
+          for forbidden in ('gcis.nat.gov.tw', '--qps', 'p4_20_3_acquire_gcis_'):
+              assert forbidden not in workflow, f'PAID_ACQUISITION_SURFACE_FORBIDDEN={forbidden}'
+          assert 'entity_type = "unknown"' in stage
+          assert 'gcis_enrichment_required_for_release": False' in stage
+          assert 'BRANCH_PARENT_NOT_IN_CANONICAL_REGISTRY' not in canonical
+          assert 'branch_parent_closure_required_for_release' in canonical
+          print('P4_20_3_INVOICE_LOOKUP_SCOPE_CONTRACT=PASS')
+          print('P4_20_3_NO_PAID_GCIS_DISTRIBUTION_DEPENDENCY=PASS')
           PY
 
-      - name: Publish contract evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          evidence="$RUNNER_TEMP/p4_20_3_distribution_contract"
-          mkdir -p "$evidence"
-          python3 - <<'PY'
-          import hashlib, json, os
-          from pathlib import Path
-          root = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_distribution_contract'
-          workflow = Path('.github/workflows/p4_20_3_nationwide_distribution.yml')
-          entry = Path('tool/p4_20_3_build_distribution_from_authority_bundle.py')
-          payload = {
-              'schema_version':2,
-              'gate':'P4.20.3-E-distribution-orchestration-contract',
-              'exact_head':os.environ['EXACT_HEAD'],
-              'canonical_entrypoint':str(entry),
-              'workflow_sha256':hashlib.sha256(workflow.read_bytes()).hexdigest(),
-              'entrypoint_sha256':hashlib.sha256(entry.read_bytes()).hexdigest(),
-              'authority_bundle_required':True,
-              'caller_trusted_gcis_scalars_allowed':False,
-              'validation_subset_allowed_for_production':False,
-              'responsible_person_payload_allowed':False,
-              'mobile_per_invoice_gcis_lookup_allowed':False,
-              'real_resolved_mobile_candidate_enabled':True,
-              'final_mobile_registry':False,
-              'status':'REAL_ARTIFACT_CANDIDATE_ENABLED_FINAL_COVERAGE_REQUIRES_ZERO_HOLDS',
-          }
-          canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
-          payload['evidence_sha256'] = hashlib.sha256(canonical).hexdigest()
-          (root/'distribution_contract_evidence.json').write_text(
-              json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))+'\n', encoding='utf-8')
-          print('P4_20_3_DISTRIBUTION_CONTRACT_EVIDENCE=PASS')
-          PY
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: p4-20-3-distribution-contract-${{ github.event.pull_request.head.sha }}
-          path: ${{ runner.temp }}/p4_20_3_distribution_contract/distribution_contract_evidence.json
-          if-no-files-found: error
-          retention-days: 14
-
-  real-resolved-mobile-pack-candidate:
-    name: Materialize real resolved nationwide mobile-pack candidate
-    needs: bundle-bound-distribution-contract
+  real-fia-mobile-pack:
+    name: Materialize FIA valid-seller mobile registry
+    needs: invoice-lookup-distribution-contract
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -151,247 +87,133 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Resolve reusable producer and staging artifacts without acquisition
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/p4_20_3_real_mobile"
-          mkdir -p "$root/producer" "$root/staging"
-
-          curl --fail --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/p4_20_3_gcis_residual_full_acquisition.yml/runs?branch=$TARGET_BRANCH&event=pull_request&status=success&per_page=30" \
-            -o "$root/full_runs.json"
-          printf '{}\n' > "$root/artifacts_by_run.json"
-          while read -r run_id; do
-            curl --fail --silent --show-error \
-              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
-              -o "$root/artifacts-$run_id.json"
-            jq --arg id "$run_id" --slurpfile p "$root/artifacts-$run_id.json" \
-              '. + {($id): ($p[0].artifacts // [])}' "$root/artifacts_by_run.json" > "$root/artifacts.next.json"
-            mv "$root/artifacts.next.json" "$root/artifacts_by_run.json"
-          done < <(jq -r '.workflow_runs[].id' "$root/full_runs.json")
-          python3 tool/p4_20_3_select_reusable_full_generation.py \
-            --runs-json "$root/full_runs.json" \
-            --artifacts-by-run-json "$root/artifacts_by_run.json" \
-            --current-run-id "$GITHUB_RUN_ID" \
-            --output "$root/producer_selection.json"
-
-          producer_head="$(jq -r '.producer_head' "$root/producer_selection.json")"
-          closure_id="$(jq -r '.closure_artifact_id' "$root/producer_selection.json")"
-          materialization_id="$(jq -r '.materialization_artifact_id' "$root/producer_selection.json")"
-          for spec in "$closure_id:closure.zip" "$materialization_id:materialization.zip"; do
-            id="${spec%%:*}"; file="${spec#*:}"
-            curl --fail --location --silent --show-error \
-              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" -o "$root/producer/$file"
-            unzip -q "$root/producer/$file" -d "$root/producer/${file%.zip}"
-          done
-
-          curl --fail --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/p4_20_3_nationwide_registry_staging.yml/runs?branch=$TARGET_BRANCH&event=pull_request&status=success&per_page=20" \
-            -o "$root/staging_runs.json"
-          staging_id=''; staging_head=''; staging_run=''
-          while read -r run_id head; do
-            curl --fail --silent --show-error \
-              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
-              -o "$root/staging-artifacts-$run_id.json"
-            id="$(jq -r --arg n "p4-20-3-fia-staging-handoff-$head" '.artifacts[] | select(.name==$n and .expired==false) | .id' "$root/staging-artifacts-$run_id.json" | head -n1)"
-            if [[ -n "$id" ]]; then staging_id="$id"; staging_head="$head"; staging_run="$run_id"; break; fi
-          done < <(jq -r '.workflow_runs[] | [.id,.head_sha] | @tsv' "$root/staging_runs.json")
-          test -n "$staging_id"
-          curl --fail --location --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$staging_id/zip" -o "$root/staging.zip"
-          unzip -q "$root/staging.zip" -d "$root/staging"
-
-          jq -n --arg producer_head "$producer_head" --arg staging_head "$staging_head" \
-            --argjson staging_run "$staging_run" --argjson staging_artifact_id "$staging_id" \
-            --argjson closure_artifact_id "$closure_id" --argjson materialization_artifact_id "$materialization_id" \
-            '{producer_head:$producer_head,staging_head:$staging_head,staging_run_id:$staging_run,staging_artifact_id:$staging_artifact_id,closure_artifact_id:$closure_artifact_id,materialization_artifact_id:$materialization_artifact_id}' \
-            > "$root/lineage.json"
-
-      - name: Prove same FIA generation by current Last-Modified probe
+      - name: Download official FIA nationwide active tax registry
         shell: bash
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/p4_20_3_real_mobile"
-          closure="$(find "$root/producer/closure" -name cohort_closure.json -type f | head -n1)"
-          test -f "$closure"
-          prior="$(jq -r '.source_last_modified' "$closure")"
-          curl --fail --location --head --proto '=https' --tlsv1.2 \
-            --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 120 \
-            --dump-header "$root/current_headers.txt" \
-            'https://eip.fia.gov.tw/data/BGMOPEN1.zip' >/dev/null
-          current="$(grep -i '^Last-Modified:' "$root/current_headers.txt" | tail -n1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
-          test -n "$current"
-          test "$current" = "$prior"
-          printf '%s\n' "$current" > "$root/current_last_modified.txt"
-          echo "P4_20_3_REAL_MOBILE_SAME_GENERATION=PASS"
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          mkdir -p "$root"
+          curl             --fail --location --proto '=https' --tlsv1.2             --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 1200             --dump-header "$root/source_headers.txt"             --output "$root/BGMOPEN1.zip"             'https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          test "$(stat -c%s "$root/BGMOPEN1.zip")" -gt 0
 
-      - name: Materialize deterministic resolved candidate and account every hold
+      - name: Stage every valid official seller identity without legal-subtype blocking
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          python3 tool/p4_20_3_stage_fia_registry.py             "$root/BGMOPEN1.zip" "$root/staging"             --chunk-rows 50000 --min-rows 1000000
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_fia_mobile'
+          s=json.loads((root/'staging'/'staging_summary.json').read_text(encoding='utf-8'))
+          rows=int(s['source_row_count']); ready=int(s['ready_entity_count'])
+          invalid=int(s['source_invalid_row_count']); pending=int(s['enrichment_required_count'])
+          assert rows >= 1_000_000
+          assert pending == 0
+          assert ready + invalid == rows
+          assert ready == int(s['source_valid_identity_count'])
+          assert s['source_valid_identity_coverage_complete'] is True
+          assert s['gcis_enrichment_required_for_release'] is False
+          print(f'P4_20_3_FIA_SOURCE_ROWS={rows}')
+          print(f'P4_20_3_FIA_VALID_IDENTITIES={ready}')
+          print(f'P4_20_3_FIA_SOURCE_INVALID_SKIPPED={invalid}')
+          print('P4_20_3_FIA_VALID_IDENTITY_COVERAGE=PASS')
+          PY
+
+      - name: Build canonical lookup corpus and retain unresolved parent references
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          : > "$root/empty_enriched.ndjson"
+          python3 tool/p4_20_3_build_canonical_registry.py             "$root/staging/ready_entities.ndjson"             "$root/empty_enriched.ndjson"             "$root/nationwide_registry.ndjson"             "$root/canonical_summary.json"
+
+      - name: Materialize deterministic gzip and production-usable manifest
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import gzip, hashlib, heapq, json, os, subprocess
+          import gzip, hashlib, json, os
           from pathlib import Path
-
-          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_real_mobile'
-          out=root/'output'; out.mkdir(parents=True,exist_ok=True)
-          head=os.environ['EXACT_HEAD']
-          lineage=json.loads((root/'lineage.json').read_text())
-          staging=json.loads((root/'staging'/'staging_handoff_manifest.json').read_text())
-          closure_path=next((root/'producer'/'closure').rglob('cohort_closure.json'))
-          closure=json.loads(closure_path.read_text())
-          recon_path=next((root/'producer'/'materialization').rglob('reconciliation_manifest.json'))
-          recon=json.loads(recon_path.read_text())
-          ready_gz=root/'staging'/'ready_entities.ndjson.gz'
-          enriched_gz=next((root/'producer'/'materialization').rglob('enriched_entities.ndjson.gz'))
-          unresolved_path=next(p for p in (root/'producer'/'materialization').rglob('unresolved.ndjson') if p.parent.name=='reconciliation')
-
-          assert staging['exact_head']==lineage['staging_head']
-          assert staging['validation_subset'] is False and staging['final_mobile_registry'] is False
-          assert closure['exact_head']==lineage['producer_head']
-          assert closure['validation_subset'] is False and closure['final_mobile_registry'] is False
-          assert recon['exact_head']==lineage['producer_head']
-          assert recon['validation_subset'] is False and recon['final_mobile_registry'] is False
-          assert closure['source_last_modified']==(root/'current_last_modified.txt').read_text().strip()
-          assert closure['residual_payload_sha256']==staging['enrichment_required_sha256']
-          assert int(closure['seller_count'])==int(staging['enrichment_required_count'])==int(recon['queue_seller_count'])
-          assert int(closure['total_failure_count'])==0
-          assert int(recon['enriched_entity_count'])+int(recon['unresolved_seller_count'])+int(recon['hold_seller_count'])==int(recon['queue_seller_count'])
-
-          def sha_bytes(data:bytes)->str: return hashlib.sha256(data).hexdigest()
-          ready_raw=gzip.decompress(ready_gz.read_bytes())
-          enriched_raw=gzip.decompress(enriched_gz.read_bytes())
-          assert sha_bytes(ready_raw)==staging['ready_entities_sha256']
-          assert sha_bytes(enriched_raw)==recon['enriched_entities_sha256']
-
-          unknown_dir=out/'unknown_identity'
-          subprocess.run([
-            'python3','tool/p4_20_3_materialize_unresolved_tax_identity.py',
-            str(unresolved_path),str(unknown_dir),
-          ],check=True)
-          unknown_manifest=json.loads((unknown_dir/'unknown_identity_manifest.json').read_text(encoding='utf-8'))
-          unknown_raw=(unknown_dir/'unknown_entities.ndjson').read_bytes()
-          assert int(unknown_manifest['unknown_entity_count'])==int(recon['unresolved_seller_count'])
-          assert sha_bytes(unknown_raw)==unknown_manifest['unknown_entity_payload_sha256']
-          assert unknown_manifest['legal_subtype_inference_used'] is False
-
-          keys={'record_type','seller_identifier','entity_type','legal_name','registration_status','parent_seller_identifier','source_dataset'}
-          types={'company','business','branch','unknown'}
-          def rows(raw:bytes,label:str):
-            previous=''
-            for n,line in enumerate(raw.decode('utf-8').splitlines(),1):
-              if not line: continue
-              row=json.loads(line)
-              assert set(row)==keys,(label,n,set(row))
-              seller=str(row['seller_identifier']); assert len(seller)==8 and seller.isdigit()
-              assert not previous or seller>previous,(label,n,'ORDER_OR_DUPLICATE')
-              previous=seller
-              typ=str(row['entity_type']); assert typ in types
-              parent=str(row['parent_seller_identifier'] or '')
-              if typ=='branch': assert len(parent)==8 and parent.isdigit() and parent!=seller
-              else: assert parent==''
-              yield row
-
-          ready_rows=list(rows(ready_raw,'READY'))
-          enriched_rows=list(rows(enriched_raw,'ENRICHED'))
-          unknown_rows=list(rows(unknown_raw,'UNKNOWN'))
-          ready_sellers={str(r['seller_identifier']) for r in ready_rows}
-          enriched_sellers={str(r['seller_identifier']) for r in enriched_rows}
-          unknown_sellers={str(r['seller_identifier']) for r in unknown_rows}
-          assert not (ready_sellers & enriched_sellers), 'READY_ENRICHED_OVERLAP'
-          assert not (ready_sellers & unknown_sellers), 'READY_UNKNOWN_OVERLAP'
-          assert not (enriched_sellers & unknown_sellers), 'ENRICHED_UNKNOWN_OVERLAP'
-          seller_set=ready_sellers | enriched_sellers | unknown_sellers
-
-          merged=heapq.merge(ready_rows,enriched_rows,unknown_rows,key=lambda r:str(r['seller_identifier']))
-          canonical=out/'nationwide_registry_resolved.ndjson'
-          counts={'company':0,'business':0,'branch':0,'unknown':0}; parent_hold=0; emitted=0
-          with canonical.open('w',encoding='utf-8',newline='\n') as stream:
-            previous=''
-            for row in merged:
-              seller=str(row['seller_identifier'])
-              assert not previous or seller>previous
-              previous=seller
-              if row['entity_type']=='branch' and str(row['parent_seller_identifier']) not in seller_set:
-                parent_hold+=1; continue
-              stream.write(json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n')
-              counts[str(row['entity_type'])]+=1; emitted+=1
-
-          source_rows=int(staging['source_row_count'])
-          subtype_unknown=int(unknown_manifest['unknown_entity_count'])
-          enrichment_hold=int(recon['hold_seller_count'])
-          staging_hold=int(staging['hold_count'])
-          total_hold=enrichment_hold+staging_hold+parent_hold
-          assert emitted+total_hold==source_rows,(emitted,total_hold,source_rows)
-          assert emitted==(int(staging['ready_entity_count'])+int(recon['enriched_entity_count'])+subtype_unknown-parent_hold)
-
-          raw_sha=hashlib.sha256(canonical.read_bytes()).hexdigest()
-          gz=out/'nationwide_registry_resolved.ndjson.gz'
-          with canonical.open('rb') as src, gz.open('wb') as raw:
-            with gzip.GzipFile(filename='',mode='wb',fileobj=raw,compresslevel=9,mtime=0) as dst:
-              for chunk in iter(lambda:src.read(1024*1024),b''): dst.write(chunk)
-          gz_sha=hashlib.sha256(gz.read_bytes()).hexdigest()
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_fia_mobile'
+          stage=json.loads((root/'staging'/'staging_summary.json').read_text(encoding='utf-8'))
+          canonical=json.loads((root/'canonical_summary.json').read_text(encoding='utf-8'))
+          raw=root/'nationwide_registry.ndjson'
+          gz=root/'nationwide_registry.ndjson.gz'
+          with raw.open('rb') as src, gz.open('wb') as sink:
+              with gzip.GzipFile(filename='',mode='wb',fileobj=sink,compresslevel=9,mtime=0) as dst:
+                  for chunk in iter(lambda:src.read(1024*1024),b''):
+                      dst.write(chunk)
+          sha=lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+          last_modified=''
+          for line in (root/'source_headers.txt').read_text(errors='replace').splitlines():
+              if line.lower().startswith('last-modified:'):
+                  last_modified=line.split(':',1)[1].strip()
+          rows=int(stage['source_row_count'])
+          invalid=int(stage['source_invalid_row_count'])
+          valid=int(stage['source_valid_identity_count'])
+          emitted=int(canonical['canonical_entity_count'])
+          assert emitted == valid == rows-invalid
           manifest={
-            'schema_version':1,'gate':'P4.20.3-E-real-resolved-mobile-pack-candidate','exact_head':head,
-            'coverage':'nationwide_valid_seller_identity_with_fail_closed_source_and_parent_holds','coverage_complete':total_hold==0,
-            'final_mobile_registry':total_hold==0,'optional_local_dataset':True,'validation_subset':False,
-            'responsible_person_payload_emitted':False,'mobile_per_invoice_network_lookup':False,
-            'user_owned_mapping_or_history_mutated':False,
-            'source_dataset':'MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY','official_dataset_identifier':'data.gov.tw/dataset/9400',
-            'source_last_modified':closure['source_last_modified'],'source_archive_sha256':closure['source_archive_sha256'],
-            'license_name':'政府資料開放授權條款','license_url':'https://data.gov.tw/license','attribution':'財政部財政資訊中心 / 經濟部商業發展署',
-            'staging_producer_head':lineage['staging_head'],'staging_run_id':lineage['staging_run_id'],'staging_artifact_id':lineage['staging_artifact_id'],
-            'gcis_producer_head':lineage['producer_head'],'gcis_closure_artifact_id':lineage['closure_artifact_id'],'gcis_materialization_artifact_id':lineage['materialization_artifact_id'],
-            'source_row_count':source_rows,'canonical_entity_count':emitted,'company_count':counts['company'],'business_count':counts['business'],'branch_count':counts['branch'],'unknown_count':counts['unknown'],
-            'staging_hold_count':staging_hold,'source_invalid_seller_hold_count':staging_hold,'legal_unresolved_count':0,'legal_subtype_unknown_count':subtype_unknown,'legal_hold_count':enrichment_hold,'parent_closure_hold_count':parent_hold,'total_fail_closed_hold_count':total_hold,
-            'artifact_encoding':'gzip+ndjson','artifact_sha256':gz_sha,'artifact_bytes':gz.stat().st_size,'installed_bytes':canonical.stat().st_size,
-            'canonical_entities_sha256':raw_sha,'canonical_entities_bytes':canonical.stat().st_size,
+              'schema_version':2,
+              'gate':'P4.20.3-E-fia-invoice-lookup-mobile-registry',
+              'exact_head':os.environ['EXACT_HEAD'],
+              'source_authority':'MOF_FIA_ACTIVE_TAX_REGISTRY',
+              'source_dataset':'MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY',
+              'official_dataset_identifier':'data.gov.tw/dataset/9400',
+              'source_last_modified':last_modified,
+              'source_archive_sha256':stage['source_archive_sha256'],
+              'source_row_count':rows,
+              'source_invalid_row_count':invalid,
+              'source_valid_identity_count':valid,
+              'canonical_entity_count':emitted,
+              'company_count':canonical['company_count'],
+              'business_count':canonical['business_count'],
+              'branch_count':canonical['branch_count'],
+              'unknown_count':canonical['unknown_count'],
+              'unresolved_parent_reference_count':canonical['unresolved_parent_reference_count'],
+              'parent_reference_points_to_branch_count':canonical['parent_reference_points_to_branch_count'],
+              'parent_reference_is_release_blocker':False,
+              'legal_subtype_is_release_blocker':False,
+              'gcis_enrichment_required_for_release':False,
+              'coverage':'taiwan_nationwide_valid_seller_identity',
+              'source_valid_identity_coverage_complete':True,
+              'production_registry_usable':True,
+              'final_mobile_registry':True,
+              'optional_local_dataset':True,
+              'validation_subset':False,
+              'mobile_per_invoice_network_lookup':False,
+              'responsible_person_payload_emitted':False,
+              'user_owned_mapping_or_history_mutated':False,
+              'artifact_encoding':'gzip+ndjson',
+              'artifact_sha256':sha(gz),
+              'artifact_bytes':gz.stat().st_size,
+              'canonical_entities_sha256':sha(raw),
+              'canonical_entities_bytes':raw.stat().st_size,
+              'license_name':'政府資料開放授權條款',
+              'license_url':'https://data.gov.tw/license',
+              'attribution':'財政部財政資訊中心',
           }
-          payload=(json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode('utf-8')
+          payload=(json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode()
           manifest['manifest_sha256']=hashlib.sha256(payload).hexdigest()
-          (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
-          print('P4_20_3_REAL_RESOLVED_MOBILE_PACK=PASS')
-          print(f'P4_20_3_REAL_MOBILE_ENTITY_COUNT={emitted}')
-          print(f'P4_20_3_REAL_MOBILE_TOTAL_HOLD={total_hold}')
-          print(f'P4_20_3_REAL_MOBILE_ARTIFACT_SHA256={gz_sha}')
-          print(f'P4_20_3_REAL_MOBILE_FINAL={str(total_hold==0).lower()}')
+          (root/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_REAL_FIA_MOBILE_PACK=PASS')
+          print(f'P4_20_3_REAL_FIA_MOBILE_ENTITY_COUNT={emitted}')
+          print(f'P4_20_3_REAL_FIA_MOBILE_UNKNOWN_SUBTYPE={canonical["unknown_count"]}')
+          print(f'P4_20_3_REAL_FIA_MOBILE_UNRESOLVED_PARENT={canonical["unresolved_parent_reference_count"]}')
+          print(f'P4_20_3_REAL_FIA_MOBILE_ARTIFACT_SHA256={manifest["artifact_sha256"]}')
+          print('P4_20_3_REAL_FIA_MOBILE_FINAL=true')
           PY
 
-      - name: Upload real resolved mobile-pack candidate
+      - name: Upload final-data mobile registry candidate
         uses: actions/upload-artifact@v4
         with:
-          name: p4-20-3-real-mobile-pack-candidate-${{ github.event.pull_request.head.sha }}
+          name: p4-20-3-fia-mobile-registry-${{ github.event.pull_request.head.sha }}
           path: |
-            ${{ runner.temp }}/p4_20_3_real_mobile/output/nationwide_registry_resolved.ndjson.gz
-            ${{ runner.temp }}/p4_20_3_real_mobile/output/manifest.json
-            ${{ runner.temp }}/p4_20_3_real_mobile/lineage.json
+            ${{ runner.temp }}/p4_20_3_fia_mobile/nationwide_registry.ndjson.gz
+            ${{ runner.temp }}/p4_20_3_fia_mobile/manifest.json
+            ${{ runner.temp }}/p4_20_3_fia_mobile/canonical_summary.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
-
-      - name: No paid-acquisition boundary audit
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          text=Path('.github/workflows/p4_20_3_nationwide_distribution.yml').read_text(encoding='utf-8').lower()
-          forbidden=(
-              'gcis'+'.nat.gov.tw',
-              '--'+'qps',
-              'p4_20_3_'+'acquire_gcis_registration_type.py',
-          )
-          leaked=[token for token in forbidden if token in text]
-          assert not leaked, f'PAID_ACQUISITION_SURFACE_FORBIDDEN={leaked}'
-          assert "--head --proto '=https'" in text
-          print('P4_20_3_REAL_MOBILE_NO_PAID_ACQUISITION=PASS')
-          PY

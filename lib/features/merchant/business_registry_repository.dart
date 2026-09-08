@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/production_database_coordinator.dart';
-import '../../database/production_schema_v22.dart';
+import '../../database/production_schema_v23.dart';
 import 'business_registry_pack.dart';
 
 enum BusinessRegistryInstallStatus {
@@ -89,7 +89,7 @@ class BusinessRegistryRepository {
   Future<DatabaseExecutor> get _db async {
     final resolved =
         database ?? await ProductionDatabaseCoordinator.instance.database;
-    await createCanonicalProductionV22Tables(resolved);
+    await createCanonicalProductionV23Tables(resolved);
     return resolved;
   }
 

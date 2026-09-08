@@ -6,9 +6,10 @@ Consumes two seller-ID-sorted privacy-reduced entity streams:
 * GCIS-enriched entities from Gate D reconciliation.
 
 The final uniqueness authority is seller_identifier only (not seller|entity_type).
-Any cross-stream duplicate or cross-type contradiction fails closed. Branch
-parent-child closure is verified after the streaming merge using a bounded
-on-disk seller index, so nationwide input does not need to be retained in RAM.
+Any cross-stream duplicate or cross-type contradiction still fails closed.
+Branch parent references are audited after the streaming merge using a bounded
+on-disk seller index, but an official FIA child remains lookup-usable even when
+its referenced parent is absent from the active-tax snapshot.
 
 Responsible-person / manager payload is structurally impossible because input
 and output surfaces are exact-key validated.
@@ -259,39 +260,30 @@ def build_canonical_registry(
 
         conn.commit()
 
-        missing_parent = conn.execute(
-            """
-            SELECT child.seller_identifier, child.parent_seller_identifier
-              FROM canonical_entity AS child
-         LEFT JOIN canonical_entity AS parent
-                ON parent.seller_identifier = child.parent_seller_identifier
-             WHERE child.entity_type = 'branch'
-               AND parent.seller_identifier IS NULL
-             LIMIT 1
-            """
-        ).fetchone()
-        if missing_parent is not None:
-            raise RuntimeError(
-                "BRANCH_PARENT_NOT_IN_CANONICAL_REGISTRY:"
-                f"{missing_parent[0]}->{missing_parent[1]}"
-            )
-
-        invalid_parent_type = conn.execute(
-            """
-            SELECT child.seller_identifier, parent.entity_type
-              FROM canonical_entity AS child
-              JOIN canonical_entity AS parent
-                ON parent.seller_identifier = child.parent_seller_identifier
-             WHERE child.entity_type = 'branch'
-               AND parent.entity_type = 'branch'
-             LIMIT 1
-            """
-        ).fetchone()
-        if invalid_parent_type is not None:
-            raise RuntimeError(
-                "BRANCH_PARENT_CANNOT_BE_BRANCH:"
-                f"{invalid_parent_type[0]}->{invalid_parent_type[1]}"
-            )
+        unresolved_parent_reference_count = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                  FROM canonical_entity AS child
+             LEFT JOIN canonical_entity AS parent
+                    ON parent.seller_identifier = child.parent_seller_identifier
+                 WHERE child.entity_type = 'branch'
+                   AND parent.seller_identifier IS NULL
+                """
+            ).fetchone()[0]
+        )
+        parent_reference_points_to_branch_count = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                  FROM canonical_entity AS child
+                  JOIN canonical_entity AS parent
+                    ON parent.seller_identifier = child.parent_seller_identifier
+                 WHERE child.entity_type = 'branch'
+                   AND parent.entity_type = 'branch'
+                """
+            ).fetchone()[0]
+        )
 
         if stats.canonical_count != stats.ready_count + stats.enriched_count:
             raise AssertionError("CANONICAL_COUNT_PARTITION_MISMATCH")
@@ -318,7 +310,14 @@ def build_canonical_registry(
             "unknown_count": stats.unknown_count,
             "canonical_entities_sha256": payload_sha.hexdigest(),
             "canonical_entities_bytes": temp_output.stat().st_size,
-            "branch_parent_closure": True,
+            "branch_parent_closure_required_for_release": False,
+            "unresolved_parent_reference_count": unresolved_parent_reference_count,
+            "parent_reference_points_to_branch_count":
+                parent_reference_points_to_branch_count,
+            "parent_reference_quality_complete": (
+                unresolved_parent_reference_count == 0
+                and parent_reference_points_to_branch_count == 0
+            ),
             "responsible_person_payload_emitted": False,
             "validation_subset": False,
         }
@@ -398,7 +397,9 @@ def self_test() -> None:
         assert result["business_count"] == 2
         assert result["branch_count"] == 1
         assert result["unknown_count"] == 1
-        assert result["branch_parent_closure"] is True
+        assert result["branch_parent_closure_required_for_release"] is False
+        assert result["unresolved_parent_reference_count"] == 0
+        assert result["parent_reference_points_to_branch_count"] == 0
         sellers = [
             json.loads(line)["seller_identifier"]
             for line in output.read_text(encoding="utf-8").splitlines()
@@ -429,16 +430,16 @@ def self_test() -> None:
         except RuntimeError as exc:
             assert str(exc).startswith("CROSS_STREAM_DUPLICATE_SELLER_IDENTIFIER:")
 
-        # A branch may not survive if its parent is absent from the final registry.
+        # Missing parents are retained as quality metadata; invoice lookup still works.
         _write(ready, [_entity("22222222", "branch", "孤兒分店", parent="11111111")])
         _write(enriched, [])
-        try:
-            build_canonical_registry(ready, enriched, output, summary)
-            raise AssertionError("EXPECTED_MISSING_PARENT_HOLD")
-        except RuntimeError as exc:
-            assert str(exc).startswith("BRANCH_PARENT_NOT_IN_CANONICAL_REGISTRY:")
+        missing = build_canonical_registry(ready, enriched, output, summary)
+        assert missing["canonical_entity_count"] == 1
+        assert missing["unresolved_parent_reference_count"] == 1
+        assert missing["branch_parent_closure_required_for_release"] is False
 
-        # A branch cannot be another branch's canonical parent.
+        # A parent reference that currently points at another branch is also
+        # metadata quality information rather than a reason to delete the child.
         _write(
             ready,
             [
@@ -448,11 +449,9 @@ def self_test() -> None:
             ],
         )
         _write(enriched, [])
-        try:
-            build_canonical_registry(ready, enriched, output, summary)
-            raise AssertionError("EXPECTED_BRANCH_PARENT_TYPE_HOLD")
-        except RuntimeError as exc:
-            assert str(exc).startswith("BRANCH_PARENT_CANNOT_BE_BRANCH:")
+        nested = build_canonical_registry(ready, enriched, output, summary)
+        assert nested["canonical_entity_count"] == 3
+        assert nested["parent_reference_points_to_branch_count"] == 1
 
     print("P4_20_3_CANONICAL_NATIONWIDE_MERGE_SELFTEST=PASS")
 

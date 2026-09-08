@@ -4,6 +4,7 @@ import 'business_registry_pack.dart';
 enum BusinessRegistryNationwideStagingStatus {
   branchReadyFromFiaParent,
   legalTypeReadyFromFiaOrganization,
+  officialIdentityReadySubtypeUnknown,
   needsLegalTypeEnrichment,
   resolvedWithLegalEnrichment,
   holdConflict,
@@ -29,12 +30,12 @@ class BusinessRegistryNationwideStagingDecision {
 /// Converts the nationwide FIA coverage spine into fail-closed staging
 /// decisions before canonical pack emission.
 ///
-/// A non-empty FIA head-office identifier is strong parent-child evidence and
-/// is sufficient to stage the seller as a branch/outlet. For parentless rows,
-/// only exact FIA organization labels that directly encode a Taiwan legal form
-/// are allowed to classify company/business. Residual labels such as `其他`,
-/// cooperatives, limited partnerships, offices, or empty values remain pending
-/// for controlled GCIS legal enrichment; display-name heuristics are forbidden.
+/// A non-empty FIA head-office identifier is useful parent-child metadata and
+/// is sufficient to label the seller as a branch/outlet. For parentless rows,
+/// exact FIA organization labels may refine company/business. Residual labels
+/// such as `其他`, cooperatives, limited partnerships, offices, or empty values
+/// remain fully usable official seller identities with entityType=unknown.
+/// GCIS refinement is optional and is never a release prerequisite.
 class BusinessRegistryNationwideStagingResolver {
   const BusinessRegistryNationwideStagingResolver();
 
@@ -88,9 +89,17 @@ class BusinessRegistryNationwideStagingResolver {
     }
 
     return BusinessRegistryNationwideStagingDecision(
-      status: BusinessRegistryNationwideStagingStatus.needsLegalTypeEnrichment,
+      status:
+          BusinessRegistryNationwideStagingStatus.officialIdentityReadySubtypeUnknown,
       seed: seed,
-      reason: 'parentless_fia_row_requires_company_or_business_authority',
+      entity: BusinessRegistryEntity(
+        sellerIdentifier: seed.sellerIdentifier,
+        entityType: BusinessRegistryEntityType.unknown,
+        legalName: seed.legalName,
+        registrationStatus: 'active_tax_registration',
+        sourceDataset: seed.sourceDataset,
+      ),
+      reason: 'fia_official_identity_usable_subtype_unknown',
     );
   }
 

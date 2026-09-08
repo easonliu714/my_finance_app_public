@@ -61,6 +61,7 @@ class BusinessRegistryPack {
   });
 
   static const Set<String> allowedSourceAuthorities = <String>{
+    'MOF_FIA_ACTIVE_TAX_REGISTRY',
     'MOEA_BUSINESS_ADMINISTRATION_GCIS',
     'MOEA_BUSINESS_ADMINISTRATION_GCIS_PUBLIC_REPORT',
   };
