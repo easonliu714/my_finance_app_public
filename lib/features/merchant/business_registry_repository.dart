@@ -185,9 +185,7 @@ class BusinessRegistryRepository {
               'jurisdiction': 'TW',
               'seller_identifier': entity.sellerIdentifier,
               'official_json': jsonEncode(
-                BusinessRegistryEntity.normalizeOfficialFields(
-                  entity.officialFields,
-                ),
+                encodeBusinessRegistryOfficialFields(entity.officialFields),
               ),
             },
           );
@@ -324,13 +322,7 @@ class BusinessRegistryRepository {
     if (details.isNotEmpty) {
       final decoded =
           jsonDecode(details.first['official_json']?.toString() ?? '');
-      if (decoded is! Map) {
-        throw const FormatException('REGISTRY_OFFICIAL_DETAIL_JSON_INVALID');
-      }
-      final fields = <String, String>{};
-      for (final field in BusinessRegistryEntity.officialFieldOrder) {
-        fields[field] = decoded[field]?.toString() ?? '';
-      }
+      final fields = decodeBusinessRegistryOfficialFields(decoded);
       return BusinessRegistryOfficialDetailLookupResult(
         status: BusinessRegistryOfficialDetailLookupStatus.hit,
         snapshotVersion: snapshot.version,

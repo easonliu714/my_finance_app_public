@@ -156,17 +156,17 @@ jobs:
                           raise SystemExit(f'STAGING_PAYLOAD_SURFACE_MISMATCH:{path.name}')
                       if path.name == 'ready_entities.ndjson':
                           official = record.get('official_fields')
-                          expected_official = {
+                          expected_official = [
                               '營業地址','統一編號','總機構統一編號','營業人名稱',
                               '資本額','設立日期','組織別名稱','使用統一發票',
                               '行業代號','名稱','行業代號1','名稱1',
                               '行業代號2','名稱2','行業代號3','名稱3',
-                          }
-                          if not isinstance(official, dict) or set(official) != expected_official:
+                          ]
+                          if not isinstance(official, list) or len(official) != len(expected_official):
                               raise SystemExit('STAGING_OFFICIAL_DETAIL_SURFACE_MISMATCH')
-                          if official['統一編號'] != record['seller_identifier']:
+                          if official[expected_official.index('統一編號')] != record['seller_identifier']:
                               raise SystemExit('STAGING_OFFICIAL_DETAIL_SELLER_MISMATCH')
-                          if official['營業人名稱'] != record['legal_name']:
+                          if official[expected_official.index('營業人名稱')] != record['legal_name']:
                               raise SystemExit('STAGING_OFFICIAL_DETAIL_NAME_MISMATCH')
 
           print('P4_20_3_STAGING_PARTITION=PASS')

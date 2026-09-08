@@ -9,7 +9,7 @@ materialized as `unknown` instead of being sent to a mandatory GCIS queue.
 Malformed source rows are counted and skipped without blocking valid coverage.
 
 All 16 public fields documented by the FIA coverage-spine dataset are retained
-inside Registry-only official_fields for explicit user inspection. They are not
+inside a fixed-order Registry-only official_fields array for explicit user inspection. They are not
 copied into accounting transactions. Responsible-person / branch-manager data
 is never emitted.
 """
@@ -86,10 +86,10 @@ def stage_row(row: dict[str, str]) -> StageRecord:
     legal_name = (row.get("營業人名稱") or "").strip()
     organization = (row.get("組織別名稱") or "").strip()
     uniform_invoice = (row.get("使用統一發票") or "").strip()
-    official_fields = {
-        field: (row.get(field) or "").strip()
+    official_fields = [
+        (row.get(field) or "").strip()
         for field in OFFICIAL_DETAIL_COLUMNS
-    }
+    ]
 
     if not SELLER_RE.fullmatch(seller):
         return StageRecord("hold", reason="seller_identifier_invalid")
@@ -439,11 +439,14 @@ def _self_test() -> None:
             "unknown",
         ]
         assert all(
-            set(item["official_fields"]) == set(OFFICIAL_DETAIL_COLUMNS)
+            isinstance(item["official_fields"], list)
+            and len(item["official_fields"]) == len(OFFICIAL_DETAIL_COLUMNS)
             for item in parsed
         )
-        assert parsed[0]["official_fields"]["統一編號"] == "22222222"
-        assert parsed[0]["official_fields"]["營業人名稱"] == "分支測試"
+        seller_index = OFFICIAL_DETAIL_COLUMNS.index("統一編號")
+        name_index = OFFICIAL_DETAIL_COLUMNS.index("營業人名稱")
+        assert parsed[0]["official_fields"][seller_index] == "22222222"
+        assert parsed[0]["official_fields"][name_index] == "分支測試"
         assert queue == ""
 
 

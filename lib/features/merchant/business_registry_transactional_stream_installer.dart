@@ -227,7 +227,7 @@ class BusinessRegistryTransactionalStreamInstaller {
                         'jurisdiction': 'TW',
                         'seller_identifier': entity.sellerIdentifier,
                         'official_json': jsonEncode(
-                          BusinessRegistryEntity.normalizeOfficialFields(
+                          encodeBusinessRegistryOfficialFields(
                             entity.officialFields,
                           ),
                         ),

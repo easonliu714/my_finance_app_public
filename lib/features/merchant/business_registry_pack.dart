@@ -54,7 +54,9 @@ class BusinessRegistryEntity {
       'source_dataset': sourceDataset,
     };
     final details = normalizeOfficialFields(officialFields);
-    if (details.isNotEmpty) json['official_fields'] = details;
+    if (details.isNotEmpty) {
+      json['official_fields'] = encodeBusinessRegistryOfficialFields(details);
+    }
     return json;
   }
 
@@ -86,32 +88,58 @@ class BusinessRegistryEntity {
       parentSellerIdentifier:
           json['parent_seller_identifier']?.toString() ?? '',
       sourceDataset: json['source_dataset']?.toString() ?? '',
-      officialFields: _officialFieldsFromJson(json['official_fields']),
+      officialFields: decodeBusinessRegistryOfficialFields(
+        json['official_fields'],
+      ),
     );
   }
 }
 
-Map<String, String> _officialFieldsFromJson(Object? value) {
-  if (value == null) return const <String, String>{};
-  if (value is! Map) {
-    throw const FormatException(
-      'Business registry official_fields must be an object',
-    );
-  }
-  final raw = Map<Object?, Object?>.from(value);
-  final result = <String, String>{};
-  for (final entry in raw.entries) {
-    result[entry.key?.toString() ?? ''] = entry.value?.toString() ?? '';
-  }
-  final unknown = result.keys.where(
-    (key) => !BusinessRegistryEntity.officialFieldOrder.contains(key),
+List<String> encodeBusinessRegistryOfficialFields(
+  Map<String, String> source,
+) {
+  final normalized = BusinessRegistryEntity.normalizeOfficialFields(source);
+  if (normalized.isEmpty) return const <String>[];
+  return List<String>.unmodifiable(
+    BusinessRegistryEntity.officialFieldOrder.map(
+      (field) => normalized[field] ?? '',
+    ),
   );
-  if (unknown.isNotEmpty) {
-    throw FormatException(
-      'Unsupported business registry official field: ${unknown.first}',
-    );
+}
+
+Map<String, String> decodeBusinessRegistryOfficialFields(Object? value) {
+  if (value == null) return const <String, String>{};
+  if (value is List) {
+    if (value.length != BusinessRegistryEntity.officialFieldOrder.length) {
+      throw const FormatException(
+        'Business registry official_fields array length mismatch',
+      );
+    }
+    return Map<String, String>.unmodifiable(<String, String>{
+      for (var i = 0; i < BusinessRegistryEntity.officialFieldOrder.length; i++)
+        BusinessRegistryEntity.officialFieldOrder[i]:
+            value[i]?.toString().trim() ?? '',
+    });
   }
-  return BusinessRegistryEntity.normalizeOfficialFields(result);
+  if (value is Map) {
+    final raw = Map<Object?, Object?>.from(value);
+    final result = <String, String>{};
+    for (final entry in raw.entries) {
+      result[entry.key?.toString() ?? ''] = entry.value?.toString() ?? '';
+    }
+    final unknown = result.keys.where(
+      (key) => !BusinessRegistryEntity.officialFieldOrder.contains(key),
+    );
+    if (unknown.isNotEmpty) {
+      throw FormatException(
+        'Unsupported business registry official field: ${unknown.first}',
+      );
+    }
+    return BusinessRegistryEntity.normalizeOfficialFields(result);
+  }
+  throw const FormatException(
+    'Business registry official_fields must be an array or object',
+  );
 }
 class BusinessRegistryPack {
   const BusinessRegistryPack({

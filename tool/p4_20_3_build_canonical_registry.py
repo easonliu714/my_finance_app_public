@@ -44,7 +44,6 @@ OFFICIAL_DETAIL_COLUMNS = (
     "行業代號", "名稱", "行業代號1", "名稱1",
     "行業代號2", "名稱2", "行業代號3", "名稱3",
 )
-OFFICIAL_DETAIL_KEYS = frozenset(OFFICIAL_DETAIL_COLUMNS)
 FIA_SOURCE_DATASET = "MOF_FIA_BGMOPEN1_ACTIVE_TAX_REGISTRY"
 MAX_LINE_BYTES = 64 * 1024
 
@@ -113,20 +112,20 @@ def _normalize_entity(
         raise RuntimeError(f"ENTITY_SOURCE_DATASET_REQUIRED:{path.name}:{line_number}")
 
     raw_details = record.get("official_fields")
-    official_fields: dict[str, str] | None = None
+    official_fields: list[str] | None = None
     if raw_details is not None:
-        if not isinstance(raw_details, dict) or frozenset(raw_details) != OFFICIAL_DETAIL_KEYS:
+        if not isinstance(raw_details, list) or len(raw_details) != len(OFFICIAL_DETAIL_COLUMNS):
             raise RuntimeError(
                 f"ENTITY_OFFICIAL_DETAIL_SURFACE_MISMATCH:{path.name}:{line_number}"
             )
-        official_fields = {
-            field: _clean(raw_details.get(field)) for field in OFFICIAL_DETAIL_COLUMNS
-        }
-        if _seller(official_fields["統一編號"]) != seller:
+        official_fields = [_clean(value) for value in raw_details]
+        seller_index = OFFICIAL_DETAIL_COLUMNS.index("統一編號")
+        name_index = OFFICIAL_DETAIL_COLUMNS.index("營業人名稱")
+        if _seller(official_fields[seller_index]) != seller:
             raise RuntimeError(
                 f"ENTITY_OFFICIAL_DETAIL_SELLER_MISMATCH:{path.name}:{line_number}"
             )
-        if official_fields["營業人名稱"] != legal_name:
+        if official_fields[name_index] != legal_name:
             raise RuntimeError(
                 f"ENTITY_OFFICIAL_DETAIL_NAME_MISMATCH:{path.name}:{line_number}"
             )

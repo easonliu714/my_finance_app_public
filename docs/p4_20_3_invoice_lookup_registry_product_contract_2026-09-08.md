@@ -112,6 +112,8 @@ transactions / merchant history
 ```
 
 The detail query is local-only against the installed optional dataset. A query must not trigger a manifest probe or background Registry refresh.
+
+Storage/wire optimization: because the 16-field schema is fixed by this product contract, the nationwide stream stores the values as one fixed-order 16-value array rather than repeating 16 field-name strings in every one of the ~1.7M entity records. The UI reconstructs the named field map using the canonical field order. This reduces optional-dataset storage without coupling any field to accounting transactions.
 ## 4. Release-critical vs optional metadata
 
 ### Release-critical
