@@ -215,6 +215,9 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/p4_20_3_fia_mobile"
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$EXACT_HEAD"
             gh release upload "$RELEASE_TAG" \
               "$root/manifest.json" \
               "$root/nationwide_registry.ndjson.gz" \
@@ -231,10 +234,15 @@ jobs:
           fi
 
       - name: Verify published production registry endpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: p4.20.3-registry
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          published_target="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
+          test "$published_target" = "$EXACT_HEAD"
           base='https://github.com/easonliu714/my_finance_app_public/releases/download/p4.20.3-registry'
           curl --fail --location --retry 5 --retry-delay 2 \
             "$base/manifest.json" -o "$root/published_manifest.json"
@@ -253,6 +261,7 @@ jobs:
           assert sha == expected['download_sha256'] == expected['artifact_sha256']
           assert expected['download_url'] == 'https://github.com/easonliu714/my_finance_app_public/releases/download/p4.20.3-registry/nationwide_registry.ndjson.gz'
           assert expected['final_mobile_registry'] is True
+          print('P4_20_3_PRODUCTION_RELEASE_EXACT_HEAD=PASS')
           print('P4_20_3_PRODUCTION_MANIFEST_ENDPOINT=PASS')
           print('P4_20_3_PRODUCTION_DOWNLOAD_ENDPOINT=PASS')
           print(f'P4_20_3_PRODUCTION_DOWNLOAD_SHA256={sha}')
