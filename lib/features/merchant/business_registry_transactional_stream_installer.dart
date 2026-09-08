@@ -6,7 +6,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/production_database_coordinator.dart';
-import '../../database/production_schema_v22.dart';
+import '../../database/production_schema_v23.dart';
 import 'business_registry_distribution_manifest.dart';
 import 'business_registry_nationwide_builder.dart';
 import 'business_registry_stream_pack.dart';
@@ -64,7 +64,7 @@ class BusinessRegistryTransactionalStreamInstaller {
 
       final db =
           database ?? await ProductionDatabaseCoordinator.instance.database;
-      await createCanonicalProductionV22Tables(db);
+      await createCanonicalProductionV23Tables(db);
 
       final existing = await db.query(
         'business_registry_snapshots',
