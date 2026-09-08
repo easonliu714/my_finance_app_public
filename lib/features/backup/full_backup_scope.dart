@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../database/production_schema_v23.dart';
+import '../../database/production_schema_v24.dart';
 
 class FullBackupScope {
   const FullBackupScope._();
@@ -123,6 +123,7 @@ class FullBackupScope {
     'taiwan_business_calendar_days',
     'business_registry_snapshots',
     'business_registry_entities',
+    'business_registry_official_details',
     'business_registry_negative_lookups',
   };
 
