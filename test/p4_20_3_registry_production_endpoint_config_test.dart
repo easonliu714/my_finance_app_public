@@ -35,13 +35,13 @@ void main() {
     expect(
       source,
       contains(
-        "defaultValue: productionManifestUrl",
+        'defaultValue: productionManifestUrl',
       ),
     );
     expect(
       source,
       contains(
-        "releases/download/p4.20.3-registry/manifest.json",
+        'releases/download/p4.20.3-registry/manifest.json',
       ),
     );
     expect(
