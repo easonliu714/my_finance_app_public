@@ -270,7 +270,7 @@ Only after the same release-authority head closes all product/install/lookup/rel
 `READY FOR OWNER REAL-DEVICE VALIDATION`
 
 
-## 11. Owner real-device Gate failure and P4.20.3-r1 endpoint hotfix
+## 11. Owner real-device Gate failure and P4.20.3+457 endpoint hotfix
 
 Real-device validation of signed version `4.20.3+456` on 2026-09-09 found a packaging/runtime configuration defect:
 
@@ -288,6 +288,6 @@ Approved repair boundary:
 3. Registry download/update remains an explicit user action; adding a default endpoint does **not** enable background Registry network access;
 4. Invoice Review remains strictly local-only and must never call this update endpoint;
 5. failed updates preserve the existing LKG snapshot;
-6. the repair is versioned as `4.20.3-r1+457`; P4.20.4 remains locked for the next planned product phase.
+6. the repair is versioned as `4.20.3+457`; P4.20.4 remains locked for the next planned product phase.
 
 The repaired real-device Gate must prove that an existing P4.20.1 validation subset can be explicitly upgraded to the P4.20.3 nationwide Registry and that `31655572` resolves after installation.
