@@ -17,7 +17,7 @@ void main() {
   setUpAll(sqfliteFfiInit);
 
   test(
-      'P4.20.3-r1 upgrades an installed P4.20.1 validation subset to nationwide',
+      'P4.20.3+457 upgrades an installed P4.20.1 validation subset to nationwide',
       () async {
     final db = await databaseFactoryFfi.openDatabase(
       inMemoryDatabasePath,
