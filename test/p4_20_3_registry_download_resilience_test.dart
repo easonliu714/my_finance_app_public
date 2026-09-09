@@ -22,7 +22,7 @@ void main() {
     test('transient disconnect retains partial and Range retry completes SHA', () async {
       final destination = File('${tempDir.path}/registry.gz.partial');
       final client = _SequenceClient(<_ResponsePlan>[
-        _ResponsePlan.disconnectAfter(utf8.encode('abc')),
+        _ResponsePlan.disconnectAfter(utf8.encode('abc'), total: 6),
         _ResponsePlan.partial(utf8.encode('def'), start: 3, total: 6),
       ]);
       final progress = <BusinessRegistryDownloadProgress>[];
@@ -44,7 +44,7 @@ void main() {
     test('manual retry after exhausted transient failure resumes retained bytes', () async {
       final destination = File('${tempDir.path}/registry.gz.partial');
       final first = _SequenceClient(<_ResponsePlan>[
-        _ResponsePlan.disconnectAfter(utf8.encode('abc')),
+        _ResponsePlan.disconnectAfter(utf8.encode('abc'), total: 6),
       ]);
       await expectLater(
         BusinessRegistryBoundedDownloader(
@@ -199,6 +199,7 @@ class _ResponsePlan {
     required this.statusCode,
     this.headers = const <String, String>{},
     this.disconnect = false,
+    this.declaredLength,
   });
 
   factory _ResponsePlan.full(List<int> bytes) => _ResponsePlan(
@@ -215,16 +216,19 @@ class _ResponsePlan {
         },
       );
 
-  factory _ResponsePlan.disconnectAfter(List<int> bytes) => _ResponsePlan(
+  factory _ResponsePlan.disconnectAfter(List<int> bytes, {required int total}) =>
+      _ResponsePlan(
         bytes: bytes,
         statusCode: HttpStatus.ok,
         disconnect: true,
+        declaredLength: total,
       );
 
   final List<int> bytes;
   final int statusCode;
   final Map<String, String> headers;
   final bool disconnect;
+  final int? declaredLength;
 
   http.StreamedResponse build(http.BaseRequest request) {
     final controller = StreamController<List<int>>();
@@ -238,7 +242,7 @@ class _ResponsePlan {
     return http.StreamedResponse(
       controller.stream,
       statusCode,
-      contentLength: bytes.length,
+      contentLength: declaredLength ?? bytes.length,
       headers: headers,
       request: request,
     );
