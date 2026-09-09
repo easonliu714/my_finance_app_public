@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../app_build_metadata.dart';
+
 import '../merchant/business_registry_pack.dart';
 import '../merchant/business_registry_repository.dart';
 
@@ -16,6 +18,7 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
   });
 
   static const Key refreshKey = Key('business_registry_update_refresh');
+  static const Key appVersionKey = Key('business_registry_app_version');
   static const Key versionKey = Key('business_registry_update_version');
   static const Key dataDateKey = Key('business_registry_update_data_date');
   static const Key coverageKey = Key('business_registry_update_coverage');
@@ -71,6 +74,11 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
             if (loading)
               const LinearProgressIndicator()
             else ...<Widget>[
+              _InfoRow(
+                label: 'App 版本',
+                value: AppBuildMetadata.appVersion,
+                valueKey: appVersionKey,
+              ),
               _InfoRow(
                 label: '已安裝版本',
                 value: installed?.version ?? '尚未安裝',
