@@ -76,6 +76,7 @@ jobs:
           flutter test test/p4_20_3_invoice_registry_local_only_contract_test.dart
           flutter test test/p4_20_3_registry_official_detail_lookup_test.dart
           flutter test test/p4_20_3_registry_production_endpoint_config_test.dart
+          flutter test test/p4_20_3_registry_subset_upgrade_test.dart
       - name: Full regression suite
         run: flutter test
 
