@@ -15,9 +15,13 @@ import 'business_registry_transactional_stream_installer.dart';
 class BusinessRegistryUpdateConfiguration {
   const BusinessRegistryUpdateConfiguration._();
 
+  static const String productionManifestUrl =
+      'https://github.com/easonliu714/my_finance_app_public/'
+      'releases/download/p4.20.3-registry/manifest.json';
+
   static const String manifestUrl = String.fromEnvironment(
     'BUSINESS_REGISTRY_MANIFEST_URL',
-    defaultValue: '',
+    defaultValue: productionManifestUrl,
   );
 
   static Uri? get manifestUri {

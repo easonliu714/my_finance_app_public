@@ -268,3 +268,26 @@ Update failure:
 Only after the same release-authority head closes all product/install/lookup/release gates may the project report:
 
 `READY FOR OWNER REAL-DEVICE VALIDATION`
+
+
+## 11. Owner real-device Gate failure and P4.20.3-r1 endpoint hotfix
+
+Real-device validation of signed version `4.20.3+456` on 2026-09-09 found a packaging/runtime configuration defect:
+
+- the handset still showed the previously installed `p4-20-1-canary...` validation subset dated 2025-06-02;
+- the Registry update action was disabled with the UI message that no Registry distribution endpoint was configured;
+- seller `31655572` therefore returned no local official detail;
+- Registry offline/LKG validation could not proceed because the nationwide P4.20.3 pack had never been installable from that APK.
+
+Root cause: `BusinessRegistryUpdateConfiguration.manifestUrl` defaulted to an empty string and the signed APK build did not inject `BUSINESS_REGISTRY_MANIFEST_URL`.
+
+Approved repair boundary:
+
+1. production code carries the allowlisted P4.20.3 GitHub Release manifest URL as the default;
+2. `BUSINESS_REGISTRY_MANIFEST_URL` remains available as an explicit build/test override;
+3. Registry download/update remains an explicit user action; adding a default endpoint does **not** enable background Registry network access;
+4. Invoice Review remains strictly local-only and must never call this update endpoint;
+5. failed updates preserve the existing LKG snapshot;
+6. the repair is versioned as `4.20.3-r1+457`; P4.20.4 remains locked for the next planned product phase.
+
+The repaired real-device Gate must prove that an existing P4.20.1 validation subset can be explicitly upgraded to the P4.20.3 nationwide Registry and that `31655572` resolves after installation.

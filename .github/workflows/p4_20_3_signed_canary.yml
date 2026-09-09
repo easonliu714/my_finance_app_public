@@ -62,10 +62,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fxq 'version: 4.20.3+456' pubspec.yaml
-          grep -Fq "validationVersion = '4.20.3+456'" lib/features/invoice/lab/private_cloud_invoice_lab_config.dart
-          grep -Fq "appVersion = '4.20.3+456'" lib/app_build_metadata.dart
-          grep -Fq "phase = 'P4.20.3-nationwide-official-registry'" lib/app_build_metadata.dart
+          grep -Fxq 'version: 4.20.3-r1+457' pubspec.yaml
+          grep -Fq "validationVersion = '4.20.3-r1+457'" lib/features/invoice/lab/private_cloud_invoice_lab_config.dart
+          grep -Fq "appVersion = '4.20.3-r1+457'" lib/app_build_metadata.dart
+          grep -Fq "phase = 'P4.20.3-r1-registry-endpoint-hotfix'" lib/app_build_metadata.dart
       - name: Analyze
         run: flutter analyze
       - name: Focused P4.20.3 release regressions
@@ -75,6 +75,7 @@ jobs:
           flutter test test/p4_20_3_unknown_stream_installer_test.dart
           flutter test test/p4_20_3_invoice_registry_local_only_contract_test.dart
           flutter test test/p4_20_3_registry_official_detail_lookup_test.dart
+          flutter test test/p4_20_3_registry_production_endpoint_config_test.dart
       - name: Full regression suite
         run: flutter test
 
@@ -261,7 +262,7 @@ jobs:
           Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
           PY
       - name: Build signed release APK
-        run: flutter build apk --release --no-pub --build-number=456
+        run: flutter build apk --release --no-pub --build-number=457
       - name: Inspect signer, version and permission boundary
         shell: bash
         run: |
@@ -274,8 +275,8 @@ jobs:
           version_code="$($apkanalyzer_bin manifest version-code "$apk")"
           signer_output="$($apksigner_bin verify --print-certs "$apk")"
           normalized="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
-          test "$version_name" = '4.20.3'
-          test "$version_code" = '456'
+          test "$version_name" = '4.20.3-r1'
+          test "$version_code" = '457'
           grep -Fq '9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7' <<< "$normalized"
           grep -Fq 'android.permission.CAMERA' <<< "$permissions"
           grep -Fq 'android.permission.INTERNET' <<< "$permissions"
@@ -300,7 +301,7 @@ jobs:
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk | tee p4_20_3_public_signed_nationwide_registry_canary.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: p4-20-3-public-4.20.3+456-signed-nationwide-registry-canary
+          name: p4-20-3-public-4.20.3-r1+457-signed-nationwide-registry-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             p4_20_3_public_signed_nationwide_registry_canary.sha256
