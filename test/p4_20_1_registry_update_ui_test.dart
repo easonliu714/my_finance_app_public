@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/app_build_metadata.dart';
 import 'package:my_finance_app/features/merchant/business_registry_pack.dart';
 import 'package:my_finance_app/features/merchant/business_registry_repository.dart';
 import 'package:my_finance_app/features/profile/business_registry_update_card.dart';
@@ -33,6 +34,12 @@ void main() {
       ),
     );
 
+    expect(
+      find.byKey(BusinessRegistryUpdateCard.appVersionKey),
+      findsOneWidget,
+    );
+    expect(find.text('App 版本'), findsOneWidget);
+    expect(find.text(AppBuildMetadata.appVersion), findsOneWidget);
     expect(
       find.byKey(BusinessRegistryUpdateCard.versionKey),
       findsOneWidget,
