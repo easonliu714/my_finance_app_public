@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'business_registry_bounded_downloader.dart';
 import 'business_registry_distribution_manifest.dart';
@@ -138,6 +139,12 @@ class BusinessRegistryUpdateService {
       );
     }
 
+    // Explicit Registry update is a foreground owner action. Keep the display
+    // awake while this Future owns the transfer/validation/install chain so an
+    // automatic screen timeout is less likely to suspend the 100+ MB stream.
+    // Manual lock/background termination is still allowed; resumable partials
+    // remain the recovery authority for those cases.
+    await WakelockPlus.enable();
     final ownedClient = client == null;
     final activeClient = client ?? http.Client();
     try {
@@ -245,6 +252,7 @@ class BusinessRegistryUpdateService {
       );
     } finally {
       if (ownedClient) activeClient.close();
+      await WakelockPlus.disable();
     }
   }
 
