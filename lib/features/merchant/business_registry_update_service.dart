@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -94,6 +95,18 @@ class BusinessRegistryUpdateService {
     this.tempDirectoryProvider,
   });
 
+  static final StreamController<BusinessRegistryUpdateProgress>
+      _progressController =
+      StreamController<BusinessRegistryUpdateProgress>.broadcast(sync: true);
+
+  /// UI-only observation surface for the explicit Registry update flow.
+  ///
+  /// This stream does not initiate network work. It only mirrors progress from
+  /// an already-running explicit update so My Page can render stage/throughput
+  /// telemetry without turning Invoice Review into a network trigger.
+  static Stream<BusinessRegistryUpdateProgress> get progressStream =>
+      _progressController.stream;
+
   final Database? database;
   final Uri? manifestUri;
   final http.Client? client;
@@ -139,14 +152,6 @@ class BusinessRegistryUpdateService {
       );
     }
 
-    // Explicit Registry update is a foreground owner action. Keep the display
-    // awake while this Future owns the transfer/validation/install chain so an
-    // automatic screen timeout is less likely to suspend the 100+ MB stream.
-    // Manual lock/background termination is still allowed; resumable partials
-    // remain the recovery authority for those cases. Wakelock is a resilience
-    // aid, not an integrity prerequisite: if the platform channel is unavailable
-    // (for example in host-side tests), the bounded/resumable update must still
-    // proceed and preserve LKG semantics.
     try {
       await WakelockPlus.enable();
     } catch (_) {}
@@ -154,7 +159,8 @@ class BusinessRegistryUpdateService {
     final activeClient = client ?? http.Client();
     try {
       if (knownManifest == null) {
-        onProgress?.call(
+        _emitProgress(
+          onProgress,
           const BusinessRegistryUpdateProgress(
             stage: BusinessRegistryUpdateStage.readingManifest,
           ),
@@ -170,7 +176,8 @@ class BusinessRegistryUpdateService {
       if (installed != null &&
           installed.version == manifest.registryVersion &&
           installed.contentSha256 == manifest.registryContentSha256) {
-        onProgress?.call(
+        _emitProgress(
+          onProgress,
           const BusinessRegistryUpdateProgress(
             stage: BusinessRegistryUpdateStage.complete,
           ),
@@ -194,7 +201,8 @@ class BusinessRegistryUpdateService {
         '${_safeFileToken(manifest.registryVersion)}.registry.gz.partial',
       );
 
-      onProgress?.call(
+      _emitProgress(
+        onProgress,
         const BusinessRegistryUpdateProgress(
           stage: BusinessRegistryUpdateStage.downloadingRegistry,
         ),
@@ -204,7 +212,8 @@ class BusinessRegistryUpdateService {
       ).download(
         manifest: manifest,
         destinationTempFile: candidate,
-        onProgress: (download) => onProgress?.call(
+        onProgress: (download) => _emitProgress(
+          onProgress,
           BusinessRegistryUpdateProgress(
             stage: BusinessRegistryUpdateStage.downloadingRegistry,
             download: download,
@@ -212,7 +221,8 @@ class BusinessRegistryUpdateService {
         ),
       );
 
-      onProgress?.call(
+      _emitProgress(
+        onProgress,
         const BusinessRegistryUpdateProgress(
           stage: BusinessRegistryUpdateStage.validatingRegistry,
         ),
@@ -222,7 +232,8 @@ class BusinessRegistryUpdateService {
         artifact: downloaded,
       );
 
-      onProgress?.call(
+      _emitProgress(
+        onProgress,
         const BusinessRegistryUpdateProgress(
           stage: BusinessRegistryUpdateStage.installingRegistry,
         ),
@@ -234,7 +245,8 @@ class BusinessRegistryUpdateService {
         artifact: validated,
       );
 
-      onProgress?.call(
+      _emitProgress(
+        onProgress,
         const BusinessRegistryUpdateProgress(
           stage: BusinessRegistryUpdateStage.readingBackAuthority,
         ),
@@ -245,7 +257,8 @@ class BusinessRegistryUpdateService {
           snapshot.contentSha256 != manifest.registryContentSha256) {
         throw StateError('REGISTRY_UPDATE_POSTINSTALL_AUTHORITY_MISMATCH');
       }
-      onProgress?.call(
+      _emitProgress(
+        onProgress,
         const BusinessRegistryUpdateProgress(
           stage: BusinessRegistryUpdateStage.complete,
         ),
@@ -261,6 +274,14 @@ class BusinessRegistryUpdateService {
         await WakelockPlus.disable();
       } catch (_) {}
     }
+  }
+
+  static void _emitProgress(
+    BusinessRegistryUpdateProgressCallback? callback,
+    BusinessRegistryUpdateProgress progress,
+  ) {
+    callback?.call(progress);
+    _progressController.add(progress);
   }
 
   Future<BusinessRegistryDistributionManifest> _loadManifest(

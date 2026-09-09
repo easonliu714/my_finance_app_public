@@ -4,6 +4,8 @@ import '../../app_build_metadata.dart';
 
 import '../merchant/business_registry_pack.dart';
 import '../merchant/business_registry_repository.dart';
+import '../merchant/business_registry_update_service.dart';
+import 'business_registry_update_presentation.dart';
 
 class BusinessRegistryUpdateCard extends StatelessWidget {
   const BusinessRegistryUpdateCard({
@@ -23,6 +25,7 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
   static const Key dataDateKey = Key('business_registry_update_data_date');
   static const Key coverageKey = Key('business_registry_update_coverage');
   static const Key statusKey = Key('business_registry_update_status');
+  static const Key liveProgressKey = Key('business_registry_update_live_progress');
 
   final BusinessRegistrySnapshotInfo? snapshot;
   final bool loading;
@@ -104,7 +107,23 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
                 ),
               ],
             ],
-            if (statusMessage.trim().isNotEmpty) ...<Widget>[
+            if (updating) ...<Widget>[
+              const SizedBox(height: 10),
+              StreamBuilder<BusinessRegistryUpdateProgress>(
+                stream: BusinessRegistryUpdateService.progressStream,
+                builder: (context, snapshot) {
+                  final progress = snapshot.data;
+                  final text = progress == null
+                      ? '讀取 manifest…\n${BusinessRegistryUpdatePresentation.foregroundGuidance}'
+                      : BusinessRegistryUpdatePresentation.stageLabel(progress);
+                  return Text(
+                    text,
+                    key: liveProgressKey,
+                    style: theme.textTheme.bodySmall,
+                  );
+                },
+              ),
+            ] else if (statusMessage.trim().isNotEmpty) ...<Widget>[
               const SizedBox(height: 10),
               Text(
                 statusMessage,
@@ -134,6 +153,10 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
               label: Text(updating ? '正在更新公司行號資料…' : '更新公司行號資料'),
             ),
             const SizedBox(height: 8),
+            const Text(
+              '更新期間建議保持 App 前景；若手動鎖屏或系統中止，重新開啟後再次按更新可從有效 partial 續傳。',
+            ),
+            const SizedBox(height: 6),
             const Text(
               '更新會先下載到暫存檔並驗證版本、大小與 SHA-256；完整驗證成功後才原子切換。失敗時保留上一版資料，且不影響發票覆核。',
             ),
