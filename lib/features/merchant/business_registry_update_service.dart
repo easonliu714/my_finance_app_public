@@ -143,8 +143,13 @@ class BusinessRegistryUpdateService {
     // awake while this Future owns the transfer/validation/install chain so an
     // automatic screen timeout is less likely to suspend the 100+ MB stream.
     // Manual lock/background termination is still allowed; resumable partials
-    // remain the recovery authority for those cases.
-    await WakelockPlus.enable();
+    // remain the recovery authority for those cases. Wakelock is a resilience
+    // aid, not an integrity prerequisite: if the platform channel is unavailable
+    // (for example in host-side tests), the bounded/resumable update must still
+    // proceed and preserve LKG semantics.
+    try {
+      await WakelockPlus.enable();
+    } catch (_) {}
     final ownedClient = client == null;
     final activeClient = client ?? http.Client();
     try {
@@ -252,7 +257,9 @@ class BusinessRegistryUpdateService {
       );
     } finally {
       if (ownedClient) activeClient.close();
-      await WakelockPlus.disable();
+      try {
+        await WakelockPlus.disable();
+      } catch (_) {}
     }
   }
 
