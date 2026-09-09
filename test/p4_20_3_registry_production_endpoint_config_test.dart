@@ -5,7 +5,7 @@ import 'package:my_finance_app/features/merchant/business_registry_distribution_
 import 'package:my_finance_app/features/merchant/business_registry_update_service.dart';
 
 void main() {
-  test('P4.20.3-r1 production build has a valid default Registry endpoint', () {
+  test('P4.20.3+457 production build has a valid default Registry endpoint', () {
     final uri = BusinessRegistryUpdateConfiguration.manifestUri;
 
     expect(uri, isNotNull);
