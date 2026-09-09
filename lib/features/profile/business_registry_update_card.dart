@@ -74,7 +74,7 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
             if (loading)
               const LinearProgressIndicator()
             else ...<Widget>[
-              _InfoRow(
+              const _InfoRow(
                 label: 'App 版本',
                 value: AppBuildMetadata.appVersion,
                 valueKey: appVersionKey,
