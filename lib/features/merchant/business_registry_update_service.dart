@@ -43,6 +43,29 @@ enum BusinessRegistryUpdateStatus {
   distributionNotConfigured,
 }
 
+enum BusinessRegistryUpdateStage {
+  readingManifest,
+  downloadingRegistry,
+  validatingRegistry,
+  installingRegistry,
+  readingBackAuthority,
+  complete,
+}
+
+class BusinessRegistryUpdateProgress {
+  const BusinessRegistryUpdateProgress({
+    required this.stage,
+    this.download,
+  });
+
+  final BusinessRegistryUpdateStage stage;
+  final BusinessRegistryDownloadProgress? download;
+}
+
+typedef BusinessRegistryUpdateProgressCallback = void Function(
+  BusinessRegistryUpdateProgress progress,
+);
+
 class BusinessRegistryUpdateResult {
   const BusinessRegistryUpdateResult({
     required this.status,
@@ -104,6 +127,7 @@ class BusinessRegistryUpdateService {
 
   Future<BusinessRegistryUpdateResult> update({
     BusinessRegistryDistributionManifest? knownManifest,
+    BusinessRegistryUpdateProgressCallback? onProgress,
   }) async {
     final uri = _effectiveManifestUri;
     final repository = BusinessRegistryRepository(database: database);
@@ -117,6 +141,13 @@ class BusinessRegistryUpdateService {
     final ownedClient = client == null;
     final activeClient = client ?? http.Client();
     try {
+      if (knownManifest == null) {
+        onProgress?.call(
+          const BusinessRegistryUpdateProgress(
+            stage: BusinessRegistryUpdateStage.readingManifest,
+          ),
+        );
+      }
       final manifest = knownManifest ?? await _loadManifest(activeClient, uri!);
       final validation = manifest.validate();
       if (!validation.isValid) {
@@ -127,6 +158,11 @@ class BusinessRegistryUpdateService {
       if (installed != null &&
           installed.version == manifest.registryVersion &&
           installed.contentSha256 == manifest.registryContentSha256) {
+        onProgress?.call(
+          const BusinessRegistryUpdateProgress(
+            stage: BusinessRegistryUpdateStage.complete,
+          ),
+        );
         return BusinessRegistryUpdateResult(
           status: BusinessRegistryUpdateStatus.alreadyCurrent,
           snapshot: installed,
@@ -146,15 +182,38 @@ class BusinessRegistryUpdateService {
         '${_safeFileToken(manifest.registryVersion)}.registry.gz.partial',
       );
 
+      onProgress?.call(
+        const BusinessRegistryUpdateProgress(
+          stage: BusinessRegistryUpdateStage.downloadingRegistry,
+        ),
+      );
       final downloaded = await BusinessRegistryBoundedDownloader(
         client: activeClient,
       ).download(
         manifest: manifest,
         destinationTempFile: candidate,
+        onProgress: (download) => onProgress?.call(
+          BusinessRegistryUpdateProgress(
+            stage: BusinessRegistryUpdateStage.downloadingRegistry,
+            download: download,
+          ),
+        ),
+      );
+
+      onProgress?.call(
+        const BusinessRegistryUpdateProgress(
+          stage: BusinessRegistryUpdateStage.validatingRegistry,
+        ),
       );
       final validated = await const BusinessRegistryStreamValidator().validate(
         manifest: manifest,
         artifact: downloaded,
+      );
+
+      onProgress?.call(
+        const BusinessRegistryUpdateProgress(
+          stage: BusinessRegistryUpdateStage.installingRegistry,
+        ),
       );
       await BusinessRegistryTransactionalStreamInstaller(
         database: database,
@@ -163,12 +222,22 @@ class BusinessRegistryUpdateService {
         artifact: validated,
       );
 
+      onProgress?.call(
+        const BusinessRegistryUpdateProgress(
+          stage: BusinessRegistryUpdateStage.readingBackAuthority,
+        ),
+      );
       final snapshot = await repository.installedSnapshot();
       if (snapshot == null ||
           snapshot.version != manifest.registryVersion ||
           snapshot.contentSha256 != manifest.registryContentSha256) {
         throw StateError('REGISTRY_UPDATE_POSTINSTALL_AUTHORITY_MISMATCH');
       }
+      onProgress?.call(
+        const BusinessRegistryUpdateProgress(
+          stage: BusinessRegistryUpdateStage.complete,
+        ),
+      );
       return BusinessRegistryUpdateResult(
         status: BusinessRegistryUpdateStatus.updated,
         snapshot: snapshot,
