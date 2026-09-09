@@ -62,10 +62,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fxq 'version: 4.20.3-r1+457' pubspec.yaml
-          grep -Fq "validationVersion = '4.20.3-r1+457'" lib/features/invoice/lab/private_cloud_invoice_lab_config.dart
-          grep -Fq "appVersion = '4.20.3-r1+457'" lib/app_build_metadata.dart
-          grep -Fq "phase = 'P4.20.3-r1-registry-endpoint-hotfix'" lib/app_build_metadata.dart
+          grep -Fxq 'version: 4.20.3+457' pubspec.yaml
+          grep -Fq "validationVersion = '4.20.3+457'" lib/features/invoice/lab/private_cloud_invoice_lab_config.dart
+          grep -Fq "appVersion = '4.20.3+457'" lib/app_build_metadata.dart
+          grep -Fq "phase = 'P4.20.3-registry-endpoint-hotfix-457'" lib/app_build_metadata.dart
       - name: Analyze
         run: flutter analyze
       - name: Focused P4.20.3 release regressions
@@ -276,7 +276,7 @@ jobs:
           version_code="$($apkanalyzer_bin manifest version-code "$apk")"
           signer_output="$($apksigner_bin verify --print-certs "$apk")"
           normalized="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
-          test "$version_name" = '4.20.3-r1'
+          test "$version_name" = '4.20.3'
           test "$version_code" = '457'
           grep -Fq '9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7' <<< "$normalized"
           grep -Fq 'android.permission.CAMERA' <<< "$permissions"
@@ -302,7 +302,7 @@ jobs:
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk | tee p4_20_3_public_signed_nationwide_registry_canary.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: p4-20-3-public-4.20.3-r1+457-signed-nationwide-registry-canary
+          name: p4-20-3-public-4.20.3+457-signed-nationwide-registry-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             p4_20_3_public_signed_nationwide_registry_canary.sha256
