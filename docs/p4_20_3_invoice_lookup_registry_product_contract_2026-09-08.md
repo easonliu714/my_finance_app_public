@@ -291,3 +291,37 @@ Approved repair boundary:
 6. the repair is versioned as `4.20.3+457`; P4.20.4 remains locked for the next planned product phase.
 
 The repaired real-device Gate must prove that an existing P4.20.1 validation subset can be explicitly upgraded to the P4.20.3 nationwide Registry and that `31655572` resolves after installation.
+
+## 12. 2026-09-09 +457 real-device download failure and +458 resilience contract
+
+Owner real-device validation of signed `4.20.3+457` at 2026-09-09 22:13 confirmed the endpoint hotfix itself was effective:
+
+- App version displayed `4.20.3+457`;
+- the explicit Registry update button was enabled;
+- the UI entered `正在下載並驗證公司行號資料…`;
+- the previously installed P4.20.1 validation subset / 2025-06-02 snapshot remained available after failure, confirming LKG fail-safe behavior.
+
+The failure moved to the nationwide release-asset transfer path. The observed error was a transient transport interruption (`ClientException: Connection closed while receiving data`) while receiving `nationwide_registry.ndjson.gz` from GitHub release-assets delivery.
+
+The evidence does **not** prove screen lock as the unique root cause. Automatic screen timeout, manual lock/background suspension, Wi-Fi/5G handoff, CDN interruption, or another transient connection loss are all compatible with the observed transport failure. The +458 repair therefore treats the symptom as a resumable-transfer problem rather than encoding a single-cause assumption.
+
+### +458 release-critical transport contract
+
+Version authority is `4.20.3+458` (`versionName=4.20.3`, Android `versionCode=458`). It is a build/version advance and does not consume P4.20.4.
+
+The explicit Registry update flow must satisfy all of the following:
+
+1. **Stable partial ownership.** The partial path is deterministic for the target `registryVersion` and survives transient transport failure, app restart, and manual retry.
+2. **HTTP Range resume.** For `0 < partial_size < manifest.compressed_size`, retry requests use `Range: bytes=<partial_size>-`. A resume is accepted only with a semantically correct `206` and matching `Content-Range` start/total. If the server ignores Range and returns `200`, the client must safely truncate and restart from zero rather than append duplicate bytes.
+3. **Bounded retry.** Recognized transient transport failures receive a finite retry/backoff budget. Each retry resumes from bytes already durably written. Infinite retry is prohibited.
+4. **Integrity remains fail-closed.** Manifest mismatch, invalid Range semantics, exact-size failure, or final SHA-256 mismatch invalidate the candidate and delete the partial. A retained partial is never treated as a verified artifact.
+5. **Transactional install / LKG.** Only a fully downloaded, exact-size, SHA-verified and stream-validated artifact may enter V24 transactional installation. Any download/validation/install failure preserves the currently installed snapshot. Authority switches only after successful post-install readback.
+6. **Progress authority.** UI stages are: `讀取 manifest → 下載 Registry → SHA/stream 驗證 → V24 transactional install → authority readback/切換完成`. Download progress exposes downloaded MB / total MB, percentage, rolling speed, ETA, retry attempt, and resume offset. Validation/install stages may be stage-only when finer progress would compromise bounded streaming.
+7. **Screen-awake aid.** The existing `wakelock_plus` dependency is used only during the explicit update Future to reduce automatic screen-sleep risk, with `finally` release. Manual lock/system suspension can still interrupt the foreground Future; retained partial + Range resume is the recovery authority.
+8. **Foreground guidance.** The UI states that the update should remain in the foreground and that, after manual lock/system interruption, reopening the App and pressing update again resumes from retained partial bytes when valid.
+9. **Safe error UX.** User-visible transport errors must be short and actionable, for example `下載連線中斷；已保留 X MB，可再次按更新續傳。` Long signed GitHub release-asset URLs remain diagnostic-only and must not be rendered in the normal UI.
+10. **No background product expansion.** This hotfix does not add WorkManager, Android DownloadManager, background per-invoice refresh, manifest probing from Invoice Review, or any automatic Registry download.
+
+Required focused regressions include transient disconnect → retained partial → Range resume → final SHA PASS; exhausted transient retry → manual retry/resume; server ignores Range → safe restart; bad `Content-Range` → fail closed; final SHA mismatch → partial deletion; monotonic progress + nonnegative ETA; LKG preservation; and user-facing error URL redaction.
+
+The next owner real-device Gate for +458 must verify: App build 458; visible MB/%/MB/s/ETA; complete foreground download; interruption followed by nonzero-byte resume rather than restart; successful local lookup for `31655572` and `60282181`; airplane-mode offline lookup; and LKG retention on failed update.
