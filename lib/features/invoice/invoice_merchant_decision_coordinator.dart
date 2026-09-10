@@ -39,6 +39,25 @@ class InvoiceMerchantDecisionCoordinator {
     return state.select(option);
   }
 
+  /// Returns the formal MerchantBrand name that may be adopted immediately from
+  /// an explicit decision selection.
+  ///
+  /// Only an already-confirmed MerchantBrand is eligible. Recognition text is
+  /// still invoice evidence rather than a formal MerchantBrand, while Registry
+  /// legal identity requires the separate explicit binding confirmation path
+  /// below before it may become a formal merchant.
+  String formalMerchantNameForExplicitSelection(
+    InvoiceMerchantDecisionSelection selection,
+  ) {
+    switch (selection.option) {
+      case InvoiceMerchantDecisionOption.existingMerchantBrand:
+        return selection.displayName.trim();
+      case InvoiceMerchantDecisionOption.recognition:
+      case InvoiceMerchantDecisionOption.officialRegistry:
+        return '';
+    }
+  }
+
   Future<InvoiceMerchantMasterBindingResult> confirmOfficialBinding({
     required InvoiceMerchantDecisionSelection selection,
     required bool trustedQrSellerIdentifier,
