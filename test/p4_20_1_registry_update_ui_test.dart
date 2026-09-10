@@ -206,7 +206,7 @@ void main() {
     );
 
     expect(find.text('正在更新公司行號資料…'), findsOneWidget);
-    expect(find.text('正在下載並驗證公司行號資料…'), findsOneWidget);
+    expect(find.textContaining('讀取 manifest…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
