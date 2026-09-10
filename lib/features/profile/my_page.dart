@@ -23,6 +23,7 @@ import '../merchant/business_registry_repository.dart';
 import '../merchant/business_registry_update_service.dart';
 import '../transaction/transaction_repository.dart';
 import 'business_registry_update_card.dart';
+import 'business_registry_update_presentation.dart';
 
 class MyPage extends StatefulWidget {
   const MyPage({
@@ -265,7 +266,7 @@ class _MyPageState extends State<MyPage> {
       setState(() {
         _registrySnapshot = retained;
         _registryStatusMessage =
-            '公司行號資料更新失敗；已保留上一個可用版本。錯誤：$error';
+            BusinessRegistryUpdatePresentation.userFacingError(error);
       });
       messenger.showSnackBar(
         SnackBar(content: Text(_registryStatusMessage)),
