@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'gemini/gemini_invoice_review.dart';
+import 'invoice_merchant_decision_composer.dart';
+import 'invoice_merchant_decision_review_section.dart';
 import 'invoice_merchant_identity_review_service.dart';
 import 'invoice_merchant_master_binding_service.dart';
 import 'invoice_period_policy.dart';
@@ -94,7 +96,6 @@ class _InvoiceTransactionHandoffReviewCardState
   bool _edited = false;
   bool _merchantBindingBusy = false;
   bool _merchantCorroborationBusy = false;
-  bool _formalMerchantFromCorroboration = false;
   bool _periodDerivedFromDate = false;
   int _merchantCorroborationRevision = 0;
   String _lastMerchantCorroborationKey = '';
@@ -103,6 +104,7 @@ class _InvoiceTransactionHandoffReviewCardState
   String _merchantCorroborationMessage = '';
   String _error = '';
   InvoiceMerchantIdentityReviewContext? _merchantCorroboration;
+  InvoiceMerchantDecisionOption? _merchantDecisionOption;
 
   GeminiInvoiceReviewCandidate? get _effectiveAiCandidate =>
       widget.aiCandidate ??
@@ -132,7 +134,7 @@ class _InvoiceTransactionHandoffReviewCardState
       _aiLineItemsSelected = false;
       _authorityConfirmed = false;
       _formalMerchantName = '';
-      _formalMerchantFromCorroboration = false;
+      _merchantDecisionOption = null;
       _merchantBindingStatus = '';
       _merchantCorroboration = null;
       _merchantCorroborationMessage = '';
@@ -383,118 +385,177 @@ class _InvoiceTransactionHandoffReviewCardState
         _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value.trim() ?? '';
     if (merchant.isEmpty && taxId.isEmpty) return const SizedBox.shrink();
 
-    final corroboration = _merchantCorroboration;
-    final officialLegalName =
-        corroboration?.decision.officialLegalNameSuggestion.trim() ?? '';
-    final knownFormalMerchant =
-        corroboration?.decision.formalMerchantName.trim() ?? '';
-    final coverage = corroboration?.isValidationSubset == true
-        ? '實機驗證子集'
-        : (corroboration?.registryCoverage.trim() ?? '');
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Text(
-                _formalMerchantName.isEmpty
-                    ? '正式商家尚未綁定'
-                    : '正式商家：$_formalMerchantName',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 4),
-              Text('候選商家：${merchant.isEmpty ? '未辨識' : merchant}｜賣方統編：${taxId.isEmpty ? '未辨識' : taxId}'),
-              const SizedBox(height: 8),
-              if (_merchantCorroborationBusy)
-                const Row(
-                  key: InvoiceTransactionHandoffReviewCard
-                      .registryCorroborationStatusKey,
-                  children: <Widget>[
-                    SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('正在查詢本機官方公司行號資料…')),
-                  ],
-                )
-              else if (corroboration != null)
-                Container(
-                  key: InvoiceTransactionHandoffReviewCard
-                      .registryCorroborationStatusKey,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest
-                        .withValues(alpha: 0.45),
-                    borderRadius: BorderRadius.circular(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          if (_merchantCorroborationBusy)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Row(
+                key: InvoiceTransactionHandoffReviewCard
+                    .registryCorroborationStatusKey,
+                children: <Widget>[
+                  SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      if (officialLegalName.isNotEmpty)
-                        Text('官方登記名稱：$officialLegalName'),
-                      if (knownFormalMerchant.isNotEmpty)
-                        Text('既有正式商家：$knownFormalMerchant'),
-                      if (corroboration.registryVersion.trim().isNotEmpty)
-                        Text('官方資料版本：${corroboration.registryVersion}'),
-                      if (coverage.isNotEmpty) Text('涵蓋範圍：$coverage'),
-                      const SizedBox(height: 4),
-                      const Text(
-                        '官方登記資料僅供賣方統編佐證，不會覆寫發票商家文字，也不會自動建立新商家。',
-                      ),
-                    ],
-                  ),
-                )
-              else if (_merchantCorroborationMessage.isNotEmpty)
-                Text(
-                  _merchantCorroborationMessage,
-                  key: InvoiceTransactionHandoffReviewCard
-                      .registryCorroborationStatusKey,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              if (_merchantCorroborationBusy ||
-                  corroboration != null ||
-                  _merchantCorroborationMessage.isNotEmpty)
-                const SizedBox(height: 8),
-              OutlinedButton.icon(
-                key: InvoiceTransactionHandoffReviewCard.bindMerchantKey,
-                onPressed: _merchantBindingBusy || merchant.isEmpty || taxId.isEmpty
-                    ? null
-                    : _bindMerchantMaster,
-                icon: _merchantBindingBusy
-                    ? const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.storefront_outlined),
-                label: Text(
-                  _formalMerchantName.isEmpty
-                      ? '新增／綁定正式商家'
-                      : '重新確認商家綁定',
-                ),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('正在查詢本機官方公司行號資料…')),
+                ],
               ),
-              if (_merchantBindingStatus.isNotEmpty)
-                Text(
-                  _merchantBindingStatus,
-                  key: InvoiceTransactionHandoffReviewCard
-                      .merchantBindingStatusKey,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-            ],
+            )
+          else if (_merchantCorroborationMessage.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _merchantCorroborationMessage,
+                key: InvoiceTransactionHandoffReviewCard
+                    .registryCorroborationStatusKey,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          InvoiceMerchantDecisionReviewSection(
+            recognizedMerchantName: merchant,
+            sellerTaxId: taxId,
+            recognitionSourceLabel: _merchantRecognitionSourceLabel(),
+            identityContext: _merchantCorroboration,
+            selectedOption: _merchantDecisionOption,
+            bindingBusy: _merchantBindingBusy,
+            onSelected: _applyMerchantDecisionSelection,
+            onConfirmOfficialBinding: _confirmOfficialMerchantBinding,
           ),
-        ),
+          if (_formalMerchantName.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              '已明確採用正式商家：$_formalMerchantName',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+          if (_merchantBindingStatus.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              _merchantBindingStatus,
+              key: InvoiceTransactionHandoffReviewCard
+                  .merchantBindingStatusKey,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ],
       ),
     );
+  }
+
+  void _applyMerchantDecisionSelection(
+    InvoiceMerchantDecisionSelection selection,
+  ) {
+    setState(() {
+      _merchantDecisionOption = selection.option;
+      _formalMerchantName = selection.option ==
+              InvoiceMerchantDecisionOption.existingMerchantBrand
+          ? selection.displayName.trim()
+          : '';
+      _merchantBindingStatus = switch (selection.option) {
+        InvoiceMerchantDecisionOption.recognition =>
+          '已明確採用此次辨識結果；未建立或綁定正式商家。',
+        InvoiceMerchantDecisionOption.existingMerchantBrand =>
+          '已明確採用既有正式商家；未建立交易。',
+        InvoiceMerchantDecisionOption.officialRegistry =>
+          '已選擇官方登記資料；仍需再次確認才能建立／綁定正式商家。',
+      };
+      _edited = true;
+      _error = '';
+    });
+    _invalidateConfirmation();
+  }
+
+  Future<void> _confirmOfficialMerchantBinding(
+    InvoiceMerchantDecisionSelection selection,
+  ) async {
+    if (selection.option != InvoiceMerchantDecisionOption.officialRegistry ||
+        !selection.requiresMerchantBindingConfirmation) {
+      return;
+    }
+    final merchant = selection.displayName.trim();
+    final taxId = selection.sellerTaxId.trim();
+    if (merchant.isEmpty || taxId.isEmpty) return;
+
+    final trustedQr = _sellerTaxIdIsTrustedQrAuthority;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('依官方資料建立／綁定正式商家'),
+        content: Text(
+          '官方登記名稱：$merchant\n賣方統編：$taxId\n\n這會寫入商家主檔並建立統編綁定，但不會建立交易。發票原始辨識文字仍會保留。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: InvoiceTransactionHandoffReviewCard.bindMerchantKey,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('確認綁定'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _merchantBindingBusy = true;
+      _error = '';
+    });
+    try {
+      final result = await widget.merchantBindingService.bind(
+        merchantName: merchant,
+        sellerTaxId: taxId,
+        trustedQrSellerIdentifier: trustedQr,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (result.isSuccess && result.merchant != null) {
+          _formalMerchantName = result.merchant!.displayName;
+          _merchantDecisionOption = InvoiceMerchantDecisionOption.officialRegistry;
+          _merchantBindingStatus = result.message;
+          _needsReconfirm = true;
+          _confirmed = false;
+          _authorityConfirmed = false;
+        } else {
+          _formalMerchantName = '';
+          _merchantBindingStatus = result.message;
+          _error = result.message;
+        }
+      });
+      if (result.isSuccess) {
+        unawaited(_refreshMerchantCorroboration(force: true));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _formalMerchantName = '';
+          _merchantBindingStatus = '商家綁定失敗，未寫入交易。';
+          _error = '商家綁定失敗：${error.runtimeType}';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _merchantBindingBusy = false);
+    }
+  }
+
+  String _merchantRecognitionSourceLabel() {
+    if (_explicitlyAiSelectedFields.contains(InvoiceReviewFieldKey.sellerName) ||
+        _explicitlyAiSelectedFields.contains(InvoiceReviewFieldKey.sellerTaxId)) {
+      return 'AI';
+    }
+    final sellerName = _review.fieldFor(InvoiceReviewFieldKey.sellerName);
+    if (sellerName?.confidenceLabel.toUpperCase().contains('QR') == true ||
+        _sellerTaxIdIsTrustedQrAuthority) {
+      return 'QR';
+    }
+    return 'OCR';
   }
 
   String? _helperText(InvoiceReviewFieldViewModel field) {
@@ -861,8 +922,8 @@ class _InvoiceTransactionHandoffReviewCardState
   void _invalidateMerchantBindingIfNeeded(InvoiceReviewFieldKey key) {
     if (!_isMerchantIdentityField(key)) return;
     _formalMerchantName = '';
-    _formalMerchantFromCorroboration = false;
-    _merchantBindingStatus = '商家名稱或統編已變更，請重新確認正式商家綁定。';
+    _merchantDecisionOption = null;
+    _merchantBindingStatus = '商家名稱或統編已變更，請重新選擇商家身份。';
   }
 
   void _refreshSelectedAiValues() {
@@ -1023,10 +1084,6 @@ class _InvoiceTransactionHandoffReviewCardState
         _merchantCorroborationMessage = authority.sellerIdentifier.isEmpty
             ? '辨識出具權威的賣方統編後，才會查詢本機官方公司行號資料。'
             : '目前賣方統編來源尚未符合官方資料查詢權威；不會用 Registry 反向升格。';
-        if (_formalMerchantFromCorroboration) {
-          _formalMerchantName = '';
-          _formalMerchantFromCorroboration = false;
-        }
       });
       return;
     }
@@ -1055,13 +1112,6 @@ class _InvoiceTransactionHandoffReviewCardState
                 formalMerchant.isNotEmpty
             ? ''
             : '目前本機官方資料未找到此賣方統編。';
-        if (formalMerchant.isNotEmpty) {
-          _formalMerchantName = formalMerchant;
-          _formalMerchantFromCorroboration = true;
-        } else if (_formalMerchantFromCorroboration) {
-          _formalMerchantName = '';
-          _formalMerchantFromCorroboration = false;
-        }
       });
     } catch (_) {
       if (!mounted || revision != _merchantCorroborationRevision) return;
@@ -1071,81 +1121,7 @@ class _InvoiceTransactionHandoffReviewCardState
         _lastMerchantCorroborationKey = '';
         _merchantCorroborationMessage =
             '本機官方資料暫時無法查詢；不影響發票覆核。';
-        if (_formalMerchantFromCorroboration) {
-          _formalMerchantName = '';
-          _formalMerchantFromCorroboration = false;
-        }
       });
-    }
-  }
-
-  Future<void> _bindMerchantMaster() async {
-    final merchant =
-        _review.fieldFor(InvoiceReviewFieldKey.sellerName)?.value.trim() ?? '';
-    final taxId =
-        _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value.trim() ?? '';
-    final trustedQr = _sellerTaxIdIsTrustedQrAuthority;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('新增／綁定正式商家'),
-        content: Text(
-          '商家：$merchant\n賣方統編：$taxId\n來源：${trustedQr ? 'QR 原始資料' : '人工／OCR／AI 覆核'}\n\n這會寫入商家主檔並建立統編綁定，但不會建立交易。',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('確認綁定'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() {
-      _merchantBindingBusy = true;
-      _error = '';
-    });
-    try {
-      final result = await widget.merchantBindingService.bind(
-        merchantName: merchant,
-        sellerTaxId: taxId,
-        trustedQrSellerIdentifier: trustedQr,
-      );
-      if (!mounted) return;
-      setState(() {
-        if (result.isSuccess && result.merchant != null) {
-          _formalMerchantName = result.merchant!.displayName;
-          _formalMerchantFromCorroboration = false;
-          _merchantBindingStatus = result.message;
-          _needsReconfirm = true;
-          _confirmed = false;
-          _authorityConfirmed = false;
-        } else {
-          _formalMerchantName = '';
-          _formalMerchantFromCorroboration = false;
-          _merchantBindingStatus = result.message;
-          _error = result.message;
-        }
-      });
-      if (result.isSuccess) {
-        unawaited(_refreshMerchantCorroboration(force: true));
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _formalMerchantName = '';
-          _formalMerchantFromCorroboration = false;
-          _merchantBindingStatus = '商家綁定失敗，未寫入交易。';
-          _error = '商家綁定失敗：${error.runtimeType}';
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _merchantBindingBusy = false);
     }
   }
 
