@@ -325,3 +325,26 @@ The explicit Registry update flow must satisfy all of the following:
 Required focused regressions include transient disconnect → retained partial → Range resume → final SHA PASS; exhausted transient retry → manual retry/resume; server ignores Range → safe restart; bad `Content-Range` → fail closed; final SHA mismatch → partial deletion; monotonic progress + nonnegative ETA; LKG preservation; and user-facing error URL redaction.
 
 The next owner real-device Gate for +458 must verify: App build 458; visible MB/%/MB/s/ETA; complete foreground download; interruption followed by nonzero-byte resume rather than restart; successful local lookup for `31655572` and `60282181`; airplane-mode offline lookup; and LKG retention on failed update.
+
+## 13. 2026-09-10 +458 real-device functional PASS and +459 progress closure
+
+Owner real-device validation of signed `4.20.3+458` confirmed the core nationwide Registry path:
+
+- download telemetry was visible and responsive on 5G (MB / total MB, %, MB/s, ETA);
+- the download completed before any screen-lock/background stress was required;
+- SHA/stream validation completed successfully;
+- V24 transactional installation completed successfully even after switching App screens during processing;
+- nationwide official detail lookup passed for `31655572` and `60282181`, including the complete FIA field view;
+- the previous P4.20.1 validation subset was replaced only after successful verification/install.
+
+The remaining owner-observed UX gap is not functional correctness: SHA/stream validation and V24 installation can each take materially longer than the download but previously exposed only an indeterminate stage label.
+
+`4.20.3+459` is therefore a narrow presentation/telemetry closure:
+
+1. validation reports processed uncompressed bytes / total bytes, percentage, processing MB/s and ETA;
+2. installation reports processed entity rows / total rows, percentage, rows/s and ETA;
+3. the Registry card renders a determinate progress bar whenever a stage has measurable progress;
+4. telemetry must not change bounded streaming, manifest/SHA authority, SQLite transaction atomicity or LKG rollback;
+5. the existing short/redacted update error presentation is wired into My Page so signed GitHub asset URLs never need to be shown to users.
+
+The +458 download/resume implementation is frozen unless new real-device evidence proves a defect. P4.20.4 remains locked until this final P4.20.3 UX closure is owner-validated.
