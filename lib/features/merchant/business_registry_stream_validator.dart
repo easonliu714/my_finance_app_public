@@ -45,9 +45,7 @@ class BusinessRegistryValidationProgress {
 class BusinessRegistryStreamValidator {
   const BusinessRegistryStreamValidator();
 
-  static const int _cooperativeYieldEntityInterval = 2048;
-  static const Duration _cooperativeYieldMinInterval =
-      Duration(milliseconds: 16);
+  static const int _cooperativeYieldEntityInterval = 4096;
 
   Future<BusinessRegistryValidatedArtifact> validate({
     required BusinessRegistryDistributionManifest manifest,
@@ -78,7 +76,6 @@ class BusinessRegistryStreamValidator {
     String? lastEntityKey;
     var lastProgressAt = DateTime.now();
     var lastProgressBytes = 0;
-    var lastCooperativeYieldAt = DateTime.now();
 
     void publishProgress(BusinessRegistryValidationProgress progress) {
       if (progressCallback == null) return;
@@ -200,19 +197,13 @@ class BusinessRegistryStreamValidator {
             }
 
             // The SHA/stream pass performs gzip inflation, UTF-8 decoding,
-            // canonicalization and hashing on the Flutter isolate. On Android,
-            // background -> foreground resume can otherwise leave the visible
-            // progress frame stale even though validation continues. Yielding
-            // cooperatively at a bounded cadence lets pending UI/lifecycle work
-            // run without changing validation ordering, hash bytes, bounds or
-            // LKG/transaction semantics.
+            // canonicalization and hashing on the Flutter isolate. Guarantee a
+            // bounded cooperative yield every fixed number of entities so
+            // pending foreground lifecycle/render work can run after Android
+            // background -> foreground resume. This does not alter validation
+            // order, canonical bytes, SHA input, size bounds or LKG semantics.
             if (entityCount % _cooperativeYieldEntityInterval == 0) {
-              final now = DateTime.now();
-              if (now.difference(lastCooperativeYieldAt) >=
-                  _cooperativeYieldMinInterval) {
-                await Future<void>.delayed(Duration.zero);
-                lastCooperativeYieldAt = DateTime.now();
-              }
+              await Future<void>.delayed(Duration.zero);
             }
         }
       }
