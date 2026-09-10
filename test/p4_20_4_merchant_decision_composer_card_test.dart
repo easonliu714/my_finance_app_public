@@ -97,13 +97,18 @@ void main() {
     );
 
     expect(find.text('已明確選擇'), findsOneWidget);
-    expect(find.byKey(InvoiceMerchantDecisionComposerCard.officialBindingConfirmKey),
-        findsOneWidget);
+    final confirmFinder = find.byKey(
+      InvoiceMerchantDecisionComposerCard.officialBindingConfirmKey,
+    );
+    expect(confirmFinder, findsOneWidget);
     expect(bindingCalls, 0);
 
-    await tester.tap(
-      find.byKey(InvoiceMerchantDecisionComposerCard.officialBindingConfirmKey),
-    );
+    // The explicit second-confirmation control sits below three candidate lanes.
+    // Ensure it is actually inside the test viewport before tapping so this
+    // regression verifies the callback contract rather than scroll geometry.
+    await tester.ensureVisible(confirmFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(confirmFinder);
     await tester.pump();
     expect(bindingCalls, 1);
   });
