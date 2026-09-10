@@ -30,6 +30,7 @@ class BusinessRegistryValidationProgress {
       ? 0
       : (processedBytes / totalBytes).clamp(0.0, 1.0).toDouble();
 }
+
 /// Validates one already-downloaded nationwide registry artifact without
 /// loading the decompressed dataset into memory.
 ///
@@ -65,6 +66,7 @@ class BusinessRegistryStreamValidator {
 
     const parser = BusinessRegistryStreamPackParser();
     final contentHashSink = Sha256().newHashSink();
+    final progressCallback = onProgress;
     var hashClosed = false;
     var uncompressedBytes = 0;
     var entityCount = 0;
@@ -73,8 +75,18 @@ class BusinessRegistryStreamValidator {
     var lastProgressAt = DateTime.now();
     var lastProgressBytes = 0;
 
+    void publishProgress(BusinessRegistryValidationProgress progress) {
+      if (progressCallback == null) return;
+      try {
+        progressCallback(progress);
+      } catch (_) {
+        // Progress telemetry is presentation-only. A consumer callback must
+        // never change validation, SHA, bounded-streaming, or LKG semantics.
+      }
+    }
+
     void emitValidationProgress({bool force = false}) {
-      if (onProgress == null) return;
+      if (progressCallback == null) return;
       final now = DateTime.now();
       final elapsed = now.difference(lastProgressAt);
       if (!force && elapsed < const Duration(milliseconds: 250)) return;
@@ -85,7 +97,7 @@ class BusinessRegistryStreamValidator {
       final eta = speed > 0
           ? Duration(milliseconds: ((remaining / speed) * 1000).ceil())
           : null;
-      onProgress(
+      publishProgress(
         BusinessRegistryValidationProgress(
           processedBytes: uncompressedBytes,
           totalBytes: manifest.uncompressedSizeBytes,
@@ -97,7 +109,7 @@ class BusinessRegistryStreamValidator {
       lastProgressBytes = uncompressedBytes;
     }
 
-    onProgress?.call(
+    publishProgress(
       BusinessRegistryValidationProgress(
         processedBytes: 0,
         totalBytes: manifest.uncompressedSizeBytes,
