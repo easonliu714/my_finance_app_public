@@ -28,6 +28,7 @@ void main() {
     String sellerTaxId = '31655572',
     InvoiceMerchantDecisionOption? selectedOption,
     ValueChanged<InvoiceMerchantDecisionSelection>? onSelected,
+    ValueChanged<InvoiceMerchantDecisionSelection>? onConfirmOfficialBinding,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -39,7 +40,7 @@ void main() {
             identityContext: context,
             selectedOption: selectedOption,
             onSelected: onSelected ?? (_) {},
-            onConfirmOfficialBinding: (_) {},
+            onConfirmOfficialBinding: onConfirmOfficialBinding ?? (_) {},
           ),
         ),
       ),
@@ -84,6 +85,41 @@ void main() {
     expect(captured!.invoiceLiteral, 'OK超商 晶技門市');
     expect(captured!.requiresMerchantBindingConfirmation, isFalse);
     expect(captured!.writesFormalTransaction, isFalse);
+  });
+
+  testWidgets('official lane requires second explicit action and emits exact binding snapshot',
+      (tester) async {
+    InvoiceMerchantDecisionSelection? selected;
+    InvoiceMerchantDecisionSelection? confirmed;
+
+    await tester.pumpWidget(
+      buildSection(
+        selectedOption: InvoiceMerchantDecisionOption.officialRegistry,
+        onSelected: (selection) => selected = selection,
+        onConfirmOfficialBinding: (selection) => confirmed = selection,
+      ),
+    );
+
+    expect(selected, isNull);
+    expect(
+      find.byKey(InvoiceMerchantDecisionComposerCard.officialBindingConfirmKey),
+      findsOneWidget,
+    );
+
+    final confirmFinder = find.byKey(
+      InvoiceMerchantDecisionComposerCard.officialBindingConfirmKey,
+    );
+    await tester.ensureVisible(confirmFinder);
+    await tester.tap(confirmFinder);
+    await tester.pump();
+
+    expect(confirmed, isNotNull);
+    expect(confirmed!.option, InvoiceMerchantDecisionOption.officialRegistry);
+    expect(confirmed!.displayName, '富達零售股份有限公司晶技門市');
+    expect(confirmed!.sellerTaxId, '31655572');
+    expect(confirmed!.invoiceLiteral, 'OK超商 晶技門市');
+    expect(confirmed!.requiresMerchantBindingConfirmation, isTrue);
+    expect(confirmed!.writesFormalTransaction, isFalse);
   });
 
   testWidgets('stale sellerTaxId context fails closed even when parent carries old selection',
