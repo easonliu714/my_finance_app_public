@@ -1,0 +1,51 @@
+name: P4.20.4 Merchant Decision Composer Canary
+
+on:
+  push:
+    branches:
+      - p4-20-4-merchant-decision-composer
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-4-composer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Analyze and regress P4.20.4 composer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: P4.20.4 focused regressions
+        run: |
+          set -euo pipefail
+          flutter test test/p4_20_4_merchant_decision_composer_test.dart
+          flutter test test/p4_20_4_registry_validation_foreground_resume_test.dart
+          flutter test test/p4_20_3_registry_update_presentation_test.dart
+          flutter test test/p4_20_1_registry_stream_validator_test.dart
+
+      - name: Full regression suite
+        run: flutter test
