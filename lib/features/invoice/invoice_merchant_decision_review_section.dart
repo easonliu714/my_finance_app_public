@@ -11,6 +11,11 @@ import 'invoice_merchant_identity_review_service.dart';
 /// formal-transaction write. The parent review flow supplies already-resolved
 /// identity evidence and owns every side effect. Selection is explicit and is
 /// reset fail-closed whenever the selected candidate is no longer available.
+///
+/// The parent receives a fully resolved [InvoiceMerchantDecisionSelection]
+/// rather than only an enum option. This prevents the parent from re-composing
+/// against newer/stale evidence between the explicit tap and its review-state
+/// update, and keeps official binding gated by the exact selection snapshot.
 class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
   const InvoiceMerchantDecisionReviewSection({
     super.key,
@@ -32,7 +37,7 @@ class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
   final String recognitionSourceLabel;
   final InvoiceMerchantIdentityReviewContext? identityContext;
   final InvoiceMerchantDecisionOption? selectedOption;
-  final ValueChanged<InvoiceMerchantDecisionOption> onSelected;
+  final ValueChanged<InvoiceMerchantDecisionSelection> onSelected;
   final ValueChanged<InvoiceMerchantDecisionSelection>
       onConfirmOfficialBinding;
   final bool bindingBusy;
@@ -58,7 +63,10 @@ class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
       child: InvoiceMerchantDecisionComposerCard(
         state: state,
         bindingBusy: bindingBusy,
-        onSelected: onSelected,
+        onSelected: (option) {
+          final selection = base.select(option).selection;
+          if (selection != null) onSelected(selection);
+        },
         onConfirmOfficialBinding: onConfirmOfficialBinding,
       ),
     );
