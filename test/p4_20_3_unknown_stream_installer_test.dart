@@ -35,18 +35,42 @@ void main() {
       version: '2026-09-08-v24-fixture',
       entities: _fiaEntities,
     );
+    final validationProgress = <BusinessRegistryValidationProgress>[];
     final validated = await const BusinessRegistryStreamValidator().validate(
       manifest: fixture.manifest,
       artifact: fixture.downloaded,
+      onProgress: validationProgress.add,
     );
+    expect(validationProgress, isNotEmpty);
+    expect(validationProgress.first.processedBytes, 0);
+    expect(validationProgress.last.fraction, 1.0);
+    for (var index = 1; index < validationProgress.length; index += 1) {
+      expect(
+        validationProgress[index].processedBytes,
+        greaterThanOrEqualTo(validationProgress[index - 1].processedBytes),
+      );
+      expect(validationProgress[index].eta?.isNegative ?? false, isFalse);
+    }
 
+    final installProgress = <BusinessRegistryInstallProgress>[];
     final result = await BusinessRegistryTransactionalStreamInstaller(
       database: db,
       batchSize: 1,
     ).install(
       manifest: fixture.manifest,
       artifact: validated,
+      onProgress: installProgress.add,
     );
+    expect(installProgress, isNotEmpty);
+    expect(installProgress.first.processedEntities, 0);
+    expect(installProgress.last.fraction, 1.0);
+    for (var index = 1; index < installProgress.length; index += 1) {
+      expect(
+        installProgress[index].processedEntities,
+        greaterThanOrEqualTo(installProgress[index - 1].processedEntities),
+      );
+      expect(installProgress[index].eta?.isNegative ?? false, isFalse);
+    }
 
     expect(result.status, BusinessRegistryStreamInstallStatus.installed);
     expect(result.entityCount, _fiaEntities.length);
