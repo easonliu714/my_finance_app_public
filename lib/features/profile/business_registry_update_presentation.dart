@@ -12,6 +12,12 @@ class BusinessRegistryUpdatePresentation {
   static const String foregroundHint =
       '更新期間建議保持 App 前景；若手動鎖屏或系統中止，重新開啟後可續傳。';
 
+  /// Canonical guidance name used by the live Registry progress surface.
+  ///
+  /// Keep [foregroundHint] as the compatibility authority for existing tests
+  /// and callers while exposing the semantically explicit live-UI getter.
+  static const String foregroundGuidance = foregroundHint;
+
   static String stageLabel(BusinessRegistryUpdateProgress progress) {
     switch (progress.stage) {
       case BusinessRegistryUpdateStage.readingManifest:
@@ -54,7 +60,7 @@ class BusinessRegistryUpdatePresentation {
     final total = _formatMegabytes(progress.totalBytes);
     final percent = (progress.fraction * 100).clamp(0, 100).toStringAsFixed(1);
     final speed = progress.bytesPerSecond > 0
-        ? '${_formatMegabytes(progress.bytesPerSecond) } MB/s'
+        ? '${_formatMegabytes(progress.bytesPerSecond)} MB/s'
         : '計算中';
     final eta = _formatEta(progress.eta);
     final retry = progress.attempt > 1 ? '；第 ${progress.attempt} 次重試' : '';
