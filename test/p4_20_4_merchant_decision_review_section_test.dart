@@ -27,6 +27,7 @@ void main() {
   Widget buildSection({
     String sellerTaxId = '31655572',
     InvoiceMerchantDecisionOption? selectedOption,
+    ValueChanged<InvoiceMerchantDecisionSelection>? onSelected,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -37,7 +38,7 @@ void main() {
             recognitionSourceLabel: 'QR + OCR',
             identityContext: context,
             selectedOption: selectedOption,
-            onSelected: (_) {},
+            onSelected: onSelected ?? (_) {},
             onConfirmOfficialBinding: (_) {},
           ),
         ),
@@ -58,6 +59,31 @@ void main() {
     expect(find.text('富達零售股份有限公司晶技門市'), findsOneWidget);
     expect(find.text('已明確選擇'), findsNothing);
     expect(find.byKey(InvoiceMerchantDecisionComposerCard.officialBindingConfirmKey), findsNothing);
+  });
+
+  testWidgets('explicit tap emits exact resolved MerchantBrand selection snapshot',
+      (tester) async {
+    InvoiceMerchantDecisionSelection? captured;
+    await tester.pumpWidget(
+      buildSection(onSelected: (selection) => captured = selection),
+    );
+
+    final select = find.byKey(
+      InvoiceMerchantDecisionComposerCard.selectKey(
+        InvoiceMerchantDecisionOption.existingMerchantBrand,
+      ),
+    );
+    await tester.ensureVisible(select);
+    await tester.tap(select);
+    await tester.pump();
+
+    expect(captured, isNotNull);
+    expect(captured!.option, InvoiceMerchantDecisionOption.existingMerchantBrand);
+    expect(captured!.displayName, 'OK Mart');
+    expect(captured!.sellerTaxId, '31655572');
+    expect(captured!.invoiceLiteral, 'OK超商 晶技門市');
+    expect(captured!.requiresMerchantBindingConfirmation, isFalse);
+    expect(captured!.writesFormalTransaction, isFalse);
   });
 
   testWidgets('stale sellerTaxId context fails closed even when parent carries old selection',
