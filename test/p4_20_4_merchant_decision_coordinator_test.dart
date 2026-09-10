@@ -49,4 +49,45 @@ void main() {
       ),
     );
   });
+
+  test('formal MerchantBrand adoption requires an explicit existing-brand choice', () {
+    const recognition = InvoiceMerchantDecisionSelection(
+      option: InvoiceMerchantDecisionOption.recognition,
+      displayName: 'OK mart 晶技門市',
+      sellerTaxId: '31655572',
+      invoiceLiteral: 'OK mart 晶技門市',
+      requiresMerchantBindingConfirmation: false,
+    );
+    const existing = InvoiceMerchantDecisionSelection(
+      option: InvoiceMerchantDecisionOption.existingMerchantBrand,
+      displayName: 'OK Mart',
+      sellerTaxId: '31655572',
+      invoiceLiteral: 'OK mart 晶技門市',
+      requiresMerchantBindingConfirmation: false,
+    );
+    const official = InvoiceMerchantDecisionSelection(
+      option: InvoiceMerchantDecisionOption.officialRegistry,
+      displayName: '富達零售股份有限公司晶技門市',
+      sellerTaxId: '31655572',
+      invoiceLiteral: 'OK mart 晶技門市',
+      requiresMerchantBindingConfirmation: true,
+    );
+
+    expect(
+      coordinator.formalMerchantNameForExplicitSelection(recognition),
+      isEmpty,
+    );
+    expect(
+      coordinator.formalMerchantNameForExplicitSelection(existing),
+      'OK Mart',
+    );
+    expect(
+      coordinator.formalMerchantNameForExplicitSelection(official),
+      isEmpty,
+    );
+
+    expect(recognition.writesFormalTransaction, isFalse);
+    expect(existing.writesFormalTransaction, isFalse);
+    expect(official.writesFormalTransaction, isFalse);
+  });
 }
