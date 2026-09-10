@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,7 +11,7 @@ import 'package:my_finance_app/features/merchant/business_registry_stream_valida
 
 void main() {
   test(
-    'SHA stream validation remains event-loop cooperative with monotonic progress',
+    'SHA stream validation guarantees cooperative cadence with monotonic progress',
     () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'p4_20_4_validation_resume_',
@@ -20,31 +19,24 @@ void main() {
       try {
         final fixture = await _writeLargeFixture(tempDir);
         final progress = <BusinessRegistryValidationProgress>[];
-        var timerScheduled = false;
-        var timerRanBeforeCompletion = false;
-        var validationCompleted = false;
-
-        final result = await const BusinessRegistryStreamValidator().validate(
-          manifest: fixture.manifest,
-          artifact: fixture.artifact,
-          onProgress: (value) {
-            progress.add(value);
-            if (!timerScheduled &&
-                value.processedBytes > 0 &&
-                value.processedBytes < value.totalBytes) {
-              timerScheduled = true;
-              Timer.run(() {
-                timerRanBeforeCompletion = !validationCompleted;
-              });
-            }
+        var cooperativeYieldCalls = 0;
+        final validator = BusinessRegistryStreamValidator(
+          cooperativeYield: () async {
+            cooperativeYieldCalls += 1;
+            await Future<void>.delayed(Duration.zero);
           },
         );
-        validationCompleted = true;
-        await Future<void>.delayed(Duration.zero);
+
+        final result = await validator.validate(
+          manifest: fixture.manifest,
+          artifact: fixture.artifact,
+          onProgress: progress.add,
+        );
 
         expect(result.entityCount, 5000);
-        expect(timerScheduled, isTrue);
-        expect(timerRanBeforeCompletion, isTrue);
+        expect(result.registryContentSha256, fixture.manifest.registryContentSha256);
+        // 5000 entities cross exactly one 4096-entity cooperative-yield boundary.
+        expect(cooperativeYieldCalls, 1);
         expect(progress, isNotEmpty);
         for (var index = 1; index < progress.length; index += 1) {
           expect(
