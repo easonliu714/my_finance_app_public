@@ -9,6 +9,27 @@ import 'business_registry_distribution_manifest.dart';
 import 'business_registry_nationwide_builder.dart';
 import 'business_registry_stream_pack.dart';
 
+typedef BusinessRegistryValidationProgressCallback = void Function(
+  BusinessRegistryValidationProgress progress,
+);
+
+class BusinessRegistryValidationProgress {
+  const BusinessRegistryValidationProgress({
+    required this.processedBytes,
+    required this.totalBytes,
+    required this.bytesPerSecond,
+    required this.eta,
+  });
+
+  final int processedBytes;
+  final int totalBytes;
+  final double bytesPerSecond;
+  final Duration? eta;
+
+  double get fraction => totalBytes <= 0
+      ? 0
+      : (processedBytes / totalBytes).clamp(0.0, 1.0).toDouble();
+}
 /// Validates one already-downloaded nationwide registry artifact without
 /// loading the decompressed dataset into memory.
 ///
@@ -26,6 +47,7 @@ class BusinessRegistryStreamValidator {
   Future<BusinessRegistryValidatedArtifact> validate({
     required BusinessRegistryDistributionManifest manifest,
     required BusinessRegistryDownloadedArtifact artifact,
+    BusinessRegistryValidationProgressCallback? onProgress,
   }) async {
     final manifestValidation = manifest.validate();
     if (!manifestValidation.isValid) {
@@ -48,6 +70,41 @@ class BusinessRegistryStreamValidator {
     var entityCount = 0;
     var sawHeader = false;
     String? lastEntityKey;
+    var lastProgressAt = DateTime.now();
+    var lastProgressBytes = 0;
+
+    void emitValidationProgress({bool force = false}) {
+      if (onProgress == null) return;
+      final now = DateTime.now();
+      final elapsed = now.difference(lastProgressAt);
+      if (!force && elapsed < const Duration(milliseconds: 250)) return;
+      final deltaBytes = uncompressedBytes - lastProgressBytes;
+      final seconds = elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+      final speed = seconds > 0 ? deltaBytes / seconds : 0.0;
+      final remaining = manifest.uncompressedSizeBytes - uncompressedBytes;
+      final eta = speed > 0
+          ? Duration(milliseconds: ((remaining / speed) * 1000).ceil())
+          : null;
+      onProgress(
+        BusinessRegistryValidationProgress(
+          processedBytes: uncompressedBytes,
+          totalBytes: manifest.uncompressedSizeBytes,
+          bytesPerSecond: speed < 0 ? 0 : speed,
+          eta: eta != null && eta.isNegative ? Duration.zero : eta,
+        ),
+      );
+      lastProgressAt = now;
+      lastProgressBytes = uncompressedBytes;
+    }
+
+    onProgress?.call(
+      BusinessRegistryValidationProgress(
+        processedBytes: 0,
+        totalBytes: manifest.uncompressedSizeBytes,
+        bytesPerSecond: 0,
+        eta: null,
+      ),
+    );
 
     try {
       final countedInflatedBytes = gzip.decoder
@@ -65,6 +122,9 @@ class BusinessRegistryStreamValidator {
                   );
                   return;
                 }
+                emitValidationProgress(
+                  force: uncompressedBytes == manifest.uncompressedSizeBytes,
+                );
                 sink.add(chunk);
               },
             ),
@@ -143,6 +203,7 @@ class BusinessRegistryStreamValidator {
       if (actualContentSha256 != manifest.registryContentSha256) {
         throw StateError('REGISTRY_VALIDATE_CONTENT_SHA256_MISMATCH');
       }
+      emitValidationProgress(force: true);
 
       return BusinessRegistryValidatedArtifact(
         file: artifact.file,
