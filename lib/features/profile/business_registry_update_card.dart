@@ -26,6 +26,7 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
   static const Key coverageKey = Key('business_registry_update_coverage');
   static const Key statusKey = Key('business_registry_update_status');
   static const Key liveProgressKey = Key('business_registry_update_live_progress');
+  static const Key liveProgressBarKey = Key('business_registry_update_live_progress_bar');
 
   final BusinessRegistrySnapshotInfo? snapshot;
   final bool loading;
@@ -116,10 +117,25 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
                   final text = progress == null
                       ? '讀取 manifest…\n${BusinessRegistryUpdatePresentation.foregroundGuidance}'
                       : BusinessRegistryUpdatePresentation.stageLabel(progress);
-                  return Text(
-                    text,
-                    key: liveProgressKey,
-                    style: theme.textTheme.bodySmall,
+                  final fraction = progress == null
+                      ? null
+                      : BusinessRegistryUpdatePresentation.progressFraction(progress);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Text(
+                        text,
+                        key: liveProgressKey,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      if (fraction != null) ...<Widget>[
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(
+                          key: liveProgressBarKey,
+                          value: fraction,
+                        ),
+                      ],
+                    ],
                   );
                 },
               ),
