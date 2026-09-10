@@ -65,7 +65,7 @@ jobs:
           grep -Fxq 'version: 4.20.3+459' pubspec.yaml
           grep -Fq "validationVersion = '4.20.3+459'" lib/features/invoice/lab/private_cloud_invoice_lab_config.dart
           grep -Fq "appVersion = '4.20.3+459'" lib/app_build_metadata.dart
-          grep -Fq "phase = 'P4.20.3-registry-download-resilience-hotfix-458'" lib/app_build_metadata.dart
+          grep -Fq "phase = 'P4.20.3-registry-validation-install-progress-459'" lib/app_build_metadata.dart
       - name: Analyze
         run: flutter analyze
       - name: Focused P4.20.3 release regressions
