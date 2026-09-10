@@ -15,6 +15,28 @@ import 'business_registry_stream_validator.dart';
 
 enum BusinessRegistryStreamInstallStatus { installed, alreadyInstalled }
 
+typedef BusinessRegistryInstallProgressCallback = void Function(
+  BusinessRegistryInstallProgress progress,
+);
+
+class BusinessRegistryInstallProgress {
+  const BusinessRegistryInstallProgress({
+    required this.processedEntities,
+    required this.totalEntities,
+    required this.rowsPerSecond,
+    required this.eta,
+  });
+
+  final int processedEntities;
+  final int totalEntities;
+  final double rowsPerSecond;
+  final Duration? eta;
+
+  double get fraction => totalEntities <= 0
+      ? 0
+      : (processedEntities / totalEntities).clamp(0.0, 1.0).toDouble();
+}
+
 class BusinessRegistryStreamInstallResult {
   const BusinessRegistryStreamInstallResult({
     required this.status,
@@ -48,6 +70,7 @@ class BusinessRegistryTransactionalStreamInstaller {
   Future<BusinessRegistryStreamInstallResult> install({
     required BusinessRegistryDistributionManifest manifest,
     required BusinessRegistryValidatedArtifact artifact,
+    BusinessRegistryInstallProgressCallback? onProgress,
   }) async {
     if (batchSize <= 0) {
       throw ArgumentError.value(batchSize, 'batchSize');
@@ -112,6 +135,43 @@ class BusinessRegistryTransactionalStreamInstaller {
           String? lastEntityKey;
           var batch = txn.batch();
           var batchCount = 0;
+          var lastProgressAt = DateTime.now();
+          var lastProgressEntities = 0;
+
+          void emitInstallProgress({bool force = false}) {
+            if (onProgress == null) return;
+            final now = DateTime.now();
+            final elapsed = now.difference(lastProgressAt);
+            if (!force &&
+                elapsed < const Duration(milliseconds: 250)) return;
+            final deltaRows = entityCount - lastProgressEntities;
+            final seconds =
+                elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+            final speed = seconds > 0 ? deltaRows / seconds : 0.0;
+            final remaining = manifest.entityCount - entityCount;
+            final eta = speed > 0
+                ? Duration(milliseconds: ((remaining / speed) * 1000).ceil())
+                : null;
+            onProgress(
+              BusinessRegistryInstallProgress(
+                processedEntities: entityCount,
+                totalEntities: manifest.entityCount,
+                rowsPerSecond: speed < 0 ? 0 : speed,
+                eta: eta != null && eta.isNegative ? Duration.zero : eta,
+              ),
+            );
+            lastProgressAt = now;
+            lastProgressEntities = entityCount;
+          }
+
+          onProgress?.call(
+            BusinessRegistryInstallProgress(
+              processedEntities: 0,
+              totalEntities: manifest.entityCount,
+              rowsPerSecond: 0,
+              eta: null,
+            ),
+          );
 
           try {
             final countedCompressedBytes =
@@ -246,6 +306,7 @@ class BusinessRegistryTransactionalStreamInstaller {
                     await batch.commit(noResult: true);
                     batch = txn.batch();
                     batchCount = 0;
+                    emitInstallProgress();
                   }
               }
             }
@@ -253,6 +314,7 @@ class BusinessRegistryTransactionalStreamInstaller {
             if (batchCount > 0) {
               await batch.commit(noResult: true);
             }
+            emitInstallProgress(force: true);
             if (!sawHeader) {
               throw StateError('REGISTRY_INSTALL_HEADER_REQUIRED');
             }
