@@ -20,7 +20,20 @@ class InvoiceMerchantDecisionIntegration {
     required String recognitionSourceLabel,
     InvoiceMerchantIdentityReviewContext? identityContext,
   }) {
-    final context = identityContext;
+    final seller = _digits(sellerTaxId);
+    final suppliedContext = identityContext;
+
+    // A Registry/MerchantBrand review context is evidence for one exact seller
+    // identifier. If the user edits or switches the sellerTaxId before the
+    // asynchronous corroboration refresh completes, fail closed and do not
+    // expose stale official or MerchantBrand candidates for the new invoice
+    // identity.
+    final contextSeller =
+        _digits(suppliedContext?.decision.sellerIdentifier ?? '');
+    final context = seller.isNotEmpty && contextSeller == seller
+        ? suppliedContext
+        : null;
+
     final metadata = <String>[
       if ((context?.registryCoverage ?? '').trim().isNotEmpty)
         (context?.registryCoverage ?? '').trim(),
@@ -31,18 +44,19 @@ class InvoiceMerchantDecisionIntegration {
     return composer.compose(
       InvoiceMerchantDecisionInput(
         recognizedMerchantName: recognizedMerchantName,
-        sellerTaxId: sellerTaxId,
+        sellerTaxId: seller,
         recognitionSourceLabel: recognitionSourceLabel,
         existingMerchantBrand:
             context?.decision.formalMerchantName.trim() ?? '',
         officialLegalName:
             context?.decision.officialLegalNameSuggestion.trim() ?? '',
         officialEntityLabel: metadata,
-        officialSource: context == null
-            ? ''
-            : '本機官方 Registry',
+        officialSource: context == null ? '' : '本機官方 Registry',
         officialDataDate: context?.registrySourceDataDate.trim() ?? '',
       ),
     );
   }
+
+  static String _digits(String value) =>
+      value.replaceAll(RegExp(r'[^0-9]'), '');
 }
