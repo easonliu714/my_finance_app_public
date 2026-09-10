@@ -58,10 +58,14 @@ class BusinessRegistryUpdateProgress {
   const BusinessRegistryUpdateProgress({
     required this.stage,
     this.download,
+    this.validation,
+    this.install,
   });
 
   final BusinessRegistryUpdateStage stage;
   final BusinessRegistryDownloadProgress? download;
+  final BusinessRegistryValidationProgress? validation;
+  final BusinessRegistryInstallProgress? install;
 }
 
 typedef BusinessRegistryUpdateProgressCallback = void Function(
@@ -230,6 +234,13 @@ class BusinessRegistryUpdateService {
       final validated = await const BusinessRegistryStreamValidator().validate(
         manifest: manifest,
         artifact: downloaded,
+        onProgress: (validation) => _emitProgress(
+          onProgress,
+          BusinessRegistryUpdateProgress(
+            stage: BusinessRegistryUpdateStage.validatingRegistry,
+            validation: validation,
+          ),
+        ),
       );
 
       _emitProgress(
@@ -243,6 +254,13 @@ class BusinessRegistryUpdateService {
       ).install(
         manifest: manifest,
         artifact: validated,
+        onProgress: (install) => _emitProgress(
+          onProgress,
+          BusinessRegistryUpdateProgress(
+            stage: BusinessRegistryUpdateStage.installingRegistry,
+            install: install,
+          ),
+        ),
       );
 
       _emitProgress(
