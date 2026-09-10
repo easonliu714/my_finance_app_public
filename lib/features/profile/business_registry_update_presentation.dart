@@ -1,4 +1,6 @@
 import '../merchant/business_registry_bounded_downloader.dart';
+import '../merchant/business_registry_stream_validator.dart';
+import '../merchant/business_registry_transactional_stream_installer.dart';
 import '../merchant/business_registry_update_service.dart';
 
 /// Pure presentation helpers for the explicit Registry update surface.
@@ -25,9 +27,9 @@ class BusinessRegistryUpdatePresentation {
       case BusinessRegistryUpdateStage.downloadingRegistry:
         return _downloadLabel(progress.download);
       case BusinessRegistryUpdateStage.validatingRegistry:
-        return '下載完成，正在驗證 SHA-256 與 Registry stream…';
+        return _validationLabel(progress.validation);
       case BusinessRegistryUpdateStage.installingRegistry:
-        return '驗證完成，正在安裝 V24 Registry…';
+        return _installLabel(progress.install);
       case BusinessRegistryUpdateStage.readingBackAuthority:
         return '安裝完成，正在確認版本與 authority…';
       case BusinessRegistryUpdateStage.complete:
@@ -36,15 +38,52 @@ class BusinessRegistryUpdatePresentation {
   }
 
   static double? progressFraction(BusinessRegistryUpdateProgress progress) {
-    final download = progress.download;
-    if (progress.stage != BusinessRegistryUpdateStage.downloadingRegistry ||
-        download == null ||
-        download.totalBytes <= 0) {
-      return null;
+    switch (progress.stage) {
+      case BusinessRegistryUpdateStage.downloadingRegistry:
+        final value = progress.download;
+        return value == null || value.totalBytes <= 0 ? null : value.fraction;
+      case BusinessRegistryUpdateStage.validatingRegistry:
+        final value = progress.validation;
+        return value == null || value.totalBytes <= 0 ? null : value.fraction;
+      case BusinessRegistryUpdateStage.installingRegistry:
+        final value = progress.install;
+        return value == null || value.totalEntities <= 0 ? null : value.fraction;
+      case BusinessRegistryUpdateStage.readingManifest:
+      case BusinessRegistryUpdateStage.readingBackAuthority:
+      case BusinessRegistryUpdateStage.complete:
+        return null;
     }
-    return download.fraction;
   }
 
+  static String _validationLabel(
+    BusinessRegistryValidationProgress? progress,
+  ) {
+    if (progress == null) {
+      return '下載完成，正在驗證 SHA-256 與 Registry stream…';
+    }
+    final processed = _formatMegabytes(progress.processedBytes);
+    final total = _formatMegabytes(progress.totalBytes);
+    final percent =
+        (progress.fraction * 100).clamp(0, 100).toStringAsFixed(1);
+    final speed = progress.bytesPerSecond > 0
+        ? '${_formatMegabytes(progress.bytesPerSecond)} MB/s'
+        : '計算中';
+    final eta = _formatEta(progress.eta);
+    return '驗證 Registry（SHA-256 / stream）：$processed / $total MB'
+        '（$percent%）；$speed；ETA $eta';
+  }
+
+  static String _installLabel(BusinessRegistryInstallProgress? progress) {
+    if (progress == null) return '驗證完成，正在安裝 V24 Registry…';
+    final percent =
+        (progress.fraction * 100).clamp(0, 100).toStringAsFixed(1);
+    final speed = progress.rowsPerSecond > 0
+        ? '${progress.rowsPerSecond.toStringAsFixed(0)} 筆/s'
+        : '計算中';
+    final eta = _formatEta(progress.eta);
+    return '安裝 V24 Registry：${progress.processedEntities} / '
+        '${progress.totalEntities} 筆（$percent%）；$speed；ETA $eta';
+  }
   static String userFacingError(Object error) {
     if (error is BusinessRegistryTransientDownloadException) {
       final retained = _formatMegabytes(error.retainedBytes);
