@@ -45,6 +45,10 @@ class BusinessRegistryValidationProgress {
 class BusinessRegistryStreamValidator {
   const BusinessRegistryStreamValidator();
 
+  static const int _cooperativeYieldEntityInterval = 2048;
+  static const Duration _cooperativeYieldMinInterval =
+      Duration(milliseconds: 16);
+
   Future<BusinessRegistryValidatedArtifact> validate({
     required BusinessRegistryDistributionManifest manifest,
     required BusinessRegistryDownloadedArtifact artifact,
@@ -74,6 +78,7 @@ class BusinessRegistryStreamValidator {
     String? lastEntityKey;
     var lastProgressAt = DateTime.now();
     var lastProgressBytes = 0;
+    var lastCooperativeYieldAt = DateTime.now();
 
     void publishProgress(BusinessRegistryValidationProgress progress) {
       if (progressCallback == null) return;
@@ -192,6 +197,22 @@ class BusinessRegistryStreamValidator {
             entityCount += 1;
             if (entityCount > manifest.entityCount) {
               throw StateError('REGISTRY_VALIDATE_ENTITY_COUNT_EXCEEDED');
+            }
+
+            // The SHA/stream pass performs gzip inflation, UTF-8 decoding,
+            // canonicalization and hashing on the Flutter isolate. On Android,
+            // background -> foreground resume can otherwise leave the visible
+            // progress frame stale even though validation continues. Yielding
+            // cooperatively at a bounded cadence lets pending UI/lifecycle work
+            // run without changing validation ordering, hash bytes, bounds or
+            // LKG/transaction semantics.
+            if (entityCount % _cooperativeYieldEntityInterval == 0) {
+              final now = DateTime.now();
+              if (now.difference(lastCooperativeYieldAt) >=
+                  _cooperativeYieldMinInterval) {
+                await Future<void>.delayed(Duration.zero);
+                lastCooperativeYieldAt = DateTime.now();
+              }
             }
         }
       }
