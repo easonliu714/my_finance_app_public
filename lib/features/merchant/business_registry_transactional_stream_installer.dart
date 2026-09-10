@@ -111,6 +111,7 @@ class BusinessRegistryTransactionalStreamInstaller {
       }
 
       final now = DateTime.now().toUtc().toIso8601String();
+      final progressCallback = onProgress;
       return await db.transaction<BusinessRegistryStreamInstallResult>(
         (txn) async {
           await txn.insert('business_registry_snapshots', <String, Object?>{
@@ -138,12 +139,21 @@ class BusinessRegistryTransactionalStreamInstaller {
           var lastProgressAt = DateTime.now();
           var lastProgressEntities = 0;
 
+          void publishProgress(BusinessRegistryInstallProgress progress) {
+            if (progressCallback == null) return;
+            try {
+              progressCallback(progress);
+            } catch (_) {
+              // Progress telemetry is presentation-only. A consumer callback
+              // must never change transaction atomicity or LKG semantics.
+            }
+          }
+
           void emitInstallProgress({bool force = false}) {
-            if (onProgress == null) return;
+            if (progressCallback == null) return;
             final now = DateTime.now();
             final elapsed = now.difference(lastProgressAt);
-            if (!force &&
-                elapsed < const Duration(milliseconds: 250)) return;
+            if (!force && elapsed < const Duration(milliseconds: 250)) return;
             final deltaRows = entityCount - lastProgressEntities;
             final seconds =
                 elapsed.inMicroseconds / Duration.microsecondsPerSecond;
@@ -152,7 +162,7 @@ class BusinessRegistryTransactionalStreamInstaller {
             final eta = speed > 0
                 ? Duration(milliseconds: ((remaining / speed) * 1000).ceil())
                 : null;
-            onProgress(
+            publishProgress(
               BusinessRegistryInstallProgress(
                 processedEntities: entityCount,
                 totalEntities: manifest.entityCount,
@@ -164,7 +174,7 @@ class BusinessRegistryTransactionalStreamInstaller {
             lastProgressEntities = entityCount;
           }
 
-          onProgress?.call(
+          publishProgress(
             BusinessRegistryInstallProgress(
               processedEntities: 0,
               totalEntities: manifest.entityCount,
