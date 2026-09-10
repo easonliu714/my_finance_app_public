@@ -71,6 +71,51 @@ void main() {
       );
     });
 
+    test('sellerTaxId mutation invalidates stale Registry and MerchantBrand evidence', () {
+      const staleContext = InvoiceMerchantIdentityReviewContext(
+        decision: MerchantIdentityResolutionDecision(
+          literalMerchantText: '舊發票商家',
+          sellerIdentifier: '31655572',
+          registryLookupAllowed: true,
+          officialLegalNameSuggestion: '舊官方法定名稱',
+          formalMerchantName: '舊 MerchantBrand',
+          requiresBrandConfirmation: false,
+          reason: MerchantIdentityResolutionReason.confirmedBrandLink,
+        ),
+        registryStatus: BusinessRegistryLookupStatus.hit,
+        registryVersion: 'p4.20.3-fia-2026-09-09-b98874df3998',
+        registryCoverage: '全台公司／商業／分公司',
+        registrySourceDataDate: '2026-09-09',
+      );
+
+      final state = integration.compose(
+        recognizedMerchantName: '新辨識商家',
+        sellerTaxId: '60282181',
+        recognitionSourceLabel: '人工修正',
+        identityContext: staleContext,
+      );
+
+      expect(state.hasExplicitSelection, isFalse);
+      expect(
+        state.candidateFor(InvoiceMerchantDecisionOption.recognition).displayName,
+        '新辨識商家',
+      );
+      expect(
+        state
+            .candidateFor(InvoiceMerchantDecisionOption.existingMerchantBrand)
+            .available,
+        isFalse,
+      );
+      expect(
+        state.candidateFor(InvoiceMerchantDecisionOption.officialRegistry).available,
+        isFalse,
+      );
+      expect(
+        state.candidateFor(InvoiceMerchantDecisionOption.officialRegistry).displayName,
+        isEmpty,
+      );
+    });
+
     test('official selection stays review-only and requires explicit binding', () {
       const context = InvoiceMerchantIdentityReviewContext(
         decision: MerchantIdentityResolutionDecision(
