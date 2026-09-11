@@ -38,7 +38,7 @@ jobs:
           test "$actual" = '${{ github.sha }}'
           git cat-file -e "$frozen^{commit}"
           git merge-base --is-ancestor "$frozen" HEAD
-          grep -Fxq 'version: 4.20.4+460' pubspec.yaml
+          grep -Fxq 'version: 4.20.4+461' pubspec.yaml
           printf 'P4.20.3 frozen predecessor: PASS (%s)\nP4.20.4 exact head: %s\n' "$frozen" "$actual"
       - uses: subosito/flutter-action@v2
         with:
@@ -54,14 +54,18 @@ jobs:
       - name: P4.20.4 focused and frozen-boundary regressions
         run: |
           set -euo pipefail
-          flutter test test/p4_20_4_invoice_merchant_decision_composer_test.dart
+          flutter test test/p4_20_4_merchant_decision_composer_test.dart
+          flutter test test/p4_20_4_merchant_decision_composer_card_test.dart
+          flutter test test/p4_20_4_merchant_decision_integration_test.dart
+          flutter test test/p4_20_4_merchant_decision_coordinator_test.dart
+          flutter test test/p4_20_4_merchant_decision_review_section_test.dart
           flutter test test/p4_20_4_invoice_transaction_handoff_boundary_test.dart
+          flutter test test/p4_20_4_461_seller_tax_id_confirmation_test.dart
+          flutter test test/p4_20_4_registry_validation_foreground_resume_test.dart
+          flutter test test/p4_20_3_registry_update_presentation_test.dart
           flutter test test/p4_20_2_invoice_registry_corroboration_widget_test.dart
+          flutter test test/p4_20_1_registry_stream_validator_test.dart
           flutter test test/p4_19_11_invoice_input_ux_test.dart
-          flutter test test/p4_20_3_registry_validation_foreground_resume_test.dart
-          flutter test test/p4_20_3_registry_presentation_test.dart
-          flutter test test/business_registry_stream_validator_test.dart
-          flutter test test/p4_12_34_1_version_contract_test.dart
           flutter test test/p4_12_38_exact_head_test.dart
       - name: Full Flutter regression suite
         run: flutter test
@@ -82,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.sha }}'
-          grep -Fxq 'version: 4.20.4+460' pubspec.yaml
+          grep -Fxq 'version: 4.20.4+461' pubspec.yaml
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -157,7 +161,7 @@ jobs:
           Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
           PY
       - name: Build signed release APK
-        run: flutter build apk --release --no-pub --build-number=460
+        run: flutter build apk --release --no-pub --build-number=461
       - name: Inspect version permissions signer and generate authority metadata
         env:
           ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
@@ -173,7 +177,7 @@ jobs:
           pinned='9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
           normalized="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
           test "$version_name" = '4.20.4'
-          test "$version_code" = '460'
+          test "$version_code" = '461'
           grep -Fq "$pinned" <<< "$normalized"
           grep -Fq 'android.permission.CAMERA' <<< "$permissions"
           grep -Fq 'android.permission.INTERNET' <<< "$permissions"
@@ -185,13 +189,13 @@ jobs:
             printf 'P4_20_4_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
             printf 'FROZEN_P4_20_3_HEAD=e5a81ab610da76c666e0993300d2a89dd5c033b6\n'
             printf 'VERSION_NAME=%s\nVERSION_CODE=%s\n' "$version_name" "$version_code"
-            printf 'MERCHANT_THREE_LANE_DECISION=PASS\nNO_IMPLICIT_MERCHANT_SELECTION=PASS\nOFFICIAL_BINDING_SECOND_CONFIRMATION=PASS\nFORMAL_WRITE_EXPLICIT_SAVE_ONLY=PASS\nSHA_FOREGROUND_RESUME_REGRESSION=PASS\nSIGNER_SHA256_PIN=PASS\n'
+            printf 'MERCHANT_THREE_LANE_DECISION=PASS\nSELLER_TAX_ID_USER_CONFIRMATION_REQUIRED=PASS\nNO_IMPLICIT_MERCHANT_SELECTION=PASS\nOFFICIAL_BINDING_SECOND_CONFIRMATION=PASS\nFORMAL_WRITE_EXPLICIT_SAVE_ONLY=PASS\nSHA_FOREGROUND_RESUME_REGRESSION=PASS\nSIGNER_SHA256_PIN=PASS\n'
           } > p4_20_4_canary_metadata.txt
       - name: Generate APK SHA-256
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk | tee p4_20_4_signed_canary.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: p4-20-4-public-4.20.4+460-signed-merchant-decision-canary
+          name: p4-20-4-public-4.20.4+461-signed-merchant-decision-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             p4_20_4_signed_canary.sha256
