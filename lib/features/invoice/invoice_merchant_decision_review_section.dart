@@ -15,7 +15,8 @@ import 'invoice_merchant_identity_review_service.dart';
 /// The parent receives a fully resolved [InvoiceMerchantDecisionSelection]
 /// rather than only an enum option. This prevents the parent from re-composing
 /// against newer/stale evidence between the explicit tap and its review-state
-/// update, and keeps official binding gated by the exact selection snapshot.
+/// update, and keeps recognition/official binding gated by the exact selection
+/// snapshot plus a second explicit action.
 class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
   const InvoiceMerchantDecisionReviewSection({
     super.key,
@@ -26,6 +27,7 @@ class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
     required this.selectedOption,
     required this.onSelected,
     required this.onConfirmOfficialBinding,
+    this.onConfirmRecognitionBinding,
     this.bindingBusy = false,
     this.integration = const InvoiceMerchantDecisionIntegration(),
   });
@@ -38,6 +40,8 @@ class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
   final InvoiceMerchantIdentityReviewContext? identityContext;
   final InvoiceMerchantDecisionOption? selectedOption;
   final ValueChanged<InvoiceMerchantDecisionSelection> onSelected;
+  final ValueChanged<InvoiceMerchantDecisionSelection>?
+      onConfirmRecognitionBinding;
   final ValueChanged<InvoiceMerchantDecisionSelection>
       onConfirmOfficialBinding;
   final bool bindingBusy;
@@ -67,6 +71,7 @@ class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
           final selection = base.select(option).selection;
           if (selection != null) onSelected(selection);
         },
+        onConfirmRecognitionBinding: onConfirmRecognitionBinding,
         onConfirmOfficialBinding: onConfirmOfficialBinding,
       ),
     );
