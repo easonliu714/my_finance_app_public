@@ -28,7 +28,9 @@ void main() {
     String sellerTaxId = '31655572',
     InvoiceMerchantDecisionOption? selectedOption,
     ValueChanged<InvoiceMerchantDecisionSelection>? onSelected,
+    ValueChanged<InvoiceMerchantDecisionSelection>? onConfirmRecognitionBinding,
     ValueChanged<InvoiceMerchantDecisionSelection>? onConfirmOfficialBinding,
+    bool sellerTaxIdAuthoritative = false,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -39,7 +41,9 @@ void main() {
             recognitionSourceLabel: 'QR + OCR',
             identityContext: context,
             selectedOption: selectedOption,
+            sellerTaxIdAuthoritative: sellerTaxIdAuthoritative,
             onSelected: onSelected ?? (_) {},
+            onConfirmRecognitionBinding: onConfirmRecognitionBinding,
             onConfirmOfficialBinding: onConfirmOfficialBinding ?? (_) {},
           ),
         ),
@@ -85,6 +89,51 @@ void main() {
     expect(captured!.invoiceLiteral, 'OK超商 晶技門市');
     expect(captured!.requiresMerchantBindingConfirmation, isFalse);
     expect(captured!.writesFormalTransaction, isFalse);
+  });
+
+  testWidgets('recognition binding stays hidden without independent sellerTaxId authority',
+      (tester) async {
+    InvoiceMerchantDecisionSelection? confirmed;
+    await tester.pumpWidget(
+      buildSection(
+        selectedOption: InvoiceMerchantDecisionOption.recognition,
+        onConfirmRecognitionBinding: (selection) => confirmed = selection,
+      ),
+    );
+
+    expect(
+      find.byKey(InvoiceMerchantDecisionComposerCard.recognitionBindingConfirmKey),
+      findsNothing,
+    );
+    expect(confirmed, isNull);
+  });
+
+  testWidgets('authoritative sellerTaxId exposes second recognition binding action only',
+      (tester) async {
+    InvoiceMerchantDecisionSelection? confirmed;
+    await tester.pumpWidget(
+      buildSection(
+        selectedOption: InvoiceMerchantDecisionOption.recognition,
+        sellerTaxIdAuthoritative: true,
+        onConfirmRecognitionBinding: (selection) => confirmed = selection,
+      ),
+    );
+
+    final confirmFinder = find.byKey(
+      InvoiceMerchantDecisionComposerCard.recognitionBindingConfirmKey,
+    );
+    expect(confirmFinder, findsOneWidget);
+    await tester.ensureVisible(confirmFinder);
+    await tester.tap(confirmFinder);
+    await tester.pump();
+
+    expect(confirmed, isNotNull);
+    expect(confirmed!.option, InvoiceMerchantDecisionOption.recognition);
+    expect(confirmed!.displayName, 'OK超商 晶技門市');
+    expect(confirmed!.sellerTaxId, '31655572');
+    expect(confirmed!.invoiceLiteral, 'OK超商 晶技門市');
+    expect(confirmed!.requiresMerchantBindingConfirmation, isTrue);
+    expect(confirmed!.writesFormalTransaction, isFalse);
   });
 
   testWidgets('official lane requires second explicit action and emits exact binding snapshot',
