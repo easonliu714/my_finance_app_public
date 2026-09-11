@@ -26,6 +26,59 @@ void main() {
       expect(confirmed.isAuthoritative(trustedQrAuthority: false), isTrue);
     });
 
+    test('weak OCR policy stays fail-closed until explicit confirmation', () {
+      const policy = InvoiceRegistryCorroborationAuthorityPolicy();
+      final before = policy.evaluateReviewSelection(
+        sellerIdentifier: '31655572',
+        localQrAuthority: false,
+        explicitlyCorrected: false,
+        explicitlyAiSelected: false,
+        aiComparisonAcknowledged: false,
+        initialLocalSellerIdentifierSource: 'ocr',
+      );
+      final after = policy.evaluateReviewSelection(
+        sellerIdentifier: '31655572',
+        localQrAuthority: false,
+        explicitlyCorrected: false,
+        explicitlyAiSelected: false,
+        aiComparisonAcknowledged: false,
+        initialLocalSellerIdentifierSource: 'ocr',
+        explicitUserConfirmed: true,
+      );
+
+      expect(before.authoritative, isFalse);
+      expect(after.authoritative, isTrue);
+      expect(
+        after.source,
+        InvoiceRegistryCorroborationAuthoritySource.explicitUserCorrection,
+      );
+    });
+
+    test('60282181 weak OCR becomes authoritative only after explicit confirmation', () {
+      const policy = InvoiceRegistryCorroborationAuthorityPolicy();
+      final before = policy.evaluateReviewSelection(
+        sellerIdentifier: '60282181',
+        localQrAuthority: false,
+        explicitlyCorrected: false,
+        explicitlyAiSelected: false,
+        aiComparisonAcknowledged: false,
+        initialLocalSellerIdentifierSource: 'ocr',
+      );
+      final after = policy.evaluateReviewSelection(
+        sellerIdentifier: '60282181',
+        localQrAuthority: false,
+        explicitlyCorrected: false,
+        explicitlyAiSelected: false,
+        aiComparisonAcknowledged: false,
+        initialLocalSellerIdentifierSource: 'ocr',
+        explicitUserConfirmed: true,
+      );
+
+      expect(before.authoritative, isFalse);
+      expect(after.authoritative, isTrue);
+      expect(after.sellerIdentifier, '60282181');
+    });
+
     test('manual correction alone cannot authorize Registry lookup', () {
       const policy = InvoiceRegistryCorroborationAuthorityPolicy();
       final decision = policy.evaluateReviewSelection(
