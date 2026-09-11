@@ -86,7 +86,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(openedDraft, isNotNull);
-    expect(openedDraft!.merchantName, 'OK Mart');
+    expect(openedDraft!.formalMerchantName, 'OK Mart');
   });
 
   testWidgets('official candidate selection alone cannot emit transaction draft',
@@ -130,11 +130,11 @@ void main() {
 }
 
 InvoiceReviewFormViewModel _review() {
-  return InvoiceReviewFormViewModel(
+  return const InvoiceReviewFormViewModel(
     title: 'P4.20.4 boundary fixture',
     routeReason: 'fixture',
     disclaimer: 'fixture',
-    fields: const <InvoiceReviewFieldViewModel>[
+    fields: <InvoiceReviewFieldViewModel>[
       InvoiceReviewFieldViewModel(
         key: InvoiceReviewFieldKey.invoiceNumber,
         label: '發票號碼',
@@ -184,9 +184,9 @@ InvoiceReviewFormViewModel _review() {
         confidenceLabel: 'QR 解析',
       ),
     ],
-    lineItems: const <InvoiceReviewLineItemViewModel>[],
-    warnings: const <String>[],
-    availableOverrides: const [],
+    lineItems: <InvoiceReviewLineItemViewModel>[],
+    warnings: <String>[],
+    availableOverrides: [],
     canOpenReview: true,
     requiresAcknowledgement: false,
     disclaimerAcknowledged: true,
