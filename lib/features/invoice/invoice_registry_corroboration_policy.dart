@@ -102,9 +102,10 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
   /// provenance from the recognition result. Merely being present or passing
   /// checksum is not enough to authorize a Registry lookup.
   ///
-  /// P4.20.4+461 additionally requires a separate explicit confirmation after
-  /// a manual correction. Editing a checksum-valid seller identifier is not,
-  /// by itself, authority to query the Registry.
+  /// P4.20.4+461 additionally requires a separate explicit sellerTaxId
+  /// confirmation after either a manual correction or an AI sellerTaxId
+  /// selection. Acknowledging the AI comparison is not the same authority as
+  /// confirming the seller identifier itself.
   InvoiceRegistryCorroborationAuthorityDecision evaluateReviewSelection({
     required String sellerIdentifier,
     required bool localQrAuthority,
@@ -135,11 +136,17 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
           'ai_selection_failed_strict_checksum',
         );
       }
+      if (!explicitUserConfirmed) {
+        return _notAuthoritative(
+          seller,
+          'ai_selection_requires_explicit_user_confirmation',
+        );
+      }
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
         authoritative: true,
         source: InvoiceRegistryCorroborationAuthoritySource.explicitAiSelection,
-        reason: 'authoritative_explicit_ai_selection',
+        reason: 'authoritative_explicit_ai_seller_confirmation',
       );
     }
 
