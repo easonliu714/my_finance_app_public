@@ -63,6 +63,43 @@ void main() {
       );
     });
 
+    test('AI acknowledgement alone cannot authorize Registry lookup', () {
+      const policy = InvoiceRegistryCorroborationAuthorityPolicy();
+      final decision = policy.evaluateReviewSelection(
+        sellerIdentifier: '31655572',
+        localQrAuthority: false,
+        explicitlyCorrected: false,
+        explicitlyAiSelected: true,
+        aiComparisonAcknowledged: true,
+        initialLocalSellerIdentifierSource: '',
+      );
+
+      expect(decision.authoritative, isFalse);
+      expect(
+        decision.reason,
+        'ai_selection_requires_explicit_user_confirmation',
+      );
+    });
+
+    test('explicit seller confirmation authorizes acknowledged AI selection', () {
+      const policy = InvoiceRegistryCorroborationAuthorityPolicy();
+      final decision = policy.evaluateReviewSelection(
+        sellerIdentifier: '31655572',
+        localQrAuthority: false,
+        explicitlyCorrected: false,
+        explicitlyAiSelected: true,
+        aiComparisonAcknowledged: true,
+        initialLocalSellerIdentifierSource: '',
+        explicitUserConfirmed: true,
+      );
+
+      expect(decision.authoritative, isTrue);
+      expect(
+        decision.source,
+        InvoiceRegistryCorroborationAuthoritySource.explicitAiSelection,
+      );
+    });
+
     test('confirmation is invalidated when sellerTaxId changes', () {
       const initial = InvoiceSellerTaxIdConfirmationState(
         currentSellerTaxId: '31655572',
