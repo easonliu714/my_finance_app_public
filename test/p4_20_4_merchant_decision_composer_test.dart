@@ -46,7 +46,7 @@ void main() {
       expect(official.supportingLabel, contains('資料 2026-09-09'));
     });
 
-    test('recognition choice preserves invoice literal and writes no transaction', () {
+    test('recognition choice preserves literal and requires second binding confirmation', () {
       final selection = composer
           .compose(input)
           .select(InvoiceMerchantDecisionOption.recognition)
@@ -54,7 +54,7 @@ void main() {
 
       expect(selection.displayName, 'OK超商 晶技門市');
       expect(selection.invoiceLiteral, 'OK超商 晶技門市');
-      expect(selection.requiresMerchantBindingConfirmation, isFalse);
+      expect(selection.requiresMerchantBindingConfirmation, isTrue);
       expect(selection.writesFormalTransaction, isFalse);
     });
 
