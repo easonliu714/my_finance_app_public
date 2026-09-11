@@ -7,14 +7,15 @@ import 'invoice_merchant_decision_composer.dart';
 ///
 /// The card is deliberately presentation-only: rendering never selects a
 /// candidate, writes MerchantBrand state, performs Registry lookup, or writes a
-/// formal transaction. The parent review flow owns selection and the separate
-/// official MerchantBrand binding confirmation.
+/// formal transaction. The parent review flow owns selection and every separate
+/// MerchantBrand binding confirmation.
 class InvoiceMerchantDecisionComposerCard extends StatelessWidget {
   const InvoiceMerchantDecisionComposerCard({
     super.key,
     required this.state,
     required this.onSelected,
     required this.onConfirmOfficialBinding,
+    this.onConfirmRecognitionBinding,
     this.bindingBusy = false,
   });
 
@@ -24,6 +25,8 @@ class InvoiceMerchantDecisionComposerCard extends StatelessWidget {
       Key('invoice_merchant_decision_existing_lane');
   static const Key officialRegistryLaneKey =
       Key('invoice_merchant_decision_official_lane');
+  static const Key recognitionBindingConfirmKey =
+      Key('invoice_merchant_decision_recognition_binding_confirm');
   static const Key officialBindingConfirmKey =
       Key('invoice_merchant_decision_official_binding_confirm');
 
@@ -32,6 +35,8 @@ class InvoiceMerchantDecisionComposerCard extends StatelessWidget {
 
   final InvoiceMerchantDecisionComposerState state;
   final ValueChanged<InvoiceMerchantDecisionOption> onSelected;
+  final ValueChanged<InvoiceMerchantDecisionSelection>?
+      onConfirmRecognitionBinding;
   final ValueChanged<InvoiceMerchantDecisionSelection>
       onConfirmOfficialBinding;
   final bool bindingBusy;
@@ -39,8 +44,10 @@ class InvoiceMerchantDecisionComposerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selection = state.selection;
-    final officialSelected = selection?.option ==
-        InvoiceMerchantDecisionOption.officialRegistry;
+    final recognitionSelected =
+        selection?.option == InvoiceMerchantDecisionOption.recognition;
+    final officialSelected =
+        selection?.option == InvoiceMerchantDecisionOption.officialRegistry;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -86,6 +93,28 @@ class InvoiceMerchantDecisionComposerCard extends StatelessWidget {
               officialRegistryLaneKey,
               actionLabel: '選擇官方登記資料',
             ),
+            if (recognitionSelected &&
+                selection!.requiresMerchantBindingConfirmation &&
+                onConfirmRecognitionBinding != null) ...<Widget>[
+              const SizedBox(height: 10),
+              const Text(
+                '此次辨識仍只是候選。若要建立／綁定 MerchantBrand，需再次明確確認，而且賣方統編必須已有獨立權威；此動作不會建立正式交易。',
+              ),
+              const SizedBox(height: 8),
+              FilledButton.tonalIcon(
+                key: recognitionBindingConfirmKey,
+                onPressed: bindingBusy
+                    ? null
+                    : () => onConfirmRecognitionBinding!(selection),
+                icon: bindingBusy
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_business_outlined),
+                label: const Text('以此次辨識建立／綁定正式商家'),
+              ),
+            ],
             if (officialSelected &&
                 selection!.requiresMerchantBindingConfirmation) ...<Widget>[
               const SizedBox(height: 10),
