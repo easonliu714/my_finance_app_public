@@ -47,6 +47,7 @@ jobs:
           flutter test test/p4_20_4_merchant_decision_integration_test.dart
           flutter test test/p4_20_4_merchant_decision_coordinator_test.dart
           flutter test test/p4_20_4_merchant_decision_review_section_test.dart
+          flutter test test/p4_20_4_invoice_transaction_handoff_boundary_test.dart
           flutter test test/p4_20_4_registry_validation_foreground_resume_test.dart
           flutter test test/p4_20_3_registry_update_presentation_test.dart
           flutter test test/p4_20_2_invoice_registry_corroboration_widget_test.dart
