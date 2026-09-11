@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.sha }}'
           git merge-base --is-ancestor e5a81ab610da76c666e0993300d2a89dd5c033b6 HEAD
-          grep -Fxq 'version: 4.20.4+460' pubspec.yaml
+          grep -Fxq 'version: 4.20.4+461' pubspec.yaml
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -49,6 +49,7 @@ jobs:
           flutter test test/p4_20_4_merchant_decision_coordinator_test.dart
           flutter test test/p4_20_4_merchant_decision_review_section_test.dart
           flutter test test/p4_20_4_invoice_transaction_handoff_boundary_test.dart
+          flutter test test/p4_20_4_461_seller_tax_id_confirmation_test.dart
           flutter test test/p4_20_4_registry_validation_foreground_resume_test.dart
           flutter test test/p4_20_3_registry_update_presentation_test.dart
           flutter test test/p4_20_2_invoice_registry_corroboration_widget_test.dart
@@ -82,7 +83,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.sha }}'
           git merge-base --is-ancestor e5a81ab610da76c666e0993300d2a89dd5c033b6 HEAD
-          grep -Fxq 'version: 4.20.4+460' pubspec.yaml
+          grep -Fxq 'version: 4.20.4+461' pubspec.yaml
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -146,7 +147,7 @@ jobs:
           Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
           PY
       - name: Build signed release APK
-        run: flutter build apk --release --no-pub --build-number=460
+        run: flutter build apk --release --no-pub --build-number=461
       - name: Inspect signed APK authority
         env:
           ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
@@ -158,14 +159,14 @@ jobs:
           perms="$($analyzer manifest permissions "$apk")"; vn="$($analyzer manifest version-name "$apk")"; vc="$($analyzer manifest version-code "$apk")"
           cert="$($signer verify --print-certs "$apk" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
           pin='9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
-          test "$vn" = '4.20.4'; test "$vc" = '460'; grep -Fq "$pin" <<< "$cert"
+          test "$vn" = '4.20.4'; test "$vc" = '461'; grep -Fq "$pin" <<< "$cert"
           for p in CAMERA INTERNET POST_NOTIFICATIONS RECORD_AUDIO; do grep -Fq "android.permission.$p" <<< "$perms"; done
           ! grep -Fq 'android.permission.READ_SMS' <<< "$perms"; ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$perms"
           { printf 'P4_20_4_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"; printf 'FROZEN_P4_20_3_HEAD=e5a81ab610da76c666e0993300d2a89dd5c033b6\nVERSION_NAME=%s\nVERSION_CODE=%s\nSIGNER_SHA256_PIN=PASS\nFORMAL_WRITE_EXPLICIT_SAVE_ONLY=PASS\n' "$vn" "$vc"; } > p4_20_4_canary_metadata.txt
           sha256sum "$apk" | tee p4_20_4_signed_canary.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: p4-20-4-public-4.20.4+460-signed-merchant-decision-canary
+          name: p4-20-4-public-4.20.4+461-signed-merchant-decision-canary
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             p4_20_4_signed_canary.sha256
