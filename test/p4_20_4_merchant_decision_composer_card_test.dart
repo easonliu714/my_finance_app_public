@@ -25,6 +25,7 @@ void main() {
     required InvoiceMerchantDecisionComposerState value,
     required ValueChanged<InvoiceMerchantDecisionOption> onSelected,
     required ValueChanged<InvoiceMerchantDecisionSelection> onBind,
+    ValueChanged<InvoiceMerchantDecisionSelection>? onRecognitionBind,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -33,6 +34,7 @@ void main() {
             child: InvoiceMerchantDecisionComposerCard(
               state: value,
               onSelected: onSelected,
+              onConfirmRecognitionBinding: onRecognitionBind,
               onConfirmOfficialBinding: onBind,
             ),
           ),
@@ -51,6 +53,7 @@ void main() {
       value: state(),
       onSelected: (_) => selectionCalls += 1,
       onBind: (_) => bindCalls += 1,
+      onRecognitionBind: (_) => bindCalls += 1,
     );
 
     expect(find.text('此次辨識結果'), findsOneWidget);
@@ -64,8 +67,46 @@ void main() {
     expect(find.textContaining('總機構 22853565'), findsOneWidget);
     expect(selectionCalls, 0);
     expect(bindCalls, 0);
+    expect(
+      find.byKey(
+        InvoiceMerchantDecisionComposerCard.recognitionBindingConfirmKey,
+      ),
+      findsNothing,
+    );
     expect(find.byKey(InvoiceMerchantDecisionComposerCard.officialBindingConfirmKey),
         findsNothing);
+  });
+
+  testWidgets('recognition selection requires a second explicit binding action',
+      (tester) async {
+    var current = state();
+    var bindingCalls = 0;
+
+    current = current.select(InvoiceMerchantDecisionOption.recognition);
+    await pumpCard(
+      tester,
+      value: current,
+      onSelected: (_) {},
+      onBind: (_) {},
+      onRecognitionBind: (selection) {
+        bindingCalls += 1;
+        expect(selection.option, InvoiceMerchantDecisionOption.recognition);
+        expect(selection.invoiceLiteral, 'OK mart 晶技門市');
+        expect(selection.requiresMerchantBindingConfirmation, isTrue);
+        expect(selection.writesFormalTransaction, isFalse);
+      },
+    );
+
+    final confirmFinder = find.byKey(
+      InvoiceMerchantDecisionComposerCard.recognitionBindingConfirmKey,
+    );
+    expect(confirmFinder, findsOneWidget);
+    expect(bindingCalls, 0);
+    await tester.ensureVisible(confirmFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(confirmFinder);
+    await tester.pump();
+    expect(bindingCalls, 1);
   });
 
   testWidgets('official selection requires a second explicit binding action',
