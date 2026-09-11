@@ -28,29 +28,28 @@ dependencies:
   http: ^1.6.0
   image_picker: ^1.1.2
   intl: ^0.20.2
-  json_annotation: ^4.9.0
-  path: ^1.9.0
+  local_chinese_text_model:
+    path: packages/local_chinese_text_model
+  mobile_scanner: ^7.2.0
+  path: ^1.9.1
   path_provider: ^2.1.5
-  pdf: ^3.11.3
-  permission_handler: ^12.0.1
-  printing: ^5.14.2
-  riverpod_annotation: ^2.6.1
-  shared_preferences: ^2.5.3
+  share_plus: ^12.0.2
+  shared_preferences: ^2.5.4
+  speech_to_text: ^7.4.0
   sqflite: ^2.4.2
-  sqlite3: ^2.9.4
-  sqlite3_flutter_libs: ^0.5.39
-  url_launcher: ^6.3.2
+  timezone: ^0.10.0
   uuid: ^4.5.1
-
-  # ...existing transitive-compatible app dependencies remain governed by pubspec.lock
+  webview_flutter: 4.13.1
+  wakelock_plus: 1.2.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
-  build_runner: ^2.4.15
-  json_serializable: ^6.9.5
-  riverpod_generator: ^2.6.5
+  flutter_lints: ^4.0.0
+  sqflite_common_ffi: 2.3.7
+  sqlite3: 2.9.4
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/seed/business_registry_validation_pack.json
