@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/invoice/invoice_registry_corroboration_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_seller_tax_id_confirmation.dart';
 
 void main() {
@@ -23,6 +24,43 @@ void main() {
 
       expect(confirmed.explicitlyConfirmedForCurrentValue, isTrue);
       expect(confirmed.isAuthoritative(trustedQrAuthority: false), isTrue);
+    });
+
+    test('manual correction alone cannot authorize Registry lookup', () {
+      const policy = InvoiceRegistryCorroborationAuthorityPolicy();
+      final decision = policy.evaluateReviewSelection(
+        sellerIdentifier: '31655572',
+        localQrAuthority: false,
+        explicitlyCorrected: true,
+        explicitlyAiSelected: false,
+        aiComparisonAcknowledged: false,
+        initialLocalSellerIdentifierSource: '',
+      );
+
+      expect(decision.authoritative, isFalse);
+      expect(
+        decision.reason,
+        'manual_correction_requires_explicit_user_confirmation',
+      );
+    });
+
+    test('explicit confirmation authorizes current manual correction', () {
+      const policy = InvoiceRegistryCorroborationAuthorityPolicy();
+      final decision = policy.evaluateReviewSelection(
+        sellerIdentifier: '31655572',
+        localQrAuthority: false,
+        explicitlyCorrected: true,
+        explicitlyAiSelected: false,
+        aiComparisonAcknowledged: false,
+        initialLocalSellerIdentifierSource: '',
+        explicitUserConfirmed: true,
+      );
+
+      expect(decision.authoritative, isTrue);
+      expect(
+        decision.source,
+        InvoiceRegistryCorroborationAuthoritySource.explicitUserCorrection,
+      );
     });
 
     test('confirmation is invalidated when sellerTaxId changes', () {
