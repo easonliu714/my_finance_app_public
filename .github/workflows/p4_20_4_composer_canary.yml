@@ -52,4 +52,15 @@ jobs:
           flutter test test/p4_20_1_registry_stream_validator_test.dart
 
       - name: Full regression suite
-        run: flutter test
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee p4_20_4_full_flutter.log
+
+      - name: Upload full regression diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-4-full-flutter-${{ github.sha }}
+          path: p4_20_4_full_flutter.log
+          if-no-files-found: error
+          retention-days: 7
