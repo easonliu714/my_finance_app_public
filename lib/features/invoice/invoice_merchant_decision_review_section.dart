@@ -17,6 +17,11 @@ import 'invoice_merchant_identity_review_service.dart';
 /// against newer/stale evidence between the explicit tap and its review-state
 /// update, and keeps recognition/official binding gated by the exact selection
 /// snapshot plus a second explicit action.
+///
+/// Recognition-to-MerchantBrand binding is additionally fail-closed unless the
+/// parent proves the current sellerTaxId already has independent authority
+/// (trusted QR or explicit user confirmation). Recognition itself never grants
+/// sellerTaxId authority.
 class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
   const InvoiceMerchantDecisionReviewSection({
     super.key,
@@ -28,6 +33,7 @@ class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
     required this.onSelected,
     required this.onConfirmOfficialBinding,
     this.onConfirmRecognitionBinding,
+    this.sellerTaxIdAuthoritative = false,
     this.bindingBusy = false,
     this.integration = const InvoiceMerchantDecisionIntegration(),
   });
@@ -44,6 +50,7 @@ class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
       onConfirmRecognitionBinding;
   final ValueChanged<InvoiceMerchantDecisionSelection>
       onConfirmOfficialBinding;
+  final bool sellerTaxIdAuthoritative;
   final bool bindingBusy;
   final InvoiceMerchantDecisionIntegration integration;
 
@@ -71,7 +78,9 @@ class InvoiceMerchantDecisionReviewSection extends StatelessWidget {
           final selection = base.select(option).selection;
           if (selection != null) onSelected(selection);
         },
-        onConfirmRecognitionBinding: onConfirmRecognitionBinding,
+        onConfirmRecognitionBinding: sellerTaxIdAuthoritative
+            ? onConfirmRecognitionBinding
+            : null,
         onConfirmOfficialBinding: onConfirmOfficialBinding,
       ),
     );
