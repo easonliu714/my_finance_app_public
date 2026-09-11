@@ -122,7 +122,8 @@ void main() {
     expect(find.text('已明確選擇'), findsNothing);
   });
 
-  testWidgets('AI seller id performs zero registry lookup before global acknowledgement',
+  testWidgets(
+      'AI seller id remains fail-closed after global acknowledgement until sellerTaxId is explicitly confirmed',
       (tester) async {
     final port = _FakeIdentityReviewPort(
       formalMerchantName: '',
@@ -193,7 +194,11 @@ void main() {
     acknowledged.value = true;
     await tester.pumpAndSettle();
 
-    expect(port.resolveCalls, 1);
+    expect(port.resolveCalls, 0);
+    expect(
+      find.textContaining('尚未符合官方資料查詢權威'),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
         of: find.byKey(
@@ -201,7 +206,7 @@ void main() {
         ),
         matching: find.text('AI 統編官方名稱'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.text('已明確選擇'), findsNothing);
   });
