@@ -59,7 +59,7 @@ void main() {
     final strictService = InvoiceMerchantMasterBindingService(store: strictStore);
     final strict = await strictService.bind(
       merchantName: '電子發票商家',
-      sellerTaxId: '60744698',
+      sellerTaxId: '60744699',
     );
     expect(strict.status, InvoiceMerchantMasterBindingStatus.invalidInput);
     expect(strictStore.rows, isEmpty);
@@ -68,11 +68,11 @@ void main() {
     final qrService = InvoiceMerchantMasterBindingService(store: qrStore);
     final qr = await qrService.bind(
       merchantName: '電子發票商家',
-      sellerTaxId: '60744698',
+      sellerTaxId: '60744699',
       trustedQrSellerIdentifier: true,
     );
     expect(qr.status, InvoiceMerchantMasterBindingStatus.created);
-    expect(qr.merchant?.sellerIdentifier, '60744698');
+    expect(qr.merchant?.sellerIdentifier, '60744699');
     expect(qr.message, contains('QR provenance'));
     expect(qrStore.rows, hasLength(1));
   });
