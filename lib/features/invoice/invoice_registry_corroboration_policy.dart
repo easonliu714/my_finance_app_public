@@ -101,6 +101,10 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
   /// The initial Local seller identifier must carry its machine-readable
   /// provenance from the recognition result. Merely being present or passing
   /// checksum is not enough to authorize a Registry lookup.
+  ///
+  /// P4.20.4+461 additionally requires a separate explicit confirmation after
+  /// a manual correction. Editing a checksum-valid seller identifier is not,
+  /// by itself, authority to query the Registry.
   InvoiceRegistryCorroborationAuthorityDecision evaluateReviewSelection({
     required String sellerIdentifier,
     required bool localQrAuthority,
@@ -108,6 +112,7 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
     required bool explicitlyAiSelected,
     required bool aiComparisonAcknowledged,
     required String initialLocalSellerIdentifierSource,
+    bool explicitUserConfirmed = false,
   }) {
     final seller = _digits(sellerIdentifier);
     if (seller.length != 8) {
@@ -145,12 +150,18 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
           'manual_correction_failed_strict_checksum',
         );
       }
+      if (!explicitUserConfirmed) {
+        return _notAuthoritative(
+          seller,
+          'manual_correction_requires_explicit_user_confirmation',
+        );
+      }
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
         authoritative: true,
         source:
             InvoiceRegistryCorroborationAuthoritySource.explicitUserCorrection,
-        reason: 'authoritative_explicit_user_correction',
+        reason: 'authoritative_explicit_user_confirmation',
       );
     }
 
