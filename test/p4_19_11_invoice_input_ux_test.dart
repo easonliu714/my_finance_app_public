@@ -275,8 +275,22 @@ void main() {
     await tester.tap(secondConfirm);
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('官方登記名稱：7-ELEVEN 官方測試門市'), findsOneWidget);
-    expect(find.textContaining('賣方統編：60744698'), findsOneWidget);
+    final bindingDialog = find.byType(AlertDialog);
+    expect(bindingDialog, findsOneWidget);
+    expect(
+      find.descendant(
+        of: bindingDialog,
+        matching: find.textContaining('官方登記名稱：7-ELEVEN 官方測試門市'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: bindingDialog,
+        matching: find.textContaining('賣方統編：60744698'),
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.text('確認綁定'));
     await tester.pumpAndSettle();
 
