@@ -409,37 +409,6 @@ class _FakeMerchantSellerIdentityStore implements MerchantSellerIdentityStore {
   }
 }
 
-class _NoopMerchantIdentityReviewPort implements InvoiceMerchantIdentityReviewPort {
-  const _NoopMerchantIdentityReviewPort();
-
-  @override
-  Future<InvoiceMerchantIdentityReviewContext> resolve({
-    required String sellerIdentifier,
-    required bool sellerIdentifierAuthoritative,
-    required String literalMerchantText,
-  }) async {
-    return InvoiceMerchantIdentityReviewContext(
-      decision: const MerchantIdentityResolutionPolicy().evaluate(
-        sellerIdentifier: sellerIdentifier,
-        sellerIdentifierAuthoritative: sellerIdentifierAuthoritative,
-        literalMerchantText: literalMerchantText,
-      ),
-      registryStatus: BusinessRegistryLookupStatus.noInstalledRegistry,
-    );
-  }
-
-  @override
-  Future<InvoiceMerchantIdentityReviewContext> confirmBinding({
-    required MerchantRecord merchant,
-    required String sellerIdentifier,
-    required String literalMerchantText,
-    required String evidenceSource,
-    required String sourceReference,
-  }) {
-    throw UnimplementedError();
-  }
-}
-
 class _OfficialMerchantIdentityReviewPort implements InvoiceMerchantIdentityReviewPort {
   const _OfficialMerchantIdentityReviewPort();
 
