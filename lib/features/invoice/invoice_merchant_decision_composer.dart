@@ -66,9 +66,9 @@ class InvoiceMerchantDecisionSelection {
   /// Registry legal name. Selection must not silently destroy the source text.
   final String invoiceLiteral;
 
-  /// Only the official-data path may request a create/bind operation, and even
-  /// then it remains a second explicit confirmation rather than a side effect
-  /// of merely displaying or selecting a candidate.
+  /// Recognition and official-data candidates may request a create/bind
+  /// operation, but only through a second explicit confirmation. Merely
+  /// displaying or selecting either candidate never writes MerchantBrand state.
   final bool requiresMerchantBindingConfirmation;
 
   /// Merchant choice only prepares review/binding intent. It can never bypass
@@ -162,7 +162,7 @@ class InvoiceMerchantDecisionComposer {
           displayName: recognized,
           sellerTaxId: seller,
           available: recognized.isNotEmpty,
-          requiresMerchantBindingConfirmation: false,
+          requiresMerchantBindingConfirmation: true,
           supportingLabel: input.recognitionSourceLabel.trim(),
         ),
         InvoiceMerchantDecisionCandidate(
