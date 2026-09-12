@@ -13,6 +13,8 @@ import 'invoice_review_authority_contract.dart';
 import 'invoice_review_authority_runtime_adapter.dart';
 import 'invoice_review_field_source_switch.dart';
 import 'invoice_review_form_view_model.dart';
+import 'invoice_seller_tax_id_confirmation.dart';
+import 'invoice_seller_tax_id_confirmation_card.dart';
 import 'invoice_transaction_handoff_contract.dart';
 
 class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
@@ -79,6 +81,7 @@ class InvoiceTransactionHandoffReviewCard extends StatefulWidget {
 class _InvoiceTransactionHandoffReviewCardState
     extends State<InvoiceTransactionHandoffReviewCard> {
   late InvoiceReviewFormViewModel _review;
+  late InvoiceSellerTaxIdConfirmationState _sellerTaxIdConfirmation;
   final Map<InvoiceReviewFieldKey, TextEditingController> _controllers =
       <InvoiceReviewFieldKey, TextEditingController>{};
   final Map<InvoiceReviewFieldKey, String> _localFieldValues =
@@ -116,6 +119,7 @@ class _InvoiceTransactionHandoffReviewCardState
   void initState() {
     super.initState();
     _review = _derivePeriodIfBlank(widget.initialReview);
+    _sellerTaxIdConfirmation = _newSellerTaxIdConfirmationState();
     _captureLocalBaseline(_review);
     _syncControllers(_review);
     WidgetsBinding.instance.addPostFrameCallback(
@@ -139,6 +143,7 @@ class _InvoiceTransactionHandoffReviewCardState
       _merchantCorroboration = null;
       _merchantCorroborationMessage = '';
       _lastMerchantCorroborationKey = '';
+      _sellerTaxIdConfirmation = _newSellerTaxIdConfirmationState();
       _captureLocalBaseline(_review);
       _syncControllers(_review);
       needsCorroborationRefresh = true;
@@ -385,11 +390,21 @@ class _InvoiceTransactionHandoffReviewCardState
         _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value.trim() ?? '';
     if (merchant.isEmpty && taxId.isEmpty) return const SizedBox.shrink();
 
+    final sellerTaxIdAuthoritative =
+        _currentRegistryAuthorityDecision().authoritative;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          InvoiceSellerTaxIdConfirmationCard(
+            state: _sellerTaxIdConfirmation,
+            trustedQrAuthority: _sellerTaxIdIsTrustedQrAuthority,
+            busy: _merchantCorroborationBusy,
+            onConfirm: (state) => unawaited(_confirmSellerTaxId(state)),
+          ),
+          const SizedBox(height: 8),
           if (_merchantCorroborationBusy)
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
@@ -422,6 +437,7 @@ class _InvoiceTransactionHandoffReviewCardState
             recognitionSourceLabel: _merchantRecognitionSourceLabel(),
             identityContext: _merchantCorroboration,
             selectedOption: _merchantDecisionOption,
+            sellerTaxIdAuthoritative: sellerTaxIdAuthoritative,
             bindingBusy: _merchantBindingBusy,
             onSelected: _applyMerchantDecisionSelection,
             onConfirmOfficialBinding: _confirmOfficialMerchantBinding,
@@ -919,8 +935,42 @@ class _InvoiceTransactionHandoffReviewCardState
       key == InvoiceReviewFieldKey.sellerName ||
       key == InvoiceReviewFieldKey.sellerTaxId;
 
+  InvoiceSellerTaxIdConfirmationState _newSellerTaxIdConfirmationState() {
+    final sellerTaxId =
+        _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '';
+    return InvoiceSellerTaxIdConfirmationState(
+      currentSellerTaxId: sellerTaxId,
+      currentSourceToken: _currentSellerTaxIdSourceToken,
+    );
+  }
+
+  String get _currentSellerTaxIdSourceToken {
+    if (_explicitlyCorrectedFields.contains(InvoiceReviewFieldKey.sellerTaxId)) {
+      return 'manual';
+    }
+    if (_explicitlyAiSelectedFields.contains(InvoiceReviewFieldKey.sellerTaxId)) {
+      return 'ai';
+    }
+    if (_sellerTaxIdIsTrustedQrAuthority) {
+      return InvoiceRegistryCorroborationAuthorityPolicy.qrPayloadSource;
+    }
+    return 'local:${_review.sellerTaxIdSource}';
+  }
+
+  void _syncSellerTaxIdConfirmationState() {
+    final sellerTaxId =
+        _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '';
+    _sellerTaxIdConfirmation = _sellerTaxIdConfirmation.withCurrent(
+      sellerTaxId: sellerTaxId,
+      sourceToken: _currentSellerTaxIdSourceToken,
+    );
+  }
+
   void _invalidateMerchantBindingIfNeeded(InvoiceReviewFieldKey key) {
     if (!_isMerchantIdentityField(key)) return;
+    if (key == InvoiceReviewFieldKey.sellerTaxId) {
+      _syncSellerTaxIdConfirmationState();
+    }
     _formalMerchantName = '';
     _merchantDecisionOption = null;
     _merchantBindingStatus = '商家名稱或統編已變更，請重新選擇商家身份。';
@@ -1063,8 +1113,39 @@ class _InvoiceTransactionHandoffReviewCardState
         InvoiceReviewFieldKey.sellerTaxId,
       ),
       aiComparisonAcknowledged: widget.aiComparisonAcknowledged,
+      explicitUserConfirmed:
+          _sellerTaxIdConfirmation.explicitlyConfirmedForCurrentValue,
       initialLocalSellerIdentifierSource: _review.sellerTaxIdSource,
     );
+  }
+
+  Future<void> _confirmSellerTaxId(
+    InvoiceSellerTaxIdConfirmationState confirmed,
+  ) async {
+    final sellerTaxId =
+        _review.fieldFor(InvoiceReviewFieldKey.sellerTaxId)?.value ?? '';
+    final synchronized = confirmed.withCurrent(
+      sellerTaxId: sellerTaxId,
+      sourceToken: _currentSellerTaxIdSourceToken,
+    );
+    if (!synchronized.explicitlyConfirmedForCurrentValue &&
+        !_sellerTaxIdIsTrustedQrAuthority) {
+      return;
+    }
+
+    setState(() {
+      _sellerTaxIdConfirmation = synchronized;
+      _formalMerchantName = '';
+      _merchantDecisionOption = null;
+      _merchantBindingStatus = '賣方統編已明確確認；僅重新查詢已安裝的本機官方資料。';
+      _merchantCorroboration = null;
+      _merchantCorroborationMessage = '';
+      _lastMerchantCorroborationKey = '';
+      _edited = true;
+      _error = '';
+    });
+    _invalidateConfirmation();
+    await _refreshMerchantCorroboration(force: true);
   }
 
   Future<void> _refreshMerchantCorroboration({bool force = false}) async {
@@ -1072,7 +1153,8 @@ class _InvoiceTransactionHandoffReviewCardState
     final merchant =
         _review.fieldFor(InvoiceReviewFieldKey.sellerName)?.value.trim() ?? '';
     final key = '${authority.sellerIdentifier}|${authority.source.name}|$merchant|'
-        '${widget.aiComparisonAcknowledged}';
+        '${widget.aiComparisonAcknowledged}|'
+        '${_sellerTaxIdConfirmation.explicitlyConfirmedForCurrentValue}';
     final revision = ++_merchantCorroborationRevision;
 
     if (!authority.authoritative) {
