@@ -118,51 +118,60 @@ class _InvoiceMerchantDecisionReviewSectionState
     if (currentTaxId.length != 8 || currentTaxId != selectedTaxId) return;
 
     final controller = TextEditingController(text: selection.displayName.trim());
-    final merchantName = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        key: InvoiceMerchantDecisionReviewSection.recognitionBindingDialogKey,
-        title: const Text('以此次辨識建立／綁定正式商家'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text('賣方統編：$currentTaxId'),
-            const SizedBox(height: 8),
-            const Text(
-              '可使用消費者熟悉的 MerchantBrand 名稱；不會強制改成官方法定名稱，也不會建立正式交易。',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: InvoiceMerchantDecisionReviewSection
-                  .recognitionMerchantNameKey,
-              controller: controller,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: '正式商家名稱',
-                border: OutlineInputBorder(),
+    String? merchantName;
+    try {
+      merchantName = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          key: InvoiceMerchantDecisionReviewSection.recognitionBindingDialogKey,
+          title: const Text('以此次辨識建立／綁定正式商家'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('賣方統編：$currentTaxId'),
+              const SizedBox(height: 8),
+              const Text(
+                '可使用消費者熟悉的 MerchantBrand 名稱；不會強制改成官方法定名稱，也不會建立正式交易。',
               ),
+              const SizedBox(height: 12),
+              TextField(
+                key: InvoiceMerchantDecisionReviewSection
+                    .recognitionMerchantNameKey,
+                controller: controller,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '正式商家名稱',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: InvoiceMerchantDecisionReviewSection
+                  .recognitionBindingDialogConfirmKey,
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isNotEmpty) Navigator.of(dialogContext).pop(value);
+              },
+              child: const Text('確認建立／綁定'),
             ),
           ],
         ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: InvoiceMerchantDecisionReviewSection
-                .recognitionBindingDialogConfirmKey,
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isNotEmpty) Navigator.of(dialogContext).pop(value);
-            },
-            child: const Text('確認建立／綁定'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
+      );
+      // showDialog completes when the route is popped, before the closing route
+      // has necessarily finished its final teardown frame. Keep the controller
+      // alive through that frame so the departing TextField cannot reattach to
+      // an already-disposed ChangeNotifier.
+      if (mounted) await WidgetsBinding.instance.endOfFrame;
+    } finally {
+      controller.dispose();
+    }
     if (!mounted || merchantName == null || merchantName.trim().isEmpty) return;
 
     // Fail closed again after the dialog: the widget may have rebuilt while the
