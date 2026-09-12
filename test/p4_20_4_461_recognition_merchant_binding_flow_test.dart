@@ -25,12 +25,10 @@ void main() {
       currentSellerTaxId: '31655572',
       currentSourceToken: 'OCR',
     );
-
     final result = await flow.bind(
       selection: recognition('31655572'),
       sellerTaxIdConfirmation: confirmation,
     );
-
     expect(result.allowed, isFalse);
     expect(result.reasonCode, 'SELLER_TAX_ID_AUTHORITY_REQUIRED');
     expect(result.writesFormalTransaction, isFalse);
@@ -46,19 +44,18 @@ void main() {
       currentSellerTaxId: '31655572',
       currentSourceToken: 'OCR',
     ).confirmCurrent();
-
     final result = await flow.bind(
       selection: recognition('31655572'),
       sellerTaxIdConfirmation: confirmation,
       consumerFacingMerchantName: '消費者品牌名稱',
     );
-
     expect(result.isSuccess, isTrue);
     expect(result.writesFormalTransaction, isFalse);
     final merchant = await store.findBySellerIdentifier('31655572');
     expect(merchant, isNotNull);
-    expect(merchant!.name, '消費者品牌名稱');
-    expect(merchant.sellerIdentifier, '31655572');
+    final storedMerchant = merchant!;
+    expect(storedMerchant.name, '消費者品牌名稱');
+    expect(storedMerchant.sellerIdentifier, '31655572');
   });
 
   test('stale 31655572 selection cannot bind after current value becomes 60282181', () async {
@@ -74,12 +71,10 @@ void main() {
       sellerTaxId: '60282181',
       sourceToken: 'OCR',
     );
-
     final result = await flow.bind(
       selection: recognition('31655572'),
       sellerTaxIdConfirmation: current602,
     );
-
     expect(result.allowed, isFalse);
     expect(result.reasonCode, 'STALE_SELLER_TAX_ID_SELECTION');
     expect(await store.listMerchants(), isEmpty);
@@ -94,12 +89,10 @@ void main() {
       currentSellerTaxId: '60282181',
       currentSourceToken: 'OCR',
     ).confirmCurrent();
-
     final result = await flow.bind(
       selection: recognition('60282181'),
       sellerTaxIdConfirmation: confirmation,
     );
-
     expect(result.isSuccess, isTrue);
     expect(result.writesFormalTransaction, isFalse);
     expect(await store.findBySellerIdentifier('60282181'), isNotNull);
