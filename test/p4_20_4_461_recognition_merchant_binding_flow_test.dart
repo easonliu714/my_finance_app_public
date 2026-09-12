@@ -21,7 +21,7 @@ void main() {
     final flow = InvoiceRecognitionMerchantBindingFlow(
       bindingService: InvoiceMerchantMasterBindingService(store: store),
     );
-    final confirmation = InvoiceSellerTaxIdConfirmationState(
+    const confirmation = InvoiceSellerTaxIdConfirmationState(
       currentSellerTaxId: '31655572',
       currentSourceToken: 'OCR',
     );
@@ -40,10 +40,11 @@ void main() {
     final flow = InvoiceRecognitionMerchantBindingFlow(
       bindingService: InvoiceMerchantMasterBindingService(store: store),
     );
-    final confirmation = InvoiceSellerTaxIdConfirmationState(
+    const initialConfirmation = InvoiceSellerTaxIdConfirmationState(
       currentSellerTaxId: '31655572',
       currentSourceToken: 'OCR',
-    ).confirmCurrent();
+    );
+    final confirmation = initialConfirmation.confirmCurrent();
     final result = await flow.bind(
       selection: recognition('31655572'),
       sellerTaxIdConfirmation: confirmation,
@@ -63,10 +64,11 @@ void main() {
     final flow = InvoiceRecognitionMerchantBindingFlow(
       bindingService: InvoiceMerchantMasterBindingService(store: store),
     );
-    final confirmed316 = InvoiceSellerTaxIdConfirmationState(
+    const initialConfirmation = InvoiceSellerTaxIdConfirmationState(
       currentSellerTaxId: '31655572',
       currentSourceToken: 'OCR',
-    ).confirmCurrent();
+    );
+    final confirmed316 = initialConfirmation.confirmCurrent();
     final current602 = confirmed316.withCurrent(
       sellerTaxId: '60282181',
       sourceToken: 'OCR',
@@ -85,10 +87,11 @@ void main() {
     final flow = InvoiceRecognitionMerchantBindingFlow(
       bindingService: InvoiceMerchantMasterBindingService(store: store),
     );
-    final confirmation = InvoiceSellerTaxIdConfirmationState(
+    const initialConfirmation = InvoiceSellerTaxIdConfirmationState(
       currentSellerTaxId: '60282181',
       currentSourceToken: 'OCR',
-    ).confirmCurrent();
+    );
+    final confirmation = initialConfirmation.confirmCurrent();
     final result = await flow.bind(
       selection: recognition('60282181'),
       sellerTaxIdConfirmation: confirmation,
