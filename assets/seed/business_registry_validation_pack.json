@@ -1,0 +1,26 @@
+{
+  "version": "canary-2026-08-30-official-validation-subset-v1",
+  "source_authority": "MOEA_BUSINESS_ADMINISTRATION_GCIS_PUBLIC_REPORT",
+  "source_dataset": "GCIS official public reports; P4.20 signed-canary validation subset only",
+  "source_data_date": "2025-06-02",
+  "coverage": "validation_subset",
+  "content_sha256": "75992341fadd3a18f8b66b30b9b3187777d2d0258498ddadbffb7d633d2cd46b",
+  "entities": [
+    {
+      "seller_identifier": "30340553",
+      "entity_type": "business",
+      "legal_name": "一品現泡茶店",
+      "registration_status": "",
+      "parent_seller_identifier": "",
+      "source_dataset": "GCIS_376410000A_change_11405"
+    },
+    {
+      "seller_identifier": "60744698",
+      "entity_type": "company",
+      "legal_name": "沄鉑國際有限公司",
+      "registration_status": "",
+      "parent_seller_identifier": "",
+      "source_dataset": "GCIS_376430000A_setup_11404"
+    }
+  ]
+}

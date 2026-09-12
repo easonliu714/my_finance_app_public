@@ -1,0 +1,118 @@
+name: P4.20.3 GCIS Shard Partition Canary
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_acquire_gcis_registration_type.py'
+      - '.github/workflows/p4_20_3_gcis_shard_partition_canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-gcis-shard-partition-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  shard-partition:
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen='a533c9c87131ee487ca2321f3d53e432121c7981'
+          expected='${{ github.event.pull_request.head.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$frozen^{commit}"
+          git merge-base --is-ancestor "$frozen" HEAD
+
+      - name: Compile and focused self-test
+        run: |
+          python3 -m py_compile tool/p4_20_3_acquire_gcis_registration_type.py
+          python3 tool/p4_20_3_acquire_gcis_registration_type.py --self-test
+
+      - name: Execute real deterministic shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_gcis_shards"
+          mkdir -p "$root"
+          cat > "$root/sellers.txt" <<'EOF'
+          22853565
+          22555003
+          16740494
+          23060248
+          EOF
+          python3 tool/p4_20_3_acquire_gcis_registration_type.py \
+            "$root/sellers.txt" "$root/shard-${{ matrix.shard }}" \
+            --shard-index '${{ matrix.shard }}' --shard-count 2 \
+            --qps 1 --timeout-seconds 20 --retries 2
+
+      - name: Verify shard evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          shard = int('${{ matrix.shard }}')
+          root = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_gcis_shards' / f'shard-{shard}'
+          manifest = json.loads((root/'acquisition_manifest.json').read_text(encoding='utf-8'))
+          rows = [json.loads(x) for x in (root/'registration_type_evidence.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          failures = [json.loads(x) for x in (root/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          all_ids = sorted({'22853565','22555003','16740494','23060248'})
+          expected = all_ids[shard::2]
+          assert manifest['seller_filter_unique_count'] == 4, manifest
+          assert manifest['selected_shard_seller_count'] == 2, manifest
+          assert manifest['shard_index'] == shard, manifest
+          assert manifest['shard_count'] == 2, manifest
+          assert manifest['shard_selection'] == 'sorted_unique_sellers[index::shard_count]', manifest
+          assert manifest['success_count'] == 2, (manifest, failures)
+          assert manifest['failure_count'] == 0, failures
+          assert sorted(r['seller_identifier'] for r in rows) == expected, (rows, expected)
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['merchant_name_inference_used'] is False
+          assert manifest['mobile_per_invoice_network_lookup'] is False
+          payload=(root/'registration_type_evidence.ndjson').read_bytes()
+          assert hashlib.sha256(payload).hexdigest() == manifest['evidence_payload_sha256']
+          print(f'P4_20_3_GCIS_SHARD_{shard}_REAL_TRANSPORT=PASS')
+          print(f'P4_20_3_GCIS_SHARD_{shard}_PARTITION=PASS')
+          PY
+
+      - name: Upload shard evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-gcis-shard-${{ matrix.shard }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_gcis_shards/shard-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  partition-closure:
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: shard-partition
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deterministic partition closure
+        run: |
+          echo 'P4_20_3_GCIS_TWO_SHARD_REAL_CANARY=PASS'
+          echo 'P4_20_3_GCIS_SHARD_PARTITION_CLOSURE=PASS'

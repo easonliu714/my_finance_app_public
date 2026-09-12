@@ -1,0 +1,175 @@
+name: P4.20.3 Full Residual Reuse Authority
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_select_reusable_full_generation.py'
+      - 'tool/p4_20_3_full_residual_generation_gate.py'
+      - '.github/workflows/p4_20_3_full_residual_reuse_authority.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TARGET_BRANCH: p4-20-3-nationwide-official-registry
+  EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  reuse-authority:
+    name: Artifact-bearing producer generation reuse authority
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Compile and self-test reuse authority tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tool/p4_20_3_select_reusable_full_generation.py \
+            tool/p4_20_3_full_residual_generation_gate.py
+          python3 tool/p4_20_3_select_reusable_full_generation.py --self-test
+          python3 tool/p4_20_3_full_residual_generation_gate.py --self-test
+
+      - name: Resolve artifact-bearing producer and prove same-generation reuse
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_full_residual_reuse_authority"
+          mkdir -p "$root"
+
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/p4_20_3_gcis_residual_full_acquisition.yml/runs?branch=$TARGET_BRANCH&event=pull_request&status=success&per_page=30" \
+            -o "$root/runs.json"
+
+          printf '{}\n' > "$root/artifacts_by_run.json"
+          while read -r run_id; do
+            test -n "$run_id"
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+              -o "$root/artifacts-$run_id.json"
+            jq --arg id "$run_id" --slurpfile payload "$root/artifacts-$run_id.json" \
+              '. + {($id): ($payload[0].artifacts // [])}' \
+              "$root/artifacts_by_run.json" > "$root/artifacts_by_run.next.json"
+            mv "$root/artifacts_by_run.next.json" "$root/artifacts_by_run.json"
+          done < <(jq -r '.workflow_runs[].id' "$root/runs.json")
+
+          python3 tool/p4_20_3_select_reusable_full_generation.py \
+            --runs-json "$root/runs.json" \
+            --artifacts-by-run-json "$root/artifacts_by_run.json" \
+            --current-run-id "$GITHUB_RUN_ID" \
+            --output "$root/producer_selection.json"
+
+          producer_head="$(jq -r '.producer_head' "$root/producer_selection.json")"
+          producer_run="$(jq -r '.producer_run_id' "$root/producer_selection.json")"
+          closure_id="$(jq -r '.closure_artifact_id' "$root/producer_selection.json")"
+          materialization_id="$(jq -r '.materialization_artifact_id' "$root/producer_selection.json")"
+          test "${#producer_head}" -eq 40
+          test "$producer_run" -gt 0
+          test "$closure_id" -gt 0
+          test "$materialization_id" -gt 0
+
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$closure_id/zip" \
+            -o "$root/closure.zip"
+          unzip -q "$root/closure.zip" -d "$root/closure"
+          closure_path="$(find "$root/closure" -name cohort_closure.json -type f | head -n1)"
+          test -f "$closure_path"
+          prior_last_modified="$(jq -r '.source_last_modified' "$closure_path")"
+          prior_archive_sha="$(jq -r '.source_archive_sha256' "$closure_path")"
+          test -n "$prior_last_modified"
+          test "${#prior_archive_sha}" -eq 64
+
+          source_url='https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          curl --fail --location --head --proto '=https' --tlsv1.2 \
+            --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 120 \
+            --dump-header "$root/current_headers.txt" \
+            --write-out '%{url_effective}\n' \
+            "$source_url" > "$root/current_effective_url.txt"
+          effective="$(tail -n1 "$root/current_effective_url.txt" | tr -d '\r\n')"
+          case "$effective" in
+            https://eip.fia.gov.tw/*) ;;
+            *) echo "FIA_EFFECTIVE_URL_NOT_ALLOWED=$effective" >&2; exit 2 ;;
+          esac
+          current_last_modified="$(grep -i '^Last-Modified:' "$root/current_headers.txt" | tail -n1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
+          test -n "$current_last_modified"
+
+          git diff --name-only HEAD^ HEAD > "$root/changed_files.txt"
+          python3 tool/p4_20_3_full_residual_generation_gate.py \
+            --current-head "$EXACT_HEAD" \
+            --prior-success-head "$producer_head" \
+            --prior-run-id "$producer_run" \
+            --prior-closure-artifact-id "$closure_id" \
+            --prior-materialization-artifact-id "$materialization_id" \
+            --prior-source-last-modified "$prior_last_modified" \
+            --prior-source-archive-sha256 "$prior_archive_sha" \
+            --current-source-last-modified "$current_last_modified" \
+            --changed-files-file "$root/changed_files.txt" \
+            --output "$root/reuse_decision.json"
+
+          test "$(jq -r '.current_head' "$root/reuse_decision.json")" = "$EXACT_HEAD"
+          test "$(jq -r '.prior_success_head' "$root/reuse_decision.json")" = "$producer_head"
+          test "$(jq -r '.run_expensive' "$root/reuse_decision.json")" = 'false'
+          test "$(jq -r '.generation_artifact_reuse' "$root/reuse_decision.json")" = 'true'
+          test "$(jq -r '.estimated_linux_minutes_avoided' "$root/reuse_decision.json")" = '1250'
+          test "$(jq -r '.validation_subset' "$root/reuse_decision.json")" = 'false'
+          test "$(jq -r '.responsible_person_payload_emitted' "$root/reuse_decision.json")" = 'false'
+          test "$(jq -r '.mobile_per_invoice_network_lookup' "$root/reuse_decision.json")" = 'false'
+
+          jq -n \
+            --arg exact_head "$EXACT_HEAD" \
+            --arg producer_head "$producer_head" \
+            --argjson producer_run "$producer_run" \
+            --argjson closure_artifact_id "$closure_id" \
+            --argjson materialization_artifact_id "$materialization_id" \
+            --arg source_last_modified "$current_last_modified" \
+            --arg source_archive_sha256 "$prior_archive_sha" \
+            '{schema_version:1,gate:"P4.20.3-full-residual-reuse-authority",exact_head:$exact_head,producer_head:$producer_head,producer_run_id:$producer_run,closure_artifact_id:$closure_artifact_id,materialization_artifact_id:$materialization_artifact_id,source_last_modified:$source_last_modified,source_archive_sha256:$source_archive_sha256,expensive_full_run_triggered:false,generation_artifact_reuse:true,estimated_linux_minutes_avoided:1250,validation_subset:false,responsible_person_payload_emitted:false,mobile_per_invoice_network_lookup:false}' \
+            > "$root/authority.json"
+
+          echo "EXPENSIVE_FULL_RUN_TRIGGERED=false"
+          echo "GENERATION_ARTIFACT_REUSE=true"
+          echo "ESTIMATED_LINUX_MINUTES_AVOIDED=1250"
+          cat "$root/authority.json"
+
+      - name: Upload exact-head full-residual reuse authority
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-reuse-authority-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_full_residual_reuse_authority/producer_selection.json
+            ${{ runner.temp }}/p4_20_3_full_residual_reuse_authority/reuse_decision.json
+            ${{ runner.temp }}/p4_20_3_full_residual_reuse_authority/authority.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: No-acquisition boundary audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          selector = Path('tool/p4_20_3_select_reusable_full_generation.py').read_text(encoding='utf-8').lower()
+          forbidden = ('eip.fia.gov.tw', 'gcis.nat.gov.tw', '--qps', 'acquire_gcis_registration_type')
+          assert not any(token in selector for token in forbidden), 'SELECTOR_MUST_NOT_ACQUIRE_OFFICIAL_DATA'
+          print('P4_20_3_FULL_RESIDUAL_REUSE_AUTHORITY_NO_ACQUISITION=PASS')
+          PY

@@ -9,7 +9,7 @@ import 'file_exchange_service.dart';
 import 'full_backup_service.dart';
 import 'full_restore_preview_service.dart';
 import 'full_restore_service.dart';
-import 'full_restore_service_v7.dart';
+import 'full_restore_service_v8.dart';
 import 'readable_export_service.dart';
 import 'readable_import_source_service.dart';
 import 'restore_source_grant.dart';
@@ -51,7 +51,7 @@ class SafeImportSourceResult {
 class BackupMigrationActionService {
   const BackupMigrationActionService({
     this.fullBackupService = const FullBackupService(),
-    this.fullRestoreService = const FullRestoreServiceV7(),
+    this.fullRestoreService = const FullRestoreServiceV8(),
     this.readableExportService = const ReadableExportService(),
     this.restorePreviewService = const FullRestorePreviewService(),
     this.readableImportSourceService = const ReadableImportSourceService(),

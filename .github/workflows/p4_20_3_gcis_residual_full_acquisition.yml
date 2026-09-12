@@ -1,0 +1,722 @@
+name: P4.20.3 GCIS Full Residual Acquisition
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_stage_fia_registry.py'
+      - 'tool/p4_20_3_acquire_gcis_registration_type.py'
+      - 'tool/p4_20_3_full_residual_generation_gate.py'
+      - 'tool/p4_20_3_select_reusable_full_generation.py'
+      - 'authority/p4_20_3_full_acquisition_request.json'
+      - '.github/workflows/p4_20_3_gcis_residual_full_acquisition.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: p4-20-3-gcis-full-residual-generation-v2-${{ github.event.pull_request.number }}
+  # Never cancel an already-paid full acquisition because a later PR-head
+  # commit may be a downstream-only change that the generation gate will skip.
+  cancel-in-progress: false
+
+env:
+  FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
+  TARGET_BRANCH: p4-20-3-nationwide-official-registry
+  EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+  SHARD_COUNT: '8'
+
+jobs:
+  generation-gate:
+    name: Generation reuse / full-acquisition cost gate
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      run_expensive: ${{ steps.decision.outputs.run_expensive }}
+      generation_artifact_reuse: ${{ steps.decision.outputs.generation_artifact_reuse }}
+      prior_success_head: ${{ steps.decision.outputs.prior_success_head }}
+      prior_run_id: ${{ steps.decision.outputs.prior_run_id }}
+      estimated_linux_minutes_avoided: ${{ steps.decision.outputs.estimated_linux_minutes_avoided }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compile and self-test generation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tool/p4_20_3_full_residual_generation_gate.py \
+            tool/p4_20_3_select_reusable_full_generation.py
+          python3 tool/p4_20_3_full_residual_generation_gate.py --self-test
+          python3 tool/p4_20_3_select_reusable_full_generation.py --self-test
+
+      - name: Resolve artifact-bearing producer and current source probe
+        id: decision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_generation_gate"
+          mkdir -p "$root"
+
+          before="${EVENT_BEFORE:-}"
+          if ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+            before="$(git rev-parse HEAD^)"
+          fi
+          git diff --name-only "$before" "$EXACT_HEAD" > "$root/changed_files.txt"
+          echo "P4_20_3_GENERATION_GATE_BEFORE=$before"
+          echo "P4_20_3_GENERATION_GATE_CHANGED_FILES_START"
+          cat "$root/changed_files.txt"
+          echo "P4_20_3_GENERATION_GATE_CHANGED_FILES_END"
+
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/p4_20_3_gcis_residual_full_acquisition.yml/runs?branch=$TARGET_BRANCH&event=pull_request&status=success&per_page=30" \
+            -o "$root/runs.json"
+
+          printf '{}\n' > "$root/artifacts_by_run.json"
+          while read -r run_id; do
+            test -n "$run_id"
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+              -o "$root/artifacts-$run_id.json"
+            jq --arg id "$run_id" --slurpfile payload "$root/artifacts-$run_id.json" \
+              '. + {($id): ($payload[0].artifacts // [])}' \
+              "$root/artifacts_by_run.json" > "$root/artifacts_by_run.next.json"
+            mv "$root/artifacts_by_run.next.json" "$root/artifacts_by_run.json"
+          done < <(jq -r '.workflow_runs[].id' "$root/runs.json")
+
+          python3 tool/p4_20_3_select_reusable_full_generation.py \
+            --runs-json "$root/runs.json" \
+            --artifacts-by-run-json "$root/artifacts_by_run.json" \
+            --current-run-id "$GITHUB_RUN_ID" \
+            --output "$root/producer_selection.json"
+
+          prior_head="$(jq -r '.producer_head' "$root/producer_selection.json")"
+          prior_run_id="$(jq -r '.producer_run_id' "$root/producer_selection.json")"
+          closure_id="$(jq -r '.closure_artifact_id' "$root/producer_selection.json")"
+          materialization_id="$(jq -r '.materialization_artifact_id' "$root/producer_selection.json")"
+          test "${#prior_head}" -eq 40
+          test "$prior_run_id" -gt 0
+          test "$closure_id" -gt 0
+          test "$materialization_id" -gt 0
+
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$closure_id/zip" \
+            -o "$root/closure.zip"
+          unzip -q "$root/closure.zip" -d "$root/closure"
+          closure_path="$(find "$root/closure" -name cohort_closure.json -type f | head -n1)"
+          test -f "$closure_path"
+          prior_last_modified="$(jq -r '.source_last_modified' "$closure_path")"
+          prior_archive_sha="$(jq -r '.source_archive_sha256' "$closure_path")"
+          test -n "$prior_last_modified"
+          test "${#prior_archive_sha}" -eq 64
+
+          source_url='https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          curl --fail --location --head --proto '=https' --tlsv1.2 \
+            --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 120 \
+            --dump-header "$root/current_headers.txt" \
+            --write-out '%{url_effective}\n' \
+            "$source_url" > "$root/current_effective_url.txt"
+          effective="$(tail -n1 "$root/current_effective_url.txt" | tr -d '\r\n')"
+          case "$effective" in
+            https://eip.fia.gov.tw/*) ;;
+            *) echo "FIA_EFFECTIVE_URL_NOT_ALLOWED=$effective" >&2; exit 2 ;;
+          esac
+          current_last_modified="$(grep -i '^Last-Modified:' "$root/current_headers.txt" | tail -n1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
+
+          python3 tool/p4_20_3_full_residual_generation_gate.py \
+            --current-head "$EXACT_HEAD" \
+            --prior-success-head "$prior_head" \
+            --prior-run-id "$prior_run_id" \
+            --prior-closure-artifact-id "$closure_id" \
+            --prior-materialization-artifact-id "$materialization_id" \
+            --prior-source-last-modified "$prior_last_modified" \
+            --prior-source-archive-sha256 "$prior_archive_sha" \
+            --current-source-last-modified "$current_last_modified" \
+            --changed-files-file "$root/changed_files.txt" \
+            --output "$root/decision.json"
+
+          run_expensive="$(jq -r '.run_expensive' "$root/decision.json")"
+          reuse="$(jq -r '.generation_artifact_reuse' "$root/decision.json")"
+          prior_head_out="$(jq -r '.prior_success_head // ""' "$root/decision.json")"
+          prior_run_out="$(jq -r '.prior_success_run_id // 0' "$root/decision.json")"
+          avoided="$(jq -r '.estimated_linux_minutes_avoided // 0' "$root/decision.json")"
+          echo "run_expensive=$run_expensive" >> "$GITHUB_OUTPUT"
+          echo "generation_artifact_reuse=$reuse" >> "$GITHUB_OUTPUT"
+          echo "prior_success_head=$prior_head_out" >> "$GITHUB_OUTPUT"
+          echo "prior_run_id=$prior_run_out" >> "$GITHUB_OUTPUT"
+          echo "estimated_linux_minutes_avoided=$avoided" >> "$GITHUB_OUTPUT"
+          echo "EXPENSIVE_FULL_RUN_TRIGGERED=$run_expensive"
+          echo "GENERATION_ARTIFACT_REUSE=$reuse"
+          echo "ESTIMATED_LINUX_MINUTES_AVOIDED=$avoided"
+          cat "$root/decision.json"
+
+      - name: Upload generation gate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-generation-gate-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_generation_gate/producer_selection.json
+            ${{ runner.temp }}/p4_20_3_generation_gate/decision.json
+          if-no-files-found: error
+          retention-days: 14
+
+  prepare-residual:
+    name: Rebuild exact FIA residual cohort
+    needs: generation-gate
+    if: >-
+      ${{ needs.generation-gate.outputs.run_expensive == 'true' &&
+          github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXACT_HEAD"
+          git cat-file -e "$FROZEN_P4_20_2^{commit}"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+          echo "P4_20_3_FULL_RESIDUAL_EXACT_HEAD=$actual"
+
+      - name: Compile bounded staging and acquisition tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tool/p4_20_3_stage_fia_registry.py
+          python3 -m py_compile tool/p4_20_3_acquire_gcis_registration_type.py
+          python3 tool/p4_20_3_stage_fia_registry.py --self-test
+          python3 tool/p4_20_3_acquire_gcis_registration_type.py --self-test
+
+      - name: Download and freeze current official nationwide FIA snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_full_residual"
+          mkdir -p "$root"
+          source_url='https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
+            --dump-header "$root/download_headers.txt" \
+            --write-out '%{url_effective}\n' \
+            --output "$root/BGMOPEN1.zip" \
+            "$source_url" > "$root/effective_url.txt"
+          effective="$(tail -n 1 "$root/effective_url.txt" | tr -d '\r\n')"
+          case "$effective" in
+            https://eip.fia.gov.tw/*) ;;
+            *) echo "FIA_EFFECTIVE_URL_NOT_ALLOWED=$effective" >&2; exit 2 ;;
+          esac
+          actual_sha="$(sha256sum "$root/BGMOPEN1.zip" | awk '{print $1}')"
+          test "${#actual_sha}" -eq 64
+          last_modified="$(grep -i '^Last-Modified:' "$root/download_headers.txt" | tail -n 1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
+          test -n "$last_modified"
+          printf '%s\n' "$actual_sha" > "$root/source_archive_sha256.txt"
+          printf '%s\n' "$last_modified" > "$root/source_last_modified.txt"
+          echo "P4_20_3_FULL_RESIDUAL_FIA_SHA256=$actual_sha"
+          echo "P4_20_3_FULL_RESIDUAL_FIA_LAST_MODIFIED=$last_modified"
+
+      - name: Rebuild privacy-reduced residual cohort
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/p4_20_3_stage_fia_registry.py \
+            "$RUNNER_TEMP/p4_20_3_full_residual/BGMOPEN1.zip" \
+            "$RUNNER_TEMP/p4_20_3_full_residual/staged" \
+            --chunk-rows 50000 --min-rows 1000000
+
+      - name: Freeze run-local source and residual authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          base = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_full_residual'
+          root = base / 'staged'
+          summary = json.loads((root/'staging_summary.json').read_text(encoding='utf-8'))
+          residual = root/'enrichment_required.ndjson'
+          downloaded_sha = (base/'source_archive_sha256.txt').read_text().strip()
+          source_last_modified = (base/'source_last_modified.txt').read_text().strip()
+          effective_url = (base/'effective_url.txt').read_text().strip()
+          assert summary['source_archive_sha256'] == downloaded_sha, (summary, downloaded_sha)
+          assert int(summary['source_row_count']) >= 1_000_000, summary
+          assert int(summary['enrichment_required_count']) > 0, summary
+          assert summary['responsible_person_payload_emitted'] is False
+          assert summary['final_mobile_registry'] is False
+          sellers=[]
+          with residual.open('r', encoding='utf-8') as stream:
+              for line in stream:
+                  row=json.loads(line)
+                  assert set(row)=={'seller_identifier','legal_name','organization_type','uses_uniform_invoice','source_dataset'}
+                  seller=str(row['seller_identifier'])
+                  assert len(seller)==8 and seller.isdigit()
+                  sellers.append(seller)
+          assert len(sellers)==int(summary['enrichment_required_count']), summary
+          assert len(set(sellers))==len(sellers), 'RESIDUAL_DUPLICATE_SELLER_IDENTIFIER'
+          payload_sha=hashlib.sha256(residual.read_bytes()).hexdigest()
+          seller_set_sha=hashlib.sha256(''.join(f'{seller}\n' for seller in sorted(sellers)).encode('utf-8')).hexdigest()
+          authority={
+              'schema_version':3,
+              'gate':'P4.20.3-D-full-residual-acquisition',
+              'exact_head':os.environ['EXACT_HEAD'],
+              'fia_source_url':effective_url,
+              'fia_source_last_modified':source_last_modified,
+              'fia_source_archive_sha256':downloaded_sha,
+              'fia_source_row_count':int(summary['source_row_count']),
+              'residual_seller_count':len(sellers),
+              'residual_payload_sha256':payload_sha,
+              'seller_set_sha256':seller_set_sha,
+              'shard_count':int(os.environ['SHARD_COUNT']),
+              'shard_selection':'sorted_unique_sellers[index::shard_count]',
+              'validation_subset':False,
+              'responsible_person_payload_emitted':False,
+              'mobile_per_invoice_network_lookup':False,
+              'final_mobile_registry':False,
+          }
+          canonical=json.dumps(authority,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
+          authority['authority_sha256']=hashlib.sha256(canonical).hexdigest()
+          (root/'residual_authority.json').write_text(json.dumps(authority,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_FULL_RESIDUAL_RUN_LOCAL_SOURCE_AUTHORITY=PASS')
+          print(json.dumps(authority,sort_keys=True))
+          PY
+
+      - name: Upload exact residual cohort
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-input-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_full_residual/staged/enrichment_required.ndjson
+            ${{ runner.temp }}/p4_20_3_full_residual/staged/staging_summary.json
+            ${{ runner.temp }}/p4_20_3_full_residual/staged/residual_authority.json
+            ${{ runner.temp }}/p4_20_3_full_residual/effective_url.txt
+            ${{ runner.temp }}/p4_20_3_full_residual/download_headers.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  acquire-shards:
+    name: GCIS residual shard ${{ matrix.shard }}/8
+    needs: prepare-residual
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+
+      - name: Download exact residual cohort
+        uses: actions/download-artifact@v4
+        with:
+          name: p4-20-3-full-residual-input-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/input
+
+      - name: Execute bounded official GCIS acquisition shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/p4_20_3_acquire_gcis_registration_type.py \
+            "$RUNNER_TEMP/p4_20_3_full_residual/input/staged/enrichment_required.ndjson" \
+            "$RUNNER_TEMP/p4_20_3_full_residual/shard-${{ matrix.shard }}" \
+            --shard-index '${{ matrix.shard }}' \
+            --shard-count "$SHARD_COUNT" \
+            --qps 0.25 \
+            --timeout-seconds 20 \
+            --retries 3
+
+      - name: Verify shard completeness, paired semantics, and privacy boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          shard=int('${{ matrix.shard }}')
+          base=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'
+          root=base/f'shard-{shard}'
+          input_root=base/'input'/'staged'
+          residual=input_root/'enrichment_required.ndjson'
+          authority=json.loads((input_root/'residual_authority.json').read_text(encoding='utf-8'))
+          manifest=json.loads((root/'acquisition_manifest.json').read_text(encoding='utf-8'))
+          rows=[json.loads(x) for x in (root/'registration_type_evidence.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          failures=[json.loads(x) for x in (root/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+          frozen_sellers=sorted({str(json.loads(x)['seller_identifier']) for x in residual.read_text(encoding='utf-8').splitlines() if x.strip()})
+          expected_total=int(authority['residual_seller_count'])
+          assert authority['exact_head']==os.environ['EXACT_HEAD']
+          assert authority['validation_subset'] is False
+          expected_members=frozen_sellers[shard::int(os.environ['SHARD_COUNT'])]
+          expected_selected=len(expected_members)
+          actual_members=sorted(str(r['seller_identifier']) for r in rows)
+          assert len(frozen_sellers)==expected_total
+          assert int(manifest.get('schema_version',0))>=4, manifest
+          assert manifest['official_type_exist_pairing_preserved'] is True, manifest
+          assert manifest['seller_filter_unique_count']==expected_total, manifest
+          assert manifest['selected_shard_seller_count']==expected_selected, manifest
+          assert manifest['shard_index']==shard and manifest['shard_count']==int(os.environ['SHARD_COUNT']), manifest
+          assert manifest['success_count']==expected_selected, (manifest, failures[:20])
+          assert manifest['failure_count']==0, failures[:20]
+          assert len(rows)==expected_selected
+          assert actual_members==expected_members, {'shard':shard,'expected_first':expected_members[:10],'actual_first':actual_members[:10]}
+          assert all(set(r)=={'seller_identifier','official_types','official_exists_values','official_year_values','source_dataset'} for r in rows)
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['merchant_name_inference_used'] is False
+          assert manifest['mobile_per_invoice_network_lookup'] is False
+          assert manifest['official_type_mapping_applied'] is False
+          assert manifest['final_mobile_registry'] is False
+          assert hashlib.sha256((root/'registration_type_evidence.ndjson').read_bytes()).hexdigest()==manifest['evidence_payload_sha256']
+          print(f'P4_20_3_FULL_RESIDUAL_SHARD_{shard}=PASS')
+          print(f'P4_20_3_FULL_RESIDUAL_SHARD_{shard}_PAIRED_SEMANTICS=PASS')
+          PY
+
+      - name: Upload shard evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-shard-${{ matrix.shard }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/shard-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  cohort-closure:
+    name: Full residual cohort partition closure
+    needs: acquire-shards
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Download exact residual authority
+        uses: actions/download-artifact@v4
+        with:
+          name: p4-20-3-full-residual-input-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/input
+
+      - name: Download all shard evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: p4-20-3-full-residual-shard-*-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/all-shards
+          merge-multiple: false
+
+      - name: Verify exact frozen seller partition, paired semantics, and canonical evidence SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          base=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_full_residual'
+          root=base/'all-shards'
+          input_root=base/'input'/'staged'
+          residual=input_root/'enrichment_required.ndjson'
+          authority=json.loads((input_root/'residual_authority.json').read_text(encoding='utf-8'))
+          residual_payload_sha=hashlib.sha256(residual.read_bytes()).hexdigest()
+          assert residual_payload_sha==authority['residual_payload_sha256'], authority
+          assert authority['exact_head']==os.environ['EXACT_HEAD'], authority
+          assert authority['validation_subset'] is False, authority
+          canonical_authority={k:v for k,v in authority.items() if k!='authority_sha256'}
+          authority_sha=hashlib.sha256(json.dumps(canonical_authority,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')).hexdigest()
+          assert authority_sha==authority['authority_sha256'], authority
+          frozen_rows=[json.loads(x) for x in residual.read_text(encoding='utf-8').splitlines() if x.strip()]
+          frozen_sellers=sorted(str(r['seller_identifier']) for r in frozen_rows)
+          expected=int(authority['residual_seller_count'])
+          assert len(frozen_sellers)==expected
+          assert len(set(frozen_sellers))==expected, 'FROZEN_RESIDUAL_DUPLICATE_SELLER'
+          seller_set_sha=hashlib.sha256(''.join(f'{seller}\n' for seller in frozen_sellers).encode('utf-8')).hexdigest()
+          assert seller_set_sha==authority['seller_set_sha256'], authority
+          acquired_rows=[]
+          manifests=[]
+          shard_count=int(os.environ['SHARD_COUNT'])
+          assert authority['shard_count']==shard_count
+          for shard in range(shard_count):
+              matches=list(root.glob(f'p4-20-3-full-residual-shard-{shard}-*/registration_type_evidence.ndjson'))
+              assert len(matches)==1, (shard,matches)
+              evidence=matches[0]
+              manifest=json.loads((evidence.parent/'acquisition_manifest.json').read_text(encoding='utf-8'))
+              failures=[x for x in (evidence.parent/'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if x.strip()]
+              assert int(manifest.get('schema_version',0))>=4, manifest
+              assert manifest['official_type_exist_pairing_preserved'] is True, manifest
+              assert manifest['shard_index']==shard
+              assert manifest['shard_count']==shard_count
+              assert manifest['failure_count']==0 and not failures
+              assert manifest['responsible_person_payload_emitted'] is False
+              assert manifest['merchant_name_inference_used'] is False
+              assert manifest['mobile_per_invoice_network_lookup'] is False
+              assert manifest['official_type_mapping_applied'] is False
+              assert manifest['final_mobile_registry'] is False
+              assert hashlib.sha256(evidence.read_bytes()).hexdigest()==manifest['evidence_payload_sha256']
+              rows=[json.loads(x) for x in evidence.read_text(encoding='utf-8').splitlines() if x.strip()]
+              actual_members=sorted(str(r['seller_identifier']) for r in rows)
+              expected_members=frozen_sellers[shard::shard_count]
+              assert actual_members==expected_members, {'shard':shard,'expected_count':len(expected_members),'actual_count':len(actual_members)}
+              acquired_rows.extend(rows)
+              manifests.append(manifest)
+          acquired_sellers=sorted(str(r['seller_identifier']) for r in acquired_rows)
+          assert len(acquired_sellers)==expected, len(acquired_sellers)
+          assert len(set(acquired_sellers))==expected, 'FULL_RESIDUAL_DUPLICATE_OR_LOST_SELLER'
+          assert acquired_sellers==frozen_sellers, 'FULL_RESIDUAL_SELLER_SET_PARITY_MISMATCH'
+          canonical_rows=sorted(acquired_rows,key=lambda r:str(r['seller_identifier']))
+          global_evidence_sha=hashlib.sha256()
+          for row in canonical_rows:
+              global_evidence_sha.update((json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n').encode('utf-8'))
+          closure={
+              'schema_version':4,
+              'gate':'P4.20.3-D-full-residual-acquisition-closure',
+              'exact_head':os.environ['EXACT_HEAD'],
+              'seller_count':expected,
+              'shard_count':shard_count,
+              'source_last_modified':authority['fia_source_last_modified'],
+              'source_archive_sha256':authority['fia_source_archive_sha256'],
+              'source_row_count':authority['fia_source_row_count'],
+              'source_authority_sha256':authority['authority_sha256'],
+              'residual_payload_sha256':residual_payload_sha,
+              'seller_set_sha256':seller_set_sha,
+              'total_success_count':sum(int(m['success_count']) for m in manifests),
+              'total_failure_count':sum(int(m['failure_count']) for m in manifests),
+              'globally_sorted_combined_evidence_sha256':global_evidence_sha.hexdigest(),
+              'validation_subset':False,
+              'official_type_exist_pairing_preserved':True,
+              'responsible_person_payload_emitted':False,
+              'mobile_per_invoice_network_lookup':False,
+              'official_type_mapping_applied':False,
+              'final_mobile_registry':False,
+          }
+          assert closure['total_success_count']==expected
+          assert closure['total_failure_count']==0
+          assert closure['official_type_exist_pairing_preserved'] is True
+          out=base/'cohort_closure.json'
+          out.write_text(json.dumps(closure,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_FULL_RESIDUAL_RUN_LOCAL_SOURCE_PARITY=PASS')
+          print('P4_20_3_FULL_RESIDUAL_EXACT_SET_PARITY=PASS')
+          print('P4_20_3_FULL_RESIDUAL_SHARD_MEMBERSHIP_PARITY=PASS')
+          print('P4_20_3_FULL_RESIDUAL_PAIRED_SEMANTICS=PASS')
+          print('P4_20_3_FULL_RESIDUAL_CANONICAL_EVIDENCE_SHA=PASS')
+          print('P4_20_3_FULL_RESIDUAL_PARTITION_CLOSURE=PASS')
+          print(json.dumps(closure,sort_keys=True))
+          PY
+
+      - name: Upload cohort closure
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-full-residual-closure-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_full_residual/cohort_closure.json
+          if-no-files-found: error
+          retention-days: 30
+
+  materialize-enrichment:
+    name: Materialize exact-head legal enrichment artifact
+    needs: cohort-closure
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen-ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+
+      - name: Compile and self-test materialization production tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tool/p4_20_3_bridge_registration_type_evidence.py \
+            tool/p4_20_3_reconcile_legal_enrichment.py \
+            tool/p4_20_3_package_legal_enrichment.py
+          python3 tool/p4_20_3_bridge_registration_type_evidence.py --self-test
+          python3 tool/p4_20_3_reconcile_legal_enrichment.py --self-test
+          python3 tool/p4_20_3_package_legal_enrichment.py --self-test
+
+      - name: Download exact residual authority, shards, and closure from this run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: p4-20-3-full-residual-*-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/p4_20_3_materialize/residual
+          merge-multiple: false
+
+      - name: Resolve and download same-head FIA staging handoff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_materialize"
+          mkdir -p "$root/staging"
+          name="p4-20-3-fia-staging-handoff-$EXACT_HEAD"
+          json="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100")"
+          mapfile -t ids < <(jq -r --arg head "$EXACT_HEAD" '.artifacts[] | select(.expired == false and .workflow_run.head_sha == $head) | .id' <<<"$json")
+          test "${#ids[@]}" -eq 1
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/${ids[0]}/zip" \
+            -o "$root/staging.zip"
+          unzip -q "$root/staging.zip" -d "$root/staging"
+          test -f "$root/staging/staging_handoff_manifest.json"
+          test -f "$root/staging/enrichment_required.ndjson.gz"
+          echo "P4_20_3_MATERIALIZATION_STAGING_ARTIFACT_ID=${ids[0]}"
+
+      - name: Validate authorities and assemble canonical paired evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import gzip, hashlib, json, os
+          from pathlib import Path
+          exact=os.environ['EXACT_HEAD']
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_materialize'
+          staging=root/'staging'; residual=root/'residual'
+          manifest=json.loads((staging/'staging_handoff_manifest.json').read_text(encoding='utf-8'))
+          assert manifest['exact_head']==exact
+          assert manifest['validation_subset'] is False
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['normal_invoice_per_record_network_lookup'] is False
+          assert manifest['final_mobile_registry'] is False
+          queue=root/'enrichment_required.ndjson'
+          with gzip.open(staging/'enrichment_required.ndjson.gz','rb') as src, queue.open('wb') as dst:
+              while chunk:=src.read(1024*1024): dst.write(chunk)
+          assert hashlib.sha256(queue.read_bytes()).hexdigest()==manifest['enrichment_required_sha256']
+          closures=list(residual.glob(f'p4-20-3-full-residual-closure-{exact}/cohort_closure.json'))
+          assert len(closures)==1, closures
+          closure_path=closures[0]
+          closure=json.loads(closure_path.read_text(encoding='utf-8'))
+          assert closure['exact_head']==exact
+          assert int(closure.get('schema_version',0))>=4
+          assert closure['validation_subset'] is False
+          assert closure['official_type_exist_pairing_preserved'] is True
+          assert int(closure['total_failure_count'])==0
+          assert int(closure['seller_count'])==int(manifest['enrichment_required_count'])
+          assert closure['residual_payload_sha256']==manifest['enrichment_required_sha256']
+          shard_files=sorted(residual.glob(f'p4-20-3-full-residual-shard-*-{exact}/registration_type_evidence.ndjson'))
+          assert len(shard_files)==int(closure['shard_count'])==8
+          rows=[]; seen=set()
+          for path in shard_files:
+              for raw in path.read_text(encoding='utf-8').splitlines():
+                  if not raw.strip(): continue
+                  row=json.loads(raw); seller=str(row['seller_identifier'])
+                  assert seller not in seen; seen.add(seller); rows.append(row)
+          rows.sort(key=lambda r:str(r['seller_identifier']))
+          assert len(rows)==int(closure['seller_count'])
+          combined=root/'registration_type_evidence.ndjson'
+          with combined.open('w',encoding='utf-8',newline='\n') as stream:
+              for row in rows: stream.write(json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n')
+          assert hashlib.sha256(combined.read_bytes()).hexdigest()==closure['globally_sorted_combined_evidence_sha256']
+          authority={
+              'schema_version':1,'gate':'P4.20.3-D-real-legal-enrichment-input-authority','exact_head':exact,
+              'validation_subset':False,
+              'staging_handoff_manifest_sha256':hashlib.sha256((staging/'staging_handoff_manifest.json').read_bytes()).hexdigest(),
+              'gcis_full_residual_closure_manifest_sha256':hashlib.sha256(closure_path.read_bytes()).hexdigest(),
+              'seller_count':len(rows),'source_last_modified':closure['source_last_modified'],
+              'source_archive_sha256':closure['source_archive_sha256'],
+              'official_type_exist_pairing_preserved':True,'responsible_person_payload_emitted':False,
+              'normal_invoice_per_record_network_lookup':False,'final_mobile_registry':False}
+          (root/'input_authority.json').write_text(json.dumps(authority,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n',encoding='utf-8')
+          print('P4_20_3_REAL_ENRICHMENT_INPUT_AUTHORITY=PASS')
+          PY
+
+      - name: Execute bridge, reconciliation, and deterministic packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_materialize"
+          python3 tool/p4_20_3_bridge_registration_type_evidence.py "$root/enrichment_required.ndjson" "$root/registration_type_evidence.ndjson" "$root/bridge"
+          python3 tool/p4_20_3_reconcile_legal_enrichment.py "$root/enrichment_required.ndjson" "$root/bridge/legal_evidence.ndjson" "$root/reconciliation"
+          read -r staging_sha closure_sha < <(python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          m=json.loads((Path(os.environ['RUNNER_TEMP'])/'p4_20_3_materialize'/'input_authority.json').read_text(encoding='utf-8'))
+          print(m['staging_handoff_manifest_sha256'],m['gcis_full_residual_closure_manifest_sha256'])
+          PY
+          )
+          python3 tool/p4_20_3_package_legal_enrichment.py "$root/reconciliation" "$root/package" --exact-head "$EXACT_HEAD" --staging-manifest-sha256 "$staging_sha" --gcis-closure-manifest-sha256 "$closure_sha"
+
+      - name: Final materialization audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import gzip, hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_materialize'; package=root/'package'
+          manifest=json.loads((package/'reconciliation_manifest.json').read_text(encoding='utf-8'))
+          authority=json.loads((root/'input_authority.json').read_text(encoding='utf-8'))
+          bridge=json.loads((root/'bridge'/'bridge_manifest.json').read_text(encoding='utf-8'))
+          assert manifest['exact_head']==os.environ['EXACT_HEAD']
+          assert manifest['validation_subset'] is False
+          assert manifest['final_mobile_registry'] is False
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['normal_invoice_per_record_network_lookup'] is False
+          assert manifest['staging_handoff_manifest_sha256']==authority['staging_handoff_manifest_sha256']
+          assert manifest['gcis_full_residual_closure_manifest_sha256']==authority['gcis_full_residual_closure_manifest_sha256']
+          assert bridge['validation_subset'] is False
+          assert bridge['official_type_exist_pairing_preserved'] is True
+          assert bridge['parent_child_identity_preserved'] is True
+          assert bridge['branch_without_parent_policy']=='HOLD'
+          gz=package/'enriched_entities.ndjson.gz'
+          assert hashlib.sha256(gz.read_bytes()).hexdigest()==manifest['enriched_entities_gzip_sha256']
+          assert hashlib.sha256(gzip.decompress(gz.read_bytes())).hexdigest()==manifest['enriched_entities_sha256']
+          print('P4_20_3_REAL_LEGAL_ENRICHMENT_MATERIALIZATION=PASS')
+          print(json.dumps(manifest,sort_keys=True))
+          PY
+
+      - name: Upload exact-head deterministic legal enrichment evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-legal-enrichment-materialization-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_materialize/package/enriched_entities.ndjson.gz
+            ${{ runner.temp }}/p4_20_3_materialize/package/reconciliation_manifest.json
+            ${{ runner.temp }}/p4_20_3_materialize/input_authority.json
+            ${{ runner.temp }}/p4_20_3_materialize/bridge/bridge_manifest.json
+            ${{ runner.temp }}/p4_20_3_materialize/bridge/unresolved.ndjson
+            ${{ runner.temp }}/p4_20_3_materialize/bridge/hold.ndjson
+            ${{ runner.temp }}/p4_20_3_materialize/reconciliation/reconciliation_summary.json
+            ${{ runner.temp }}/p4_20_3_materialize/reconciliation/unresolved.ndjson
+            ${{ runner.temp }}/p4_20_3_materialize/reconciliation/hold.ndjson
+          if-no-files-found: error
+          retention-days: 30

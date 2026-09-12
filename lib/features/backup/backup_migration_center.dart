@@ -28,6 +28,7 @@ class BackupMigrationCenter extends StatelessWidget {
     this.onNotificationPermissionStatusChanged,
     this.onRequestNotificationPermission,
     this.onSendReminderNotification,
+    this.registryUpdateSection,
   });
 
   static const String appVersion = '4.10.21+306';
@@ -57,6 +58,7 @@ class BackupMigrationCenter extends StatelessWidget {
       onNotificationPermissionStatusChanged;
   final VoidCallback? onRequestNotificationPermission;
   final VoidCallback? onSendReminderNotification;
+  final Widget? registryUpdateSection;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +77,18 @@ class BackupMigrationCenter extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         const GeminiInvoiceSettingsCard(),
+        if (registryUpdateSection != null) ...[
+          const SizedBox(height: 24),
+          const _CenterSectionLabel(
+            title: '公司行號資料',
+            description: '查看本機官方登記資料版本，並由你明確啟動更新。',
+            helpTitle: '公司行號資料更新',
+            helpBody:
+                '發票覆核會優先查詢已安裝的本機公司行號資料，不會因每張發票直接連線到政府 API。\n\n手動更新時，App 會先下載並驗證版本、大小與 SHA-256，完整驗證成功後才原子切換；失敗時保留上一版資料。官方登記名稱只作佐證，不會覆寫你使用的正式商家名稱或歷史發票文字。',
+          ),
+          const SizedBox(height: 12),
+          registryUpdateSection!,
+        ],
         const SizedBox(height: 24),
         const _CenterSectionLabel(
           title: '備份與移轉',

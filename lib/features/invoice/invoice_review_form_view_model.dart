@@ -110,6 +110,7 @@ class InvoiceReviewFormViewModel {
     required this.canOpenReview,
     required this.requiresAcknowledgement,
     required this.disclaimerAcknowledged,
+    this.sellerTaxIdSource = '',
   });
 
   final String title;
@@ -122,6 +123,13 @@ class InvoiceReviewFormViewModel {
   final bool canOpenReview;
   final bool requiresAcknowledgement;
   final bool disclaimerAcknowledged;
+
+  /// Machine-readable provenance for the initial Local seller identifier.
+  ///
+  /// This is intentionally separate from [confidenceLabel]. Registry authority
+  /// must never be inferred from a display label or merely from an 8-digit
+  /// value being present.
+  final String sellerTaxIdSource;
 
   bool get usedNetwork => false;
   bool get canCreateFormalRecord => false;
@@ -154,6 +162,7 @@ class InvoiceReviewFormViewModel {
       canOpenReview: canOpenReview,
       requiresAcknowledgement: requiresAcknowledgement,
       disclaimerAcknowledged: disclaimerAcknowledged,
+      sellerTaxIdSource: sellerTaxIdSource,
     );
   }
 
@@ -169,6 +178,7 @@ class InvoiceReviewFormViewModel {
       canOpenReview: canOpenReview,
       requiresAcknowledgement: requiresAcknowledgement,
       disclaimerAcknowledged: acknowledged,
+      sellerTaxIdSource: sellerTaxIdSource,
     );
   }
 
@@ -184,6 +194,7 @@ class InvoiceReviewFormViewModel {
       'canSubmitForReview': canSubmitForReview,
       'canCreateFormalRecord': canCreateFormalRecord,
       'usedNetwork': usedNetwork,
+      'hasSellerTaxIdSource': sellerTaxIdSource.trim().isNotEmpty,
     };
   }
 }
@@ -299,6 +310,8 @@ class InvoiceReviewFormPresenter {
       canOpenReview: pair?.canCreateReviewCandidate == true,
       requiresAcknowledgement: true,
       disclaimerAcknowledged: false,
+      sellerTaxIdSource:
+          parsed?.sellerIdentifier?.trim().isNotEmpty == true ? 'qr_payload' : '',
     );
   }
 
@@ -424,6 +437,7 @@ class InvoiceReviewFormPresenter {
       canOpenReview: candidate != null,
       requiresAcknowledgement: true,
       disclaimerAcknowledged: false,
+      sellerTaxIdSource: candidate?.sellerTaxIdSource.trim() ?? '',
     );
   }
 

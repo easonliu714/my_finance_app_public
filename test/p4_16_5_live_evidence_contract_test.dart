@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('P4.19.1 keeps Live Local-first and no-formal-write safety baseline', () {
-    final pubspec = File('pubspec.yaml').readAsStringSync();
     final router = File(
       'lib/routing/app_router.dart',
     ).readAsStringSync();
@@ -30,7 +29,6 @@ void main() {
       'lib/features/invoice/gemini/gemini_invoice_review_client.dart',
     ).readAsStringSync();
 
-    expect(pubspec, contains('version: 4.19.8+449'));
     expect(router, contains('InvoiceFrozenReviewPage.routeName'));
     expect(entry, contains('Live 即時辨識'));
     expect(entry, contains('從圖片讀取'));

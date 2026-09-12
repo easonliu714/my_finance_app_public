@@ -1,0 +1,268 @@
+name: P4.20.3 Nationwide Registry Distribution
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_stage_fia_registry.py'
+      - 'tool/p4_20_3_build_canonical_registry.py'
+      - 'tool/p4_20_3_materialize_distribution_stream.py'
+      - 'lib/features/merchant/business_registry_pack.dart'
+      - 'lib/features/merchant/business_registry_repository.dart'
+      - 'lib/features/merchant/business_registry_distribution_manifest.dart'
+      - 'lib/features/merchant/business_registry_stream_pack.dart'
+      - 'lib/features/merchant/business_registry_stream_validator.dart'
+      - 'lib/features/merchant/business_registry_transactional_stream_installer.dart'
+      - '.github/workflows/p4_20_3_nationwide_distribution.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p4-20-3-nationwide-distribution-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
+  TARGET_BRANCH: p4-20-3-nationwide-official-registry
+  EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  invoice-lookup-distribution-contract:
+    name: FIA invoice-lookup production distribution contract
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXACT_HEAD"
+          git cat-file -e "$FROZEN_P4_20_2^{commit}"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+          echo "P4_20_3_DISTRIBUTION_EXACT_HEAD=$actual"
+
+      - name: Compile and execute focused product-contract regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tool/p4_20_3_stage_fia_registry.py \
+            tool/p4_20_3_build_canonical_registry.py \
+            tool/p4_20_3_materialize_distribution_stream.py
+          python3 tool/p4_20_3_stage_fia_registry.py --self-test
+          python3 tool/p4_20_3_build_canonical_registry.py --self-test
+
+      - name: Enforce invoice-lookup scope and no paid-acquisition dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/p4_20_3_nationwide_distribution.yml').read_text(encoding='utf-8').lower()
+          stage = Path('tool/p4_20_3_stage_fia_registry.py').read_text(encoding='utf-8')
+          canonical = Path('tool/p4_20_3_build_canonical_registry.py').read_text(encoding='utf-8')
+          materializer = Path('tool/p4_20_3_materialize_distribution_stream.py').read_text(encoding='utf-8')
+          forbidden_tokens = ('gcis' + '.nat.gov.tw', '--' + 'qps', 'p4_20_3_' + 'acquire_gcis_')
+          for forbidden in forbidden_tokens:
+              assert forbidden not in workflow, f'PAID_ACQUISITION_SURFACE_FORBIDDEN={forbidden}'
+          assert 'entity_type = "unknown"' in stage
+          assert 'gcis_enrichment_required_for_release": False' in stage
+          assert 'BRANCH_PARENT_NOT_IN_CANONICAL_REGISTRY' not in canonical
+          assert 'branch_parent_closure_required_for_release' in canonical
+          assert 'gzip_ndjson_v1' in materializer
+          assert '"record_type": "header"' in materializer
+          assert '"record_type": "entity"' in materializer
+          assert 'official_detail_16_field_count' in materializer
+          print('P4_20_3_INVOICE_LOOKUP_SCOPE_CONTRACT=PASS')
+          print('P4_20_3_NO_PAID_GCIS_DISTRIBUTION_DEPENDENCY=PASS')
+          print('P4_20_3_INSTALLABLE_STREAM_CONTRACT=PASS')
+          PY
+
+  real-fia-mobile-pack:
+    name: Materialize FIA valid-seller installable mobile registry
+    needs: invoice-lookup-distribution-contract
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Download official FIA nationwide active tax registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          mkdir -p "$root"
+          curl \
+            --fail --location --proto '=https' --tlsv1.2 \
+            --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
+            --dump-header "$root/source_headers.txt" \
+            --output "$root/BGMOPEN1.zip" \
+            'https://eip.fia.gov.tw/data/BGMOPEN1.zip'
+          test "$(stat -c%s "$root/BGMOPEN1.zip")" -gt 0
+
+      - name: Stage every valid official seller identity without legal-subtype blocking
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          python3 tool/p4_20_3_stage_fia_registry.py \
+            "$root/BGMOPEN1.zip" "$root/staging" \
+            --chunk-rows 50000 --min-rows 1000000
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_fia_mobile'
+          s=json.loads((root/'staging'/'staging_summary.json').read_text(encoding='utf-8'))
+          rows=int(s['source_row_count']); ready=int(s['ready_entity_count'])
+          invalid=int(s['source_invalid_row_count']); pending=int(s['enrichment_required_count'])
+          assert rows >= 1_000_000
+          assert pending == 0
+          assert ready + invalid == rows
+          assert ready == int(s['source_valid_identity_count'])
+          assert s['source_valid_identity_coverage_complete'] is True
+          assert s['gcis_enrichment_required_for_release'] is False
+          print(f'P4_20_3_FIA_SOURCE_ROWS={rows}')
+          print(f'P4_20_3_FIA_VALID_IDENTITIES={ready}')
+          print(f'P4_20_3_FIA_SOURCE_INVALID_SKIPPED={invalid}')
+          print('P4_20_3_FIA_VALID_IDENTITY_COVERAGE=PASS')
+          PY
+
+      - name: Build canonical lookup corpus and retain unresolved parent references
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          : > "$root/empty_enriched.ndjson"
+          python3 tool/p4_20_3_build_canonical_registry.py \
+            "$root/staging/ready_entities.ndjson" \
+            "$root/empty_enriched.ndjson" \
+            "$root/nationwide_registry.ndjson" \
+            "$root/canonical_summary.json"
+
+      - name: Materialize gzip_ndjson_v1 installable stream and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          python3 tool/p4_20_3_materialize_distribution_stream.py "$root" --exact-head "$EXACT_HEAD"
+
+      - name: Audit installable stream header and manifest binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          python3 - <<'PY'
+          import gzip, hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_fia_mobile'
+          manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
+          gz=root/'nationwide_registry.ndjson.gz'
+          with gzip.open(gz,'rt',encoding='utf-8') as src:
+              header=json.loads(next(src)); first=json.loads(next(src))
+          assert manifest['format'] == 'gzip_ndjson_v1'
+          assert manifest['artifact_encoding'] == 'gzip_ndjson_v1'
+          assert header['record_type'] == 'header'
+          assert first['record_type'] == 'entity'
+          assert header['entity_count'] == manifest['entity_count']
+          assert header['registry_content_sha256'] == manifest['registry_content_sha256']
+          assert manifest['official_detail_16_field_count'] == manifest['entity_count']
+          assert manifest['compressed_size_bytes'] == gz.stat().st_size
+          actual=hashlib.sha256(gz.read_bytes()).hexdigest()
+          assert actual == manifest['download_sha256'] == manifest['artifact_sha256']
+          assert manifest['compressed_size_bytes'] <= 256*1024*1024
+          assert manifest['uncompressed_size_bytes'] <= 1024*1024*1024
+          print('P4_20_3_INSTALLABLE_STREAM_HEADER=PASS')
+          print('P4_20_3_INSTALLABLE_STREAM_MANIFEST_BINDING=PASS')
+          print(f"P4_20_3_INSTALLABLE_COMPRESSED_BYTES={manifest['compressed_size_bytes']}")
+          print(f"P4_20_3_INSTALLABLE_UNCOMPRESSED_BYTES={manifest['uncompressed_size_bytes']}")
+          print(f"P4_20_3_OFFICIAL_DETAIL_16_FIELD_COUNT={manifest['official_detail_16_field_count']}")
+          PY
+
+      - name: Upload final-data installable mobile registry candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-fia-mobile-registry-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_fia_mobile/nationwide_registry.ndjson.gz
+            ${{ runner.temp }}/p4_20_3_fia_mobile/manifest.json
+            ${{ runner.temp }}/p4_20_3_fia_mobile/canonical_summary.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish production registry update endpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: p4.20.3-registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$EXACT_HEAD"
+            gh release upload "$RELEASE_TAG" \
+              "$root/manifest.json" \
+              "$root/nationwide_registry.ndjson.gz" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "$root/manifest.json" \
+              "$root/nationwide_registry.ndjson.gz" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$EXACT_HEAD" \
+              --title 'P4.20.3 Nationwide Official Registry' \
+              --notes 'Owner-governed FIA nationwide optional local registry update endpoint. PR remains Merge Authority HOLD.' \
+              --prerelease
+          fi
+
+      - name: Verify published production registry endpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: p4.20.3-registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_fia_mobile"
+          published_target="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
+          test "$published_target" = "$EXACT_HEAD"
+          base='https://github.com/easonliu714/my_finance_app_public/releases/download/p4.20.3-registry'
+          curl --fail --location --retry 5 --retry-delay 2 \
+            "$base/manifest.json" -o "$root/published_manifest.json"
+          curl --fail --location --retry 5 --retry-delay 2 \
+            "$base/nationwide_registry.ndjson.gz" -o "$root/published_registry.ndjson.gz"
+          ROOT="$root" python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ['ROOT'])
+          expected=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
+          published=json.loads((root/'published_manifest.json').read_text(encoding='utf-8'))
+          assert published == expected
+          payload=root/'published_registry.ndjson.gz'
+          assert payload.stat().st_size == int(expected['compressed_size_bytes'])
+          sha=hashlib.sha256(payload.read_bytes()).hexdigest()
+          assert sha == expected['download_sha256'] == expected['artifact_sha256']
+          assert expected['download_url'] == 'https://github.com/easonliu714/my_finance_app_public/releases/download/p4.20.3-registry/nationwide_registry.ndjson.gz'
+          assert expected['final_mobile_registry'] is True
+          print('P4_20_3_PRODUCTION_RELEASE_EXACT_HEAD=PASS')
+          print('P4_20_3_PRODUCTION_MANIFEST_ENDPOINT=PASS')
+          print('P4_20_3_PRODUCTION_DOWNLOAD_ENDPOINT=PASS')
+          print(f'P4_20_3_PRODUCTION_DOWNLOAD_SHA256={sha}')
+          PY

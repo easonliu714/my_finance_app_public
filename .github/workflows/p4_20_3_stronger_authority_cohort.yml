@@ -1,0 +1,236 @@
+name: P4.20.3 Stronger Authority Cohort
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: p4-20-3-stronger-authority-cohort-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  FROZEN_P4_20_2: a533c9c87131ee487ca2321f3d53e432121c7981
+  TARGET_BRANCH: p4-20-3-nationwide-official-registry
+  EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  cohort:
+    name: Build exact-head stronger-authority cohorts
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen-ancestor authority gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD"
+          test "$GITHUB_HEAD_REF" = "$TARGET_BRANCH"
+          git cat-file -e "$FROZEN_P4_20_2^{commit}"
+          git merge-base --is-ancestor "$FROZEN_P4_20_2" HEAD
+          echo "P4_20_3_STRONGER_AUTHORITY_EXACT_HEAD=$EXACT_HEAD"
+
+      - name: Compile and self-test cohort production tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tool/p4_20_3_build_stronger_authority_cohort.py
+          python3 tool/p4_20_3_build_stronger_authority_cohort.py --self-test
+
+      - name: Resolve same-head reuse gate and immutable producer materialization
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_stronger"
+          mkdir -p "$root/gate" "$root/materialization"
+          gate_id=''
+          gate_run=''
+          for attempt in $(seq 1 40); do
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/p4_20_3_gcis_residual_full_acquisition.yml/runs?branch=$TARGET_BRANCH&event=pull_request&per_page=30" \
+              -o "$root/full_runs.json"
+            gate_run="$(jq -r --arg h "$EXACT_HEAD" '.workflow_runs[] | select(.head_sha==$h and .status=="completed" and .conclusion=="success") | .id' "$root/full_runs.json" | head -n1)"
+            if [[ -n "$gate_run" ]]; then
+              curl --fail --silent --show-error \
+                -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$gate_run/artifacts?per_page=100" \
+                -o "$root/gate_artifacts.json"
+              gate_id="$(jq -r --arg n "p4-20-3-full-residual-generation-gate-$EXACT_HEAD" '.artifacts[] | select(.name==$n and .expired==false) | .id' "$root/gate_artifacts.json" | head -n1)"
+              [[ -n "$gate_id" ]] && break
+            fi
+            sleep 15
+          done
+          test -n "$gate_run"
+          test -n "$gate_id"
+
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$gate_id/zip" \
+            -o "$root/gate.zip"
+          unzip -q "$root/gate.zip" -d "$root/gate"
+
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_stronger'
+          d=json.loads((root/'gate'/'decision.json').read_text(encoding='utf-8'))
+          p=json.loads((root/'gate'/'producer_selection.json').read_text(encoding='utf-8'))
+          assert d['current_head']==os.environ['EXACT_HEAD'], d
+          assert d['validation_subset'] is False, d
+          assert d['responsible_person_payload_emitted'] is False, d
+          assert d['mobile_per_invoice_network_lookup'] is False, d
+          assert d['source_generation_changed'] is False, d
+          assert d['generation_artifact_reuse'] is True, d
+          assert d['run_expensive'] is False, d
+          assert int(d['estimated_linux_minutes_avoided']) >= 0, d
+          assert d['prior_success_head']==p['producer_head'], (d,p)
+          assert int(d['prior_materialization_artifact_id'])==int(p['materialization_artifact_id']), (d,p)
+          print('P4_20_3_STRONGER_CURRENT_HEAD_REUSE_AUTHORITY=PASS')
+          print('P4_20_3_STRONGER_PRODUCER_HEAD='+str(d['prior_success_head']))
+          print('P4_20_3_STRONGER_MATERIALIZATION_ARTIFACT_ID='+str(d['prior_materialization_artifact_id']))
+          PY
+
+          materialization_id="$(jq -r '.prior_materialization_artifact_id' "$root/gate/decision.json")"
+          curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$materialization_id/zip" \
+            -o "$root/materialization.zip"
+          unzip -q "$root/materialization.zip" -d "$root/materialization"
+
+          jq -n \
+            --arg exact_head "$EXACT_HEAD" \
+            --argjson gate_run_id "$gate_run" \
+            --argjson gate_artifact_id "$gate_id" \
+            --arg producer_head "$(jq -r '.prior_success_head' "$root/gate/decision.json")" \
+            --argjson producer_materialization_artifact_id "$materialization_id" \
+            --arg source_last_modified "$(jq -r '.current_source_last_modified' "$root/gate/decision.json")" \
+            --arg source_archive_sha256 "$(jq -r '.source_archive_sha256' "$root/gate/decision.json")" \
+            --argjson estimated_linux_minutes_avoided "$(jq -r '.estimated_linux_minutes_avoided' "$root/gate/decision.json")" \
+            '{schema_version:1,gate:"P4.20.3-D-stronger-authority-current-head-lineage",exact_head:$exact_head,generation_gate_run_id:$gate_run_id,generation_gate_artifact_id:$gate_artifact_id,producer_head:$producer_head,producer_materialization_artifact_id:$producer_materialization_artifact_id,source_last_modified:$source_last_modified,source_archive_sha256:$source_archive_sha256,expensive_full_run_triggered:false,generation_artifact_reuse:true,estimated_linux_minutes_avoided:$estimated_linux_minutes_avoided,paid_gcis_query_authorized:false}' \
+            > "$root/lineage.json"
+
+      - name: Validate same-generation bridge authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])/'p4_20_3_stronger'
+          materialization=root/'materialization'
+          bridge_path=next(materialization.rglob('bridge_manifest.json'))
+          package_path=next(materialization.rglob('reconciliation_manifest.json'))
+          hold=next(p for p in materialization.rglob('hold.ndjson') if p.parent.name=='bridge')
+          bridge=json.loads(bridge_path.read_text(encoding='utf-8'))
+          package=json.loads(package_path.read_text(encoding='utf-8'))
+          lineage=json.loads((root/'lineage.json').read_text(encoding='utf-8'))
+          assert package['exact_head']==lineage['producer_head'], (package,lineage)
+          assert package['validation_subset'] is False, package
+          assert package['final_mobile_registry'] is False, package
+          assert bridge['schema_version'] >= 3, bridge
+          assert bridge['validation_subset'] is False, bridge
+          assert bridge['parent_child_identity_preserved'] is True, bridge
+          assert bridge['branch_without_parent_policy'] == 'HOLD', bridge
+          assert bridge['responsible_person_payload_emitted'] is False, bridge
+          assert bridge['mobile_per_invoice_network_lookup'] is False, bridge
+          assert bridge['published_authority_queue_path'] == 'bridge/hold.ndjson', bridge
+          payload=hold.read_bytes()
+          digest=hashlib.sha256(payload).hexdigest()
+          assert digest==bridge['authority_required_payload_sha256'], bridge
+          assert digest==bridge['hold_payload_sha256'], bridge
+          rows=[json.loads(x) for x in payload.decode('utf-8').splitlines() if x.strip()]
+          expected_total=int(bridge['authority_required_seller_count'])
+          expected_ambiguous=int(bridge['ambiguous_type_authority_required_count'])
+          expected_parent=int(bridge['branch_parent_authority_required_count'])
+          expected_unsupported=int(bridge['unsupported_type_authority_required_count'])
+          assert len(rows)==expected_total, (len(rows),expected_total)
+          assert expected_total==expected_ambiguous+expected_parent+expected_unsupported, bridge
+          sellers=[r['seller_identifier'] for r in rows]
+          assert sellers==sorted(sellers), 'AUTHORITY_QUEUE_NOT_SORTED'
+          assert len(sellers)==len(set(sellers)), 'AUTHORITY_QUEUE_DUPLICATE_SELLER'
+          print('P4_20_3_SAME_GENERATION_BRIDGE_AUTHORITY=PASS')
+          print('P4_20_3_AUTHORITY_QUEUE_SHA256='+digest)
+          print('P4_20_3_AUTHORITY_QUEUE_SELLER_COUNT='+str(expected_total))
+          print('P4_20_3_AMBIGUOUS_TYPE_REQUIRED='+str(expected_ambiguous))
+          print('P4_20_3_BRANCH_PARENT_REQUIRED='+str(expected_parent))
+          print('P4_20_3_UNSUPPORTED_TYPE_REQUIRED='+str(expected_unsupported))
+          PY
+
+      - name: Build deterministic stronger-authority cohorts
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/p4_20_3_stronger"
+          hold="$(find "$root/materialization" -path '*/bridge/hold.ndjson' -type f | head -n1)"
+          bridge="$(find "$root/materialization" -name bridge_manifest.json -type f | head -n1)"
+          test -f "$hold"
+          test -f "$bridge"
+          python3 tool/p4_20_3_build_stronger_authority_cohort.py "$hold" "$bridge" "$root/cohort"
+
+      - name: Final cohort integrity and privacy audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'p4_20_3_stronger'
+          m=json.loads((root/'cohort'/'stronger_authority_manifest.json').read_text(encoding='utf-8'))
+          lineage=json.loads((root/'lineage.json').read_text(encoding='utf-8'))
+          assert lineage['exact_head']==os.environ['EXACT_HEAD'], lineage
+          assert lineage['expensive_full_run_triggered'] is False, lineage
+          assert lineage['generation_artifact_reuse'] is True, lineage
+          assert lineage['paid_gcis_query_authorized'] is False, lineage
+          assert m['validation_subset'] is False, m
+          assert m['responsible_person_payload_emitted'] is False, m
+          assert m['mobile_per_invoice_network_lookup'] is False, m
+          assert m['branch_without_parent_policy']=='HOLD_UNTIL_AUTHORITATIVE_PARENT', m
+          names=('ambiguous_type_required.ndjson','branch_parent_required.ndjson','unsupported_type_required.ndjson')
+          total=0
+          for name in names:
+            path=root/'cohort'/name
+            payload=path.read_bytes()
+            rows=[json.loads(x) for x in payload.decode('utf-8').splitlines() if x.strip()]
+            expected=int(m['outputs'][name]['seller_count'])
+            assert len(rows)==expected, (name,len(rows),expected)
+            assert m['outputs'][name]['payload_sha256']==hashlib.sha256(payload).hexdigest(), (name,m)
+            sellers=[r['seller_identifier'] for r in rows]
+            assert sellers==sorted(sellers), name
+            assert len(sellers)==len(set(sellers)), name
+            text=payload.decode('utf-8').lower()
+            assert 'responsible' not in text, name
+            assert 'manager' not in text, name
+            total+=expected
+          assert total==int(m['input_authority_seller_count']), (total,m)
+          print('P4_20_3_STRONGER_AUTHORITY_COHORT_INTEGRITY=PASS')
+          print(json.dumps({'lineage':lineage,'cohort':m},ensure_ascii=False,sort_keys=True))
+          PY
+
+      - name: Upload exact-head stronger-authority cohort evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-stronger-authority-cohort-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_stronger/lineage.json
+            ${{ runner.temp }}/p4_20_3_stronger/cohort/stronger_authority_manifest.json
+            ${{ runner.temp }}/p4_20_3_stronger/cohort/ambiguous_type_required.ndjson
+            ${{ runner.temp }}/p4_20_3_stronger/cohort/branch_parent_required.ndjson
+            ${{ runner.temp }}/p4_20_3_stronger/cohort/unsupported_type_required.ndjson
+          if-no-files-found: error
+          retention-days: 30

@@ -4,6 +4,8 @@ import '../../database/production_database_coordinator.dart';
 import '../../database/production_schema_v13.dart';
 import 'legacy_merchant_migration_service.dart';
 import 'merchant_record.dart';
+import 'merchant_seller_identifier_migration.dart';
+import 'merchant_seller_identity_store.dart';
 import 'merchant_store.dart';
 
 /// Built-in merchant choices already exposed by the formal transaction-entry
@@ -17,7 +19,8 @@ const List<String> canonicalBuiltInTransactionMerchantNames = <String>[
   '八方雲集',
 ];
 
-class CanonicalMerchantRepository implements MerchantStore {
+class CanonicalMerchantRepository
+    implements MerchantStore, MerchantSellerIdentityStore {
   CanonicalMerchantRepository._();
 
   static final CanonicalMerchantRepository instance =
@@ -30,6 +33,7 @@ class CanonicalMerchantRepository implements MerchantStore {
   Future<Database> get _db async {
     final db = await ProductionDatabaseCoordinator.instance.database;
     await createCanonicalProductionV13Tables(db);
+    await ensureMerchantSellerIdentifierSchema(db);
     _migrationFuture ??= _legacyMigration.migrate(db).then((_) {});
     try {
       await _migrationFuture;
@@ -69,6 +73,25 @@ class CanonicalMerchantRepository implements MerchantStore {
     return records;
   }
 
+  @override
+  Future<MerchantRecord?> findBySellerIdentifier(
+    String sellerIdentifier, {
+    bool includeArchived = false,
+  }) async {
+    final normalized = _normalizeSellerIdentifier(sellerIdentifier);
+    if (normalized.isEmpty) return null;
+    final db = await _db;
+    final rows = await db.query(
+      'merchants',
+      where: includeArchived
+          ? 'seller_identifier = ?'
+          : 'seller_identifier = ? AND is_archived = 0',
+      whereArgs: <Object?>[normalized],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : _recordFromRow(rows.first);
+  }
+
   void _appendBuiltInTransactionReferences(List<MerchantRecord> records) {
     final existing = <String>{
       for (final record in records) ...<String>{
@@ -99,26 +122,57 @@ class CanonicalMerchantRepository implements MerchantStore {
       .replaceAll(RegExp(r'[\s·・_\-－—–]'), '')
       .replaceAll('臺', '台');
 
+  static String _normalizeSellerIdentifier(String value) =>
+      value.replaceAll(RegExp(r'[^0-9]'), '');
+
   @override
   Future<void> upsertMerchant(MerchantRecord merchant) async {
     final db = await _db;
     await db.transaction((txn) async {
       final name = merchant.name.trim();
       final alias = merchant.alias.trim();
+      final sellerIdentifier =
+          _normalizeSellerIdentifier(merchant.sellerIdentifier);
       if (name.isEmpty) return;
+
+      if (sellerIdentifier.isNotEmpty) {
+        final conflicting = await txn.query(
+          'merchants',
+          where: 'seller_identifier = ? AND id <> ?',
+          whereArgs: <Object?>[sellerIdentifier, merchant.id],
+          limit: 1,
+        );
+        if (conflicting.isNotEmpty) {
+          throw StateError('MERCHANT_SELLER_IDENTIFIER_CONFLICT');
+        }
+      }
+
       final existing = await txn.query(
         'merchants',
         where: 'id = ? OR (name = ? AND alias = ?)',
-        whereArgs: [merchant.id, name, alias],
+        whereArgs: <Object?>[merchant.id, name, alias],
         limit: 1,
       );
       final now = DateTime.now();
-      final current =
-          existing.isEmpty ? null : _recordFromRow(existing.first);
+      final current = existing.isEmpty ? null : _recordFromRow(existing.first);
+
+      if (sellerIdentifier.isNotEmpty && current != null) {
+        final conflicting = await txn.query(
+          'merchants',
+          where: 'seller_identifier = ? AND id <> ?',
+          whereArgs: <Object?>[sellerIdentifier, current.id],
+          limit: 1,
+        );
+        if (conflicting.isNotEmpty) {
+          throw StateError('MERCHANT_SELLER_IDENTIFIER_CONFLICT');
+        }
+      }
+
       final normalized = merchant.copyWith(
         id: current?.id ?? merchant.id,
         name: name,
         alias: alias,
+        sellerIdentifier: sellerIdentifier,
         createdAt: current?.createdAt ?? now,
         updatedAt: now,
       );
@@ -140,7 +194,7 @@ class CanonicalMerchantRepository implements MerchantStore {
         'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
-      whereArgs: [id],
+      whereArgs: <Object?>[id],
     );
   }
 
@@ -149,6 +203,7 @@ class CanonicalMerchantRepository implements MerchantStore {
       id: row['id'] as String? ?? '',
       name: row['name'] as String? ?? '',
       alias: row['alias'] as String? ?? '',
+      sellerIdentifier: row['seller_identifier'] as String? ?? '',
       note: row['note'] as String? ?? '',
       isArchived: (row['is_archived'] as int? ?? 0) != 0,
       createdAt: DateTime.tryParse(row['created_at'] as String? ?? ''),
@@ -161,6 +216,7 @@ class CanonicalMerchantRepository implements MerchantStore {
       'id': record.id,
       'name': record.name.trim(),
       'alias': record.alias.trim(),
+      'seller_identifier': _normalizeSellerIdentifier(record.sellerIdentifier),
       'note': record.note.trim(),
       'is_archived': record.isArchived ? 1 : 0,
       'created_at': record.createdAt.toIso8601String(),

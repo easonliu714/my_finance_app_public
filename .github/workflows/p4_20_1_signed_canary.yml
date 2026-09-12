@@ -1,0 +1,441 @@
+name: P4.20.1 Public Signed Registry Update Canary APK
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/features/merchant/**'
+      - 'lib/features/profile/**'
+      - 'lib/features/backup/backup_migration_center.dart'
+      - 'lib/features/invoice/**'
+      - 'test/p4_20_1_**'
+      - 'test/p4_20_0_**'
+      - 'test/p4_19_11_**'
+      - 'test/p4_19_10_**'
+      - 'test/p4_19_8_invoice_transaction_entry_boundary_test.dart'
+      - 'test/p4_12_38_exact_head_test.dart'
+      - 'lib/app_build_metadata.dart'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/p4_20_1_signed_canary.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p4-20-1-public-signed-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate P4.20.1 registry production update
+    if: >-
+      ${{ github.head_ref == 'p4-20-1-registry-production-update' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.actor == 'easonliu714' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Frozen P4.20.0 ancestry and exact-head gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen_p4200='64581aa0d5c322bee8a487f9fd9f0a9d4306b35e'
+          expected_head='${{ github.event.pull_request.head.sha }}'
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$expected_head"
+          git cat-file -e "$frozen_p4200^{commit}"
+          git merge-base --is-ancestor "$frozen_p4200" HEAD
+          printf 'P4.20.0 owner real-device ancestor: PASS (%s)\n' "$frozen_p4200"
+          printf 'P4.20.1 exact head: %s\n' "$actual_head"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+      - name: Version authority gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fxq 'version: 4.20.1+454' pubspec.yaml
+          grep -Fq "validationVersion = '4.20.1+454'" lib/features/invoice/lab/private_cloud_invoice_lab_config.dart
+          grep -Fq "appVersion = '4.20.1+454'" lib/app_build_metadata.dart
+          grep -Fq "phase = 'P4.20.1-registry-production-update'" lib/app_build_metadata.dart
+      - name: Analyze
+        run: flutter analyze
+      - name: Focused P4.20.1 and frozen-regression gates
+        run: |
+          set -euo pipefail
+          flutter test test/p4_20_1_registry_distribution_contract_test.dart
+          flutter test test/p4_20_1_registry_manifest_codec_test.dart
+          flutter test test/p4_20_1_nationwide_registry_builder_test.dart
+          flutter test test/p4_20_1_nationwide_registry_artifact_builder_test.dart
+          flutter test test/p4_20_1_bounded_registry_downloader_test.dart
+          flutter test test/p4_20_1_registry_stream_validator_test.dart
+          flutter test test/p4_20_1_registry_transactional_stream_installer_test.dart
+          flutter test test/p4_20_1_registry_update_service_test.dart
+          flutter test test/p4_20_1_registry_update_ui_test.dart
+          flutter test test/p4_20_1_authoritative_registry_refresh_test.dart
+          flutter test test/p4_20_0_merchant_identity_runtime_test.dart
+          flutter test test/p4_20_0_schema_activation_backup_restore_test.dart
+          flutter test test/p4_19_11_invoice_input_ux_test.dart
+          flutter test test/p4_19_10_invoice_review_authority_test.dart
+          flutter test test/p4_19_8_invoice_transaction_entry_boundary_test.dart
+          flutter test test/p4_12_38_exact_head_test.dart
+
+  publish-registry-canary:
+    name: Publish exact-head remote registry validation subset
+    needs: validate
+    if: ${{ needs.validate.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    outputs:
+      release_tag: ${{ steps.authority.outputs.release_tag }}
+      manifest_url: ${{ steps.authority.outputs.manifest_url }}
+      registry_version: ${{ steps.authority.outputs.registry_version }}
+      download_sha256: ${{ steps.authority.outputs.download_sha256 }}
+      content_sha256: ${{ steps.authority.outputs.content_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - id: authority
+        name: Build deterministic remote validation subset
+        shell: bash
+        run: |
+          set -euo pipefail
+          head='${{ github.event.pull_request.head.sha }}'
+          test "$(git rev-parse HEAD)" = "$head"
+          short="${head:0:12}"
+          tag="p4-20-1-registry-canary-$short"
+          registry_version="p4-20-1-canary-$short"
+          manifest_url="https://github.com/easonliu714/my_finance_app_public/releases/download/$tag/manifest.json"
+          download_url="https://github.com/easonliu714/my_finance_app_public/releases/download/$tag/registry-validation-subset.jsonl.gz"
+          mkdir -p canary_dist
+          HEAD_SHA="$head" REGISTRY_VERSION="$registry_version" DOWNLOAD_URL="$download_url" python3 - <<'PY'
+          import gzip, hashlib, json, os
+          from pathlib import Path
+
+          entities = [
+              {
+                  'seller_identifier': '30340553',
+                  'entity_type': 'business',
+                  'legal_name': '一品現泡茶店',
+                  'registration_status': '',
+                  'parent_seller_identifier': '',
+                  'source_dataset': 'GCIS_376410000A_change_11405',
+              },
+              {
+                  'seller_identifier': '60744698',
+                  'entity_type': 'company',
+                  'legal_name': '沄鉑國際有限公司',
+                  'registration_status': '',
+                  'parent_seller_identifier': '',
+                  'source_dataset': 'GCIS_376430000A_setup_11404',
+              },
+          ]
+          entities.sort(key=lambda e: f"{e['seller_identifier']}|{e['entity_type']}")
+          entity_lines = []
+          for e in entities:
+              row = {'record_type': 'entity', **e}
+              entity_lines.append(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n')
+          entity_payload = ''.join(entity_lines).encode('utf-8')
+          content_sha = hashlib.sha256(entity_payload).hexdigest()
+          header = {
+              'record_type': 'header',
+              'registry_version': os.environ['REGISTRY_VERSION'],
+              'source_authority': 'MOEA_BUSINESS_ADMINISTRATION_GCIS_PUBLIC_REPORT',
+              'source_dataset': 'P4.20.1 signed-canary remote validation subset',
+              'source_data_date': '2025-06-02',
+              'coverage': 'validation_subset',
+              'entity_count': len(entities),
+              'registry_content_sha256': content_sha,
+          }
+          raw = (json.dumps(header, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8') + entity_payload
+          gz_path = Path('canary_dist/registry-validation-subset.jsonl.gz')
+          with gz_path.open('wb') as f:
+              with gzip.GzipFile(filename='', mode='wb', fileobj=f, mtime=0) as gz:
+                  gz.write(raw)
+          compressed = gz_path.read_bytes()
+          download_sha = hashlib.sha256(compressed).hexdigest()
+          manifest = {
+              'schema_version': 1,
+              'registry_version': os.environ['REGISTRY_VERSION'],
+              'source_authority': 'MOEA_BUSINESS_ADMINISTRATION_GCIS_PUBLIC_REPORT',
+              'source_dataset': 'P4.20.1 signed-canary remote validation subset',
+              'source_data_date': '2025-06-02',
+              'coverage': 'validation_subset',
+              'format': 'gzip_ndjson_v1',
+              'entity_count': len(entities),
+              'download_url': os.environ['DOWNLOAD_URL'],
+              'download_sha256': download_sha,
+              'registry_content_sha256': content_sha,
+              'compressed_size_bytes': len(compressed),
+              'uncompressed_size_bytes': len(raw),
+              'attribution': '資料提供機關／經濟部商業發展署；P4.20.1 signed-canary validation subset',
+              'license_url': 'https://data.gov.tw/license',
+          }
+          Path('canary_dist/manifest.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, separators=(',', ':')),
+              encoding='utf-8',
+          )
+          Path('canary_dist/authority.env').write_text(
+              f"DOWNLOAD_SHA256={download_sha}\nCONTENT_SHA256={content_sha}\n",
+              encoding='utf-8',
+          )
+          PY
+          source canary_dist/authority.env
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "manifest_url=$manifest_url" >> "$GITHUB_OUTPUT"
+          echo "registry_version=$registry_version" >> "$GITHUB_OUTPUT"
+          echo "download_sha256=$DOWNLOAD_SHA256" >> "$GITHUB_OUTPUT"
+          echo "content_sha256=$CONTENT_SHA256" >> "$GITHUB_OUTPUT"
+          printf 'Canary tag: %s\nManifest: %s\nRegistry version: %s\n' "$tag" "$manifest_url" "$registry_version"
+      - name: Publish immutable exact-head canary assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.authority.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              canary_dist/manifest.json \
+              canary_dist/registry-validation-subset.jsonl.gz \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              canary_dist/manifest.json \
+              canary_dist/registry-validation-subset.jsonl.gz \
+              --repo "$GITHUB_REPOSITORY" \
+              --target '${{ github.event.pull_request.head.sha }}' \
+              --title "P4.20.1 Registry Canary $RELEASE_TAG" \
+              --notes "Exact-head P4.20.1 remote registry validation subset. This is NOT a nationwide production registry." \
+              --prerelease
+          fi
+      - name: Verify published canary authority
+        env:
+          MANIFEST_URL: ${{ steps.authority.outputs.manifest_url }}
+          DOWNLOAD_SHA256: ${{ steps.authority.outputs.download_sha256 }}
+          CONTENT_SHA256: ${{ steps.authority.outputs.content_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 2
+          curl -fL --retry 5 --retry-delay 2 "$MANIFEST_URL" -o published_manifest.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path('published_manifest.json').read_text())
+          assert data['coverage'] == 'validation_subset'
+          assert data['entity_count'] == 2
+          assert data['download_sha256'] == os.environ['DOWNLOAD_SHA256']
+          assert data['registry_content_sha256'] == os.environ['CONTENT_SHA256']
+          assert 'validation subset' in data['attribution']
+          PY
+
+  signed-apk:
+    name: Build and inspect P4.20.1 signed registry update APK
+    needs: [validate, publish-registry-canary]
+    if: >-
+      ${{ needs.validate.result == 'success' &&
+          needs.publish-registry-canary.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact head gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android host without dependency authority
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android --no-pub .
+          git checkout HEAD -- pubspec.yaml pubspec.lock
+      - name: Patch Android permission and desugaring boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          for node in [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+          ]:
+              if node not in text:
+                  text = text.replace(marker, marker + '\n    ' + node, 1)
+          manifest.write_text(text)
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          if 'isCoreLibraryDesugaringEnabled = true' not in text:
+              text = text.replace('compileOptions {', 'compileOptions {\n        isCoreLibraryDesugaringEnabled = true', 1)
+          dep = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          if dep not in text:
+              if 'dependencies {' in text:
+                  text = text.replace('dependencies {', 'dependencies {\n    ' + dep, 1)
+              else:
+                  text += '\n\ndependencies {\n    ' + dep + '\n}\n'
+          gradle.write_text(text)
+          PY
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+      - name: Prepare signing files
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          test -n "$ANDROID_SIGNING_CERT_SHA256"
+          pinned='9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
+          configured="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test "$configured" = "$pinned"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+      - name: Verify configured signing certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          actual="$({ keytool -exportcert -rfc -keystore android/app/upload-keystore.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD"; } | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test "$actual" = '9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
+      - name: Patch release signing and ML Kit R8 boundary
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('android/app/build.gradle.kts')
+          text = path.read_text()
+          if 'val keystoreProperties' not in text:
+              text = text.replace('plugins {', 'import java.util.Properties\nimport java.io.FileInputStream\n\nplugins {', 1)
+              text = text.replace('android {', 'val keystoreProperties = Properties()\nval keystorePropertiesFile = rootProject.file("key.properties")\nif (keystorePropertiesFile.exists()) { keystoreProperties.load(FileInputStream(keystorePropertiesFile)) }\n\nandroid {', 1)
+          if 'create("release")' not in text:
+              text = text.replace('    buildTypes {\n        release {', '    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }\n\n    buildTypes {\n        release {', 1)
+          text = text.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+          path.write_text(text)
+          Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
+          PY
+      - name: Build signed release APK with remote validation distribution
+        env:
+          MANIFEST_URL: ${{ needs.publish-registry-canary.outputs.manifest_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MANIFEST_URL"
+          flutter build apk --release --no-pub --build-number=454 \
+            --dart-define=ENABLE_P4_20_REGISTRY_VALIDATION_PACK=true \
+            --dart-define=ENABLE_P4_20_1_REGISTRY_VALIDATION_DISTRIBUTION=true \
+            --dart-define=BUSINESS_REGISTRY_MANIFEST_URL="$MANIFEST_URL"
+      - name: Inspect signed APK boundary
+        env:
+          MANIFEST_URL: ${{ needs.publish-registry-canary.outputs.manifest_url }}
+          REGISTRY_VERSION: ${{ needs.publish-registry-canary.outputs.registry_version }}
+          REGISTRY_DOWNLOAD_SHA256: ${{ needs.publish-registry-canary.outputs.download_sha256 }}
+          REGISTRY_CONTENT_SHA256: ${{ needs.publish-registry-canary.outputs.content_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk='build/app/outputs/flutter-apk/app-release.apk'
+          apkanalyzer_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort -V | tail -n 1)"
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          permissions="$($apkanalyzer_bin manifest permissions "$apk")"
+          version_name="$($apkanalyzer_bin manifest version-name "$apk")"
+          version_code="$($apkanalyzer_bin manifest version-code "$apk")"
+          signer_output="$($apksigner_bin verify --print-certs "$apk")"
+          normalized="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          printf '%s\n' "$permissions"
+          printf 'APK versionName: %s\nAPK versionCode: %s\n%s\n' "$version_name" "$version_code" "$signer_output"
+          grep -Fq 'android.permission.CAMERA' <<< "$permissions"
+          grep -Fq 'android.permission.INTERNET' <<< "$permissions"
+          grep -Fq 'android.permission.POST_NOTIFICATIONS' <<< "$permissions"
+          grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
+          test "$version_name" = '4.20.1'
+          test "$version_code" = '454'
+          grep -Fq '9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7' <<< "$normalized"
+          unzip -l "$apk" | grep -Fq 'assets/flutter_assets/assets/seed/business_registry_validation_pack.json'
+          {
+            printf 'P4_20_1_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
+            printf 'VERSION_NAME=%s\n' "$version_name"
+            printf 'VERSION_CODE=%s\n' "$version_code"
+            printf 'P4_20_0_OWNER_VALIDATED_ANCESTRY=PASS\n'
+            printf 'NATIONWIDE_DISTRIBUTION_CONTRACT=PASS\n'
+            printf 'NATIONWIDE_O1_PACK_BUILDER=PASS\n'
+            printf 'BOUNDED_STREAM_DOWNLOAD=PASS\n'
+            printf 'STREAM_VALIDATOR=PASS\n'
+            printf 'TRANSACTIONAL_LKG_INSTALL=PASS\n'
+            printf 'REGISTRY_UPDATE_UI=PASS\n'
+            printf 'AUTHORITATIVE_ONE_REFRESH_POLICY=PASS\n'
+            printf 'VERSION_SCOPED_NOT_FOUND=PASS\n'
+            printf 'REFRESH_FAILURE_NONBLOCKING=PASS\n'
+            printf 'SIGNED_CANARY_REMOTE_VALIDATION_SUBSET=PASS\n'
+            printf 'REGISTRY_VALIDATION_SUBSET_COVERAGE=validation_subset\n'
+            printf 'REGISTRY_CANARY_VERSION=%s\n' "$REGISTRY_VERSION"
+            printf 'REGISTRY_MANIFEST_URL=%s\n' "$MANIFEST_URL"
+            printf 'REGISTRY_DOWNLOAD_SHA256=%s\n' "$REGISTRY_DOWNLOAD_SHA256"
+            printf 'REGISTRY_CONTENT_SHA256=%s\n' "$REGISTRY_CONTENT_SHA256"
+            printf 'FORMAL_WRITE_EXPLICIT_SAVE_ONLY=PASS\n'
+            printf 'SIGNER_SHA256_PIN=PASS\n'
+            printf 'CAMERA_PERMISSION=PASS\n'
+            printf 'INTERNET_PERMISSION=PASS\n'
+            printf 'POST_NOTIFICATIONS_PERMISSION=PASS\n'
+            printf 'RECORD_AUDIO_PRESENT=PASS\n'
+            printf 'READ_SMS_ABSENT=PASS\n'
+            printf 'READ_CONTACTS_ABSENT=PASS\n'
+          } > p4_20_1_canary_metadata.txt
+      - name: Generate APK checksum
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk | tee p4_20_1_public_signed_registry_update_canary.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-1-public-4.20.1+454-signed-registry-update-canary
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            p4_20_1_public_signed_registry_update_canary.sha256
+            p4_20_1_canary_metadata.txt
+          if-no-files-found: error
+          retention-days: 1

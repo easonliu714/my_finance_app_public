@@ -1,0 +1,150 @@
+name: P4.20.3 GCIS Registration Type Acquisition
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/p4_20_3_acquire_gcis_registration_type.py'
+      - '.github/workflows/p4_20_3_gcis_registration_type_acquisition.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-20-3-gcis-registration-type-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: >-
+      ${{ github.head_ref == 'p4-20-3-nationwide-official-registry' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact-head and frozen ancestor gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen='a533c9c87131ee487ca2321f3d53e432121c7981'
+          expected='${{ github.event.pull_request.head.sha }}'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          git cat-file -e "$frozen^{commit}"
+          git merge-base --is-ancestor "$frozen" HEAD
+          echo "P4_20_3_EXACT_HEAD=$actual"
+          echo "P4_20_2_FROZEN_ANCESTOR=PASS"
+
+      - name: Python compile
+        run: python3 -m py_compile tool/p4_20_3_acquire_gcis_registration_type.py
+
+      - name: Focused acquisition self-test
+        run: python3 tool/p4_20_3_acquire_gcis_registration_type.py --self-test
+
+      - name: Static privacy and handset-network gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('tool/p4_20_3_acquire_gcis_registration_type.py').read_text(encoding='utf-8')
+          required = [
+              'responsible_person_payload_emitted',
+              'merchant_name_inference_used',
+              'mobile_per_invoice_network_lookup',
+              'official_type_mapping_applied',
+              'official_type_exist_pairing_preserved',
+              'evidence_payload_sha256',
+              'seller_filter_unique_count',
+          ]
+          for token in required:
+              assert token in text, token
+          assert '"schema_version": 4' in text
+          assert 'BASE_URL = f"https://data.gcis.nat.gov.tw/od/data/api/' in text
+          assert 'OUTPUT_KEYS' in text
+          print('P4_20_3_GCIS_TYPE_STATIC_PRIVACY_GATE=PASS')
+          print('P4_20_3_GCIS_TYPE_PAIRED_SEMANTICS_STATIC_GATE=PASS')
+          print('P4_20_3_GCIS_TYPE_NO_HANDSET_PER_INVOICE_LOOKUP_GATE=PASS')
+          PY
+
+      - name: Real official GCIS registration-type transport canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/p4_20_3_gcis_type_canary"
+          mkdir -p "$out"
+          cat > "$out/sellers.txt" <<'EOF'
+          22853565
+          22555003
+          EOF
+          python3 tool/p4_20_3_acquire_gcis_registration_type.py \
+            "$out/sellers.txt" "$out/result" \
+            --qps 1 --timeout-seconds 20 --retries 2
+
+      - name: Verify real canary evidence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ['RUNNER_TEMP']) / 'p4_20_3_gcis_type_canary' / 'result'
+          manifest = json.loads((root / 'acquisition_manifest.json').read_text(encoding='utf-8'))
+          rows = [json.loads(line) for line in (root / 'registration_type_evidence.ndjson').read_text(encoding='utf-8').splitlines() if line.strip()]
+          failures = [json.loads(line) for line in (root / 'acquisition_failures.ndjson').read_text(encoding='utf-8').splitlines() if line.strip()]
+
+          assert manifest['schema_version'] >= 4, manifest
+          assert manifest['official_type_exist_pairing_preserved'] is True, manifest
+          assert manifest['seller_filter_unique_count'] == 2
+          assert manifest['success_count'] == 2, manifest
+          assert manifest['failure_count'] == 0, failures
+          assert len(rows) == 2
+          assert not failures
+          assert manifest['responsible_person_payload_emitted'] is False
+          assert manifest['merchant_name_inference_used'] is False
+          assert manifest['mobile_per_invoice_network_lookup'] is False
+          assert manifest['official_type_mapping_applied'] is False
+          assert manifest['final_mobile_registry'] is False
+
+          allowed = {
+              'seller_identifier',
+              'official_types',
+              'official_exists_values',
+              'official_year_values',
+              'source_dataset',
+          }
+          assert all(set(row) == allowed for row in rows)
+          assert {row['seller_identifier'] for row in rows} == {'22853565', '22555003'}
+          assert all(isinstance(row['official_types'], list) for row in rows)
+          assert all(isinstance(row['official_exists_values'], list) for row in rows)
+          assert all(isinstance(row['official_year_values'], list) for row in rows)
+
+          payload = (root / 'registration_type_evidence.ndjson').read_bytes()
+          assert hashlib.sha256(payload).hexdigest() == manifest['evidence_payload_sha256']
+          print('P4_20_3_GCIS_TYPE_REAL_TRANSPORT=PASS')
+          print('P4_20_3_GCIS_TYPE_RESPONSE_SURFACE=PASS')
+          print('P4_20_3_GCIS_TYPE_PAIRED_SEMANTICS_MANIFEST=PASS')
+          print('P4_20_3_GCIS_TYPE_EVIDENCE_SHA=PASS')
+          print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload GCIS registration-type canary evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4-20-3-gcis-registration-type-canary-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/p4_20_3_gcis_type_canary/result/acquisition_manifest.json
+            ${{ runner.temp }}/p4_20_3_gcis_type_canary/result/registration_type_evidence.ndjson
+            ${{ runner.temp }}/p4_20_3_gcis_type_canary/result/acquisition_failures.ndjson
+          if-no-files-found: warn
+          retention-days: 14

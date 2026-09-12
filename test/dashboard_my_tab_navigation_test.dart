@@ -23,17 +23,21 @@ void main() {
     expect(find.text('雲端發票與對獎治理'), findsNothing);
 
     await tester.tap(find.byTooltip('備份與移轉 說明'));
-    await tester.pumpAndSettle();
+    // P4.20.1 registry status can legitimately keep an indeterminate progress
+    // indicator alive while the initial local snapshot read is pending. Use a
+    // bounded pump so this navigation test does not require global animation
+    // quiescence unrelated to the dialog contract under test.
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('備份與移轉說明'), findsOneWidget);
     await tester.tap(find.text('了解'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.scrollUntilVisible(
       find.text('備份提醒'),
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('備份提醒'), findsOneWidget);
     expect(find.text('備份通知'), findsOneWidget);
@@ -43,7 +47,7 @@ void main() {
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('完整備份'), findsOneWidget);
     expect(find.text('完整還原'), findsOneWidget);
