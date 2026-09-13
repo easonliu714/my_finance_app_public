@@ -28,6 +28,26 @@ class ConfirmedMerchantIdentity {
   final String registryVersion;
 }
 
+class MerchantIdentityBindingPeriod {
+  const MerchantIdentityBindingPeriod({
+    required this.id,
+    required this.merchantBrandId,
+    required this.sellerIdentifier,
+    required this.evidenceSource,
+    required this.effectiveFrom,
+    this.effectiveTo,
+  });
+
+  final String id;
+  final String merchantBrandId;
+  final String sellerIdentifier;
+  final String evidenceSource;
+  final DateTime effectiveFrom;
+  final DateTime? effectiveTo;
+
+  bool get isActive => effectiveTo == null;
+}
+
 class MerchantIdentityRepository {
   const MerchantIdentityRepository({this.database});
 
@@ -86,6 +106,42 @@ class MerchantIdentityRepository {
     );
   }
 
+  Future<List<MerchantIdentityBindingPeriod>> listBindingHistoryForSellerIdentifier(
+    String sellerIdentifier,
+  ) async {
+    final seller = _normalizeSeller(sellerIdentifier);
+    if (seller.length != 8) return const <MerchantIdentityBindingPeriod>[];
+    final db = await _db;
+    final rows = await db.rawQuery('''
+      SELECT
+        l.id,
+        l.merchant_brand_id,
+        le.seller_identifier,
+        l.evidence_source,
+        l.effective_from,
+        l.effective_to
+      FROM merchant_legal_entities le
+      JOIN merchant_brand_legal_links l
+        ON l.legal_entity_id = le.id
+      WHERE le.jurisdiction = 'TW'
+        AND le.seller_identifier = ?
+        AND l.decision = 'confirmed'
+      ORDER BY l.effective_from ASC, l.created_at ASC, l.id ASC
+    ''', <Object?>[seller]);
+    return rows.map((row) {
+      final effectiveToRaw = row['effective_to']?.toString().trim() ?? '';
+      return MerchantIdentityBindingPeriod(
+        id: row['id']?.toString() ?? '',
+        merchantBrandId: row['merchant_brand_id']?.toString() ?? '',
+        sellerIdentifier: row['seller_identifier']?.toString() ?? '',
+        evidenceSource: row['evidence_source']?.toString() ?? '',
+        effectiveFrom: DateTime.parse(row['effective_from']?.toString() ?? ''),
+        effectiveTo:
+            effectiveToRaw.isEmpty ? null : DateTime.parse(effectiveToRaw),
+      );
+    }).toList(growable: false);
+  }
+
   Future<ConfirmedMerchantIdentity> recordConfirmedBinding({
     required MerchantRecord merchant,
     required String sellerIdentifier,
@@ -111,7 +167,7 @@ class MerchantIdentityRepository {
 
     final db = await _db;
     final now = DateTime.now().toUtc().toIso8601String();
-    final legalId = 'tw-seller-$seller';
+    final defaultLegalId = 'tw-seller-$seller';
     final observationId = await _stableId(
       'invoice-observation',
       '$sourceReference|$seller|$brandId|${literalMerchantText.trim()}',
@@ -146,6 +202,9 @@ class MerchantIdentityRepository {
         whereArgs: <Object?>['TW', seller],
         limit: 1,
       );
+      final legalId = legalRows.isEmpty
+          ? defaultLegalId
+          : legalRows.first['id']?.toString() ?? defaultLegalId;
       if (legalRows.isEmpty) {
         await txn.insert('merchant_legal_entities', <String, Object?>{
           'id': legalId,
@@ -172,19 +231,8 @@ class MerchantIdentityRepository {
             'last_observed_at': now,
           },
           where: 'id = ?',
-          whereArgs: <Object?>[legalRows.first['id']?.toString() ?? legalId],
+          whereArgs: <Object?>[legalId],
         );
-      }
-
-      final conflicts = await txn.query(
-        'merchant_brand_legal_links',
-        where:
-            "legal_entity_id = ? AND decision = 'confirmed' AND merchant_brand_id <> ? AND (effective_to IS NULL OR TRIM(effective_to) = '')",
-        whereArgs: <Object?>[legalId, brandId],
-        limit: 1,
-      );
-      if (conflicts.isNotEmpty) {
-        throw StateError('MERCHANT_IDENTITY_CONFIRMED_BRAND_CONFLICT');
       }
 
       final sameLink = await txn.query(
@@ -195,10 +243,20 @@ class MerchantIdentityRepository {
         limit: 1,
       );
       if (sameLink.isEmpty) {
+        // P4.20.5: an explicit re-binding is an effective-dated transition.
+        // Close prior active periods instead of deleting history or treating an
+        // operator/brand change as a permanent conflict.
+        await txn.update(
+          'merchant_brand_legal_links',
+          <String, Object?>{'effective_to': now},
+          where:
+              "legal_entity_id = ? AND decision = 'confirmed' AND merchant_brand_id <> ? AND (effective_to IS NULL OR TRIM(effective_to) = '')",
+          whereArgs: <Object?>[legalId, brandId],
+        );
         await txn.insert('merchant_brand_legal_links', <String, Object?>{
           'id': await _stableId(
-            'confirmed-link',
-            '$brandId|$seller',
+            'confirmed-link-period',
+            '$brandId|$seller|$now',
           ),
           'merchant_brand_id': brandId,
           'legal_entity_id': legalId,
