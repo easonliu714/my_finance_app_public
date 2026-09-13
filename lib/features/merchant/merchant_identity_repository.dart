@@ -256,7 +256,7 @@ class MerchantIdentityRepository {
         await txn.insert('merchant_brand_legal_links', <String, Object?>{
           'id': await _stableId(
             'confirmed-link-period',
-            '$brandId|$seller|$now',
+            '$brandId|$seller|$now|${sourceReference.trim()}',
           ),
           'merchant_brand_id': brandId,
           'legal_entity_id': legalId,
