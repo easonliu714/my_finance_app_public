@@ -7,8 +7,12 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   sqfliteFfiInit();
 
-  Future<Database> openDb() =>
-      databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+  Future<Database> openDb() => databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
+        ),
+      );
 
   MerchantRecord merchant(String id, String name) => MerchantRecord(
         id: id,
