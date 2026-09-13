@@ -68,15 +68,15 @@ void main() {
       history: const <PositionalTaxIdFrameObservation>[
         PositionalTaxIdFrameObservation(
           invoiceNumber: 'AA90000001',
-          rawCandidate: '10000285',
+          rawCandidate: '10000018',
         ),
       ],
       currentInvoiceNumber: 'AA90000001',
-      currentRawCandidate: '10000288',
+      currentRawCandidate: '60000018',
     );
 
-    expect(repairSingleEightToZeroTaiwanTaxId('10000285'), '10000205');
-    expect(repairSingleEightToZeroTaiwanTaxId('10000288'), '10000280');
+    expect(repairSingleEightToZeroTaiwanTaxId('10000018'), '10000010');
+    expect(repairSingleEightToZeroTaiwanTaxId('60000018'), '60000010');
     expect(result.accepted, isFalse);
     expect(result.repairedValue, isEmpty);
   });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/gemini/gemini_invoice_review.dart';
+import 'package:my_finance_app/features/invoice/invoice_merchant_decision_composer_card.dart';
 import 'package:my_finance_app/features/invoice/invoice_merchant_identity_review_service.dart';
 import 'package:my_finance_app/features/invoice/invoice_registry_corroboration_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_review_form_view_model.dart';
@@ -12,7 +13,7 @@ import 'package:my_finance_app/features/merchant/merchant_record.dart';
 
 void main() {
   testWidgets(
-      'authoritative QR seller id automatically shows official corroboration and known brand',
+      'authoritative QR seller id automatically shows official corroboration and known brand as separate candidates',
       (tester) async {
     final port = _FakeIdentityReviewPort(
       formalMerchantName: '一品現泡茶店',
@@ -37,18 +38,52 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(port.resolveCalls, 1);
-    expect(find.text('正式商家：一品現泡茶店'), findsOneWidget);
-    expect(find.text('官方登記名稱：一品現泡茶店'), findsOneWidget);
-    expect(find.text('官方資料版本：fixture-v1'), findsOneWidget);
-    expect(find.text('涵蓋範圍：實機驗證子集'), findsOneWidget);
+    final recognitionLane =
+        find.byKey(InvoiceMerchantDecisionComposerCard.recognitionLaneKey);
+    final existingLane =
+        find.byKey(InvoiceMerchantDecisionComposerCard.existingMerchantLaneKey);
+    final officialLane =
+        find.byKey(InvoiceMerchantDecisionComposerCard.officialRegistryLaneKey);
+    expect(recognitionLane, findsOneWidget);
+    expect(existingLane, findsOneWidget);
+    expect(officialLane, findsOneWidget);
     expect(
-      find.textContaining('候選商家：發票原文：一品現泡茶店'),
+      find.descendant(
+        of: recognitionLane,
+        matching: find.text('發票原文：一品現泡茶店'),
+      ),
       findsOneWidget,
     );
     expect(
-      find.textContaining('不會覆寫發票商家文字'),
+      find.descendant(of: existingLane, matching: find.text('一品現泡茶店')),
       findsOneWidget,
     );
+    expect(
+      find.descendant(of: officialLane, matching: find.text('一品現泡茶店')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: officialLane,
+        matching: find.textContaining('Registry fixture-v1'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: officialLane,
+        matching: find.textContaining('資料 2025-06-02'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: officialLane,
+        matching: find.textContaining('本機官方 Registry'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('已明確選擇'), findsNothing);
   });
 
   testWidgets('temporal Local seller-id provenance can corroborate automatically',
@@ -75,10 +110,20 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(port.resolveCalls, 1);
-    expect(find.text('官方登記名稱：Temporal 官方名稱'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(
+          InvoiceMerchantDecisionComposerCard.officialRegistryLaneKey,
+        ),
+        matching: find.text('Temporal 官方名稱'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('已明確選擇'), findsNothing);
   });
 
-  testWidgets('AI seller id performs zero registry lookup before global acknowledgement',
+  testWidgets(
+      'AI seller id remains fail-closed after global acknowledgement until sellerTaxId is explicitly confirmed',
       (tester) async {
     final port = _FakeIdentityReviewPort(
       formalMerchantName: '',
@@ -149,8 +194,21 @@ void main() {
     acknowledged.value = true;
     await tester.pumpAndSettle();
 
-    expect(port.resolveCalls, 1);
-    expect(find.text('官方登記名稱：AI 統編官方名稱'), findsOneWidget);
+    expect(port.resolveCalls, 0);
+    expect(
+      find.textContaining('尚未符合官方資料查詢權威'),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(
+          InvoiceMerchantDecisionComposerCard.officialRegistryLaneKey,
+        ),
+        matching: find.text('AI 統編官方名稱'),
+      ),
+      findsNothing,
+    );
+    expect(find.text('已明確選擇'), findsNothing);
   });
 
   testWidgets('manual seller-id mutation invalidates stale official result',
@@ -177,7 +235,15 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('官方登記名稱：原官方名稱'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(
+          InvoiceMerchantDecisionComposerCard.officialRegistryLaneKey,
+        ),
+        matching: find.text('原官方名稱'),
+      ),
+      findsOneWidget,
+    );
 
     final taxField = find.byKey(
       InvoiceTransactionHandoffReviewCard.fieldKey(
@@ -187,12 +253,13 @@ void main() {
     await tester.enterText(taxField, '60744698');
     await tester.pumpAndSettle();
 
-    expect(find.text('官方登記名稱：原官方名稱'), findsNothing);
-    expect(find.text('正式商家：原正式商家'), findsNothing);
+    expect(find.text('原官方名稱'), findsNothing);
+    expect(find.text('原正式商家'), findsNothing);
     expect(
       find.textContaining('尚未符合官方資料查詢權威'),
       findsOneWidget,
     );
+    expect(find.text('已明確選擇'), findsNothing);
   });
 
   testWidgets('checksum-valid value without provenance never starts registry lookup',
@@ -327,7 +394,8 @@ class _FakeIdentityReviewPort implements InvoiceMerchantIdentityReviewPort {
         formalMerchantName: formalMerchantName,
         requiresBrandConfirmation: formalMerchantName.isEmpty,
         reason: formalMerchantName.isEmpty
-            ? MerchantIdentityResolutionReason.registryLegalNameNeedsBrandConfirmation
+            ? MerchantIdentityResolutionReason
+                .registryLegalNameNeedsBrandConfirmation
             : MerchantIdentityResolutionReason.confirmedBrandLink,
       ),
       registryStatus: BusinessRegistryLookupStatus.hit,

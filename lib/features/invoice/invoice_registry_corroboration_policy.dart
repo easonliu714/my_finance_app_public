@@ -101,6 +101,11 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
   /// The initial Local seller identifier must carry its machine-readable
   /// provenance from the recognition result. Merely being present or passing
   /// checksum is not enough to authorize a Registry lookup.
+  ///
+  /// P4.20.4+461 additionally requires a separate explicit sellerTaxId
+  /// confirmation after either a weak OCR value, a manual correction, or an AI
+  /// sellerTaxId selection. Acknowledging the AI comparison is not the same
+  /// authority as confirming the seller identifier itself.
   InvoiceRegistryCorroborationAuthorityDecision evaluateReviewSelection({
     required String sellerIdentifier,
     required bool localQrAuthority,
@@ -108,6 +113,7 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
     required bool explicitlyAiSelected,
     required bool aiComparisonAcknowledged,
     required String initialLocalSellerIdentifierSource,
+    bool explicitUserConfirmed = false,
   }) {
     final seller = _digits(sellerIdentifier);
     if (seller.length != 8) {
@@ -130,11 +136,17 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
           'ai_selection_failed_strict_checksum',
         );
       }
+      if (!explicitUserConfirmed) {
+        return _notAuthoritative(
+          seller,
+          'ai_selection_requires_explicit_user_confirmation',
+        );
+      }
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
         authoritative: true,
         source: InvoiceRegistryCorroborationAuthoritySource.explicitAiSelection,
-        reason: 'authoritative_explicit_ai_selection',
+        reason: 'authoritative_explicit_ai_seller_confirmation',
       );
     }
 
@@ -145,12 +157,18 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
           'manual_correction_failed_strict_checksum',
         );
       }
+      if (!explicitUserConfirmed) {
+        return _notAuthoritative(
+          seller,
+          'manual_correction_requires_explicit_user_confirmation',
+        );
+      }
       return InvoiceRegistryCorroborationAuthorityDecision(
         sellerIdentifier: seller,
         authoritative: true,
         source:
             InvoiceRegistryCorroborationAuthoritySource.explicitUserCorrection,
-        reason: 'authoritative_explicit_user_correction',
+        reason: 'authoritative_explicit_user_confirmation',
       );
     }
 
@@ -160,6 +178,20 @@ class InvoiceRegistryCorroborationAuthorityPolicy {
         authoritative: true,
         source: InvoiceRegistryCorroborationAuthoritySource.qrPayload,
         reason: 'authoritative_qr_payload',
+      );
+    }
+
+    // +461 owner-real-device hotfix: a weak OCR value can become Registry
+    // lookup authority only after the user explicitly confirms this exact
+    // current value. The confirmation happens before any Registry lookup, so a
+    // Registry hit can never bootstrap its own authority.
+    if (explicitUserConfirmed && hasValidTaiwanTaxIdChecksum(seller)) {
+      return InvoiceRegistryCorroborationAuthorityDecision(
+        sellerIdentifier: seller,
+        authoritative: true,
+        source:
+            InvoiceRegistryCorroborationAuthoritySource.explicitUserCorrection,
+        reason: 'authoritative_explicit_user_confirmation',
       );
     }
 

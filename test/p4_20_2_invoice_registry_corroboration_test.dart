@@ -168,7 +168,7 @@ void main() {
     );
   });
 
-  test('explicit AI seller id requires acknowledgement and strict checksum', () {
+  test('explicit AI seller id requires acknowledgement, seller confirmation, and strict checksum', () {
     final beforeAck = policy.evaluateReviewSelection(
       sellerIdentifier: '30340553',
       localQrAuthority: false,
@@ -176,9 +176,25 @@ void main() {
       explicitlyAiSelected: true,
       aiComparisonAcknowledged: false,
       initialLocalSellerIdentifierSource: '',
+      explicitUserConfirmed: false,
     );
     expect(beforeAck.authoritative, isFalse);
     expect(beforeAck.reason, 'ai_selection_not_globally_acknowledged');
+
+    final beforeSellerConfirmation = policy.evaluateReviewSelection(
+      sellerIdentifier: '30340553',
+      localQrAuthority: false,
+      explicitlyCorrected: false,
+      explicitlyAiSelected: true,
+      aiComparisonAcknowledged: true,
+      initialLocalSellerIdentifierSource: '',
+      explicitUserConfirmed: false,
+    );
+    expect(beforeSellerConfirmation.authoritative, isFalse);
+    expect(
+      beforeSellerConfirmation.reason,
+      'ai_selection_requires_explicit_user_confirmation',
+    );
 
     final accepted = policy.evaluateReviewSelection(
       sellerIdentifier: '30340553',
@@ -187,6 +203,7 @@ void main() {
       explicitlyAiSelected: true,
       aiComparisonAcknowledged: true,
       initialLocalSellerIdentifierSource: '',
+      explicitUserConfirmed: true,
     );
     expect(accepted.authoritative, isTrue);
     expect(
@@ -195,18 +212,34 @@ void main() {
     );
 
     final invalidChecksum = policy.evaluateReviewSelection(
-      sellerIdentifier: '60744698',
+      sellerIdentifier: '60744699',
       localQrAuthority: false,
       explicitlyCorrected: false,
       explicitlyAiSelected: true,
       aiComparisonAcknowledged: true,
       initialLocalSellerIdentifierSource: '',
+      explicitUserConfirmed: true,
     );
     expect(invalidChecksum.authoritative, isFalse);
     expect(invalidChecksum.reason, 'ai_selection_failed_strict_checksum');
   });
 
-  test('manual correction uses strict non-QR seller-id validation', () {
+  test('manual correction requires explicit confirmation and strict non-QR seller-id validation', () {
+    final beforeConfirmation = policy.evaluateReviewSelection(
+      sellerIdentifier: '30340553',
+      localQrAuthority: false,
+      explicitlyCorrected: true,
+      explicitlyAiSelected: false,
+      aiComparisonAcknowledged: false,
+      initialLocalSellerIdentifierSource: '',
+      explicitUserConfirmed: false,
+    );
+    expect(beforeConfirmation.authoritative, isFalse);
+    expect(
+      beforeConfirmation.reason,
+      'manual_correction_requires_explicit_user_confirmation',
+    );
+
     final accepted = policy.evaluateReviewSelection(
       sellerIdentifier: '30340553',
       localQrAuthority: false,
@@ -214,6 +247,7 @@ void main() {
       explicitlyAiSelected: false,
       aiComparisonAcknowledged: false,
       initialLocalSellerIdentifierSource: '',
+      explicitUserConfirmed: true,
     );
     expect(accepted.authoritative, isTrue);
     expect(
@@ -222,14 +256,16 @@ void main() {
     );
 
     final rejected = policy.evaluateReviewSelection(
-      sellerIdentifier: '60744698',
+      sellerIdentifier: '60744699',
       localQrAuthority: false,
       explicitlyCorrected: true,
       explicitlyAiSelected: false,
       aiComparisonAcknowledged: false,
       initialLocalSellerIdentifierSource: '',
+      explicitUserConfirmed: true,
     );
     expect(rejected.authoritative, isFalse);
+    expect(rejected.reason, 'manual_correction_failed_strict_checksum');
   });
 
   test('capture coordinator freezes authority only and performs no registry I/O',

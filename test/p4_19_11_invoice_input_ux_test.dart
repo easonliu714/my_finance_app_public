@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/invoice/invoice_merchant_decision_composer.dart';
+import 'package:my_finance_app/features/invoice/invoice_merchant_decision_composer_card.dart';
 import 'package:my_finance_app/features/invoice/invoice_merchant_identity_review_service.dart';
 import 'package:my_finance_app/features/invoice/invoice_merchant_master_binding_service.dart';
 import 'package:my_finance_app/features/invoice/invoice_period_policy.dart';
@@ -57,7 +59,7 @@ void main() {
     final strictService = InvoiceMerchantMasterBindingService(store: strictStore);
     final strict = await strictService.bind(
       merchantName: '電子發票商家',
-      sellerTaxId: '60744698',
+      sellerTaxId: '60744699',
     );
     expect(strict.status, InvoiceMerchantMasterBindingStatus.invalidInput);
     expect(strictStore.rows, isEmpty);
@@ -66,11 +68,11 @@ void main() {
     final qrService = InvoiceMerchantMasterBindingService(store: qrStore);
     final qr = await qrService.bind(
       merchantName: '電子發票商家',
-      sellerTaxId: '60744698',
+      sellerTaxId: '60744699',
       trustedQrSellerIdentifier: true,
     );
     expect(qr.status, InvoiceMerchantMasterBindingStatus.created);
-    expect(qr.merchant?.sellerIdentifier, '60744698');
+    expect(qr.merchant?.sellerIdentifier, '60744699');
     expect(qr.message, contains('QR provenance'));
     expect(qrStore.rows, hasLength(1));
   });
@@ -205,7 +207,7 @@ void main() {
     }
   });
 
-  testWidgets('QR provenance is forwarded to merchant binding from review UI', (tester) async {
+  testWidgets('QR provenance is forwarded through explicit official binding from review UI', (tester) async {
     final store = _FakeMerchantSellerIdentityStore();
     const review = InvoiceReviewFormViewModel(
       title: '電子發票覆核',
@@ -248,19 +250,47 @@ void main() {
               merchantBindingService:
                   InvoiceMerchantMasterBindingService(store: store),
               merchantIdentityReviewService:
-                  const _NoopMerchantIdentityReviewPort(),
+                  const _OfficialMerchantIdentityReviewPort(),
             ),
           ),
         ),
       ),
     );
-
-    final bindButton =
-        find.byKey(InvoiceTransactionHandoffReviewCard.bindMerchantKey);
-    await tester.ensureVisible(bindButton);
-    await tester.tap(bindButton);
     await tester.pumpAndSettle();
-    expect(find.textContaining('來源：QR 原始資料'), findsOneWidget);
+
+    final officialSelect = find.byKey(
+      InvoiceMerchantDecisionComposerCard.selectKey(
+        InvoiceMerchantDecisionOption.officialRegistry,
+      ),
+    );
+    await tester.ensureVisible(officialSelect);
+    await tester.tap(officialSelect);
+    await tester.pumpAndSettle();
+
+    final secondConfirm = find.byKey(
+      InvoiceMerchantDecisionComposerCard.officialBindingConfirmKey,
+    );
+    expect(secondConfirm, findsOneWidget);
+    await tester.ensureVisible(secondConfirm);
+    await tester.tap(secondConfirm);
+    await tester.pumpAndSettle();
+
+    final bindingDialog = find.byType(AlertDialog);
+    expect(bindingDialog, findsOneWidget);
+    expect(
+      find.descendant(
+        of: bindingDialog,
+        matching: find.textContaining('官方登記名稱：7-ELEVEN 官方測試門市'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: bindingDialog,
+        matching: find.textContaining('賣方統編：60744698'),
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.text('確認綁定'));
     await tester.pumpAndSettle();
 
@@ -393,8 +423,8 @@ class _FakeMerchantSellerIdentityStore implements MerchantSellerIdentityStore {
   }
 }
 
-class _NoopMerchantIdentityReviewPort implements InvoiceMerchantIdentityReviewPort {
-  const _NoopMerchantIdentityReviewPort();
+class _OfficialMerchantIdentityReviewPort implements InvoiceMerchantIdentityReviewPort {
+  const _OfficialMerchantIdentityReviewPort();
 
   @override
   Future<InvoiceMerchantIdentityReviewContext> resolve({
@@ -403,12 +433,20 @@ class _NoopMerchantIdentityReviewPort implements InvoiceMerchantIdentityReviewPo
     required String literalMerchantText,
   }) async {
     return InvoiceMerchantIdentityReviewContext(
-      decision: const MerchantIdentityResolutionPolicy().evaluate(
-        sellerIdentifier: sellerIdentifier,
-        sellerIdentifierAuthoritative: sellerIdentifierAuthoritative,
+      decision: MerchantIdentityResolutionDecision(
         literalMerchantText: literalMerchantText,
+        sellerIdentifier: sellerIdentifier,
+        registryLookupAllowed: sellerIdentifierAuthoritative,
+        officialLegalNameSuggestion: '7-ELEVEN 官方測試門市',
+        formalMerchantName: '',
+        requiresBrandConfirmation: true,
+        reason: MerchantIdentityResolutionReason
+            .registryLegalNameNeedsBrandConfirmation,
       ),
-      registryStatus: BusinessRegistryLookupStatus.noInstalledRegistry,
+      registryStatus: BusinessRegistryLookupStatus.hit,
+      registryVersion: 'fixture-v1',
+      registryCoverage: 'validation_subset',
+      registrySourceDataDate: '2026-09-09',
     );
   }
 

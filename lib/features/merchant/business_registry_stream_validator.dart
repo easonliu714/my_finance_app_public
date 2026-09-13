@@ -12,6 +12,7 @@ import 'business_registry_stream_pack.dart';
 typedef BusinessRegistryValidationProgressCallback = void Function(
   BusinessRegistryValidationProgress progress,
 );
+typedef BusinessRegistryCooperativeYield = Future<void> Function();
 
 class BusinessRegistryValidationProgress {
   const BusinessRegistryValidationProgress({
@@ -43,7 +44,14 @@ class BusinessRegistryValidationProgress {
 /// Any failure removes only [artifact.file]. The active installed registry and
 /// user-owned merchant identity/history are intentionally outside this class.
 class BusinessRegistryStreamValidator {
-  const BusinessRegistryStreamValidator();
+  const BusinessRegistryStreamValidator({this.cooperativeYield});
+
+  static const int _cooperativeYieldEntityInterval = 4096;
+
+  /// Optional scheduling seam used by focused regressions to prove the exact
+  /// cooperative-yield cadence. Production uses a zero-duration event-loop
+  /// yield. Neither path may alter validation bytes, ordering or authority.
+  final BusinessRegistryCooperativeYield? cooperativeYield;
 
   Future<BusinessRegistryValidatedArtifact> validate({
     required BusinessRegistryDistributionManifest manifest,
@@ -193,6 +201,16 @@ class BusinessRegistryStreamValidator {
             if (entityCount > manifest.entityCount) {
               throw StateError('REGISTRY_VALIDATE_ENTITY_COUNT_EXCEEDED');
             }
+
+            // The SHA/stream pass performs gzip inflation, UTF-8 decoding,
+            // canonicalization and hashing on the Flutter isolate. Guarantee a
+            // bounded cooperative yield every fixed number of entities so
+            // pending foreground lifecycle/render work can run after Android
+            // background -> foreground resume. This does not alter validation
+            // order, canonical bytes, SHA input, size bounds or LKG semantics.
+            if (entityCount % _cooperativeYieldEntityInterval == 0) {
+              await _yieldToEventLoop();
+            }
         }
       }
 
@@ -232,6 +250,15 @@ class BusinessRegistryStreamValidator {
       await _deleteIfExists(artifact.file);
       rethrow;
     }
+  }
+
+  Future<void> _yieldToEventLoop() async {
+    final override = cooperativeYield;
+    if (override != null) {
+      await override();
+      return;
+    }
+    await Future<void>.delayed(Duration.zero);
   }
 
   static Future<void> _deleteIfExists(File file) async {
