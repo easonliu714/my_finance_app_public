@@ -70,7 +70,7 @@ void main() {
             recognitionSourceLabel: 'OCR',
             identityContext: null,
             selectedOption: null,
-            sellerTaxIdAuthoritative: false,
+            sellerTaxIdAuthoritative: true,
             provenanceReportService: service,
             onSelected: (_) {},
             onConfirmOfficialBinding: (_) {},
@@ -81,7 +81,7 @@ void main() {
   }
 
   testWidgets(
-    'exact sellerTaxId exposes read-only merchant identity provenance without changing authority',
+    'authoritative exact sellerTaxId exposes read-only merchant identity provenance',
     (tester) async {
       final service = _FakeProvenanceReportService(reportFor('31655572'));
 
