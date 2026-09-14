@@ -25,7 +25,8 @@ import 'invoice_merchant_master_binding_service.dart';
 /// P4.20.5 adds a read-only provenance panel below the decision composer. The
 /// panel never grants sellerTaxId authority and never mutates merchant or
 /// accounting state; it only exposes already-persisted effective-dated binding,
-/// legal-name, and branch/outlet history for the exact current sellerTaxId.
+/// legal-name, and branch/outlet history for the exact current authoritative
+/// sellerTaxId.
 class InvoiceMerchantDecisionReviewSection extends StatefulWidget {
   const InvoiceMerchantDecisionReviewSection({
     super.key,
@@ -116,7 +117,8 @@ class _InvoiceMerchantDecisionReviewSectionState
             onConfirmRecognitionBinding: recognitionBindingHandler,
             onConfirmOfficialBinding: widget.onConfirmOfficialBinding,
           ),
-          if (RegExp(r'^\d{8}$').hasMatch(normalizedTaxId)) ...<Widget>[
+          if (widget.sellerTaxIdAuthoritative &&
+              RegExp(r'^\d{8}$').hasMatch(normalizedTaxId)) ...<Widget>[
             const SizedBox(height: 12),
             _MerchantIdentityProvenancePanel(
               key: InvoiceMerchantDecisionReviewSection.provenancePanelKey,
@@ -189,19 +191,12 @@ class _InvoiceMerchantDecisionReviewSectionState
           ],
         ),
       );
-      // showDialog completes when the route is popped, before the closing route
-      // has necessarily finished its final teardown frame. Keep the controller
-      // alive through that frame so the departing TextField cannot reattach to
-      // an already-disposed ChangeNotifier.
       if (mounted) await WidgetsBinding.instance.endOfFrame;
     } finally {
       controller.dispose();
     }
     if (!mounted || merchantName == null || merchantName.trim().isEmpty) return;
 
-    // Fail closed again after the dialog: the widget may have rebuilt while the
-    // confirmation was open. A changed sellerTaxId or lost authority cannot use
-    // the old recognition selection to write MerchantBrand state.
     final latestTaxId = _digits(widget.sellerTaxId);
     if (!widget.sellerTaxIdAuthoritative || latestTaxId != selectedTaxId) return;
 
@@ -254,17 +249,7 @@ class _MerchantIdentityProvenancePanel extends StatelessWidget {
           return const Card(
             child: Padding(
               padding: EdgeInsets.all(16),
-              child: Row(
-                children: <Widget>[
-                  SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(child: Text('讀取商家身分歷史…')),
-                ],
-              ),
+              child: Text('讀取商家身分歷史…'),
             ),
           );
         }
