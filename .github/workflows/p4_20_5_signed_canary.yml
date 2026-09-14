@@ -9,6 +9,7 @@ on:
       - 'lib/core/database/**'
       - 'test/p4_20_5_**'
       - 'test/p4_20_4_**'
+      - 'test/p4_12_38_exact_head_test.dart'
       - 'lib/app_build_metadata.dart'
       - 'pubspec.yaml'
       - 'pubspec.lock'
@@ -62,6 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          flutter test test/p4_12_38_exact_head_test.dart
           flutter test test/p4_20_5_merchant_identity_effective_dated_rebinding_test.dart
           flutter test test/p4_20_5_merchant_identity_backup_restore_test.dart
           flutter test test/p4_20_5_merchant_identity_proposal_learning_test.dart
