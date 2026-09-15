@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../merchant/merchant_identity_provenance_report_service.dart';
 import 'invoice_merchant_decision_composer.dart';
 import 'invoice_merchant_decision_composer_card.dart';
 import 'invoice_merchant_decision_integration.dart';
@@ -20,6 +21,12 @@ import 'invoice_merchant_master_binding_service.dart';
 /// the consumer-facing MerchantBrand name, writes only through
 /// [InvoiceMerchantMasterBindingService], then reports the resulting confirmed
 /// MerchantBrand back through [onSelected]. It never writes a formal transaction.
+///
+/// P4.20.5 adds a read-only provenance panel below the decision composer. The
+/// panel never grants sellerTaxId authority and never mutates merchant or
+/// accounting state; it only exposes already-persisted effective-dated binding,
+/// legal-name, and branch/outlet history for the exact current authoritative
+/// sellerTaxId.
 class InvoiceMerchantDecisionReviewSection extends StatefulWidget {
   const InvoiceMerchantDecisionReviewSection({
     super.key,
@@ -35,9 +42,13 @@ class InvoiceMerchantDecisionReviewSection extends StatefulWidget {
     this.bindingBusy = false,
     this.integration = const InvoiceMerchantDecisionIntegration(),
     this.merchantBindingService = const InvoiceMerchantMasterBindingService(),
+    this.provenanceReportService =
+        const MerchantIdentityProvenanceReportService(),
   });
 
   static const Key sectionKey = Key('invoice_merchant_decision_review_section');
+  static const Key provenancePanelKey =
+      Key('invoice_merchant_identity_provenance_panel');
   static const Key recognitionBindingDialogKey =
       Key('invoice_merchant_decision_recognition_binding_dialog');
   static const Key recognitionMerchantNameKey =
@@ -59,6 +70,7 @@ class InvoiceMerchantDecisionReviewSection extends StatefulWidget {
   final bool bindingBusy;
   final InvoiceMerchantDecisionIntegration integration;
   final InvoiceMerchantMasterBindingService merchantBindingService;
+  final MerchantIdentityProvenanceReportService provenanceReportService;
 
   @override
   State<InvoiceMerchantDecisionReviewSection> createState() =>
@@ -88,18 +100,33 @@ class _InvoiceMerchantDecisionReviewSectionState
     final recognitionBindingHandler = widget.sellerTaxIdAuthoritative
         ? widget.onConfirmRecognitionBinding ?? _confirmRecognitionBinding
         : null;
+    final normalizedTaxId = _digits(widget.sellerTaxId);
 
     return KeyedSubtree(
       key: InvoiceMerchantDecisionReviewSection.sectionKey,
-      child: InvoiceMerchantDecisionComposerCard(
-        state: state,
-        bindingBusy: busy,
-        onSelected: (option) {
-          final selection = base.select(option).selection;
-          if (selection != null) widget.onSelected(selection);
-        },
-        onConfirmRecognitionBinding: recognitionBindingHandler,
-        onConfirmOfficialBinding: widget.onConfirmOfficialBinding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          InvoiceMerchantDecisionComposerCard(
+            state: state,
+            bindingBusy: busy,
+            onSelected: (option) {
+              final selection = base.select(option).selection;
+              if (selection != null) widget.onSelected(selection);
+            },
+            onConfirmRecognitionBinding: recognitionBindingHandler,
+            onConfirmOfficialBinding: widget.onConfirmOfficialBinding,
+          ),
+          if (widget.sellerTaxIdAuthoritative &&
+              RegExp(r'^\d{8}$').hasMatch(normalizedTaxId)) ...<Widget>[
+            const SizedBox(height: 12),
+            _MerchantIdentityProvenancePanel(
+              key: InvoiceMerchantDecisionReviewSection.provenancePanelKey,
+              sellerTaxId: normalizedTaxId,
+              reportService: widget.provenanceReportService,
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -164,19 +191,12 @@ class _InvoiceMerchantDecisionReviewSectionState
           ],
         ),
       );
-      // showDialog completes when the route is popped, before the closing route
-      // has necessarily finished its final teardown frame. Keep the controller
-      // alive through that frame so the departing TextField cannot reattach to
-      // an already-disposed ChangeNotifier.
       if (mounted) await WidgetsBinding.instance.endOfFrame;
     } finally {
       controller.dispose();
     }
     if (!mounted || merchantName == null || merchantName.trim().isEmpty) return;
 
-    // Fail closed again after the dialog: the widget may have rebuilt while the
-    // confirmation was open. A changed sellerTaxId or lost authority cannot use
-    // the old recognition selection to write MerchantBrand state.
     final latestTaxId = _digits(widget.sellerTaxId);
     if (!widget.sellerTaxIdAuthoritative || latestTaxId != selectedTaxId) return;
 
@@ -208,4 +228,103 @@ class _InvoiceMerchantDecisionReviewSectionState
 
   static String _digits(String value) =>
       value.replaceAll(RegExp(r'[^0-9]'), '');
+}
+
+class _MerchantIdentityProvenancePanel extends StatelessWidget {
+  const _MerchantIdentityProvenancePanel({
+    super.key,
+    required this.sellerTaxId,
+    required this.reportService,
+  });
+
+  final String sellerTaxId;
+  final MerchantIdentityProvenanceReportService reportService;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<MerchantIdentityProvenanceReport>(
+      future: reportService.buildForSellerIdentifier(sellerTaxId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('讀取商家身分歷史…'),
+            ),
+          );
+        }
+
+        if (snapshot.hasError || !snapshot.hasData) {
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                '商家身分歷史目前無法讀取；不影響本次發票覆核與記帳。',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          );
+        }
+
+        final report = snapshot.data!;
+        final current = report.currentIdentity;
+        return Card(
+          child: ExpansionTile(
+            title: const Text('商家身分歷史與來源'),
+            subtitle: Text(
+              current == null
+                  ? '統編 $sellerTaxId：尚無已確認 MerchantBrand'
+                  : '目前 MerchantBrand：${current.displayName}',
+            ),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('賣方統編：$sellerTaxId'),
+              const SizedBox(height: 8),
+              Text('MerchantBrand 綁定歷史：${report.bindingHistory.length} 筆'),
+              Text('官方法定名稱歷史：${report.legalNameHistory.length} 筆'),
+              Text('分店／營業據點歷史：${report.branchOutletHistory.length} 筆'),
+              if (report.bindingHistory.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 12),
+                const Text(
+                  'MerchantBrand 綁定',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                for (final period in report.bindingHistory)
+                  Text(
+                    '${period.merchantBrandId} · ${period.evidenceSource} · '
+                    '${period.isActive ? '目前有效' : '歷史'}',
+                  ),
+              ],
+              if (report.legalNameHistory.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 12),
+                const Text(
+                  '官方法定名稱',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                for (final item in report.legalNameHistory)
+                  Text('${item.legalName} · ${item.sourceReference}'),
+              ],
+              if (report.branchOutletHistory.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 12),
+                const Text(
+                  '分店／營業據點',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                for (final item in report.branchOutletHistory)
+                  Text(
+                    '${item.outletLabel.isEmpty ? item.officialBranchIdentifier : item.outletLabel}'
+                    ' · ${item.sourceReference}',
+                  ),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                '此區僅顯示既有歷史與來源，不會因 Registry 命中或辨識結果自動升格、綁定商家或建立正式交易。',
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
