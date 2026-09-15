@@ -25,5 +25,30 @@ void main() {
       expect(prompt, contains('不得自行用 quantity × unitPrice 補值'));
       expect(prompt, contains('不得因此建立交易、商家、分類'));
     });
+
+    test('schema wiring is additive and never mutates legacy properties', () {
+      final legacy = <String, Object?>{
+        'productName': <String, Object?>{'type': 'string'},
+      };
+      final wired = ProductMultiItemTransportContract.withOptionalLinesProperty(
+        legacy,
+      );
+
+      expect(legacy.containsKey('lines'), isFalse);
+      expect(wired['productName'], same(legacy['productName']));
+      expect(
+        wired['lines'],
+        same(ProductMultiItemTransportContract.responseSchemaProperty),
+      );
+    });
+
+    test('prompt wiring preserves legacy instructions before addendum', () {
+      const legacy = 'legacy single-item review instructions';
+      final wired = ProductMultiItemTransportContract.withPromptAddendum(legacy);
+
+      expect(wired, startsWith(legacy));
+      expect(wired, contains(ProductMultiItemTransportContract.promptAddendum));
+      expect(wired, contains('不得因此建立交易、商家、分類'));
+    });
   });
 }
