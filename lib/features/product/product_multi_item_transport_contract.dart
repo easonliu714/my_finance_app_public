@@ -45,4 +45,22 @@ abstract final class ProductMultiItemTransportContract {
       ],
     },
   };
+
+  /// Returns a new properties map with the optional multi-item evidence field.
+  /// The caller's legacy schema is never mutated, so existing single-item
+  /// authority cannot be changed as a side effect of enabling this transport.
+  static Map<String, Object?> withOptionalLinesProperty(
+    Map<String, Object?> legacyProperties,
+  ) {
+    return <String, Object?>{
+      ...legacyProperties,
+      fieldName: responseSchemaProperty,
+    };
+  }
+
+  /// Appends the frozen review-only instructions without rewriting the legacy
+  /// prompt. This keeps multi-item transport additive and auditable.
+  static String withPromptAddendum(String legacyPrompt) {
+    return '$legacyPrompt\n$promptAddendum';
+  }
 }
