@@ -15,7 +15,7 @@ void main() {
       final item = schema['items']! as Map<String, Object?>;
       expect(
         item['required'],
-        <String>['name', 'quantity', 'unitPrice', 'subtotal', 'rawEvidence'],
+        equals(<String>['name', 'quantity', 'unitPrice', 'subtotal', 'rawEvidence']),
       );
     });
 
