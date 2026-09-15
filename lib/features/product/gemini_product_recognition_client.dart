@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import 'gemini_product_recognition_request_contract.dart';
 import 'product_recognition_candidate.dart';
 
 abstract interface class GeminiProductRecognitionPort {
@@ -119,7 +120,8 @@ class GeminiProductRecognitionClient implements GeminiProductRecognitionPort {
           'thinkingLevel': 'low',
         },
       'responseMimeType': 'application/json',
-      'responseJsonSchema': _responseSchema,
+      'responseJsonSchema':
+          GeminiProductRecognitionRequestContract.responseSchema(_responseSchema),
     };
     final requestBody = <String, Object?>{
       'contents': <Object?>[
@@ -132,7 +134,9 @@ class GeminiProductRecognitionClient implements GeminiProductRecognitionPort {
                 'data': base64Encode(imageBytes),
               },
             },
-            <String, Object?>{'text': _prompt},
+            <String, Object?>{
+              'text': GeminiProductRecognitionRequestContract.prompt(_prompt),
+            },
           ],
         },
       ],
