@@ -28,7 +28,7 @@ void main() {
           GeminiProductRecognitionCandidatePayload.fromCandidateJson(source);
 
       expect(payload.legacyCandidate.productName, '牛奶');
-      expect(payload.reviewResult.legacyCandidate.productName, '牛奶');
+      expect(payload.reviewResult.candidate.productName, '牛奶');
       expect(payload.reviewResult.multiItemProposal, isNotNull);
       expect(payload.reviewResult.requiresUserReview, isTrue);
       expect(payload.reviewResult.canCreateFormalRecord, isFalse);
@@ -53,7 +53,7 @@ void main() {
       );
 
       expect(payload.legacyCandidate.productName, '咖啡');
-      expect(payload.reviewResult.legacyCandidate.productName, '咖啡');
+      expect(payload.reviewResult.candidate.productName, '咖啡');
       expect(payload.reviewResult.multiItemProposal, isNull);
       expect(payload.reviewResult.requiresUserReview, isTrue);
       expect(payload.reviewResult.canCreateFormalRecord, isFalse);
