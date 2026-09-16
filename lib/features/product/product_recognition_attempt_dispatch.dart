@@ -32,7 +32,10 @@ Future<ProductRecognitionAttemptResult> dispatchProductRecognitionAttempt({
   required String mimeType,
 }) async {
   if (client is GeminiProductRecognitionReviewPort) {
-    final reviewResult = await client.recognizeForReview(
+    // Keep the capability view explicit instead of relying on intersection-type
+    // promotion across the two independent interface contracts.
+    final reviewClient = client as GeminiProductRecognitionReviewPort;
+    final reviewResult = await reviewClient.recognizeForReview(
       apiKey: apiKey,
       model: model,
       imageBytes: imageBytes,
