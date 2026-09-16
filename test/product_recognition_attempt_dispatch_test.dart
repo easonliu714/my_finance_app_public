@@ -96,9 +96,9 @@ class _LegacyOnlyClient implements GeminiProductRecognitionPort {
 
 ProductRecognitionCandidate _candidate(String productName) {
   return ProductRecognitionCandidate.fromJson(<String, Object?>{
-    'product_name': productName,
+    'productName': productName,
     'quantity': 1,
-    'unit_price': 10,
-    'total_amount': 10,
+    'unitPrice': 10,
+    'totalAmount': 10,
   });
 }
