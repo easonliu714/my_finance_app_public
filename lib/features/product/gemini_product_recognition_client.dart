@@ -4,8 +4,11 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import 'gemini_product_recognition_candidate_payload.dart';
 import 'gemini_product_recognition_request_contract.dart';
+import 'gemini_product_recognition_review_port.dart';
 import 'product_recognition_candidate.dart';
+import 'product_recognition_review_result.dart';
 
 abstract interface class GeminiProductRecognitionPort {
   Future<ProductRecognitionCandidate> recognize({
@@ -55,7 +58,8 @@ class GeminiProductRecognitionException implements Exception {
   String toString() => message;
 }
 
-class GeminiProductRecognitionClient implements GeminiProductRecognitionPort {
+class GeminiProductRecognitionClient
+    implements GeminiProductRecognitionPort, GeminiProductRecognitionReviewPort {
   GeminiProductRecognitionClient({
     http.Client? client,
     this.timeout = const Duration(seconds: 75),
@@ -74,6 +78,37 @@ class GeminiProductRecognitionClient implements GeminiProductRecognitionPort {
 
   @override
   Future<ProductRecognitionCandidate> recognize({
+    required String apiKey,
+    required String model,
+    required Uint8List imageBytes,
+    required String mimeType,
+  }) async {
+    final payload = await _recognizePayload(
+      apiKey: apiKey,
+      model: model,
+      imageBytes: imageBytes,
+      mimeType: mimeType,
+    );
+    return payload.legacyCandidate;
+  }
+
+  @override
+  Future<ProductRecognitionReviewResult> recognizeForReview({
+    required String apiKey,
+    required String model,
+    required Uint8List imageBytes,
+    required String mimeType,
+  }) async {
+    final payload = await _recognizePayload(
+      apiKey: apiKey,
+      model: model,
+      imageBytes: imageBytes,
+      mimeType: mimeType,
+    );
+    return payload.reviewResult;
+  }
+
+  Future<GeminiProductRecognitionCandidatePayload> _recognizePayload({
     required String apiKey,
     required String model,
     required Uint8List imageBytes,
@@ -175,14 +210,15 @@ class GeminiProductRecognitionClient implements GeminiProductRecognitionPort {
     final decoded = _decodeObject(response.body);
     final text = _candidateText(decoded);
     final candidateJson = _decodeObject(text);
-    final candidate = ProductRecognitionCandidate.fromJson(candidateJson);
-    if (!candidate.hasUsefulCandidate) {
+    final payload =
+        GeminiProductRecognitionCandidatePayload.fromCandidateJson(candidateJson);
+    if (!payload.legacyCandidate.hasUsefulCandidate) {
       throw const GeminiProductRecognitionException(
         GeminiProductRecognitionFailureKind.malformedResponse,
         'Gemini 未回傳可供人工覆核的商品欄位。',
       );
     }
-    return candidate;
+    return payload;
   }
 
   GeminiProductRecognitionException _httpFailure(
