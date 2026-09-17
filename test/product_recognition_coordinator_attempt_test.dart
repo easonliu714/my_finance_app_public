@@ -31,7 +31,7 @@ class _ReviewClient
     required String mimeType,
   }) async {
     reviewCalls++;
-    return ProductRecognitionReviewResult(
+    return const ProductRecognitionReviewResult(
       candidate: ProductRecognitionCandidate(productName: '測試商品'),
     );
   }
