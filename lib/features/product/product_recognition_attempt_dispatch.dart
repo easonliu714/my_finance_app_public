@@ -4,6 +4,7 @@ import 'gemini_product_recognition_client.dart';
 import 'gemini_product_recognition_review_port.dart';
 import 'product_multi_item_review_proposal.dart';
 import 'product_recognition_candidate.dart';
+import 'product_recognition_execution_review_evidence.dart';
 import 'product_recognition_review_result.dart';
 
 /// One physical product-recognition attempt.
@@ -28,6 +29,15 @@ class ProductRecognitionAttemptResult {
   /// invoke Gemini a second time.
   ProductMultiItemReviewProposal? get multiItemProposal =>
       reviewResult?.multiItemProposal;
+
+  /// Proposal-only execution evidence derived from this exact physical attempt.
+  ///
+  /// Legacy-only attempts remain null. The conversion cannot issue another
+  /// request and cannot authorize a formal accounting write.
+  ProductRecognitionExecutionReviewEvidence? get executionReviewEvidence =>
+      ProductRecognitionExecutionReviewEvidence.fromNullableReviewResult(
+        reviewResult,
+      );
 
   bool get hasReviewEvidence => reviewResult != null;
   bool get requiresUserReview => true;
