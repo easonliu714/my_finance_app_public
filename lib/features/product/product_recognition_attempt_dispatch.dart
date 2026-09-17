@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'gemini_product_recognition_client.dart';
 import 'gemini_product_recognition_review_port.dart';
+import 'product_multi_item_review_proposal.dart';
 import 'product_recognition_candidate.dart';
 import 'product_recognition_review_result.dart';
 
@@ -20,6 +21,15 @@ class ProductRecognitionAttemptResult {
   final ProductRecognitionCandidate candidate;
   final ProductRecognitionReviewResult? reviewResult;
 
+  /// Optional structured evidence from the same physical recognition request.
+  ///
+  /// Keeping this projection on the attempt result gives the coordinator one
+  /// additive seam for review evidence without allowing presentation code to
+  /// invoke Gemini a second time.
+  ProductMultiItemReviewProposal? get multiItemProposal =>
+      reviewResult?.multiItemProposal;
+
+  bool get hasReviewEvidence => reviewResult != null;
   bool get requiresUserReview => true;
   bool get canCreateFormalRecord => false;
 }
