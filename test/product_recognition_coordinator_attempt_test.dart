@@ -7,18 +7,29 @@ import 'package:my_finance_app/features/product/product_recognition_candidate.da
 import 'package:my_finance_app/features/product/product_recognition_coordinator_attempt.dart';
 import 'package:my_finance_app/features/product/product_recognition_review_result.dart';
 
-class _ReviewClient implements GeminiProductRecognitionPort, GeminiProductRecognitionReviewPort {
+class _ReviewClient
+    implements GeminiProductRecognitionPort, GeminiProductRecognitionReviewPort {
   int legacyCalls = 0;
   int reviewCalls = 0;
 
   @override
-  Future<ProductRecognitionCandidate> recognize({required String apiKey, required String model, required Uint8List imageBytes, required String mimeType}) async {
+  Future<ProductRecognitionCandidate> recognize({
+    required String apiKey,
+    required String model,
+    required Uint8List imageBytes,
+    required String mimeType,
+  }) async {
     legacyCalls++;
     throw StateError('review-capable client must not use legacy request');
   }
 
   @override
-  Future<ProductRecognitionReviewResult> recognizeForReview({required String apiKey, required String model, required Uint8List imageBytes, required String mimeType}) async {
+  Future<ProductRecognitionReviewResult> recognizeForReview({
+    required String apiKey,
+    required String model,
+    required Uint8List imageBytes,
+    required String mimeType,
+  }) async {
     reviewCalls++;
     return ProductRecognitionReviewResult(
       candidate: ProductRecognitionCandidate(productName: '測試商品'),
@@ -27,7 +38,8 @@ class _ReviewClient implements GeminiProductRecognitionPort, GeminiProductRecogn
 }
 
 void main() {
-  test('coordinator attempt keeps review-capable recognition single-request', () async {
+  test('coordinator attempt keeps review-capable recognition single-request',
+      () async {
     final client = _ReviewClient();
     final result = await dispatchProductRecognitionCoordinatorAttempt(
       client: client,
