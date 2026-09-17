@@ -38,21 +38,23 @@ class _ReviewClient
 }
 
 void main() {
-  test('coordinator attempt keeps review-capable recognition single-request',
-      () async {
-    final client = _ReviewClient();
-    final result = await dispatchProductRecognitionCoordinatorAttempt(
-      client: client,
-      apiKey: 'test-key',
-      model: 'test-model',
-      imageBytes: Uint8List.fromList(<int>[1]),
-      mimeType: 'image/jpeg',
-    );
+  test(
+    'coordinator attempt keeps review-capable recognition single-request',
+    () async {
+      final client = _ReviewClient();
+      final result = await dispatchProductRecognitionCoordinatorAttempt(
+        client: client,
+        apiKey: 'test-key',
+        model: 'test-model',
+        imageBytes: Uint8List.fromList(<int>[1]),
+        mimeType: 'image/jpeg',
+      );
 
-    expect(client.reviewCalls, 1);
-    expect(client.legacyCalls, 0);
-    expect(result.reviewEvidence, isNotNull);
-    expect(result.requiresUserReview, isTrue);
-    expect(result.canCreateFormalRecord, isFalse);
-  });
+      expect(client.reviewCalls, 1);
+      expect(client.legacyCalls, 0);
+      expect(result.reviewEvidence, isNotNull);
+      expect(result.requiresUserReview, isTrue);
+      expect(result.canCreateFormalRecord, isFalse);
+    },
+  );
 }
