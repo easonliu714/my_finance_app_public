@@ -21,6 +21,19 @@ class ProductRecognitionExecutionReviewEvidence {
     );
   }
 
+  /// Converts nullable same-request review evidence at the coordinator seam.
+  ///
+  /// Failed or legacy-only attempts remain null; this helper never synthesizes
+  /// evidence and has no network or formal-write capability.
+  static ProductRecognitionExecutionReviewEvidence? fromNullableReviewResult(
+    ProductRecognitionReviewResult? reviewResult,
+  ) {
+    if (reviewResult == null) return null;
+    return ProductRecognitionExecutionReviewEvidence.fromReviewResult(
+      reviewResult,
+    );
+  }
+
   final ProductRecognitionReviewResult reviewResult;
 
   ProductMultiItemReviewProposal? get multiItemProposal =>
