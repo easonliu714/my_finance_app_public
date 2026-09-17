@@ -25,6 +25,13 @@ void main() {
       expect(result.reviewResult, isNotNull);
       expect(result.candidate.productName, 'review candidate');
       expect(result.reviewResult!.candidate, same(result.candidate));
+      expect(result.executionReviewEvidence, isNotNull);
+      expect(
+        result.executionReviewEvidence!.reviewResult,
+        same(result.reviewResult),
+      );
+      expect(result.executionReviewEvidence!.requiresUserReview, isTrue);
+      expect(result.executionReviewEvidence!.canCreateFormalRecord, isFalse);
       expect(result.requiresUserReview, isTrue);
       expect(result.canCreateFormalRecord, isFalse);
     });
@@ -42,6 +49,7 @@ void main() {
 
       expect(client.legacyCalls, 1);
       expect(result.reviewResult, isNull);
+      expect(result.executionReviewEvidence, isNull);
       expect(result.candidate.productName, 'legacy candidate');
       expect(result.requiresUserReview, isTrue);
       expect(result.canCreateFormalRecord, isFalse);
