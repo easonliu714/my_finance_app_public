@@ -31,12 +31,12 @@ class ProductRecognitionCoordinatorAttempt {
 /// `recognize` request.
 Future<ProductRecognitionCoordinatorAttempt>
     dispatchProductRecognitionCoordinatorAttempt({
-  required GeminiProductRecognitionPort client,
-  required String apiKey,
-  required String model,
-  required Uint8List imageBytes,
-  required String mimeType,
-}) async {
+      required GeminiProductRecognitionPort client,
+      required String apiKey,
+      required String model,
+      required Uint8List imageBytes,
+      required String mimeType,
+    }) async {
   final attempt = await dispatchProductRecognitionAttempt(
     client: client,
     apiKey: apiKey,
