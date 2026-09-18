@@ -25,6 +25,29 @@ void main() {
       expect(capturePage, isNot(contains('GeminiProductRecognitionReviewPort')));
     });
 
+    test('compact multi-item review stays presentation-only', () {
+      final card = File(
+        'lib/features/product/product_multi_item_review_proposal_card.dart',
+      ).readAsStringSync();
+
+      expect(card, contains('class ProductMultiItemReviewProposalCard'));
+      expect(card, contains('required this.proposal'));
+      expect(card, contains('不會自動建立正式記帳'));
+
+      // The compact review card may only render already-produced evidence.
+      // It must never grow a second inference, registry/network, repository,
+      // merchant-binding, or formal transaction-write seam.
+      expect(card, isNot(contains('recognize(')));
+      expect(card, isNot(contains('recognizeForReview(')));
+      expect(card, isNot(contains('GeminiProductRecognition')));
+      expect(card, isNot(contains('Repository')));
+      expect(card, isNot(contains('GCIS')));
+      expect(card, isNot(contains('Merchant')));
+      expect(card, isNot(contains('TransactionEntry')));
+      expect(card, isNot(contains('onSave')));
+      expect(card, isNot(contains('onBind')));
+    });
+
     test('execution remains explicit-review only and cannot authorize writes', () {
       final coordinator = File(
         'lib/features/product/gemini_product_recognition_coordinator.dart',
