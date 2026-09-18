@@ -6,7 +6,7 @@ import 'package:my_finance_app/features/product/product_recognition_candidate.da
 
 void main() {
   const sourceCandidate = ProductRecognitionCandidate(
-    name: '購物明細',
+    productName: '購物明細',
     totalAmount: 75,
   );
 
