@@ -24,6 +24,7 @@ import 'gemini_product_recognition_client.dart';
 import 'gemini_product_recognition_coordinator.dart';
 import 'product_manual_review_card.dart';
 import 'product_recognition_candidate.dart';
+import 'product_recognition_execution_review_proposal_card.dart';
 import 'product_transaction_handoff.dart';
 
 class ProductCapturePage extends StatefulWidget {
@@ -292,6 +293,11 @@ class _ProductCapturePageState extends State<ProductCapturePage> {
                 title: const Text('AI 辨識未完成'),
                 subtitle: Text(_recognitionError!),
               ),
+            ),
+          ],
+          if (!_recognitionBusy) ...[
+            ProductRecognitionExecutionReviewProposalCard(
+              evidence: execution?.reviewEvidence,
             ),
           ],
           if (!_recognitionBusy && execution?.candidate != null) ...[
