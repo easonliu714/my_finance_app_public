@@ -10,27 +10,47 @@ void main() {
     final dispatcher = File(
       'lib/features/product/product_recognition_attempt_dispatch.dart',
     ).readAsStringSync();
+    final coordinatorAttempt = File(
+      'lib/features/product/product_recognition_coordinator_attempt.dart',
+    ).readAsStringSync();
     final evidenceCarrier = File(
       'lib/features/product/product_recognition_execution_review_evidence.dart',
     ).readAsStringSync();
 
-    // Production UI/orchestration must converge on the governed dispatcher.
-    expect(dispatcher, contains('dispatchProductRecognitionAttempt'));
-    expect(dispatcher, contains('recognizeForReview'));
-    expect(dispatcher, contains('canCreateFormalRecord => false'));
+    // Production coordinator must have no direct legacy physical request seam.
+    // Exactly one governed coordinator-attempt dispatch owns the physical call.
+    expect(RegExp(r'client\.recognize\(').allMatches(source).length, 0);
+    expect(
+      RegExp(r'dispatchProductRecognitionCoordinatorAttempt\(')
+          .allMatches(source)
+          .length,
+      1,
+    );
+    expect(source, contains('reviewEvidence: governedAttempt.reviewEvidence'));
+    expect(source, contains('ProductRecognitionExecutionReviewEvidence? reviewEvidence'));
 
-    // Before the bounded coordinator mutation lands there is exactly one
-    // legacy physical seam. The dispatcher owns both capability branches and
-    // the evidence carrier must not introduce any network invocation API.
-    expect(RegExp(r'client\.recognize\(').allMatches(source).length, 1);
-    expect(RegExp(r'recognizeForReview\(').allMatches(source).length, 0);
-    expect(RegExp(r'reviewClient\.recognizeForReview\(').allMatches(dispatcher).length, 1);
+    // The lower dispatcher remains the sole capability split: review-capable
+    // clients use one recognizeForReview request; legacy clients use one
+    // recognize request. Neither path is allowed to become a double request.
+    expect(dispatcher, contains('dispatchProductRecognitionAttempt'));
+    expect(dispatcher, contains('canCreateFormalRecord => false'));
+    expect(
+      RegExp(r'reviewClient\.recognizeForReview\(').allMatches(dispatcher).length,
+      1,
+    );
     expect(RegExp(r'client\.recognize\(').allMatches(dispatcher).length, 1);
+    expect(
+      RegExp(r'dispatchProductRecognitionAttempt\(')
+          .allMatches(coordinatorAttempt)
+          .length,
+      1,
+    );
+
+    // Evidence is proposal-only and cannot introduce a second network seam or
+    // authorize a formal accounting write.
     expect(evidenceCarrier, isNot(contains('recognizeForReview(')));
     expect(evidenceCarrier, isNot(contains('client.recognize(')));
     expect(evidenceCarrier, contains('canCreateFormalRecord => false'));
-
-    // The coordinator itself must never authorize a formal write.
     expect(source, contains('canCreateFormalRecord => false'));
   });
 }
