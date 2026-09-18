@@ -14,7 +14,11 @@ void main() {
 
       expect(coordinator, contains('class ProductRecognitionCoordinator'));
       expect(coordinator, contains('final GeminiProductRecognitionPort client;'));
-      expect(coordinator, contains('await client.recognize('));
+      expect(
+        coordinator,
+        contains('await dispatchProductRecognitionCoordinatorAttempt('),
+      );
+      expect(coordinator, isNot(contains('await client.recognize(')));
 
       // ProductCapturePage must not create a second Gemini inference path.
       expect(capturePage, isNot(contains('.recognizeForReview(')));
