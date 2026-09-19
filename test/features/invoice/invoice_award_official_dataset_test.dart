@@ -47,7 +47,7 @@ void main() {
     final result = matcher.match(
       dataset: dataset(),
       candidate: const OfficialInvoiceAwardCandidate(
-        invoiceNumber: '99121106',
+        invoiceNumber: '99999106',
         period: period,
         cloudExclusiveEligible: false,
       ),
