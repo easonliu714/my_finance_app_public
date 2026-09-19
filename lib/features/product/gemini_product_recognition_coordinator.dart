@@ -11,13 +11,11 @@ import '../recognition_ai/gemini_key_group_router.dart';
 import '../recognition_ai/recognition_ai_contract.dart';
 import 'gemini_product_recognition_client.dart';
 import 'product_recognition_candidate.dart';
+import 'product_recognition_coordinator_attempt.dart';
+import 'product_recognition_execution_review_evidence.dart';
 
 class ProductRecognitionImagePayload {
-  const ProductRecognitionImagePayload({
-    required this.bytes,
-    required this.mimeType,
-  });
-
+  const ProductRecognitionImagePayload({required this.bytes, required this.mimeType});
   final Uint8List bytes;
   final String mimeType;
 }
@@ -26,24 +24,16 @@ abstract interface class ProductRecognitionImageLoader {
   Future<ProductRecognitionImagePayload> load(String localReference);
 }
 
-class FileProductRecognitionImageLoader
-    implements ProductRecognitionImageLoader {
-  const FileProductRecognitionImageLoader({
-    this.maximumBytes = 8 * 1024 * 1024,
-  });
-
+class FileProductRecognitionImageLoader implements ProductRecognitionImageLoader {
+  const FileProductRecognitionImageLoader({this.maximumBytes = 8 * 1024 * 1024});
   final int maximumBytes;
 
   @override
   Future<ProductRecognitionImagePayload> load(String localReference) async {
     final reference = localReference.trim();
-    if (reference.isEmpty) {
-      throw const FileSystemException('商品影像參照為空白');
-    }
+    if (reference.isEmpty) throw const FileSystemException('商品影像參照為空白');
     final file = File(reference);
-    if (!await file.exists()) {
-      throw const FileSystemException('商品影像檔案不存在');
-    }
+    if (!await file.exists()) throw const FileSystemException('商品影像檔案不存在');
     final length = await file.length();
     if (length <= 0 || length > maximumBytes) {
       throw const FileSystemException('商品影像大小不符合安全邊界');
@@ -55,19 +45,11 @@ class FileProductRecognitionImageLoader
       'webp' => 'image/webp',
       _ => throw const FileSystemException('商品影像格式不支援'),
     };
-    return ProductRecognitionImagePayload(
-      bytes: await file.readAsBytes(),
-      mimeType: mimeType,
-    );
+    return ProductRecognitionImagePayload(bytes: await file.readAsBytes(), mimeType: mimeType);
   }
 }
 
-enum ProductRecognitionExecutionStatus {
-  missingApiKey,
-  invalidImage,
-  success,
-  failed,
-}
+enum ProductRecognitionExecutionStatus { missingApiKey, invalidImage, success, failed }
 
 class ProductRecognitionAttemptSummary {
   const ProductRecognitionAttemptSummary({
@@ -77,13 +59,11 @@ class ProductRecognitionAttemptSummary {
     required this.success,
     required this.message,
   });
-
   final int ordinal;
   final String maskedKey;
   final String model;
   final bool success;
   final String message;
-
   Map<String, Object?> toSafeJson() => <String, Object?>{
         'ordinal': ordinal,
         'masked_key': maskedKey,
@@ -99,14 +79,15 @@ class ProductRecognitionExecution {
     required this.message,
     required this.model,
     this.candidate,
+    this.reviewEvidence,
     this.attempts = const <ProductRecognitionAttemptSummary>[],
     this.sessionContext,
   });
-
   final ProductRecognitionExecutionStatus status;
   final String message;
   final String model;
   final ProductRecognitionCandidate? candidate;
+  final ProductRecognitionExecutionReviewEvidence? reviewEvidence;
   final List<ProductRecognitionAttemptSummary> attempts;
   final RecognitionSessionContext? sessionContext;
 
@@ -123,12 +104,10 @@ class ProductRecognitionExecution {
         'usedNetwork': usedNetwork,
         'requiresUserReview': requiresUserReview,
         'canCreateFormalRecord': canCreateFormalRecord,
-        'attempts': <Object?>[
-          for (final attempt in attempts) attempt.toSafeJson(),
-        ],
+        'attempts': <Object?>[for (final attempt in attempts) attempt.toSafeJson()],
         if (candidate != null) 'candidate': candidate!.toSafeJson(),
-        if (sessionContext != null)
-          'resilience': sessionContext!.toSafeJson(),
+        if (reviewEvidence != null) 'reviewEvidence': reviewEvidence!.toSafeSummary(),
+        if (sessionContext != null) 'resilience': sessionContext!.toSafeJson(),
       };
 }
 
@@ -144,8 +123,7 @@ class ProductRecognitionCoordinator {
     String Function()? logicalInvocationIdFactory,
   })  : catalogClient = catalogClient ?? GeminiModelCatalogClient(),
         keyRouterFactory = keyRouterFactory ?? GeminiKeyGroupRouter.fromApiKeys,
-        logicalInvocationIdFactory =
-            logicalInvocationIdFactory ?? _defaultLogicalInvocationId,
+        logicalInvocationIdFactory = logicalInvocationIdFactory ?? _defaultLogicalInvocationId,
         assert(maxPhysicalAttempts > 0);
 
   final GeminiInvoiceSettingsStore settingsStore;
@@ -157,9 +135,7 @@ class ProductRecognitionCoordinator {
   final int maxPhysicalAttempts;
   final String Function() logicalInvocationIdFactory;
 
-  Future<ProductRecognitionExecution> recognize({
-    required String localReference,
-  }) async {
+  Future<ProductRecognitionExecution> recognize({required String localReference}) async {
     final settings = await settingsStore.load();
     final keySlots = keyRouterFactory(settings.effectiveApiKeys).healthyGroups;
     if (keySlots.isEmpty) {
@@ -206,35 +182,29 @@ class ProductRecognitionCoordinator {
         modelCatalogChecked = true;
         if (error.statusCode == 429) {
           fallbackReason = RecognitionAiFallbackReason.quotaExhausted;
-          events.add(
-            RecognitionAiRoutingEvent(
-              keyGroupAlias: keySlot.alias,
-              model: preferredForNextKey,
-              reason: fallbackReason,
-              physicalRequestSent: false,
-              message: 'model_catalog_quota',
-            ),
-          );
+          events.add(RecognitionAiRoutingEvent(
+            keyGroupAlias: keySlot.alias,
+            model: preferredForNextKey,
+            reason: fallbackReason,
+            physicalRequestSent: false,
+            message: 'model_catalog_quota',
+          ));
           continue;
         }
         if (error.statusCode == 401 || error.statusCode == 403) {
           fallbackReason = RecognitionAiFallbackReason.authenticationFailed;
-          events.add(
-            RecognitionAiRoutingEvent(
-              keyGroupAlias: keySlot.alias,
-              model: preferredForNextKey,
-              reason: fallbackReason,
-              physicalRequestSent: false,
-              message: 'model_catalog_auth',
-            ),
-          );
+          events.add(RecognitionAiRoutingEvent(
+            keyGroupAlias: keySlot.alias,
+            model: preferredForNextKey,
+            reason: fallbackReason,
+            physicalRequestSent: false,
+            message: 'model_catalog_auth',
+          ));
           continue;
         }
-        if (error.statusCode != null && error.statusCode! >= 500) {
-          fallbackReason = RecognitionAiFallbackReason.serviceUnavailable;
-        } else {
-          fallbackReason = RecognitionAiFallbackReason.network;
-        }
+        fallbackReason = error.statusCode != null && error.statusCode! >= 500
+            ? RecognitionAiFallbackReason.serviceUnavailable
+            : RecognitionAiFallbackReason.network;
       } on TimeoutException {
         modelCatalogChecked = true;
         fallbackReason = RecognitionAiFallbackReason.timeout;
@@ -244,37 +214,30 @@ class ProductRecognitionCoordinator {
       }
 
       final preferredAvailable = catalog.isEmpty ||
-          modelRouter.isPreferredAvailable(
-            preferredModel: preferredForNextKey,
-            catalog: catalog,
-          );
+          modelRouter.isPreferredAvailable(preferredModel: preferredForNextKey, catalog: catalog);
       final modelCandidates = modelRouter.candidates(
         preferredModel: preferredForNextKey,
         catalog: catalog,
       );
       if (!preferredAvailable && modelCandidates.isNotEmpty) {
         fallbackReason = RecognitionAiFallbackReason.modelUnavailable;
-        events.add(
-          RecognitionAiRoutingEvent(
-            keyGroupAlias: keySlot.alias,
-            model: modelCandidates.first,
-            reason: fallbackReason,
-            physicalRequestSent: false,
-            message: 'preferred_model_not_in_catalog',
-          ),
-        );
+        events.add(RecognitionAiRoutingEvent(
+          keyGroupAlias: keySlot.alias,
+          model: modelCandidates.first,
+          reason: fallbackReason,
+          physicalRequestSent: false,
+          message: 'preferred_model_not_in_catalog',
+        ));
       }
       if (modelCandidates.isEmpty) {
         fallbackReason = RecognitionAiFallbackReason.modelUnavailable;
-        events.add(
-          RecognitionAiRoutingEvent(
-            keyGroupAlias: keySlot.alias,
-            model: preferredForNextKey,
-            reason: fallbackReason,
-            physicalRequestSent: false,
-            message: 'no_flash_generate_content_model',
-          ),
-        );
+        events.add(RecognitionAiRoutingEvent(
+          keyGroupAlias: keySlot.alias,
+          model: preferredForNextKey,
+          reason: fallbackReason,
+          physicalRequestSent: false,
+          message: 'no_flash_generate_content_model',
+        ));
         continue;
       }
 
@@ -287,35 +250,33 @@ class ProductRecognitionCoordinator {
 
         while (attempts.length < maxPhysicalAttempts) {
           try {
-            final candidate = await client.recognize(
+            final governedAttempt = await dispatchProductRecognitionCoordinatorAttempt(
+              client: client,
               apiKey: key,
               model: model,
               imageBytes: image.bytes,
               mimeType: image.mimeType,
             );
-            attempts.add(
-              ProductRecognitionAttemptSummary(
-                ordinal: attempts.length + 1,
-                maskedKey: GeminiInvoiceSettings.maskApiKey(key),
-                model: model,
-                success: true,
-                message: '商品辨識成功',
-              ),
-            );
-            events.add(
-              RecognitionAiRoutingEvent(
-                keyGroupAlias: keySlot.alias,
-                model: model,
-                reason: RecognitionAiFallbackReason.none,
-                physicalRequestSent: true,
-                message: 'success',
-              ),
-            );
+            attempts.add(ProductRecognitionAttemptSummary(
+              ordinal: attempts.length + 1,
+              maskedKey: GeminiInvoiceSettings.maskApiKey(key),
+              model: model,
+              success: true,
+              message: '商品辨識成功',
+            ));
+            events.add(RecognitionAiRoutingEvent(
+              keyGroupAlias: keySlot.alias,
+              model: model,
+              reason: RecognitionAiFallbackReason.none,
+              physicalRequestSent: true,
+              message: 'success',
+            ));
             return _execution(
               status: ProductRecognitionExecutionStatus.success,
               message: '已取得商品 AI 辨識候選，請人工覆核。',
               model: model,
-              candidate: candidate,
+              candidate: governedAttempt.candidate,
+              reviewEvidence: governedAttempt.reviewEvidence,
               logicalInvocationId: logicalInvocationId,
               keySlotAlias: keySlot.alias,
               fallbackReason: fallbackReason,
@@ -326,64 +287,53 @@ class ProductRecognitionCoordinator {
               attemptedKeySlots: attemptedKeySlots,
             );
           } on GeminiProductRecognitionException catch (error) {
-            attempts.add(
-              ProductRecognitionAttemptSummary(
-                ordinal: attempts.length + 1,
-                maskedKey: GeminiInvoiceSettings.maskApiKey(key),
-                model: model,
-                success: false,
-                message: error.message,
-              ),
-            );
+            attempts.add(ProductRecognitionAttemptSummary(
+              ordinal: attempts.length + 1,
+              maskedKey: GeminiInvoiceSettings.maskApiKey(key),
+              model: model,
+              success: false,
+              message: error.message,
+            ));
 
             if (error.kind == GeminiProductRecognitionFailureKind.quota) {
               fallbackReason = RecognitionAiFallbackReason.quotaExhausted;
               preferredForNextKey = model;
               moveToNextKey = true;
-            } else if (error.kind ==
-                GeminiProductRecognitionFailureKind.authentication) {
+            } else if (error.kind == GeminiProductRecognitionFailureKind.authentication) {
               fallbackReason = RecognitionAiFallbackReason.authenticationFailed;
               preferredForNextKey = model;
               moveToNextKey = true;
             } else if (error.statusCode == 404) {
               fallbackReason = RecognitionAiFallbackReason.modelUnavailable;
-            } else if (error.kind ==
-                    GeminiProductRecognitionFailureKind.serviceUnavailable ||
+            } else if (error.kind == GeminiProductRecognitionFailureKind.serviceUnavailable ||
                 error.kind == GeminiProductRecognitionFailureKind.timeout ||
                 error.kind == GeminiProductRecognitionFailureKind.network) {
               fallbackReason = switch (error.kind) {
-                GeminiProductRecognitionFailureKind.timeout =>
-                  RecognitionAiFallbackReason.timeout,
-                GeminiProductRecognitionFailureKind.network =>
-                  RecognitionAiFallbackReason.network,
+                GeminiProductRecognitionFailureKind.timeout => RecognitionAiFallbackReason.timeout,
+                GeminiProductRecognitionFailureKind.network => RecognitionAiFallbackReason.network,
                 _ => RecognitionAiFallbackReason.serviceUnavailable,
               };
-              if (!transientRetryUsed &&
-                  attempts.length < maxPhysicalAttempts) {
+              if (!transientRetryUsed && attempts.length < maxPhysicalAttempts) {
                 transientRetryUsed = true;
-                events.add(
-                  RecognitionAiRoutingEvent(
-                    keyGroupAlias: keySlot.alias,
-                    model: model,
-                    reason: fallbackReason,
-                    physicalRequestSent: true,
-                    message: 'bounded_retry',
-                  ),
-                );
+                events.add(RecognitionAiRoutingEvent(
+                  keyGroupAlias: keySlot.alias,
+                  model: model,
+                  reason: fallbackReason,
+                  physicalRequestSent: true,
+                  message: 'bounded_retry',
+                ));
                 continue;
               }
               preferredForNextKey = model;
               moveToNextKey = true;
             } else {
-              events.add(
-                RecognitionAiRoutingEvent(
-                  keyGroupAlias: keySlot.alias,
-                  model: model,
-                  reason: fallbackReason,
-                  physicalRequestSent: true,
-                  message: error.kind.name,
-                ),
-              );
+              events.add(RecognitionAiRoutingEvent(
+                keyGroupAlias: keySlot.alias,
+                model: model,
+                reason: fallbackReason,
+                physicalRequestSent: true,
+                message: error.kind.name,
+              ));
               return _execution(
                 status: ProductRecognitionExecutionStatus.failed,
                 message: '商品 AI 辨識未完成；照片仍保留於本機待人工處理。',
@@ -399,26 +349,22 @@ class ProductRecognitionCoordinator {
               );
             }
 
-            events.add(
-              RecognitionAiRoutingEvent(
-                keyGroupAlias: keySlot.alias,
-                model: model,
-                reason: fallbackReason,
-                physicalRequestSent: true,
-                message: error.kind.name,
-              ),
-            );
+            events.add(RecognitionAiRoutingEvent(
+              keyGroupAlias: keySlot.alias,
+              model: model,
+              reason: fallbackReason,
+              physicalRequestSent: true,
+              message: error.kind.name,
+            ));
             break;
           } catch (_) {
-            attempts.add(
-              ProductRecognitionAttemptSummary(
-                ordinal: attempts.length + 1,
-                maskedKey: GeminiInvoiceSettings.maskApiKey(key),
-                model: model,
-                success: false,
-                message: 'Gemini 商品辨識發生未分類錯誤。',
-              ),
-            );
+            attempts.add(ProductRecognitionAttemptSummary(
+              ordinal: attempts.length + 1,
+              maskedKey: GeminiInvoiceSettings.maskApiKey(key),
+              model: model,
+              success: false,
+              message: 'Gemini 商品辨識發生未分類錯誤。',
+            ));
             return _execution(
               status: ProductRecognitionExecutionStatus.failed,
               message: '商品 AI 辨識未完成；照片仍保留於本機待人工處理。',
@@ -465,9 +411,9 @@ class ProductRecognitionCoordinator {
     required Set<String> attemptedModels,
     required Set<String> attemptedKeySlots,
     ProductRecognitionCandidate? candidate,
+    ProductRecognitionExecutionReviewEvidence? reviewEvidence,
   }) {
-    final frozenAttempts =
-        List<ProductRecognitionAttemptSummary>.unmodifiable(attempts);
+    final frozenAttempts = List<ProductRecognitionAttemptSummary>.unmodifiable(attempts);
     final session = RecognitionSessionContext(
       logicalInvocationId: logicalInvocationId,
       provider: 'Gemini',
@@ -486,6 +432,7 @@ class ProductRecognitionCoordinator {
       message: message,
       model: model,
       candidate: candidate,
+      reviewEvidence: reviewEvidence,
       attempts: frozenAttempts,
       sessionContext: session,
     );
