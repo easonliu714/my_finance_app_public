@@ -44,7 +44,7 @@ void main() {
 
   test('third-party source fails closed before parser and preserves LKG', () async {
     final store = InMemoryOfficialInvoiceAwardLastKnownGoodStore();
-    final parser = _FixtureParser();
+    const parser = _FixtureParser();
     final coordinator = OfficialInvoiceAwardAcquisitionCoordinator(
       parser: parser,
       validator: const OfficialInvoiceAwardDatasetValidator(),
