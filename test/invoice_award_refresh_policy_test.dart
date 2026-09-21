@@ -41,6 +41,29 @@ void main() {
       );
     });
 
+    test('even month targets next odd-month publication instead of stale retry', () {
+      const policy = InvoiceAwardRefreshPolicy(
+        automaticRefreshConsented: true,
+      );
+      expect(
+        policy.nextTarget(
+          nowLocal: DateTime(2026, 10, 8, 9),
+          generalDatasetPromoted: false,
+          cloudExclusiveDatasetPromoted: false,
+        ),
+        DateTime(2026, 11, 25, 14),
+      );
+      expect(
+        policy.foregroundCatchUpDue(
+          nowLocal: DateTime(2026, 10, 8, 9),
+          lastAttemptLocal: null,
+          generalDatasetPromoted: false,
+          cloudExclusiveDatasetPromoted: false,
+        ),
+        isFalse,
+      );
+    });
+
     test('first odd-month publication attempt targets 14:00 local time', () {
       const policy = InvoiceAwardRefreshPolicy(
         automaticRefreshConsented: true,
