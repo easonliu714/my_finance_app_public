@@ -15,6 +15,9 @@ class InvoiceAwardCheckPage extends StatelessWidget {
     this.isRefreshing = false,
   });
 
+  static const String routePath = '/invoice-award-check';
+  static const String routeName = 'invoice-award-check';
+
   final List<InvoiceAwardCheckPresentation> presentations;
   final bool isRefreshing;
 
