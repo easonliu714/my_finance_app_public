@@ -71,20 +71,18 @@ class InvoiceAwardRefreshPolicy {
   }
 
   DateTime _currentCycleFirstTarget(DateTime nowLocal) {
-    var year = nowLocal.year;
-    var month = nowLocal.month;
-    if (month.isEven) month -= 1;
-    var candidate = DateTime(year, month, 25, firstAttemptHour);
+    final year = nowLocal.year;
+    final month = nowLocal.month;
 
-    // If the odd-month publication target is still ahead, that is the current
-    // cycle. Do not fall back to the previous odd month and restart its retry
-    // loop merely because today's date precedes the 25th.
-    if (nowLocal.isBefore(candidate)) return candidate;
+    // Even months belong to the next odd-month publication cycle. This avoids
+    // resurrecting the previous odd month's retry loop after its publication
+    // day has passed; validated historical datasets remain local evidence.
+    if (month.isEven) {
+      final nextOddMonth = month + 1;
+      return DateTime(year, nextOddMonth, 25, firstAttemptHour);
+    }
 
-    // At or after the current cycle's first target, remain in that cycle until
-    // both domains are promoted. The caller then stops scheduling until the
-    // next odd-month publication cycle.
-    return candidate;
+    return DateTime(year, month, 25, firstAttemptHour);
   }
 
   bool get canCreateFormalTransaction => false;
