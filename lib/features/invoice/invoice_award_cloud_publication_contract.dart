@@ -76,14 +76,18 @@ class OfficialCloudAwardArtifactFetchPlan {
     required Iterable<ValidatedCloudAwardArtifactState> localValidated,
   }) {
     final seenIds = <String>{};
-    final descriptorsValid = index.artifacts.every((artifact) =>
-        artifact.artifactId.isNotEmpty &&
-        artifact.tierCode.isNotEmpty &&
-        artifact.isApprovedOfficialSource &&
-        artifact.hasValidFingerprint &&
-        seenIds.add(artifact.artifactId));
+    final descriptorsValid = index.artifacts.every(
+      (artifact) =>
+          artifact.artifactId.isNotEmpty &&
+          artifact.tierCode.isNotEmpty &&
+          artifact.isApprovedOfficialSource &&
+          artifact.hasValidFingerprint &&
+          seenIds.add(artifact.artifactId),
+    );
 
-    if (!index.isApprovedOfficialSource || !index.complete || !descriptorsValid) {
+    if (!index.isApprovedOfficialSource ||
+        !index.complete ||
+        !descriptorsValid) {
       return const OfficialCloudAwardArtifactFetchPlan._(
         toFetch: <OfficialCloudAwardArtifactDescriptor>[],
         isPublicationReady: false,
@@ -95,9 +99,11 @@ class OfficialCloudAwardArtifactFetchPlan {
         artifact.artifactId: artifact.contentSha256.toLowerCase(),
     };
     final missingOrChanged = index.artifacts
-        .where((artifact) =>
-            localById[artifact.artifactId] !=
-            artifact.contentSha256.toLowerCase())
+        .where(
+          (artifact) =>
+              localById[artifact.artifactId] !=
+              artifact.contentSha256.toLowerCase(),
+        )
         .toList(growable: false);
 
     return OfficialCloudAwardArtifactFetchPlan._(
