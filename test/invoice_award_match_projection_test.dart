@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:my_finance_app_public/features/invoice/invoice_award_match_projection.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_match_projection.dart';
 
 void main() {
   const builder = InvoiceAwardMatchProjectionBuilder();
