@@ -41,10 +41,10 @@ class InvoiceAwardManualRefreshPolicy {
   /// redeemable set derived from official redemption windows. A period is
   /// omitted only when both official domains are already validated/promoted;
   /// unchanged validated historical data is therefore reused locally.
-  List<InvoiceAwardPeriod> missingPeriodsForManualRefresh({
-    required Iterable<InvoiceAwardPeriod> candidatePeriods,
-    required Set<InvoiceAwardPeriod> generalPromotedPeriods,
-    required Set<InvoiceAwardPeriod> cloudExclusivePromotedPeriods,
+  List<OfficialInvoiceAwardPeriod> missingPeriodsForManualRefresh({
+    required Iterable<OfficialInvoiceAwardPeriod> candidatePeriods,
+    required Set<OfficialInvoiceAwardPeriod> generalPromotedPeriods,
+    required Set<OfficialInvoiceAwardPeriod> cloudExclusivePromotedPeriods,
   }) {
     final missing = candidatePeriods.where((period) {
       return !generalPromotedPeriods.contains(period) ||
