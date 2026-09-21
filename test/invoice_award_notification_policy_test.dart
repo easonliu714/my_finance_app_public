@@ -4,50 +4,80 @@ import 'package:my_finance_app/features/invoice/invoice_award_notification_polic
 void main() {
   const policy = InvoiceAwardNotificationPolicy();
 
-  test('opt-out due reminder is local navigation only', () {
-    expect(
-      policy.shouldPresentDueReminder(
-        automaticRefreshConsented: false,
-        notificationPermissionGranted: true,
-        awardReminderEnabled: true,
-        publicationDue: true,
-        currentGeneralPromoted: false,
-        currentCloudExclusivePromoted: false,
-      ),
-      isTrue,
+  test('opt-out due period can issue local Award Check reminder', () {
+    final decision = policy.decide(
+      automaticRefreshConsented: false,
+      notificationPermissionGranted: true,
+      localReminderEnabled: true,
+      awardRefreshDue: true,
+      currentGeneralDatasetValidated: false,
+      currentCloudDatasetValidated: false,
     );
-    expect(policy.reminderRoute, '/invoice/award-check');
-    expect(policy.canFetchOfficialDataset, isFalse);
-    expect(policy.canMatchInvoice, isFalse);
-    expect(policy.canRedeemPrize, isFalse);
-    expect(policy.canConfigureMofRemittance, isFalse);
-    expect(policy.canCreateFormalTransaction, isFalse);
+
+    expect(decision, InvoiceAwardNotificationDecision.remindToOpenAwardCheck);
+    expect(decision.mayFetchAwardNumbers, isFalse);
+    expect(decision.mayCreateFormalTransaction, isFalse);
+    expect(decision.mayConfigureMofRemittance, isFalse);
   });
 
-  test('consent permission setting and due state all fail closed', () {
-    bool decide({
-      bool consent = false,
-      bool permission = true,
-      bool enabled = true,
-      bool due = true,
-      bool general = false,
-      bool cloud = false,
-    }) =>
-        policy.shouldPresentDueReminder(
-          automaticRefreshConsented: consent,
-          notificationPermissionGranted: permission,
-          awardReminderEnabled: enabled,
-          publicationDue: due,
-          currentGeneralPromoted: general,
-          currentCloudExclusivePromoted: cloud,
+  test('no reminder without permission or local setting', () {
+    for (final permission in [false, true]) {
+      for (final enabled in [false, true]) {
+        if (permission && enabled) continue;
+        expect(
+          policy.decide(
+            automaticRefreshConsented: false,
+            notificationPermissionGranted: permission,
+            localReminderEnabled: enabled,
+            awardRefreshDue: true,
+            currentGeneralDatasetValidated: false,
+            currentCloudDatasetValidated: false,
+          ),
+          InvoiceAwardNotificationDecision.none,
         );
+      }
+    }
+  });
 
-    expect(decide(consent: true), isFalse);
-    expect(decide(permission: false), isFalse);
-    expect(decide(enabled: false), isFalse);
-    expect(decide(due: false), isFalse);
-    expect(decide(general: true, cloud: true), isFalse);
-    expect(decide(general: true, cloud: false), isTrue);
-    expect(decide(general: false, cloud: true), isTrue);
+  test('automatic-refresh consent suppresses manual-refresh reminder', () {
+    expect(
+      policy.decide(
+        automaticRefreshConsented: true,
+        notificationPermissionGranted: true,
+        localReminderEnabled: true,
+        awardRefreshDue: true,
+        currentGeneralDatasetValidated: false,
+        currentCloudDatasetValidated: false,
+      ),
+      InvoiceAwardNotificationDecision.none,
+    );
+  });
+
+  test('validated current general and cloud datasets suppress reminder', () {
+    expect(
+      policy.decide(
+        automaticRefreshConsented: false,
+        notificationPermissionGranted: true,
+        localReminderEnabled: true,
+        awardRefreshDue: true,
+        currentGeneralDatasetValidated: true,
+        currentCloudDatasetValidated: true,
+      ),
+      InvoiceAwardNotificationDecision.none,
+    );
+  });
+
+  test('not-due state suppresses reminder', () {
+    expect(
+      policy.decide(
+        automaticRefreshConsented: false,
+        notificationPermissionGranted: true,
+        localReminderEnabled: true,
+        awardRefreshDue: false,
+        currentGeneralDatasetValidated: false,
+        currentCloudDatasetValidated: false,
+      ),
+      InvoiceAwardNotificationDecision.none,
+    );
   });
 }

@@ -1,38 +1,44 @@
-/// Pure Issue #13 notification contract.
+/// Pure Issue #13 notification decision contract.
 ///
-/// This policy has no network, matching, redemption, or accounting authority.
-/// It only decides whether an already-due local reminder may be presented and
-/// defines the stable route target for the Award Check page.
+/// This policy has no platform side effects. It only decides whether a local
+/// reminder is allowed. Network refresh and formal accounting writes are
+/// deliberately outside this contract.
 class InvoiceAwardNotificationPolicy {
   const InvoiceAwardNotificationPolicy();
 
-  static const String awardCheckRoute = '/invoice/award-check';
-
-  bool shouldPresentDueReminder({
+  InvoiceAwardNotificationDecision decide({
     required bool automaticRefreshConsented,
     required bool notificationPermissionGranted,
-    required bool awardReminderEnabled,
-    required bool publicationDue,
-    required bool currentGeneralPromoted,
-    required bool currentCloudExclusivePromoted,
+    required bool localReminderEnabled,
+    required bool awardRefreshDue,
+    required bool currentGeneralDatasetValidated,
+    required bool currentCloudDatasetValidated,
   }) {
+    final currentDatasetsComplete =
+        currentGeneralDatasetValidated && currentCloudDatasetValidated;
+
+    // Opted-in automatic refresh owns the due path. Do not duplicate it with a
+    // local manual-refresh reminder.
     if (automaticRefreshConsented ||
         !notificationPermissionGranted ||
-        !awardReminderEnabled ||
-        !publicationDue) {
-      return false;
+        !localReminderEnabled ||
+        !awardRefreshDue ||
+        currentDatasetsComplete) {
+      return InvoiceAwardNotificationDecision.none;
     }
-    return !(currentGeneralPromoted && currentCloudExclusivePromoted);
+
+    return InvoiceAwardNotificationDecision.remindToOpenAwardCheck;
   }
+}
 
-  /// Notification taps only navigate to the read-only Award Check surface.
-  /// They never authorize background acquisition, matching, redemption, or a
-  /// formal transaction write.
-  String get reminderRoute => awardCheckRoute;
+enum InvoiceAwardNotificationDecision {
+  none,
+  remindToOpenAwardCheck,
+}
 
-  bool get canFetchOfficialDataset => false;
-  bool get canMatchInvoice => false;
-  bool get canRedeemPrize => false;
-  bool get canConfigureMofRemittance => false;
-  bool get canCreateFormalTransaction => false;
+extension InvoiceAwardNotificationDecisionSafety
+    on InvoiceAwardNotificationDecision {
+  bool get mayFetchAwardNumbers => false;
+  bool get mayCreateFormalTransaction => false;
+  bool get mayConfigureMofRemittance => false;
 }
