@@ -27,6 +27,11 @@ class InvoiceAwardRefreshPolicy {
   /// Odd-month 25th is the publication day. The first target is 14:00 local
   /// time, followed by approximately 30-minute best-effort retries until both
   /// general and cloud-exclusive datasets have been validated/promoted.
+  ///
+  /// Automatic retries are deliberately scoped to the current publication
+  /// cycle. Before the current odd-month 25th at 14:00, no older cycle is
+  /// resurrected: unchanged historical datasets are reused locally and the
+  /// next automatic target is the upcoming publication attempt.
   DateTime? nextTarget({
     required DateTime nowLocal,
     required bool generalDatasetPromoted,
@@ -37,13 +42,7 @@ class InvoiceAwardRefreshPolicy {
       return null;
     }
 
-    final publicationDay = _publicationDayFor(nowLocal);
-    final firstTarget = DateTime(
-      publicationDay.year,
-      publicationDay.month,
-      publicationDay.day,
-      firstAttemptHour,
-    );
+    final firstTarget = _currentCycleFirstTarget(nowLocal);
     if (nowLocal.isBefore(firstTarget)) return firstTarget;
 
     final elapsed = nowLocal.difference(firstTarget);
@@ -63,13 +62,7 @@ class InvoiceAwardRefreshPolicy {
         (generalDatasetPromoted && cloudExclusiveDatasetPromoted)) {
       return false;
     }
-    final publicationDay = _publicationDayFor(nowLocal);
-    final firstTarget = DateTime(
-      publicationDay.year,
-      publicationDay.month,
-      publicationDay.day,
-      firstAttemptHour,
-    );
+    final firstTarget = _currentCycleFirstTarget(nowLocal);
     if (nowLocal.isBefore(firstTarget)) return false;
     if (lastAttemptLocal == null || lastAttemptLocal.isBefore(firstTarget)) {
       return true;
@@ -77,19 +70,20 @@ class InvoiceAwardRefreshPolicy {
     return nowLocal.difference(lastAttemptLocal) >= retryInterval;
   }
 
-  DateTime _publicationDayFor(DateTime nowLocal) {
+  DateTime _currentCycleFirstTarget(DateTime nowLocal) {
     var year = nowLocal.year;
     var month = nowLocal.month;
     if (month.isEven) month -= 1;
-    var candidate = DateTime(year, month, 25);
-    if (nowLocal.isBefore(candidate)) {
-      month -= 2;
-      if (month < 1) {
-        month += 12;
-        year -= 1;
-      }
-      candidate = DateTime(year, month, 25);
-    }
+    var candidate = DateTime(year, month, 25, firstAttemptHour);
+
+    // If the odd-month publication target is still ahead, that is the current
+    // cycle. Do not fall back to the previous odd month and restart its retry
+    // loop merely because today's date precedes the 25th.
+    if (nowLocal.isBefore(candidate)) return candidate;
+
+    // At or after the current cycle's first target, remain in that cycle until
+    // both domains are promoted. The caller then stops scheduling until the
+    // next odd-month publication cycle.
     return candidate;
   }
 
