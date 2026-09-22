@@ -47,7 +47,10 @@ void main() {
     );
 
     final button = tester.widget<IconButton>(
-      find.byTooltip('手動更新官方中獎資料'),
+      find.descendant(
+        of: find.byTooltip('手動更新官方中獎資料'),
+        matching: find.byType(IconButton),
+      ),
     );
     expect(button.onPressed, isNull);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
