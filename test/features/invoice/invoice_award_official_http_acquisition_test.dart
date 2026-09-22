@@ -92,7 +92,7 @@ void main() {
     final fingerprint = seeded.dataset!.provenance.contentSha256;
 
     final failing = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
-      client: MockClient((_) async => throw const http.ClientException('offline')),
+      client: MockClient((_) async => throw http.ClientException('offline')),
       coordinator: coordinator(store),
     );
     final result = await failing.refresh(period);
