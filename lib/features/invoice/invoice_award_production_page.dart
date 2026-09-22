@@ -46,7 +46,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
     try {
       final preferences = await SharedPreferences.getInstance();
-      final validator = const OfficialInvoiceAwardDatasetValidator();
+      const validator = OfficialInvoiceAwardDatasetValidator();
       final volatileStore = InMemoryOfficialInvoiceAwardLastKnownGoodStore();
       final coordinator = OfficialInvoiceAwardAcquisitionCoordinator(
         parser: const MinistryOfFinanceGeneralAwardHtmlParser(),
