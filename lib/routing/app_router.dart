@@ -14,7 +14,7 @@ import '../features/invoice/cloud_invoice_review_page.dart';
 import '../features/invoice/draft_storage_hidden_route_page.dart';
 import '../features/invoice/gemini/gemini_invoice_validation_page.dart';
 import '../features/invoice/invoice_award_check_page.dart';
-import '../features/invoice/invoice_award_check_presentation.dart';
+import '../features/invoice/invoice_award_production_page.dart';
 import '../features/invoice/invoice_capture_entry_page.dart';
 import '../features/invoice/invoice_capture_page.dart';
 import '../features/invoice/invoice_field_first_review_flow.dart';
@@ -151,13 +151,7 @@ List<RouteBase> buildAppRoutes({
     GoRoute(
       path: InvoiceAwardCheckPage.routePath,
       name: InvoiceAwardCheckPage.routeName,
-      builder: (context, state) {
-        final extra = state.extra;
-        final presentations = extra is List<InvoiceAwardCheckPresentation>
-            ? extra
-            : const <InvoiceAwardCheckPresentation>[];
-        return InvoiceAwardCheckPage(presentations: presentations);
-      },
+      builder: (context, state) => const InvoiceAwardProductionPage(),
     ),
     GoRoute(
       path: ProductCapturePage.routePath,
