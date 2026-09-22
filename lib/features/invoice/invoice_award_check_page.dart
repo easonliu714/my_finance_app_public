@@ -8,11 +8,16 @@ import 'invoice_award_check_presentation.dart';
 /// The page consumes already validated local projections only. It intentionally
 /// has no network acquisition, redemption/remittance, or accounting-write
 /// capability; those authorities remain outside this presentation boundary.
+///
+/// [onManualRefresh] is an explicit user-intent seam only. The page never
+/// starts background acquisition by itself; the caller remains responsible for
+/// applying consent, official-source, and Last-Known-Good repository policy.
 class InvoiceAwardCheckPage extends StatelessWidget {
   const InvoiceAwardCheckPage({
     super.key,
     required this.presentations,
     this.isRefreshing = false,
+    this.onManualRefresh,
   });
 
   static const String routePath = '/invoice-award-check';
@@ -20,11 +25,22 @@ class InvoiceAwardCheckPage extends StatelessWidget {
 
   final List<InvoiceAwardCheckPresentation> presentations;
   final bool isRefreshing;
+  final VoidCallback? onManualRefresh;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('統一發票中獎檢查')),
+      appBar: AppBar(
+        title: const Text('統一發票中獎檢查'),
+        actions: [
+          if (onManualRefresh != null)
+            IconButton(
+              tooltip: '手動更新官方中獎資料',
+              onPressed: isRefreshing ? null : onManualRefresh,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: SafeArea(
         child: isRefreshing
             ? const Center(child: CircularProgressIndicator())
