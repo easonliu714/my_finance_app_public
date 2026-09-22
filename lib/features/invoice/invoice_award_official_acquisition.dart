@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:http/http.dart' as http;
 import 'package:my_finance_app/features/invoice/invoice_award_official_dataset.dart';
 
 /// Raw bytes fetched from an official award-number publication surface.
@@ -34,8 +35,6 @@ class OfficialInvoiceAwardParseContext {
   final String contentSha256;
 }
 
-/// Parser is intentionally a port: the official HTML/API shape must be pinned
-/// independently before a concrete parser is promoted to production authority.
 abstract interface class OfficialInvoiceAwardDocumentParser {
   String get parserVersion;
 
@@ -66,6 +65,8 @@ class InMemoryOfficialInvoiceAwardLastKnownGoodStore
 }
 
 enum OfficialInvoiceAwardRefreshFailure {
+  networkFailure,
+  httpStatusFailure,
   nonOfficialSource,
   parserFailure,
   validationFailure,
@@ -103,13 +104,8 @@ class OfficialInvoiceAwardRefreshResult {
   bool get isSuccess => failure == null;
 }
 
-/// Bounded acquisition coordinator for Slice B.
-///
-/// It does not perform networking, scheduling, notification, persistence schema
-/// mutation, or formal transaction writes. A caller supplies official bytes;
-/// this coordinator gates source authority, fingerprints those exact bytes,
-/// delegates parsing, validates the canonical dataset, and only then replaces
-/// the last-known-good value.
+/// Bounded acquisition coordinator. Exact official bytes are fingerprinted,
+/// parsed by the pinned parser, validated, and only then replace LKG.
 class OfficialInvoiceAwardAcquisitionCoordinator {
   OfficialInvoiceAwardAcquisitionCoordinator({
     required this.parser,
@@ -120,6 +116,15 @@ class OfficialInvoiceAwardAcquisitionCoordinator {
   final OfficialInvoiceAwardDocumentParser parser;
   final OfficialInvoiceAwardDatasetValidator validator;
   final OfficialInvoiceAwardLastKnownGoodStore store;
+
+  OfficialInvoiceAwardRefreshResult preserveLastKnownGood({
+    required OfficialInvoiceAwardPeriod expectedPeriod,
+    required OfficialInvoiceAwardRefreshFailure failure,
+  }) =>
+      OfficialInvoiceAwardRefreshResult.failure(
+        failure,
+        store.read(expectedPeriod),
+      );
 
   Future<OfficialInvoiceAwardRefreshResult> ingest({
     required OfficialInvoiceAwardRawDocument document,
@@ -172,5 +177,62 @@ class OfficialInvoiceAwardAcquisitionCoordinator {
 
     store.replaceValidated(parsed);
     return OfficialInvoiceAwardRefreshResult.success(parsed);
+  }
+}
+
+/// Production HTTP boundary for the Ministry of Finance general-award page.
+///
+/// Only the pinned HTTPS endpoint is requested. The request contains no user
+/// invoice, accounting, merchant, device, or identity data. Non-200 responses
+/// and transport failures fail closed and preserve the requested period's LKG.
+class MinistryOfFinanceGeneralAwardHttpAcquisitionService {
+  MinistryOfFinanceGeneralAwardHttpAcquisitionService({
+    required http.Client client,
+    required OfficialInvoiceAwardAcquisitionCoordinator coordinator,
+    DateTime Function()? clock,
+  })  : _client = client,
+        _coordinator = coordinator,
+        _clock = clock ?? DateTime.now;
+
+  static final Uri officialSourceUri =
+      Uri.parse('https://invoice.etax.nat.gov.tw/');
+
+  final http.Client _client;
+  final OfficialInvoiceAwardAcquisitionCoordinator _coordinator;
+  final DateTime Function() _clock;
+
+  Future<OfficialInvoiceAwardRefreshResult> refresh(
+    OfficialInvoiceAwardPeriod expectedPeriod,
+  ) async {
+    http.Response response;
+    try {
+      response = await _client.get(
+        officialSourceUri,
+        headers: const <String, String>{
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+      );
+    } catch (_) {
+      return _coordinator.preserveLastKnownGood(
+        expectedPeriod: expectedPeriod,
+        failure: OfficialInvoiceAwardRefreshFailure.networkFailure,
+      );
+    }
+
+    if (response.statusCode != 200) {
+      return _coordinator.preserveLastKnownGood(
+        expectedPeriod: expectedPeriod,
+        failure: OfficialInvoiceAwardRefreshFailure.httpStatusFailure,
+      );
+    }
+
+    return _coordinator.ingest(
+      document: OfficialInvoiceAwardRawDocument(
+        sourceUri: officialSourceUri,
+        fetchedAt: _clock().toUtc(),
+        bytes: Uint8List.fromList(response.bodyBytes),
+      ),
+      expectedPeriod: expectedPeriod,
+    );
   }
 }
