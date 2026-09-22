@@ -32,13 +32,22 @@ void main() {
         store: store,
       );
 
+  http.Response utf8HtmlResponse(String body, int statusCode) =>
+      http.Response.bytes(
+        utf8.encode(body),
+        statusCode,
+        headers: const <String, String>{
+          'content-type': 'text/html; charset=utf-8',
+        },
+      );
+
   test('production service fetches only pinned MOF HTTPS bytes and promotes validated LKG', () async {
     final store = InMemoryOfficialInvoiceAwardLastKnownGoodStore();
     late http.Request observed;
     final service = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
       client: MockClient((request) async {
         observed = request;
-        return http.Response.bytes(utf8.encode(html), 200);
+        return utf8HtmlResponse(html, 200);
       }),
       coordinator: coordinator(store),
       clock: () => DateTime.utc(2026, 9, 25, 6),
@@ -61,7 +70,7 @@ void main() {
   test('non-200 preserves existing LKG and does not parse response body', () async {
     final store = InMemoryOfficialInvoiceAwardLastKnownGoodStore();
     final seed = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
-      client: MockClient((_) async => http.Response(html, 200)),
+      client: MockClient((_) async => utf8HtmlResponse(html, 200)),
       coordinator: coordinator(store),
       clock: () => DateTime.utc(2026, 9, 25, 6),
     );
@@ -84,7 +93,7 @@ void main() {
   test('network exception preserves existing LKG', () async {
     final store = InMemoryOfficialInvoiceAwardLastKnownGoodStore();
     final seed = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
-      client: MockClient((_) async => http.Response(html, 200)),
+      client: MockClient((_) async => utf8HtmlResponse(html, 200)),
       coordinator: coordinator(store),
       clock: () => DateTime.utc(2026, 9, 25, 6),
     );
@@ -105,7 +114,7 @@ void main() {
   test('wrong-period official HTML fails closed without LKG replacement', () async {
     final store = InMemoryOfficialInvoiceAwardLastKnownGoodStore();
     final service = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
-      client: MockClient((_) async => http.Response(
+      client: MockClient((_) async => utf8HtmlResponse(
           html.replaceAll('115年05-06月', '115年03-04月'), 200)),
       coordinator: coordinator(store),
       clock: () => DateTime.utc(2026, 9, 25, 6),
