@@ -64,7 +64,7 @@ class MinistryOfFinanceCloudAwardPublicationHtmlParser {
   const MinistryOfFinanceCloudAwardPublicationHtmlParser();
 
   static final RegExp _anchorPattern = RegExp(
-    r'<a\b[^>]*href\s*=\s*["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+    r'''<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>''',
     caseSensitive: false,
     dotAll: true,
   );
