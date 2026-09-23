@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../invoice/invoice_award_check_entry_button.dart';
 import '../transaction/transaction_entry_page.dart';
 import '../transaction/transaction_providers.dart';
 import '../transaction/transaction_record.dart';
@@ -34,6 +35,7 @@ class _LedgerDetailPageState extends ConsumerState<LedgerDetailPage> {
       appBar: AppBar(
         title: const Text('帳單明細'),
         actions: [
+          const InvoiceAwardCheckEntryButton(),
           IconButton(tooltip: '搜尋', onPressed: () {}, icon: const Icon(Icons.search)),
           IconButton(tooltip: '篩選', onPressed: () {}, icon: const Icon(Icons.filter_alt_outlined)),
         ],
