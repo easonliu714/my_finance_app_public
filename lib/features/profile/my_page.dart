@@ -175,11 +175,11 @@ class _MyPageState extends State<MyPage> {
         height: 72,
         selectedIndex: 4,
         onDestinationSelected: (index) {
-          if (index == 0) context.go('/accounts');
-          if (index == 1) context.go('/plans');
+          if (index == 0) context.push('/accounts');
+          if (index == 1) context.push('/plans');
           if (index == 2) context.go('/');
-          if (index == 3) context.go('/ledger');
-          if (index == 4) context.go(MyPage.routePath);
+          if (index == 3) context.push('/ledger');
+          if (index == 4) return;
         },
         destinations: const [
           NavigationDestination(

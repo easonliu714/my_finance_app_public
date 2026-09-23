@@ -143,6 +143,13 @@ void main() {
     expect(result.dataset?.provenance.parserVersion, parser.parserVersion);
     expect(store.read(period)?.period.id, period.id);
   });
+  test('official previous-period page is accepted', () {
+    final dataset = parser.parse(
+      document(_officialFixture, path: '/lastNumber.html'),
+      context(),
+    );
+    expect(dataset.period.id, '115-05-06');
+  });
 }
 
 const _officialFixture = '''

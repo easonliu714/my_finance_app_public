@@ -190,16 +190,22 @@ class MinistryOfFinanceGeneralAwardHttpAcquisitionService {
     required http.Client client,
     required OfficialInvoiceAwardAcquisitionCoordinator coordinator,
     DateTime Function()? clock,
+    Uri? sourceUri,
   })  : _client = client,
         _coordinator = coordinator,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now,
+        _sourceUri = sourceUri ?? currentSourceUri;
 
-  static final Uri officialSourceUri =
+  static final Uri currentSourceUri =
       Uri.parse('https://invoice.etax.nat.gov.tw/');
+  static final Uri previousSourceUri =
+      Uri.parse('https://invoice.etax.nat.gov.tw/lastNumber.html');
+  static final Uri officialSourceUri = currentSourceUri;
 
   final http.Client _client;
   final OfficialInvoiceAwardAcquisitionCoordinator _coordinator;
   final DateTime Function() _clock;
+  final Uri _sourceUri;
 
   Future<OfficialInvoiceAwardRefreshResult> refresh(
     OfficialInvoiceAwardPeriod expectedPeriod,
@@ -207,7 +213,7 @@ class MinistryOfFinanceGeneralAwardHttpAcquisitionService {
     http.Response response;
     try {
       response = await _client.get(
-        officialSourceUri,
+        _sourceUri,
         headers: const <String, String>{
           'Accept': 'text/html,application/xhtml+xml',
         },
@@ -228,7 +234,7 @@ class MinistryOfFinanceGeneralAwardHttpAcquisitionService {
 
     return _coordinator.ingest(
       document: OfficialInvoiceAwardRawDocument(
-        sourceUri: officialSourceUri,
+        sourceUri: _sourceUri,
         fetchedAt: _clock().toUtc(),
         bytes: Uint8List.fromList(response.bodyBytes),
       ),

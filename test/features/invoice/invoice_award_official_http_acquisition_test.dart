@@ -126,4 +126,21 @@ void main() {
     expect(result.replacedLastKnownGood, isFalse);
     expect(store.read(period), isNull);
   });
+  test('previous-period official source can be explicitly selected', () async {
+    final store = InMemoryOfficialInvoiceAwardLastKnownGoodStore();
+    late Uri observed;
+    final service = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
+      client: MockClient((request) async {
+        observed = request.url;
+        return utf8HtmlResponse(html, 200);
+      }),
+      coordinator: coordinator(store),
+      sourceUri:
+          MinistryOfFinanceGeneralAwardHttpAcquisitionService.previousSourceUri,
+    );
+
+    final result = await service.refresh(period);
+    expect(result.isSuccess, isTrue);
+    expect(observed.path, '/lastNumber.html');
+  });
 }

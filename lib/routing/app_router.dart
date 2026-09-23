@@ -42,6 +42,7 @@ final appRouter = GoRouter(
 
 List<RouteBase> buildAppRoutes({
   bool privateCloudInvoiceLabEnabled = PrivateCloudInvoiceLabConfig.enabled,
+  DateTime Function()? invoiceAwardClock,
 }) {
   return <RouteBase>[
     GoRoute(
@@ -89,7 +90,8 @@ List<RouteBase> buildAppRoutes({
     GoRoute(
       path: RepaymentPlanPage.routePath,
       name: RepaymentPlanPage.routeName,
-      builder: (context, state) => const RepaymentPlanPage(),
+      builder: (context, state) =>
+          const RootRouteBackGuard(child: RepaymentPlanPage()),
     ),
     GoRoute(
       path: CreditCardInstallmentPreviewPage.routePath,
@@ -99,7 +101,8 @@ List<RouteBase> buildAppRoutes({
     GoRoute(
       path: LedgerDetailPage.routePath,
       name: LedgerDetailPage.routeName,
-      builder: (context, state) => const LedgerDetailPage(),
+      builder: (context, state) =>
+          const RootRouteBackGuard(child: LedgerDetailPage()),
     ),
     GoRoute(
       path: ManualInvoiceEntryPage.routePath,
@@ -151,7 +154,8 @@ List<RouteBase> buildAppRoutes({
     GoRoute(
       path: InvoiceAwardCheckPage.routePath,
       name: InvoiceAwardCheckPage.routeName,
-      builder: (context, state) => const InvoiceAwardProductionPage(),
+      builder: (context, state) =>
+          InvoiceAwardProductionPage(clock: invoiceAwardClock),
     ),
     GoRoute(
       path: ProductCapturePage.routePath,

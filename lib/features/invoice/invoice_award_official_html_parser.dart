@@ -22,7 +22,11 @@ class MinistryOfFinanceGeneralAwardHtmlParser
   const MinistryOfFinanceGeneralAwardHtmlParser();
 
   static const String _officialHost = 'invoice.etax.nat.gov.tw';
-  static const Set<String> _supportedPaths = <String>{'/', '/index.html'};
+  static const Set<String> _supportedPaths = <String>{
+    '/',
+    '/index.html',
+    '/lastNumber.html',
+  };
 
   @override
   String get parserVersion => 'mof-general-award-html-v1';

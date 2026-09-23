@@ -31,10 +31,12 @@ void main() {
   MinistryOfFinanceCloudAwardForegroundAcquisitionService service({
     required http.Client client,
     CloudAwardIndexLkgRepository? repo,
+    Uri? publicationUri,
   }) =>
       MinistryOfFinanceCloudAwardForegroundAcquisitionService(
         client: client,
         repository: repo ?? repository(),
+        publicationUri: publicationUri,
         indexBuilder: const CloudAwardPdfIndexBuilder(
           extractor: _FixtureExtractor(),
         ),
@@ -203,6 +205,32 @@ void main() {
         ? await work.list(followLinks: false).toList()
         : const <FileSystemEntity>[];
     expect(leftovers, isEmpty);
+  });
+  test('previous-period cloud publication source can be explicitly selected',
+      () async {
+    final requests = <Uri>[];
+    final client = MockClient((request) async {
+      requests.add(request.url);
+      if (request.url.path == '/cloudLastNumber.html') {
+        return _html(
+          _publicationFixture
+              .replaceAll('115年07-08月', '115年05-06月')
+              .replaceAll('20260708_', '20260506_'),
+        );
+      }
+      if (request.url.path.startsWith('/pdf/')) return _pdf();
+      return http.Response('unexpected', 404);
+    });
+
+    final result = await service(
+      client: client,
+      publicationUri:
+          MinistryOfFinanceCloudAwardForegroundAcquisitionService
+              .previousPublicationUri,
+    ).refresh(periodId: '115-05-06');
+
+    expect(result.isComplete, isTrue);
+    expect(requests.first.path, '/cloudLastNumber.html');
   });
 }
 

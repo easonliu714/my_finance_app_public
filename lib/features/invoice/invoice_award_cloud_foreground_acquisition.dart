@@ -107,6 +107,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     MinistryOfFinanceCloudAwardPublicationHtmlParser? publicationParser,
     CloudAwardTemporaryDirectoryProvider? temporaryDirectoryProvider,
     DateTime Function()? clock,
+    Uri? publicationUri,
     this.maxPublicationBytes = 1024 * 1024,
   })  : _client = client,
         _repository = repository,
@@ -118,10 +119,14 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
             const MinistryOfFinanceCloudAwardPublicationHtmlParser(),
         _temporaryDirectoryProvider =
             temporaryDirectoryProvider ?? getTemporaryDirectory,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now,
+        _publicationUri = publicationUri ?? currentPublicationUri;
 
-  static final Uri officialPublicationUri =
+  static final Uri currentPublicationUri =
       Uri.parse('https://invoice.etax.nat.gov.tw/cloudNowNumber.html');
+  static final Uri previousPublicationUri =
+      Uri.parse('https://invoice.etax.nat.gov.tw/cloudLastNumber.html');
+  static final Uri officialPublicationUri = currentPublicationUri;
 
   final http.Client _client;
   final CloudAwardIndexLkgRepository _repository;
@@ -129,6 +134,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   final MinistryOfFinanceCloudAwardPublicationHtmlParser _publicationParser;
   final CloudAwardTemporaryDirectoryProvider _temporaryDirectoryProvider;
   final DateTime Function() _clock;
+  final Uri _publicationUri;
   final int maxPublicationBytes;
 
   Future<CloudAwardForegroundRefreshResult> refresh({
@@ -146,7 +152,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     try {
       final html = await _fetchPublicationHtml();
       publication = _publicationParser.parse(
-        sourceUri: officialPublicationUri,
+        sourceUri: _publicationUri,
         html: html,
         expectedPeriodId: periodId,
         fetchedAt: _clock().toUtc(),
@@ -302,14 +308,14 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   }
 
   Future<String> _fetchPublicationHtml() async {
-    final request = http.Request('GET', officialPublicationUri);
+    final request = http.Request('GET', _publicationUri);
     request.headers[HttpHeaders.acceptHeader] =
         'text/html,application/xhtml+xml';
     final response = await _client.send(request);
     if (response.statusCode != HttpStatus.ok) {
       throw HttpException(
         'CLOUD_AWARD_PUBLICATION_HTTP_STATUS_${response.statusCode}',
-        uri: officialPublicationUri,
+        uri: _publicationUri,
       );
     }
 

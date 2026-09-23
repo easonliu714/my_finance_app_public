@@ -10,17 +10,23 @@ import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_official_acquisition.dart';
 import 'invoice_award_official_dataset.dart';
 import 'invoice_award_official_html_parser.dart';
+import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_shared_preferences_lkg_repository.dart';
 
-/// Production foreground award-check surface for the 115年07-08月 live target.
+/// Production foreground award-check surface for recent still-actionable periods.
 ///
 /// A single explicit user action refreshes both public MOF award domains, then
 /// scans governed invoice identities already attached to formal transactions.
 /// No invoice/accounting identifiers leave the device and this surface has no
 /// formal-transaction, redemption, claim, or remittance authority.
 class InvoiceAwardProductionPage extends StatefulWidget {
-  const InvoiceAwardProductionPage({super.key});
+  const InvoiceAwardProductionPage({
+    super.key,
+    this.clock,
+  });
+
+  final DateTime Function()? clock;
 
   @override
   State<InvoiceAwardProductionPage> createState() =>
@@ -28,22 +34,18 @@ class InvoiceAwardProductionPage extends StatefulWidget {
 }
 
 class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage> {
-  static const _liveDrawPeriod = OfficialInvoiceAwardPeriod(
-    rocYear: 115,
-    startMonth: 7,
-    endMonth: 8,
-  );
-  static const _liveAwardPeriodLabel = '115/08';
-
   final http.Client _httpClient = http.Client();
   final CloudAwardIndexLkgRepository _cloudRepository =
       CloudAwardIndexLkgRepository();
 
+  late final List<InvoiceAwardSelectablePeriod> _periodOptions;
+  late InvoiceAwardSelectablePeriod _selectedPeriod;
+
   bool _refreshing = false;
   bool _cloudCurrentAuthorityComplete = false;
-  String _status = '尚未更新官方 115年07-08月 中獎資料';
-  String _cloudStatus = '雲端專屬獎尚未更新';
-  String _scanStatus = '尚未掃描既有正式交易';
+  String _status = '';
+  String _cloudStatus = '';
+  String _scanStatus = '';
 
   List<ExistingInvoiceAwardCandidate> _candidates =
       const <ExistingInvoiceAwardCandidate>[];
@@ -53,13 +55,62 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       const <ExistingInvoiceAwardCloudEvaluation>[];
 
   @override
+  void initState() {
+    super.initState();
+    final now = _now();
+    _periodOptions = InvoiceAwardRecentPeriodCatalog.visibleAt(now);
+    _selectedPeriod = InvoiceAwardRecentPeriodCatalog.defaultAt(now);
+    _resetSelectedPeriodState(now);
+  }
+
+  @override
   void dispose() {
     _httpClient.close();
     super.dispose();
   }
 
+  DateTime _now() => widget.clock?.call() ?? DateTime.now();
+
+  void _resetSelectedPeriodState(DateTime now) {
+    _cloudCurrentAuthorityComplete = false;
+    _candidates = const <ExistingInvoiceAwardCandidate>[];
+    _generalEvaluations = const <ExistingInvoiceAwardGeneralEvaluation>[];
+    _cloudEvaluations = const <ExistingInvoiceAwardCloudEvaluation>[];
+    if (_selectedPeriod.canCheckAt(now)) {
+      _status = '尚未更新官方 ${_selectedPeriod.periodLabel} 中獎資料';
+      _cloudStatus = '雲端專屬獎尚未更新';
+      _scanStatus = '尚未掃描既有正式交易';
+    } else {
+      _status = '${_selectedPeriod.periodLabel} 尚未開獎，暫不可下載獎號。';
+      _cloudStatus = '雲端專屬獎等待開獎後才可更新';
+      _scanStatus = '尚未開獎，不執行既有交易對獎';
+    }
+  }
+
+  void _selectPeriod(String? periodId) {
+    if (periodId == null || _refreshing) return;
+    final selected = _periodOptions.firstWhere(
+      (item) => item.period.id == periodId,
+    );
+    setState(() {
+      _selectedPeriod = selected;
+      _resetSelectedPeriodState(_now());
+    });
+  }
+
   Future<void> _refresh() async {
     if (_refreshing) return;
+    final now = _now();
+    final selectedPeriod = _selectedPeriod;
+    if (!selectedPeriod.canCheckAt(now)) {
+      setState(() => _resetSelectedPeriodState(now));
+      return;
+    }
+    final usePreviousPublication =
+        InvoiceAwardRecentPeriodCatalog.usesPreviousPublication(
+      selectedPeriod,
+      now,
+    );
     setState(() {
       _refreshing = true;
       _cloudCurrentAuthorityComplete = false;
@@ -80,6 +131,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       final generalService = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
         client: _httpClient,
         coordinator: generalCoordinator,
+        sourceUri: usePreviousPublication
+            ? MinistryOfFinanceGeneralAwardHttpAcquisitionService.previousSourceUri
+            : MinistryOfFinanceGeneralAwardHttpAcquisitionService.currentSourceUri,
       );
       final generalController = InvoiceAwardProductionRefreshController(
         service: generalService,
@@ -90,7 +144,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         validator: validator,
       );
 
-      final generalResult = await generalController.refresh(_liveDrawPeriod);
+      final generalResult =
+          await generalController.refresh(selectedPeriod.period);
       final dataset = generalResult.dataset;
 
       CloudAwardForegroundRefreshResult? cloudRefresh;
@@ -99,9 +154,14 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             MinistryOfFinanceCloudAwardForegroundAcquisitionService(
           client: _httpClient,
           repository: _cloudRepository,
+          publicationUri: usePreviousPublication
+              ? MinistryOfFinanceCloudAwardForegroundAcquisitionService
+                  .previousPublicationUri
+              : MinistryOfFinanceCloudAwardForegroundAcquisitionService
+                  .currentPublicationUri,
         );
         cloudRefresh = await cloudService.refresh(
-          periodId: _liveDrawPeriod.id,
+          periodId: selectedPeriod.period.id,
           onProgress: _handleCloudProgress,
         );
       } catch (_) {
@@ -136,7 +196,11 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
       final cloudComplete = cloudRefresh?.isComplete ?? false;
       final currentCandidates = candidates
-          .where((candidate) => candidate.awardPeriod == _liveAwardPeriodLabel)
+          .where(
+            (candidate) =>
+                candidate.awardPeriod ==
+                selectedPeriod.candidateAwardPeriodLabel,
+          )
           .toList(growable: false);
       final currentKeys = currentCandidates.map(_candidateKey).toSet();
       final generalWinners = generalEvaluations
@@ -217,8 +281,13 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         _candidateKey(evaluation.candidate): evaluation,
     };
     final visibleCandidates = _candidates
-        .where((candidate) => candidate.awardPeriod == _liveAwardPeriodLabel)
+        .where(
+          (candidate) =>
+              candidate.awardPeriod == _selectedPeriod.candidateAwardPeriodLabel,
+        )
         .toList(growable: false);
+    final now = _now();
+    final canCheckSelectedPeriod = _selectedPeriod.canCheckAt(now);
 
     return Scaffold(
       appBar: AppBar(title: const Text('統一發票中獎檢查')),
@@ -227,7 +296,30 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           padding: const EdgeInsets.all(16),
           children: [
             const Text(
-              '115年07-08月開獎：2026-09-25。只向財政部官方來源取得中獎資料，不上傳發票或記帳內容。',
+              '只向財政部官方來源取得中獎資料，不上傳發票或記帳內容。',
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              key: const Key('invoice_award_period_selector'),
+              initialValue: _selectedPeriod.period.id,
+              decoration: const InputDecoration(
+                labelText: '開獎期別',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                for (final option in _periodOptions)
+                  DropdownMenuItem<String>(
+                    value: option.period.id,
+                    enabled: option.canCheckAt(now),
+                    child: Text(option.menuLabel(now)),
+                  ),
+              ],
+              onChanged: _refreshing ? null : _selectPeriod,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${_selectedPeriod.periodLabel} · '
+              '${_selectedPeriod.statusLabel(now)}',
             ),
             const SizedBox(height: 12),
             const Card(
@@ -241,7 +333,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: _refreshing ? null : _refresh,
+              onPressed:
+                  _refreshing || !canCheckSelectedPeriod ? null : _refresh,
               icon: _refreshing
                   ? const SizedBox.square(
                       dimension: 18,

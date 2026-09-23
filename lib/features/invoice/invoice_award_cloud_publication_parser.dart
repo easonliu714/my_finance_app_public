@@ -77,7 +77,10 @@ class MinistryOfFinanceCloudAwardPublicationHtmlParser {
   }) {
     if (sourceUri.scheme != 'https' ||
         sourceUri.host != 'invoice.etax.nat.gov.tw' ||
-        sourceUri.path != '/cloudNowNumber.html') {
+        !const <String>{
+          '/cloudNowNumber.html',
+          '/cloudLastNumber.html',
+        }.contains(sourceUri.path)) {
       throw const FormatException(
         'unsupported Ministry of Finance cloud-award publication surface',
       );

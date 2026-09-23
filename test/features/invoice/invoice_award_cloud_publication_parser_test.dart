@@ -93,6 +93,17 @@ void main() {
       throwsFormatException,
     );
   });
+  test('official previous-period cloud page is accepted', () {
+    final index = parser.parse(
+      sourceUri: Uri.parse(
+        'https://invoice.etax.nat.gov.tw/cloudLastNumber.html',
+      ),
+      html: _fixture,
+      expectedPeriodId: '115-05-06',
+      fetchedAt: DateTime.utc(2026, 9, 25, 6),
+    );
+    expect(index.isComplete, isTrue);
+  });
 }
 
 const _fixture = '''
