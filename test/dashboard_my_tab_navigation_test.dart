@@ -77,10 +77,15 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
     await tester.pump(const Duration(milliseconds: 700));
 
-    // Tap the production Reports destination by its unique navigation icon.
-    // This verifies the actual NavigationBar contract without depending on
-    // duplicate text labels elsewhere in the widget tree or page-copy text.
-    await tester.tap(find.byIcon(Icons.pie_chart_outline));
+    // Scope the tap to the production NavigationBar destination. This avoids
+    // duplicate body-copy labels while exercising the same user-visible tap
+    // contract that dispatches /my -> /ledger.
+    final reportsDestination = find.descendant(
+      of: find.byType(NavigationBar),
+      matching: find.text('報表'),
+    );
+    expect(reportsDestination, findsOneWidget);
+    await tester.tap(reportsDestination);
     await tester.pump(const Duration(milliseconds: 700));
     expect(appRouter.routeInformationProvider.value.uri.path, '/ledger');
     await tester.binding.handlePopRoute();
