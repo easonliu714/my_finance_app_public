@@ -502,7 +502,9 @@ class FlutterLandingWebViewSessionRuntime
     if (controller == null) throw StateError('SESSION_NOT_OPEN');
     try {
       final desktopGateRaw = await controller.evaluateJavascript(
-        source: _buildDesktopResultStructureGateScript(),
+        source: _buildDesktopResultStructureGateScript(
+          requireExportRoleMap: prepareExportSelection,
+        ),
       );
       if (!_desktopResultStructureReady(desktopGateRaw)) {
         return const OfficialQueryPagePreparationResult(
@@ -549,10 +551,15 @@ class FlutterLandingWebViewSessionRuntime
     }
   }
 
-  String _buildDesktopResultStructureGateScript() => r'''
+  String _buildDesktopResultStructureGateScript({
+    required bool requireExportRoleMap,
+  }) {
+    final requireExport = requireExportRoleMap ? 'true' : 'false';
+    return '''
 (() => {
+  const requireExportRoleMap = $requireExport;
   const normalize = (value) => String(value || '')
-    .replace(/[\s＊*：:]/g, '')
+    .replace(/[\\s＊*：:]/g, '')
     .trim();
   const rendered = (element) => {
     if (!element) return false;
@@ -562,7 +569,12 @@ class FlutterLandingWebViewSessionRuntime
       style.visibility !== 'hidden' &&
       rect.width > 0 && rect.height > 0;
   };
-  const requiredHeaders = [
+  const detailRequiredHeaders = [
+    '發票號碼',
+    '發票金額',
+    '發票日期',
+  ];
+  const exportRequiredHeaders = [
     '載具自訂名稱',
     '發票號碼',
     '發票金額',
@@ -575,9 +587,35 @@ class FlutterLandingWebViewSessionRuntime
   )).filter(rendered);
   for (const root of roots) {
     const headers = Array.from(root.querySelectorAll(
-      'th,[role="columnheader"]'
+      'th,[role="columnheader"],thead td'
     )).filter(rendered).map((element) => normalize(element.textContent));
-    if (!requiredHeaders.every((header) =>
+    if (!detailRequiredHeaders.every((header) =>
+      headers.some((candidate) => candidate.includes(header)))) {
+      continue;
+    }
+
+    const rows = Array.from(root.querySelectorAll(
+      'tbody tr,[role="row"]'
+    )).filter((row) =>
+      rendered(row) &&
+      !row.closest('thead') &&
+      !row.querySelector('[role="columnheader"]')
+    );
+    if (rows.length === 0) continue;
+
+    // Official-detail extraction only needs a canonical result table and data
+    // rows. Selection is revalidated separately by the detail target inspector.
+    // Do not make it depend on the CSV export page's two-checkbox role layout.
+    if (!requireExportRoleMap) {
+      return JSON.stringify({
+        code: 'DESKTOP_RESULT_LAYOUT_READY',
+        ready: true,
+        mode: 'detail',
+        rowCount: rows.length,
+      });
+    }
+
+    if (!exportRequiredHeaders.every((header) =>
       headers.some((candidate) => candidate.includes(header)))) {
       continue;
     }
@@ -586,9 +624,6 @@ class FlutterLandingWebViewSessionRuntime
       '[role="columnheader"] input[type="checkbox"],' +
       '[role="columnheader"] [role="checkbox"]'
     )).filter(rendered);
-    const rows = Array.from(root.querySelectorAll(
-      'tbody tr,[role="row"]'
-    )).filter((row) => rendered(row) && !row.closest('thead'));
     const rowsWithTwoRoles = rows.filter((row) =>
       Array.from(row.querySelectorAll(
         'input[type="checkbox"],[role="checkbox"]'
@@ -598,6 +633,7 @@ class FlutterLandingWebViewSessionRuntime
       return JSON.stringify({
         code: 'DESKTOP_RESULT_LAYOUT_READY',
         ready: true,
+        mode: 'export',
         headerCheckboxCount: headerCheckboxes.length,
         rowsWithTwoRoles,
       });
@@ -606,9 +642,11 @@ class FlutterLandingWebViewSessionRuntime
   return JSON.stringify({
     code: 'DESKTOP_RESULT_LAYOUT_NOT_READY',
     ready: false,
+    mode: requireExportRoleMap ? 'export' : 'detail',
   });
 })()
 ''';
+  }
 
   bool _desktopResultStructureReady(Object? raw) {
     Object? decoded = raw;
