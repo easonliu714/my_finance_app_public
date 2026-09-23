@@ -12,11 +12,11 @@ void main() {
       routes: <RouteBase>[
         GoRoute(
           path: '/',
-          builder: (context, state) => const Scaffold(
+          builder: (context, state) => Scaffold(
             appBar: AppBar(
-              actions: <Widget>[InvoiceAwardCheckEntryButton()],
+              actions: const <Widget>[InvoiceAwardCheckEntryButton()],
             ),
-            body: Text('reports'),
+            body: const Text('reports'),
           ),
         ),
         GoRoute(
