@@ -79,9 +79,10 @@ void main() {
 
     await tester.tap(find.text('報表').last);
     await tester.pump(const Duration(milliseconds: 700));
-    expect(find.text('帳單明細'), findsAtLeastNWidgets(1));
+    expect(appRouter.routeInformationProvider.value.uri.path, '/ledger');
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 500));
+    expect(appRouter.routeInformationProvider.value.uri.path, '/my');
     expect(find.text('我的'), findsAtLeastNWidgets(1));
   });
 }
