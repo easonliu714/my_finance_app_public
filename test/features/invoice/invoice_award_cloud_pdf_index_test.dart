@@ -37,8 +37,8 @@ void main() {
 
   test('builds candidate index page by page with exact provenance', () async {
     final output = File('${tempDir.path}/cloud-800.index.candidate');
-    final result = await CloudAwardPdfIndexBuilder(
-      extractor: const _FakeExtractor(<String>[
+    final result = await const CloudAwardPdfIndexBuilder(
+      extractor: _FakeExtractor(<String>[
         'header AD00166192 other text AD 00169681',
         'AE12345678 footer',
       ]),
@@ -99,8 +99,8 @@ void main() {
     final output = File('${tempDir.path}/empty.index.candidate');
 
     await expectLater(
-      CloudAwardPdfIndexBuilder(
-        extractor: const _FakeExtractor(<String>['no invoice numbers here']),
+      const CloudAwardPdfIndexBuilder(
+        extractor: _FakeExtractor(<String>['no invoice numbers here']),
       ).buildCandidate(
         artifact: artifact(),
         candidateIndexFile: output,
@@ -122,8 +122,8 @@ void main() {
     final output = File('${tempDir.path}/boundary.index.candidate');
 
     await expectLater(
-      CloudAwardPdfIndexBuilder(
-        extractor: const _FakeExtractor(<String>['XAD00166192Y']),
+      const CloudAwardPdfIndexBuilder(
+        extractor: _FakeExtractor(<String>['XAD00166192Y']),
       ).buildCandidate(
         artifact: artifact(),
         candidateIndexFile: output,
