@@ -77,10 +77,10 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
     await tester.pump(const Duration(milliseconds: 700));
 
-    // Target the Reports navigation destination itself rather than a copy label
-    // that can also occur in page content. This keeps the regression focused on
-    // the production NavigationBar contract: /my -> /ledger -> system back -> /my.
-    await tester.tap(find.byIcon(Icons.pie_chart_outline));
+    // Tap the production Reports navigation label, but assert the route itself
+    // rather than page copy. This locks the real contract without coupling the
+    // regression to a particular LedgerDetailPage heading.
+    await tester.tap(find.text('報表').last);
     await tester.pump(const Duration(milliseconds: 700));
     expect(appRouter.routeInformationProvider.value.uri.path, '/ledger');
     await tester.binding.handlePopRoute();
