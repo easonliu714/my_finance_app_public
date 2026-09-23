@@ -17,12 +17,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('統一發票中獎檢查'), findsOneWidget);
-    expect(
-      find.text('目前沒有可顯示的中獎結果。中獎比對只使用已驗證的官方資料並在裝置本機完成。'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('兌獎'), findsNothing);
+    expect(find.textContaining('115年07-08月開獎：2026-09-25'), findsOneWidget);
+    expect(find.text('手動更新官方中獎資料'), findsOneWidget);
+    expect(find.textContaining('尚未更新官方 115年07-08月 中獎資料'), findsOneWidget);
+    expect(find.textContaining('不上傳發票或記帳內容'), findsOneWidget);
+    expect(find.textContaining('不是兌獎、領獎或自動匯款平台'), findsOneWidget);
     expect(find.byType(ElevatedButton), findsNothing);
-    expect(find.byType(FilledButton), findsNothing);
   });
 }
