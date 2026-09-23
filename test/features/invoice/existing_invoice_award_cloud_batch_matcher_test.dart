@@ -54,21 +54,24 @@ void main() {
     String? eightHundred,
     String? fiveHundred,
   }) async {
+    // A validated Cloud LKG index can never be empty. Use legal non-matching
+    // fixture numbers for tiers that are present but do not contain the
+    // candidate under test.
     await addTier(
       'cloud-1000000',
-      million == null ? <String>[] : <String>[million],
+      <String>[million ?? 'ZX00000001'],
     );
     await addTier(
       'cloud-2000',
-      twoThousand == null ? <String>[] : <String>[twoThousand],
+      <String>[twoThousand ?? 'ZX00000002'],
     );
     await addTier(
       'cloud-800',
-      eightHundred == null ? <String>[] : <String>[eightHundred],
+      <String>[eightHundred ?? 'ZX00000003'],
     );
     await addTier(
       'cloud-500',
-      fiveHundred == null ? <String>[] : <String>[fiveHundred],
+      <String>[fiveHundred ?? 'ZX00000004'],
     );
   }
 
@@ -185,8 +188,8 @@ void main() {
 
   test('missing tier authority prevents a definitive cloud conclusion',
       () async {
-    await addTier('cloud-1000000', const <String>[]);
-    await addTier('cloud-2000', const <String>[]);
+    await addTier('cloud-1000000', const <String>['ZX00000001']);
+    await addTier('cloud-2000', const <String>['ZX00000002']);
     await addTier('cloud-800', const <String>['AB12345678']);
 
     final result = (await matcher().evaluate(
