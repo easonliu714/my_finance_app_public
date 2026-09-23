@@ -77,10 +77,10 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
     await tester.pump(const Duration(milliseconds: 700));
 
-    // Tap the production Reports navigation label, but assert the route itself
-    // rather than page copy. This locks the real contract without coupling the
-    // regression to a particular LedgerDetailPage heading.
-    await tester.tap(find.text('報表').last);
+    // Tap the production Reports destination by its unique navigation icon.
+    // This verifies the actual NavigationBar contract without depending on
+    // duplicate text labels elsewhere in the widget tree or page-copy text.
+    await tester.tap(find.byIcon(Icons.pie_chart_outline));
     await tester.pump(const Duration(milliseconds: 700));
     expect(appRouter.routeInformationProvider.value.uri.path, '/ledger');
     await tester.binding.handlePopRoute();
