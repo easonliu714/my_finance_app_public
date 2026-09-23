@@ -3,17 +3,22 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'existing_invoice_award_candidate_repository.dart';
+import 'existing_invoice_award_cloud_batch_matcher.dart';
 import 'existing_invoice_award_general_batch_matcher.dart';
+import 'invoice_award_cloud_foreground_acquisition.dart';
+import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_official_acquisition.dart';
 import 'invoice_award_official_dataset.dart';
 import 'invoice_award_official_html_parser.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_shared_preferences_lkg_repository.dart';
 
-/// Production manual-refresh surface for the 115年07-08月 live-draw target.
+/// Production foreground award-check surface for the 115年07-08月 live target.
 ///
-/// Only official MOF bytes cross the network boundary. No invoice/accounting
-/// identity is uploaded, and this surface has no formal-transaction authority.
+/// A single explicit user action refreshes both public MOF award domains, then
+/// scans governed invoice identities already attached to formal transactions.
+/// No invoice/accounting identifiers leave the device and this surface has no
+/// formal-transaction, redemption, claim, or remittance authority.
 class InvoiceAwardProductionPage extends StatefulWidget {
   const InvoiceAwardProductionPage({super.key});
 
@@ -28,13 +33,24 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     startMonth: 7,
     endMonth: 8,
   );
+  static const _liveAwardPeriodLabel = '115/08';
 
   final http.Client _httpClient = http.Client();
+  final CloudAwardIndexLkgRepository _cloudRepository =
+      CloudAwardIndexLkgRepository();
+
   bool _refreshing = false;
+  bool _cloudCurrentAuthorityComplete = false;
   String _status = '尚未更新官方 115年07-08月 中獎資料';
+  String _cloudStatus = '雲端專屬獎尚未更新';
   String _scanStatus = '尚未掃描既有正式交易';
-  List<ExistingInvoiceAwardGeneralEvaluation> _evaluations =
+
+  List<ExistingInvoiceAwardCandidate> _candidates =
+      const <ExistingInvoiceAwardCandidate>[];
+  List<ExistingInvoiceAwardGeneralEvaluation> _generalEvaluations =
       const <ExistingInvoiceAwardGeneralEvaluation>[];
+  List<ExistingInvoiceAwardCloudEvaluation> _cloudEvaluations =
+      const <ExistingInvoiceAwardCloudEvaluation>[];
 
   @override
   void dispose() {
@@ -46,7 +62,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     if (_refreshing) return;
     setState(() {
       _refreshing = true;
-      _status = '正在向財政部官方來源更新…';
+      _cloudCurrentAuthorityComplete = false;
+      _status = '正在更新財政部一般獎資料…';
+      _cloudStatus = '等待一般獎完成後更新雲端專屬獎…';
       _scanStatus = '等待官方資料驗證後掃描既有交易…';
     });
 
@@ -54,17 +72,17 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       final preferences = await SharedPreferences.getInstance();
       const validator = OfficialInvoiceAwardDatasetValidator();
       final volatileStore = InMemoryOfficialInvoiceAwardLastKnownGoodStore();
-      final coordinator = OfficialInvoiceAwardAcquisitionCoordinator(
+      final generalCoordinator = OfficialInvoiceAwardAcquisitionCoordinator(
         parser: const MinistryOfFinanceGeneralAwardHtmlParser(),
         validator: validator,
         store: volatileStore,
       );
-      final service = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
+      final generalService = MinistryOfFinanceGeneralAwardHttpAcquisitionService(
         client: _httpClient,
-        coordinator: coordinator,
+        coordinator: generalCoordinator,
       );
-      final controller = InvoiceAwardProductionRefreshController(
-        service: service,
+      final generalController = InvoiceAwardProductionRefreshController(
+        service: generalService,
         volatileStore: volatileStore,
         durableRepository: SharedPreferencesOfficialInvoiceAwardLkgRepository(
           preferences,
@@ -72,70 +90,134 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         validator: validator,
       );
 
-      final result = await controller.refresh(_liveDrawPeriod);
-      final dataset = result.dataset;
-      var evaluations = const <ExistingInvoiceAwardGeneralEvaluation>[];
-      String scanStatus;
-      if (dataset != null) {
-        final candidates =
-            await ExistingInvoiceAwardCandidateRepository().listCandidates();
-        evaluations = const ExistingInvoiceAwardGeneralBatchMatcher().evaluate(
-          dataset: dataset,
-          candidates: candidates,
+      final generalResult = await generalController.refresh(_liveDrawPeriod);
+      final dataset = generalResult.dataset;
+
+      CloudAwardForegroundRefreshResult? cloudRefresh;
+      try {
+        final cloudService =
+            MinistryOfFinanceCloudAwardForegroundAcquisitionService(
+          client: _httpClient,
+          repository: _cloudRepository,
         );
-        final inPeriod = evaluations
-            .where(
-              (item) =>
-                  item.status !=
-                  ExistingInvoiceAwardGeneralEvaluationStatus.outOfPeriod,
-            )
-            .toList(growable: false);
-        final winners = inPeriod.where((item) => item.isWinner).length;
-        scanStatus =
-            '既有交易候選 ${candidates.length} 筆；'
-            '本期可判定 ${inPeriod.length} 筆；'
-            '一般獎中獎 $winners 筆。';
-      } else {
-        scanStatus = '尚無已驗證官方資料，因此未執行既有交易對獎。';
+        cloudRefresh = await cloudService.refresh(
+          periodId: _liveDrawPeriod.id,
+          onProgress: _handleCloudProgress,
+        );
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _cloudStatus =
+                '雲端專屬獎本次更新失敗；保留既有已驗證資料，結果不會宣稱完整未中獎。';
+          });
+        }
       }
+
+      final candidates =
+          await ExistingInvoiceAwardCandidateRepository().listCandidates();
+
+      final generalEvaluations = dataset == null
+          ? const <ExistingInvoiceAwardGeneralEvaluation>[]
+          : const ExistingInvoiceAwardGeneralBatchMatcher().evaluate(
+              dataset: dataset,
+              candidates: candidates,
+            );
+
+      final cloudEvaluations = await ExistingInvoiceAwardCloudBatchMatcher(
+        readLatest: ({
+          required String periodId,
+          required String tierCode,
+        }) =>
+            _cloudRepository.readLatest(
+          periodId: periodId,
+          tierCode: tierCode,
+        ),
+      ).evaluate(candidates: candidates);
+
+      final cloudComplete = cloudRefresh?.isComplete ?? false;
+      final currentCandidates = candidates
+          .where((candidate) => candidate.awardPeriod == _liveAwardPeriodLabel)
+          .toList(growable: false);
+      final currentKeys = currentCandidates.map(_candidateKey).toSet();
+      final generalWinners = generalEvaluations
+          .where(
+            (item) =>
+                currentKeys.contains(_candidateKey(item.candidate)) &&
+                item.isWinner,
+          )
+          .length;
+      final cloudNumberMatches = cloudEvaluations
+          .where(
+            (item) =>
+                currentKeys.contains(_candidateKey(item.candidate)) &&
+                item.hasCloudNumberMatch,
+          )
+          .length;
 
       if (!mounted) return;
       setState(() {
         _refreshing = false;
-        _evaluations = evaluations;
-        _scanStatus = scanStatus;
-        if (result.isSuccess && dataset != null) {
+        _cloudCurrentAuthorityComplete = cloudComplete;
+        _candidates = candidates;
+        _generalEvaluations = generalEvaluations;
+        _cloudEvaluations = cloudEvaluations;
+        _scanStatus =
+            '本期既有交易候選 ${currentCandidates.length} 筆；'
+            '一般獎中獎 $generalWinners 筆；'
+            '雲端專屬獎號碼吻合 $cloudNumberMatches 筆。';
+
+        if (generalResult.isSuccess && dataset != null) {
           final fetched = dataset.provenance.fetchedAt.toLocal();
           _status =
-              '官方資料已驗證：${dataset.period.id} · '
+              '一般獎官方資料已驗證：${dataset.period.id} · '
               '更新 ${fetched.year}-${fetched.month.toString().padLeft(2, '0')}-'
               '${fetched.day.toString().padLeft(2, '0')} '
               '${fetched.hour.toString().padLeft(2, '0')}:'
               '${fetched.minute.toString().padLeft(2, '0')}';
         } else if (dataset != null) {
-          _status = '更新失敗；已保留並使用 ${dataset.period.id} 的最後已驗證資料。';
+          _status =
+              '一般獎更新失敗；已保留並使用 ${dataset.period.id} 的最後已驗證資料。';
         } else {
-          _status = '更新失敗，且目前沒有可用的已驗證官方資料。';
+          _status = '一般獎更新失敗，且目前沒有可用的已驗證官方資料。';
+        }
+
+        if (cloudRefresh != null) {
+          _cloudStatus = cloudComplete
+              ? '雲端專屬獎四個官方獎別資料已驗證完成。'
+              : '雲端專屬獎本次更新不完整；保留既有 LKG，無法宣稱完整未中獎。';
         }
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _refreshing = false;
+        _cloudCurrentAuthorityComplete = false;
         _status = '更新失敗；未變更任何既有已驗證資料。';
+        _cloudStatus = '雲端專屬獎結果未完成；不會宣稱完整未中獎。';
         _scanStatus = '既有交易掃描未完成；請稍後重新執行授權更新。';
       });
     }
   }
 
+  void _handleCloudProgress(CloudAwardForegroundProgress progress) {
+    if (!mounted) return;
+    setState(() {
+      _cloudStatus = _cloudProgressText(progress);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final visibleEvaluations = _evaluations
-        .where(
-          (item) =>
-              item.status !=
-              ExistingInvoiceAwardGeneralEvaluationStatus.outOfPeriod,
-        )
+    final generalByKey = <String, ExistingInvoiceAwardGeneralEvaluation>{
+      for (final evaluation in _generalEvaluations)
+        _candidateKey(evaluation.candidate): evaluation,
+    };
+    final cloudByKey = <String, ExistingInvoiceAwardCloudEvaluation>{
+      for (final evaluation in _cloudEvaluations)
+        _candidateKey(evaluation.candidate): evaluation,
+    };
+    final visibleCandidates = _candidates
+        .where((candidate) => candidate.awardPeriod == _liveAwardPeriodLabel)
         .toList(growable: false);
 
     return Scaffold(
@@ -147,7 +229,17 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             const Text(
               '115年07-08月開獎：2026-09-25。只向財政部官方來源取得中獎資料，不上傳發票或記帳內容。',
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Text(
+                  '雲端專屬獎官方資料包含大型 PDF。首次更新可能需要較多網路流量與處理時間；'
+                  '四個獎別會依序下載與建立本機索引，已驗證且來源相同的資料會直接重用。',
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _refreshing ? null : _refresh,
               icon: _refreshing
@@ -161,20 +253,29 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             const SizedBox(height: 16),
             Semantics(liveRegion: true, child: Text(_status)),
             const SizedBox(height: 8),
+            Semantics(liveRegion: true, child: Text(_cloudStatus)),
+            const SizedBox(height: 8),
             Semantics(liveRegion: true, child: Text(_scanStatus)),
-            if (visibleEvaluations.isNotEmpty) ...[
+            if (visibleCandidates.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(
-                '既有交易一般獎結果',
+                '既有交易對獎結果',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
-              for (final evaluation in visibleEvaluations)
-                _ExistingTransactionAwardTile(evaluation: evaluation),
+              for (final candidate in visibleCandidates)
+                _ExistingTransactionAwardTile(
+                  candidate: candidate,
+                  generalEvaluation: generalByKey[_candidateKey(candidate)],
+                  cloudEvaluation: cloudByKey[_candidateKey(candidate)],
+                  cloudCurrentAuthorityComplete:
+                      _cloudCurrentAuthorityComplete,
+                ),
             ],
             const SizedBox(height: 16),
             const Text(
-              '雲端發票目前已先參與一般獎比對；雲端專屬獎仍由獨立官方資料路徑處理，完成前不會宣稱雲端專屬獎已確認。',
+              '雲端發票會先參與一般獎，再增加一次雲端專屬獎號碼比對。'
+              '號碼吻合不等於已確認可領獎；資格證據不足時會標示待確認。',
             ),
             const SizedBox(height: 12),
             const Text(
@@ -188,40 +289,183 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 }
 
 class _ExistingTransactionAwardTile extends StatelessWidget {
-  const _ExistingTransactionAwardTile({required this.evaluation});
+  const _ExistingTransactionAwardTile({
+    required this.candidate,
+    required this.generalEvaluation,
+    required this.cloudEvaluation,
+    required this.cloudCurrentAuthorityComplete,
+  });
 
-  final ExistingInvoiceAwardGeneralEvaluation evaluation;
+  final ExistingInvoiceAwardCandidate candidate;
+  final ExistingInvoiceAwardGeneralEvaluation? generalEvaluation;
+  final ExistingInvoiceAwardCloudEvaluation? cloudEvaluation;
+  final bool cloudCurrentAuthorityComplete;
 
   @override
   Widget build(BuildContext context) {
-    final candidate = evaluation.candidate;
     final sourceLabel =
         candidate.identitySource == ExistingInvoiceAwardIdentitySource.cloudMetadata
             ? '雲端發票資料'
             : '發票辨識覆核';
-    final amount = evaluation.grossAmount;
-    final resultText = evaluation.isWinner
-        ? '${evaluation.tierLabel} · NT\$${_formatAmount(amount)}'
-        : evaluation.status == ExistingInvoiceAwardGeneralEvaluationStatus.invalid
-            ? '資料不足，需人工確認'
-            : '一般獎未中獎';
+    final lines = <Widget>[
+      Text(_generalResultText(generalEvaluation)),
+    ];
+
+    if (candidate.identitySource ==
+        ExistingInvoiceAwardIdentitySource.cloudMetadata) {
+      lines.add(const SizedBox(height: 4));
+      lines.add(
+        Text(
+          _cloudResultText(
+            cloudEvaluation,
+            currentAuthorityComplete: cloudCurrentAuthorityComplete,
+          ),
+        ),
+      );
+      final fingerprint = cloudEvaluation?.indexSha256;
+      if (fingerprint != null && fingerprint.length >= 12) {
+        lines.add(const SizedBox(height: 2));
+        lines.add(
+          Text(
+            '雲端索引指紋：${fingerprint.substring(0, 12)}…',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        );
+      }
+    }
 
     return Card(
       child: ListTile(
-        leading: Icon(
-          evaluation.isWinner
-              ? Icons.celebration_outlined
-              : Icons.receipt_long_outlined,
-        ),
-        title: Text('${candidate.invoiceNumber} · $resultText'),
-        subtitle: Text(
-          '$sourceLabel · ${candidate.awardPeriod} · '
-          '交易 ${candidate.transactionId}',
+        leading: const Icon(Icons.receipt_long_outlined),
+        title: Text(candidate.invoiceNumber),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$sourceLabel · ${candidate.awardPeriod} · '
+              '交易 ${candidate.transactionId}',
+            ),
+            const SizedBox(height: 6),
+            ...lines,
+          ],
         ),
       ),
     );
   }
 }
+
+String _generalResultText(
+  ExistingInvoiceAwardGeneralEvaluation? evaluation,
+) {
+  if (evaluation == null) return '一般獎：官方資料尚未可判定';
+  if (evaluation.isWinner) {
+    return '一般獎：${evaluation.tierLabel} · '
+        'NT\$${_formatAmount(evaluation.grossAmount)}';
+  }
+  return switch (evaluation.status) {
+    ExistingInvoiceAwardGeneralEvaluationStatus.invalid =>
+      '一般獎：資料不足，需人工確認',
+    ExistingInvoiceAwardGeneralEvaluationStatus.outOfPeriod =>
+      '一般獎：非目前檢查期別',
+    _ => '一般獎：未中獎',
+  };
+}
+
+String _cloudResultText(
+  ExistingInvoiceAwardCloudEvaluation? evaluation, {
+  required bool currentAuthorityComplete,
+}) {
+  if (evaluation == null) {
+    return '雲端專屬獎：尚未可判定';
+  }
+
+  if (!currentAuthorityComplete &&
+      evaluation.status != ExistingInvoiceAwardCloudEvaluationStatus.ineligible &&
+      evaluation.status !=
+          ExistingInvoiceAwardCloudEvaluationStatus.notApplicable) {
+    if (evaluation.hasCloudNumberMatch) {
+      return '雲端專屬獎：既有已驗證資料號碼吻合 · '
+          'NT\$${_formatAmount(evaluation.grossAmount)}；'
+          '本次獎號更新不完整，需確認';
+    }
+    return '雲端專屬獎：獎號資料不完整，無法確認未中獎';
+  }
+
+  return switch (evaluation.status) {
+    ExistingInvoiceAwardCloudEvaluationStatus.notApplicable =>
+      '雲端專屬獎：不適用',
+    ExistingInvoiceAwardCloudEvaluationStatus.ineligible =>
+      '雲端專屬獎：依現有資格證據不適用',
+    ExistingInvoiceAwardCloudEvaluationStatus.invalidPeriod =>
+      '雲端專屬獎：期別資料異常，需確認',
+    ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete =>
+      '雲端專屬獎：獎號資料不完整，無法確認未中獎',
+    ExistingInvoiceAwardCloudEvaluationStatus.notMatched =>
+      '雲端專屬獎：未中獎',
+    ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible =>
+      '雲端專屬獎：號碼吻合 · '
+          'NT\$${_formatAmount(evaluation.grossAmount)}；'
+          '仍請依官方兌獎規則確認',
+    ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired =>
+      '雲端專屬獎號碼吻合／資格待確認 · '
+          'NT\$${_formatAmount(evaluation.grossAmount)}',
+    ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired =>
+      '雲端專屬獎：號碼出現在多個獎別資料；'
+          '暫列最高 NT\$${_formatAmount(evaluation.grossAmount)}，需人工確認',
+  };
+}
+
+String _cloudProgressText(CloudAwardForegroundProgress progress) {
+  final tier = progress.tierCode == null
+      ? ''
+      : '${_tierLabel(progress.tierCode!)} · ';
+  return switch (progress.stage) {
+    CloudAwardForegroundStage.publication =>
+      '雲端專屬獎：正在取得財政部官方公告…',
+    CloudAwardForegroundStage.downloading =>
+      '雲端專屬獎：$tier${_downloadProgress(progress)}',
+    CloudAwardForegroundStage.extracting =>
+      '雲端專屬獎：$tier解析 PDF '
+          '${progress.pageNumber ?? 0}/${progress.pageCount ?? 0} 頁 · '
+          '已建立 ${progress.rowCount ?? 0} 筆索引',
+    CloudAwardForegroundStage.promoting =>
+      '雲端專屬獎：$tier正在驗證並保存本機索引…',
+    CloudAwardForegroundStage.reused =>
+      '雲端專屬獎：$tier已重用本機驗證資料',
+    CloudAwardForegroundStage.completed =>
+      '雲端專屬獎四個官方獎別資料已驗證完成。',
+    CloudAwardForegroundStage.failed =>
+      '雲端專屬獎：$tier更新未完成；保留既有已驗證資料',
+  };
+}
+
+String _downloadProgress(CloudAwardForegroundProgress progress) {
+  final downloaded = _formatMegabytes(progress.downloadedBytes);
+  final declared = progress.declaredBytes;
+  final rate = progress.bytesPerSecond;
+  final totalText =
+      declared == null ? '' : ' / ${_formatMegabytes(declared)}';
+  final rateText =
+      rate == null || rate <= 0 ? '' : ' · ${(rate / 1048576).toStringAsFixed(1)} MB/s';
+  return '下載 $downloaded$totalText$rateText';
+}
+
+String _formatMegabytes(int? bytes) {
+  if (bytes == null) return '0.0 MB';
+  return '${(bytes / 1048576).toStringAsFixed(1)} MB';
+}
+
+String _tierLabel(String tierCode) => switch (tierCode) {
+      'cloud-1000000' => '100萬元獎',
+      'cloud-2000' => '2,000元獎',
+      'cloud-800' => '800元獎',
+      'cloud-500' => '500元獎',
+      _ => tierCode,
+    };
+
+String _candidateKey(ExistingInvoiceAwardCandidate candidate) =>
+    '${candidate.transactionId}|${candidate.invoiceNumber}|'
+    '${candidate.invoiceDate.toIso8601String()}';
 
 String _formatAmount(int value) {
   final digits = value.toString();

@@ -19,7 +19,9 @@ void main() {
     expect(find.text('統一發票中獎檢查'), findsOneWidget);
     expect(find.textContaining('115年07-08月開獎：2026-09-25'), findsOneWidget);
     expect(find.text('授權更新並檢查既有交易'), findsOneWidget);
+    expect(find.textContaining('大型 PDF'), findsOneWidget);
     expect(find.textContaining('尚未更新官方 115年07-08月 中獎資料'), findsOneWidget);
+    expect(find.textContaining('雲端專屬獎尚未更新'), findsOneWidget);
     expect(find.textContaining('不上傳發票或記帳內容'), findsOneWidget);
     expect(find.textContaining('不是兌獎、領獎或自動匯款平台'), findsOneWidget);
     expect(find.byType(ElevatedButton), findsNothing);
