@@ -77,12 +77,12 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
     await tester.pump(const Duration(milliseconds: 700));
 
-    // Scope the tap to the production NavigationBar destination. This avoids
-    // duplicate body-copy labels while exercising the same user-visible tap
-    // contract that dispatches /my -> /ledger.
+    // Tap the production NavigationDestination icon itself. Tapping the nested
+    // label Text is not a stable proxy for NavigationBar destination gestures
+    // in widget tests, while the icon is part of the same user-visible target.
     final reportsDestination = find.descendant(
       of: find.byType(NavigationBar),
-      matching: find.text('報表'),
+      matching: find.byIcon(Icons.pie_chart_outline),
     );
     expect(reportsDestination, findsOneWidget);
     await tester.tap(reportsDestination);
