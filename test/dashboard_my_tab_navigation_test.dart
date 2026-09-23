@@ -52,8 +52,8 @@ void main() {
     expect(find.text('完整備份'), findsOneWidget);
     expect(find.text('完整還原'), findsOneWidget);
   });
-  testWidgets('My tab preserves a back path for Plan and Reports',
-      (tester) async {
+
+  testWidgets('My tab preserves a back path for Plan', (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 1900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -67,6 +67,15 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('我的'), findsAtLeastNWidgets(1));
+  });
+
+  testWidgets('My tab preserves a back path for Reports', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(900, 1900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    appRouter.go('/my');
+    await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
+    await tester.pump(const Duration(milliseconds: 700));
 
     await tester.tap(find.text('報表').last);
     await tester.pump(const Duration(milliseconds: 700));
