@@ -2,9 +2,13 @@ name: Issue #13 9/24 Existing Transaction Award MVP Signed Canary
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - issue-13-invoice-award-official-data
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: issue-13-award-mvp-signed-${{ github.ref }}
@@ -21,6 +25,46 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Wait for exact-head Flutter Android CI authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 40); do
+            response="$(curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/flutter_android_ci.yml/runs?head_sha=$TARGET_SHA&event=pull_request&per_page=10")"
+            state="$(python3 -c '
+import json, sys
+payload = json.load(sys.stdin)
+runs = payload.get("workflow_runs", [])
+if not runs:
+    print("missing||")
+else:
+    run = runs[0]
+    print(f"{run.get("status", "")}|{run.get("conclusion") or ""}|{run.get("id", "")}")
+' <<< "$response")"
+            IFS='|' read -r status conclusion run_id <<< "$state"
+            printf 'FLUTTER_CI_ATTEMPT=%s STATUS=%s CONCLUSION=%s RUN_ID=%s\n' \
+              "$attempt" "$status" "$conclusion" "$run_id"
+            if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+              printf 'EXACT_HEAD_FLUTTER_CI_AUTHORITY=PASS RUN_ID=%s\n' "$run_id"
+              exit 0
+            fi
+            if [[ "$status" == "completed" && -n "$conclusion" && "$conclusion" != "success" ]]; then
+              printf 'EXACT_HEAD_FLUTTER_CI_AUTHORITY=FAIL RUN_ID=%s CONCLUSION=%s\n' \
+                "$run_id" "$conclusion" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          printf 'EXACT_HEAD_FLUTTER_CI_AUTHORITY=TIMEOUT\n' >&2
+          exit 1
 
       - name: Exact head and release-identity authorization gate
         shell: bash
