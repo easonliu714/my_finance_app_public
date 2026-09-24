@@ -8,12 +8,15 @@ import 'package:path_provider/path_provider.dart';
 
 import 'invoice_award_cloud_artifact_downloader.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
+import 'invoice_award_cloud_pdf_cache_repository.dart';
 import 'invoice_award_cloud_pdf_index.dart';
 import 'invoice_award_cloud_publication_parser.dart';
 
 enum CloudAwardForegroundStage {
   publication,
   downloading,
+  downloadedSaved,
+  cachedPdfReused,
   extracting,
   promoting,
   reused,
@@ -106,6 +109,8 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     CloudAwardPdfIndexBuilder? indexBuilder,
     MinistryOfFinanceCloudAwardPublicationHtmlParser? publicationParser,
     CloudAwardTemporaryDirectoryProvider? temporaryDirectoryProvider,
+    CloudAwardPdfCacheDirectoryProvider? pdfCacheDirectoryProvider,
+    CloudAwardPdfCacheRepository? pdfCacheRepository,
     DateTime Function()? clock,
     Uri? publicationUri,
     this.maxPublicationBytes = 1024 * 1024,
@@ -119,6 +124,13 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
             const MinistryOfFinanceCloudAwardPublicationHtmlParser(),
         _temporaryDirectoryProvider =
             temporaryDirectoryProvider ?? getTemporaryDirectory,
+        _pdfCacheRepository = pdfCacheRepository ??
+            CloudAwardPdfCacheRepository(
+              rootDirectoryProvider: pdfCacheDirectoryProvider ??
+                  (temporaryDirectoryProvider == null
+                      ? getApplicationSupportDirectory
+                      : temporaryDirectoryProvider),
+            ),
         _clock = clock ?? DateTime.now,
         _publicationUri = publicationUri ?? currentPublicationUri;
 
@@ -133,14 +145,21 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   final CloudAwardPdfIndexBuilder _indexBuilder;
   final MinistryOfFinanceCloudAwardPublicationHtmlParser _publicationParser;
   final CloudAwardTemporaryDirectoryProvider _temporaryDirectoryProvider;
+  final CloudAwardPdfCacheRepository _pdfCacheRepository;
   final DateTime Function() _clock;
   final Uri _publicationUri;
   final int maxPublicationBytes;
 
   Future<CloudAwardForegroundRefreshResult> refresh({
     required String periodId,
+    DateTime? retentionUntil,
     CloudAwardForegroundProgressCallback? onProgress,
   }) async {
+    try {
+      await _pdfCacheRepository.pruneExpired(nowUtc: _clock().toUtc());
+    } catch (_) {
+      // Cache cleanup is best effort and must not block a refresh.
+    }
     onProgress?.call(
       const CloudAwardForegroundProgress(
         stage: CloudAwardForegroundStage.publication,
@@ -203,34 +222,66 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
 
       final safeTier = reference.tierCode.replaceAll(RegExp(r'[^a-z0-9-]'), '_');
       final nonce = DateTime.now().microsecondsSinceEpoch;
-      final pdfTemp = File(
-        '${workRoot.path}${Platform.pathSeparator}'
-        '$safeTier-$nonce.pdf.partial',
-      );
+      File? pdfTemp;
       final indexTemp = File(
         '${workRoot.path}${Platform.pathSeparator}'
         '$safeTier-$nonce.index.candidate',
       );
 
       try {
-        final downloader = MinistryOfFinanceCloudAwardArtifactDownloader(
-          client: _client,
-        );
-        final artifact = await downloader.download(
-          reference: reference,
-          destinationTempFile: pdfTemp,
-          onProgress: (progress) {
-            onProgress?.call(
-              CloudAwardForegroundProgress(
-                stage: CloudAwardForegroundStage.downloading,
-                tierCode: reference.tierCode,
-                downloadedBytes: progress.downloadedBytes,
-                declaredBytes: progress.declaredBytes,
-                bytesPerSecond: progress.bytesPerSecond,
-              ),
-            );
-          },
-        );
+        OfficialCloudAwardDownloadedArtifact artifact;
+        final cachedPdf =
+            await _pdfCacheRepository.readValidated(reference: reference);
+        if (cachedPdf != null) {
+          artifact = cachedPdf.asDownloadedArtifact(reference);
+          onProgress?.call(
+            CloudAwardForegroundProgress(
+              stage: CloudAwardForegroundStage.cachedPdfReused,
+              tierCode: reference.tierCode,
+              downloadedBytes: artifact.sizeBytes,
+              declaredBytes: artifact.sizeBytes,
+              message: '重用已保存官方 PDF',
+            ),
+          );
+        } else {
+          pdfTemp = File(
+            '${workRoot.path}${Platform.pathSeparator}'
+            '$safeTier-$nonce.pdf.partial',
+          );
+          final downloader = MinistryOfFinanceCloudAwardArtifactDownloader(
+            client: _client,
+          );
+          final downloaded = await downloader.download(
+            reference: reference,
+            destinationTempFile: pdfTemp,
+            onProgress: (progress) {
+              onProgress?.call(
+                CloudAwardForegroundProgress(
+                  stage: CloudAwardForegroundStage.downloading,
+                  tierCode: reference.tierCode,
+                  downloadedBytes: progress.downloadedBytes,
+                  declaredBytes: progress.declaredBytes,
+                  bytesPerSecond: progress.bytesPerSecond,
+                ),
+              );
+            },
+          );
+          final cached = await _pdfCacheRepository.promoteValidated(
+            artifact: downloaded,
+            downloadedAtUtc: _clock().toUtc(),
+            retentionUntilUtc: retentionUntil?.toUtc(),
+          );
+          artifact = cached.asDownloadedArtifact(reference);
+          onProgress?.call(
+            CloudAwardForegroundProgress(
+              stage: CloudAwardForegroundStage.downloadedSaved,
+              tierCode: reference.tierCode,
+              downloadedBytes: artifact.sizeBytes,
+              declaredBytes: artifact.sizeBytes,
+              message: '下載完成並已保存',
+            ),
+          );
+        }
 
         final build = await _indexBuilder.buildCandidate(
           artifact: artifact,
@@ -285,7 +336,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
           ),
         );
       } finally {
-        await _deleteIfExists(pdfTemp);
+        if (pdfTemp != null) await _deleteIfExists(pdfTemp);
         await _deleteIfExists(indexTemp);
       }
     }

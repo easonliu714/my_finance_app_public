@@ -51,26 +51,25 @@ void main() {
       contains('ContextAwareOfficialMobileSelectorCapabilityReportParser'),
     );
   });
-  test('official detail layout gate is independent from CSV dual-role gate', () {
+  test('official detail skips CSV export desktop checkbox gate', () {
     final source = File(
       'lib/features/invoice/lab/flutter_landing_webview_session_runtime.dart',
     ).readAsStringSync();
 
-    expect(
-      source,
-      contains('requireExportRoleMap: prepareExportSelection'),
-    );
-    expect(source, contains('const detailRequiredHeaders = ['));
-    expect(source, contains("'發票號碼'"));
-    expect(source, contains("'發票金額'"));
-    expect(source, contains("'發票日期'"));
-    expect(source, contains('if (!requireExportRoleMap)'));
-    expect(source, contains("mode: 'detail'"));
+    expect(source, contains('if (prepareExportSelection) {'));
+    expect(source, contains('source: _buildDesktopResultStructureGateScript()'));
     expect(
       source,
       contains('headerCheckboxes.length >= 2 && rowsWithTwoRoles > 0'),
     );
-    expect(source, contains("mode: 'export'"));
+    expect(
+      source,
+      contains(
+        'buildOfficialQueryPagePreparationScript(\n'
+        '          prepareExportSelection: prepareExportSelection,',
+      ),
+    );
+    expect(source, isNot(contains("mode: 'detail'")));
   });
 
 }

@@ -32,14 +32,16 @@ void main() {
     required http.Client client,
     CloudAwardIndexLkgRepository? repo,
     Uri? publicationUri,
+    CloudAwardPdfIndexBuilder? indexBuilder,
   }) =>
       MinistryOfFinanceCloudAwardForegroundAcquisitionService(
         client: client,
         repository: repo ?? repository(),
         publicationUri: publicationUri,
-        indexBuilder: const CloudAwardPdfIndexBuilder(
-          extractor: _FixtureExtractor(),
-        ),
+        indexBuilder: indexBuilder ??
+            const CloudAwardPdfIndexBuilder(
+              extractor: _FixtureExtractor(),
+            ),
         temporaryDirectoryProvider: () async => tempDir,
         clock: () => DateTime.utc(2026, 9, 25, 6),
       );
@@ -206,6 +208,54 @@ void main() {
         : const <FileSystemEntity>[];
     expect(leftovers, isEmpty);
   });
+
+  test('validated PDF cache survives extraction failure and prevents redownload',
+      () async {
+    final firstRequests = <Uri>[];
+    final firstClient = MockClient((request) async {
+      firstRequests.add(request.url);
+      if (request.url.path == '/cloudNowNumber.html') {
+        return _html(_publicationFixture);
+      }
+      if (request.url.path.startsWith('/pdf/')) return _pdf();
+      return http.Response('unexpected', 404);
+    });
+
+    final first = await service(
+      client: firstClient,
+      indexBuilder: const CloudAwardPdfIndexBuilder(
+        extractor: _AlwaysFailExtractor(),
+      ),
+    ).refresh(
+      periodId: '115-07-08',
+      retentionUntil: DateTime.utc(2027, 1, 5, 23, 59, 59),
+    );
+
+    expect(first.isComplete, isFalse);
+    expect(
+      firstRequests.where((uri) => uri.path.startsWith('/pdf/')),
+      hasLength(4),
+    );
+
+    final secondRequests = <Uri>[];
+    final secondClient = MockClient((request) async {
+      secondRequests.add(request.url);
+      if (request.url.path == '/cloudNowNumber.html') {
+        return _html(_publicationFixture);
+      }
+      return http.Response('PDF must be reused from durable cache', 500);
+    });
+
+    final second = await service(client: secondClient).refresh(
+      periodId: '115-07-08',
+      retentionUntil: DateTime.utc(2027, 1, 5, 23, 59, 59),
+    );
+
+    expect(second.isComplete, isTrue);
+    expect(secondRequests, hasLength(1));
+    expect(secondRequests.single.path, '/cloudNowNumber.html');
+  });
+
   test('previous-period cloud publication source can be explicitly selected',
       () async {
     final requests = <Uri>[];
@@ -233,6 +283,22 @@ void main() {
     expect(requests.first.path, '/cloudLastNumber.html');
   });
 }
+
+class _AlwaysFailExtractor extends CloudAwardPdfTextExtractor {
+  const _AlwaysFailExtractor();
+
+  @override
+  String get extractorVersion => 'fixture-page-extractor-v1';
+
+  @override
+  Future<void> forEachPage(
+    File pdfFile,
+    CloudAwardPdfPageCallback onPage,
+  ) async {
+    throw StateError('FIXTURE_EXTRACTION_FAILURE');
+  }
+}
+
 
 class _FixtureExtractor extends CloudAwardPdfTextExtractor {
   const _FixtureExtractor();

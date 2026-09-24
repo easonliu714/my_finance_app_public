@@ -162,6 +162,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         );
         cloudRefresh = await cloudService.refresh(
           periodId: selectedPeriod.period.id,
+          retentionUntil: selectedPeriod.redemptionEnd.toUtc(),
           onProgress: _handleCloudProgress,
         );
       } catch (_) {
@@ -517,6 +518,10 @@ String _cloudProgressText(CloudAwardForegroundProgress progress) {
       '雲端專屬獎：正在取得財政部官方公告…',
     CloudAwardForegroundStage.downloading =>
       '雲端專屬獎：$tier${_downloadProgress(progress)}',
+    CloudAwardForegroundStage.downloadedSaved =>
+      '雲端專屬獎：$tier下載完成並已保存，準備解析…',
+    CloudAwardForegroundStage.cachedPdfReused =>
+      '雲端專屬獎：$tier重用已保存官方 PDF，準備解析…',
     CloudAwardForegroundStage.extracting =>
       '雲端專屬獎：$tier解析 PDF '
           '${progress.pageNumber ?? 0}/${progress.pageCount ?? 0} 頁 · '
