@@ -342,10 +342,9 @@ packages:
   flutter_pdf_text:
     dependency: "direct main"
     description:
-      name: flutter_pdf_text
-      sha256: "3ab17442333b9ec3c95dabc22da87451ac5cfd85585265f63c7b1aa55039c018"
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/flutter_pdf_text"
+      relative: true
+    source: path
     version: "0.9.0"
   flutter_plugin_android_lifecycle:
     dependency: transitive
