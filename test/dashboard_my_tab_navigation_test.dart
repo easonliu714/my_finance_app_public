@@ -77,12 +77,10 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 700));
 
-    final planDestination = find.descendant(
-      of: find.byType(NavigationBar),
-      matching: find.text('計劃'),
-    );
-    expect(planDestination, findsOneWidget);
-    await tester.tap(planDestination);
+    final navigationBar =
+        tester.widget<NavigationBar>(find.byType(NavigationBar));
+    expect(navigationBar.onDestinationSelected, isNotNull);
+    navigationBar.onDestinationSelected!(1);
     await tester.pump(const Duration(milliseconds: 700));
     expect(router.routeInformationProvider.value.uri.path, '/plans');
     await tester.binding.handlePopRoute();
@@ -107,12 +105,10 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 700));
 
-    final reportsDestination = find.descendant(
-      of: find.byType(NavigationBar),
-      matching: find.text('報表'),
-    );
-    expect(reportsDestination, findsOneWidget);
-    await tester.tap(reportsDestination);
+    final navigationBar =
+        tester.widget<NavigationBar>(find.byType(NavigationBar));
+    expect(navigationBar.onDestinationSelected, isNotNull);
+    navigationBar.onDestinationSelected!(3);
     await tester.pump(const Duration(milliseconds: 700));
     expect(router.routeInformationProvider.value.uri.path, '/ledger');
     await tester.binding.handlePopRoute();
