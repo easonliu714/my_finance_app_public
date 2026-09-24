@@ -56,11 +56,27 @@ void main() {
     expect(pluginSource, contains('"closeDocSession"'));
     expect(pluginSource, contains('openDocuments[sessionId] = doc'));
     expect(pluginSource, contains('openDocuments.remove(sessionId)'));
+    expect(pluginSource, contains('diagnosticFileName'));
+    expect(pluginSource, contains('"OPEN_BEGIN"'));
+    expect(pluginSource, contains('"OPEN_OOM"'));
+    expect(pluginSource, contains('"PAGE_BEGIN"'));
+    expect(pluginSource, contains('"PAGE_OOM"'));
+    expect(pluginSource, contains('"EXTRACTION_COMPLETE"'));
+    expect(pluginSource, contains('catch (oom: OutOfMemoryError)'));
+    expect(pluginSource, contains('"heap_used_bytes=$usedHeap"'));
+    expect(pluginSource, contains('"getLastDiagnostic"'));
     expect(appExtractor, contains('if (Platform.isAndroid)'));
     expect(appExtractor, contains("'openDocSession'"));
     expect(appExtractor, contains("'getDocSessionPageText'"));
     expect(appExtractor, contains("'closeDocSession'"));
-    expect(appExtractor, contains('flutter_pdf_text-0.9.0-android-session-page-v2'));
+    expect(
+      appExtractor,
+      contains('flutter_pdf_text-0.9.0-android-chunk8-diagnostic-v3'),
+    );
+    expect(appExtractor, contains('androidChunkPageCount = 8'));
+    expect(appExtractor, contains("'markExtractionComplete'"));
+    expect(appExtractor, contains("'getLastDiagnostic'"));
+    expect(appExtractor, contains('CloudAwardPdfExtractorStage.pageStarted'));
     expect(
       pluginSource,
       contains(

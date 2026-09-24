@@ -45,6 +45,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   bool _cloudCurrentAuthorityComplete = false;
   String _status = '';
   String _cloudStatus = '';
+  String _cloudDiagnosticStatus = '';
   String _scanStatus = '';
 
   List<ExistingInvoiceAwardCandidate> _candidates =
@@ -61,6 +62,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     _periodOptions = InvoiceAwardRecentPeriodCatalog.visibleAt(now);
     _selectedPeriod = InvoiceAwardRecentPeriodCatalog.defaultAt(now);
     _resetSelectedPeriodState(now);
+    _loadLastPdfDiagnostic();
   }
 
   @override
@@ -71,8 +73,20 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
   DateTime _now() => widget.clock?.call() ?? DateTime.now();
 
+  Future<void> _loadLastPdfDiagnostic() async {
+    final extractor = const FlutterPdfTextCloudAwardExtractor();
+    final text = FlutterPdfTextCloudAwardExtractor.diagnosticText(
+      await extractor.readLastNativeDiagnostic(),
+    );
+    if (!mounted || text == null) return;
+    setState(() {
+      _cloudDiagnosticStatus = '上次 PDF 解析最後紀錄：' + text;
+    });
+  }
+
   void _resetSelectedPeriodState(DateTime now) {
     _cloudCurrentAuthorityComplete = false;
+    _cloudDiagnosticStatus = '';
     _candidates = const <ExistingInvoiceAwardCandidate>[];
     _generalEvaluations = const <ExistingInvoiceAwardGeneralEvaluation>[];
     _cloudEvaluations = const <ExistingInvoiceAwardCloudEvaluation>[];
@@ -268,6 +282,10 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     if (!mounted) return;
     setState(() {
       _cloudStatus = _cloudProgressText(progress);
+      final diagnostic = progress.diagnosticMessage;
+      if (diagnostic != null && diagnostic.isNotEmpty) {
+        _cloudDiagnosticStatus = diagnostic;
+      }
     });
   }
 
@@ -348,6 +366,17 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             Semantics(liveRegion: true, child: Text(_status)),
             const SizedBox(height: 8),
             Semantics(liveRegion: true, child: Text(_cloudStatus)),
+            if (_cloudDiagnosticStatus.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText(
+                    'PDF 解析診斷：' + _cloudDiagnosticStatus,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             Semantics(liveRegion: true, child: Text(_scanStatus)),
             if (visibleCandidates.isNotEmpty) ...[
@@ -523,9 +552,12 @@ String _cloudProgressText(CloudAwardForegroundProgress progress) {
     CloudAwardForegroundStage.cachedPdfReused =>
       '雲端專屬獎：$tier重用已保存官方 PDF，準備解析…',
     CloudAwardForegroundStage.extracting =>
-      '雲端專屬獎：$tier解析 PDF '
-          '${progress.pageNumber ?? 0}/${progress.pageCount ?? 0} 頁 · '
-          '已建立 ${progress.rowCount ?? 0} 筆索引',
+      progress.message != null
+          ? '雲端專屬獎：' + tier + progress.message!
+          : '雲端專屬獎：' + tier + '解析 PDF ' +
+              (progress.pageNumber ?? 0).toString() + '/' +
+              (progress.pageCount ?? 0).toString() + ' 頁 · 已建立 ' +
+              (progress.rowCount ?? 0).toString() + ' 筆索引',
     CloudAwardForegroundStage.promoting =>
       '雲端專屬獎：$tier正在驗證並保存本機索引…',
     CloudAwardForegroundStage.reused =>

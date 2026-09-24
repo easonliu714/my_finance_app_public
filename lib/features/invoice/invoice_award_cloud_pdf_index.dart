@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +15,34 @@ typedef CloudAwardPdfPageCallback = FutureOr<void> Function(
   String text,
 );
 
+enum CloudAwardPdfExtractorStage {
+  openingChunk,
+  chunkOpened,
+  pageStarted,
+  pageCompleted,
+  chunkClosed,
+}
+
+class CloudAwardPdfExtractorProgress {
+  const CloudAwardPdfExtractorProgress({
+    required this.stage,
+    this.pageNumber,
+    this.pageCount,
+    this.chunkStart,
+    this.chunkEnd,
+  });
+
+  final CloudAwardPdfExtractorStage stage;
+  final int? pageNumber;
+  final int? pageCount;
+  final int? chunkStart;
+  final int? chunkEnd;
+}
+
+typedef CloudAwardPdfExtractorProgressCallback = void Function(
+  CloudAwardPdfExtractorProgress progress,
+);
+
 abstract class CloudAwardPdfTextExtractor {
   const CloudAwardPdfTextExtractor();
 
@@ -21,8 +50,9 @@ abstract class CloudAwardPdfTextExtractor {
 
   Future<void> forEachPage(
     File pdfFile,
-    CloudAwardPdfPageCallback onPage,
-  );
+    CloudAwardPdfPageCallback onPage, {
+    CloudAwardPdfExtractorProgressCallback? onProgress,
+  });
 }
 
 /// Production text extractor backed by PDFBox Android / PDFKit iOS through
@@ -32,17 +62,20 @@ class FlutterPdfTextCloudAwardExtractor extends CloudAwardPdfTextExtractor {
   const FlutterPdfTextCloudAwardExtractor();
 
   static const MethodChannel _channel = MethodChannel('pdf_text');
+  static const int androidChunkPageCount = 8;
 
   @override
-  String get extractorVersion => 'flutter_pdf_text-0.9.0-android-session-page-v2';
+  String get extractorVersion =>
+      'flutter_pdf_text-0.9.0-android-chunk8-diagnostic-v3';
 
   @override
   Future<void> forEachPage(
     File pdfFile,
-    CloudAwardPdfPageCallback onPage,
-  ) async {
+    CloudAwardPdfPageCallback onPage, {
+    CloudAwardPdfExtractorProgressCallback? onProgress,
+  }) async {
     if (Platform.isAndroid) {
-      await _forEachAndroidSession(pdfFile, onPage);
+      await _forEachAndroidChunk(pdfFile, onPage, onProgress: onProgress);
       return;
     }
 
@@ -52,44 +85,139 @@ class FlutterPdfTextCloudAwardExtractor extends CloudAwardPdfTextExtractor {
       throw StateError('CLOUD_AWARD_PDF_PAGE_COUNT_INVALID');
     }
     for (var page = 1; page <= pageCount; page += 1) {
+      onProgress?.call(CloudAwardPdfExtractorProgress(
+        stage: CloudAwardPdfExtractorStage.pageStarted,
+        pageNumber: page,
+        pageCount: pageCount,
+      ));
       final text = await document.pageAt(page).text;
       await onPage(page, pageCount, text);
+      onProgress?.call(CloudAwardPdfExtractorProgress(
+        stage: CloudAwardPdfExtractorStage.pageCompleted,
+        pageNumber: page,
+        pageCount: pageCount,
+      ));
     }
   }
 
-  Future<void> _forEachAndroidSession(
+  Future<void> _forEachAndroidChunk(
     File pdfFile,
-    CloudAwardPdfPageCallback onPage,
-  ) async {
-    final opened = await _channel.invokeMapMethod<String, Object?>(
-      'openDocSession',
-      <String, Object?>{'path': pdfFile.path, 'password': ''},
-    );
-    final sessionId = opened?['sessionId']?.toString() ?? '';
-    final pageCount = (opened?['length'] as num?)?.toInt() ?? 0;
-    if (sessionId.isEmpty || pageCount <= 0) {
-      throw StateError('CLOUD_AWARD_PDF_SESSION_INVALID');
+    CloudAwardPdfPageCallback onPage, {
+    CloudAwardPdfExtractorProgressCallback? onProgress,
+  }) async {
+    var chunkStart = 1;
+    int? pageCount;
+
+    while (pageCount == null || chunkStart <= pageCount) {
+      final plannedEnd = pageCount == null
+          ? chunkStart + androidChunkPageCount - 1
+          : min(pageCount, chunkStart + androidChunkPageCount - 1);
+      onProgress?.call(CloudAwardPdfExtractorProgress(
+        stage: CloudAwardPdfExtractorStage.openingChunk,
+        pageCount: pageCount,
+        chunkStart: chunkStart,
+        chunkEnd: plannedEnd,
+      ));
+
+      final opened = await _channel.invokeMapMethod<String, Object?>(
+        'openDocSession',
+        <String, Object?>{'path': pdfFile.path, 'password': ''},
+      );
+      final sessionId = opened?['sessionId']?.toString() ?? '';
+      final openedPageCount = (opened?['length'] as num?)?.toInt() ?? 0;
+      if (sessionId.isEmpty || openedPageCount <= 0) {
+        throw StateError('CLOUD_AWARD_PDF_SESSION_INVALID');
+      }
+      pageCount ??= openedPageCount;
+      if (pageCount != openedPageCount) {
+        throw StateError('CLOUD_AWARD_PDF_PAGE_COUNT_CHANGED');
+      }
+      final chunkEnd = min(
+        pageCount,
+        chunkStart + androidChunkPageCount - 1,
+      );
+      onProgress?.call(CloudAwardPdfExtractorProgress(
+        stage: CloudAwardPdfExtractorStage.chunkOpened,
+        pageCount: pageCount,
+        chunkStart: chunkStart,
+        chunkEnd: chunkEnd,
+      ));
+
+      try {
+        for (var page = chunkStart; page <= chunkEnd; page += 1) {
+          onProgress?.call(CloudAwardPdfExtractorProgress(
+            stage: CloudAwardPdfExtractorStage.pageStarted,
+            pageNumber: page,
+            pageCount: pageCount,
+            chunkStart: chunkStart,
+            chunkEnd: chunkEnd,
+          ));
+          final text = await _channel.invokeMethod<String>(
+                'getDocSessionPageText',
+                <String, Object?>{'sessionId': sessionId, 'number': page},
+              ) ??
+              '';
+          await onPage(page, pageCount, text);
+          onProgress?.call(CloudAwardPdfExtractorProgress(
+            stage: CloudAwardPdfExtractorStage.pageCompleted,
+            pageNumber: page,
+            pageCount: pageCount,
+            chunkStart: chunkStart,
+            chunkEnd: chunkEnd,
+          ));
+        }
+      } finally {
+        try {
+          await _channel.invokeMethod<void>(
+            'closeDocSession',
+            <String, Object?>{'sessionId': sessionId},
+          );
+        } catch (_) {
+          // Cleanup failure must not mask the extraction result.
+        }
+        onProgress?.call(CloudAwardPdfExtractorProgress(
+          stage: CloudAwardPdfExtractorStage.chunkClosed,
+          pageCount: pageCount,
+          chunkStart: chunkStart,
+          chunkEnd: chunkEnd,
+        ));
+      }
+      chunkStart = chunkEnd + 1;
     }
 
-    try {
-      for (var page = 1; page <= pageCount; page += 1) {
-        final text = await _channel.invokeMethod<String>(
-              'getDocSessionPageText',
-              <String, Object?>{'sessionId': sessionId, 'number': page},
-            ) ??
-            '';
-        await onPage(page, pageCount, text);
-      }
-    } finally {
-      try {
-        await _channel.invokeMethod<void>(
-          'closeDocSession',
-          <String, Object?>{'sessionId': sessionId},
-        );
-      } catch (_) {
-        // Cleanup failure must not mask the extraction result.
-      }
-    }
+    await _channel.invokeMethod<void>(
+      'markExtractionComplete',
+      <String, Object?>{'path': pdfFile.path},
+    );
+  }
+
+  Future<Map<String, Object?>?> readLastNativeDiagnostic() async {
+    if (!Platform.isAndroid) return null;
+    return _channel.invokeMapMethod<String, Object?>('getLastDiagnostic');
+  }
+
+  static String? diagnosticText(Map<String, Object?>? diagnostic) {
+    if (diagnostic == null || diagnostic.isEmpty) return null;
+    final stage = diagnostic['stage']?.toString() ?? '';
+    if (stage.isEmpty || stage == 'EXTRACTION_COMPLETE') return null;
+    final page = (diagnostic['page_number'] as num?)?.toInt() ?? 0;
+    final pageCount = (diagnostic['page_count'] as num?)?.toInt() ?? 0;
+    final used = (diagnostic['heap_used_bytes'] as num?)?.toInt() ?? 0;
+    final max = (diagnostic['heap_max_bytes'] as num?)?.toInt() ?? 0;
+    final fileBytes = (diagnostic['file_bytes'] as num?)?.toInt() ?? 0;
+    final pageText = page > 0
+        ? ' · page ' + page.toString() +
+            (pageCount > 0 ? '/' + pageCount.toString() : '')
+        : '';
+    final heapText = max > 0
+        ? ' · heap ' +
+            (used / 1048576).toStringAsFixed(1) + '/' +
+            (max / 1048576).toStringAsFixed(1) + ' MB'
+        : '';
+    final fileText = fileBytes > 0
+        ? ' · PDF ' + (fileBytes / 1048576).toStringAsFixed(1) + ' MB'
+        : '';
+    return stage + pageText + heapText + fileText;
   }
 }
 
@@ -159,6 +287,7 @@ class CloudAwardPdfIndexBuilder {
     required OfficialCloudAwardDownloadedArtifact artifact,
     required File candidateIndexFile,
     CloudAwardIndexBuildProgressCallback? onProgress,
+    CloudAwardPdfExtractorProgressCallback? onExtractorProgress,
     DateTime? builtAt,
   }) async {
     if (!artifact.reference.isApprovedOfficialSource ||
@@ -184,6 +313,7 @@ class CloudAwardPdfIndexBuilder {
           }
           onProgress?.call(pageNumber, pageCount, rowCount);
         },
+        onProgress: onExtractorProgress,
       );
       await sink.flush();
       await sink.close();

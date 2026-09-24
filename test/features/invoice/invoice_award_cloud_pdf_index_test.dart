@@ -144,8 +144,9 @@ class _FakeExtractor extends CloudAwardPdfTextExtractor {
   @override
   Future<void> forEachPage(
     File pdfFile,
-    CloudAwardPdfPageCallback onPage,
-  ) async {
+    CloudAwardPdfPageCallback onPage, {
+    CloudAwardPdfExtractorProgressCallback? onProgress,
+  }) async {
     for (var index = 0; index < pages.length; index += 1) {
       await onPage(index + 1, pages.length, pages[index]);
     }

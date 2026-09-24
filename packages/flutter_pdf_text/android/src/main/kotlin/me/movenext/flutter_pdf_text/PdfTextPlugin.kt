@@ -23,6 +23,8 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
 
   private lateinit var applicationContext: Context
   private val openDocuments = ConcurrentHashMap<String, PDDocument>()
+  private val openDocumentPaths = ConcurrentHashMap<String, String>()
+  private val diagnosticFileName = "flutter_pdf_text_last_diagnostic.txt"
 
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
     applicationContext = flutterPluginBinding.applicationContext
@@ -57,6 +59,15 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val sessionId = args["sessionId"] as String
             closeDocSession(result, sessionId)
           }
+          "getLastDiagnostic" -> {
+            getLastDiagnostic(result)
+          }
+          "markExtractionComplete" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            writeDiagnostic("EXTRACTION_COMPLETE", path)
+            Handler(Looper.getMainLooper()).post { result.success(true) }
+          }
           "getDocPageText" -> {
             val args = call.arguments as Map<*, *>
             val path = args["path"] as String
@@ -86,6 +97,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       try { doc.close() } catch (_: Exception) {}
     }
     openDocuments.clear()
+    openDocumentPaths.clear()
   }
 
   /**
@@ -128,6 +140,8 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     val doc = getDoc(result, path, password) ?: return
     val sessionId = UUID.randomUUID().toString()
     openDocuments[sessionId] = doc
+    openDocumentPaths[sessionId] = path
+    writeDiagnostic("SESSION_OPEN", path, pageCount = doc.numberOfPages)
     Handler(Looper.getMainLooper()).post {
       result.success(hashMapOf("sessionId" to sessionId, "length" to doc.numberOfPages))
     }
@@ -148,13 +162,25 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       }
       return
     }
+    val path = openDocumentPaths[sessionId] ?: ""
+    writeDiagnostic("PAGE_BEGIN", path, pageNumber, doc.numberOfPages)
     try {
       val stripper = PDFTextStripper()
       stripper.startPage = pageNumber
       stripper.endPage = pageNumber
       val text = stripper.getText(doc)
+      writeDiagnostic("PAGE_OK", path, pageNumber, doc.numberOfPages)
       Handler(Looper.getMainLooper()).post { result.success(text) }
+    } catch (oom: OutOfMemoryError) {
+      writeDiagnostic("PAGE_OOM", path, pageNumber, doc.numberOfPages, oom.javaClass.simpleName)
+      val doomed = openDocuments.remove(sessionId)
+      openDocumentPaths.remove(sessionId)
+      try { doomed?.close() } catch (_: Exception) {}
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDF_PAGE_OOM", "PDF page extraction exhausted memory", null)
+      }
     } catch (e: Exception) {
+      writeDiagnostic("PAGE_FAILED", path, pageNumber, doc.numberOfPages, e.javaClass.simpleName)
       Handler(Looper.getMainLooper()).post {
         result.error("PDF_SESSION_PAGE_FAILED", e.message, null)
       }
@@ -164,8 +190,62 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   /** Closes the bounded native document session even when Dart parsing fails. */
   private fun closeDocSession(result: Result, sessionId: String) {
     val doc = openDocuments.remove(sessionId)
+    val path = openDocumentPaths.remove(sessionId) ?: ""
+    val pageCount = doc?.numberOfPages ?: 0
     try { doc?.close() } catch (_: Exception) {}
+    writeDiagnostic("SESSION_CLOSED", path, pageCount = pageCount)
     Handler(Looper.getMainLooper()).post { result.success(true) }
+  }
+
+  private fun getLastDiagnostic(result: Result) {
+    val file = File(applicationContext.filesDir, diagnosticFileName)
+    if (!file.exists()) {
+      Handler(Looper.getMainLooper()).post { result.success(null) }
+      return
+    }
+    val values = hashMapOf<String, Any>()
+    file.readLines().forEach { line ->
+      val separator = line.indexOf('=')
+      if (separator <= 0) return@forEach
+      val key = line.substring(0, separator)
+      val value = line.substring(separator + 1)
+      values[key] = value.toLongOrNull() ?: value
+    }
+    Handler(Looper.getMainLooper()).post { result.success(values) }
+  }
+
+  private fun writeDiagnostic(
+    stage: String,
+    path: String,
+    pageNumber: Int = 0,
+    pageCount: Int = 0,
+    error: String = ""
+  ) {
+    try {
+      val runtime = Runtime.getRuntime()
+      val usedHeap = runtime.totalMemory() - runtime.freeMemory()
+      val source = if (path.isBlank()) null else File(path)
+      val payload = listOf(
+        "stage=$stage",
+        "timestamp_ms=${System.currentTimeMillis()}",
+        "page_number=$pageNumber",
+        "page_count=$pageCount",
+        "file_bytes=${source?.takeIf { it.exists() }?.length() ?: 0L}",
+        "heap_used_bytes=$usedHeap",
+        "heap_total_bytes=${runtime.totalMemory()}",
+        "heap_max_bytes=${runtime.maxMemory()}",
+        "error=$error"
+      ).joinToString("\n") + "\n"
+      val target = File(applicationContext.filesDir, diagnosticFileName)
+      val temp = File(applicationContext.filesDir, diagnosticFileName + ".tmp")
+      temp.writeText(payload)
+      if (!temp.renameTo(target)) {
+        target.writeText(payload)
+        temp.delete()
+      }
+    } catch (_: Throwable) {
+      // Diagnostics are best effort and must never become the failure source.
+    }
   }
 
   /**
@@ -225,11 +305,21 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   Gets a PDF document, given its path.
    */
   private fun getDoc(result: Result, path: String, password: String = ""): PDDocument? {
+    writeDiagnostic("OPEN_BEGIN", path)
     return try {
       val memoryUsageSetting = MemoryUsageSetting.setupTempFileOnly()
         .setTempDir(applicationContext.cacheDir)
-      PDDocument.load(File(path), password, memoryUsageSetting)
+      val doc = PDDocument.load(File(path), password, memoryUsageSetting)
+      writeDiagnostic("OPEN_OK", path, pageCount = doc.numberOfPages)
+      doc
+    } catch (oom: OutOfMemoryError) {
+      writeDiagnostic("OPEN_OOM", path, error = oom.javaClass.simpleName)
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDF_OPEN_OOM", "PDF open exhausted memory", null)
+      }
+      null
     } catch (e: Exception) {
+      writeDiagnostic("OPEN_FAILED", path, error = e.javaClass.simpleName)
       Handler(Looper.getMainLooper()).post {
         result.error("INVALID_PATH",
                 "File path or password (in case of encrypted document) is invalid",

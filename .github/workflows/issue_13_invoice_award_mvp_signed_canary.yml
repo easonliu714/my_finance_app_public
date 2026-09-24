@@ -274,6 +274,8 @@ jobs:
             printf 'EXISTING_FORMAL_TRANSACTION_SCAN=PASS\n'
             printf 'CLOUD_PUBLICATION_AND_INDEX=PASS\n'
             printf 'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS\n'
+            printf 'CLOUD_PDF_CRASH_DIAGNOSTICS=PASS\n'
+            printf 'CLOUD_PDF_CHUNKED_SESSION=PASS\n'
             printf 'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS\n'
             printf 'FORMAL_ACCOUNTING_WRITE=ZERO\n'
             printf 'APPID_APIKEY_RELEASE_DEPENDENCY=false\n'
@@ -282,12 +284,14 @@ jobs:
           } > issue_13_award_mvp_canary_metadata.txt
           for required in \
             "ISSUE_13_EXACT_HEAD=$(git rev-parse HEAD)" \
-            'VERSION_NAME=4.20.7' \
-            'VERSION_CODE=465' \
+            'VERSION_NAME=4.20.8' \
+            'VERSION_CODE=466' \
             'GENERAL_OFFICIAL_ACQUISITION=PASS' \
             'EXISTING_FORMAL_TRANSACTION_SCAN=PASS' \
             'CLOUD_PUBLICATION_AND_INDEX=PASS' \
             'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS' \
+            'CLOUD_PDF_CRASH_DIAGNOSTICS=PASS' \
+            'CLOUD_PDF_CHUNKED_SESSION=PASS' \
             'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS' \
             'FORMAL_ACCOUNTING_WRITE=ZERO' \
             'APPID_APIKEY_RELEASE_DEPENDENCY=false' \

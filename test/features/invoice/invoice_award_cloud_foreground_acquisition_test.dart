@@ -293,8 +293,9 @@ class _AlwaysFailExtractor extends CloudAwardPdfTextExtractor {
   @override
   Future<void> forEachPage(
     File pdfFile,
-    CloudAwardPdfPageCallback onPage,
-  ) async {
+    CloudAwardPdfPageCallback onPage, {
+    CloudAwardPdfExtractorProgressCallback? onProgress,
+  }) async {
     throw StateError('FIXTURE_EXTRACTION_FAILURE');
   }
 }
@@ -309,8 +310,9 @@ class _FixtureExtractor extends CloudAwardPdfTextExtractor {
   @override
   Future<void> forEachPage(
     File pdfFile,
-    CloudAwardPdfPageCallback onPage,
-  ) async {
+    CloudAwardPdfPageCallback onPage, {
+    CloudAwardPdfExtractorProgressCallback? onProgress,
+  }) async {
     await onPage(1, 1, 'ZX00000001 ZX00000002');
   }
 }

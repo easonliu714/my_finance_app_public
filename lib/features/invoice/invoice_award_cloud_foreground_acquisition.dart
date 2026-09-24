@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
@@ -35,6 +36,7 @@ class CloudAwardForegroundProgress {
     this.pageCount,
     this.rowCount,
     this.message,
+    this.diagnosticMessage,
   });
 
   final CloudAwardForegroundStage stage;
@@ -46,6 +48,7 @@ class CloudAwardForegroundProgress {
   final int? pageCount;
   final int? rowCount;
   final String? message;
+  final String? diagnosticMessage;
 }
 
 typedef CloudAwardForegroundProgressCallback = void Function(
@@ -282,10 +285,41 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
           );
         }
 
+        final extractor = _indexBuilder.extractor;
+        if (extractor is FlutterPdfTextCloudAwardExtractor) {
+          final previousDiagnostic =
+              await extractor.readLastNativeDiagnostic();
+          final previousText =
+              FlutterPdfTextCloudAwardExtractor.diagnosticText(
+            previousDiagnostic,
+          );
+          if (previousText != null) {
+            onProgress?.call(
+              CloudAwardForegroundProgress(
+                stage: CloudAwardForegroundStage.extracting,
+                tierCode: reference.tierCode,
+                message: '偵測到上次 PDF 解析中斷紀錄',
+                diagnosticMessage: '上次 PDF 解析最後紀錄：' + previousText,
+              ),
+            );
+          }
+        }
+
         final build = await _indexBuilder.buildCandidate(
           artifact: artifact,
           candidateIndexFile: indexTemp,
           builtAt: _clock().toUtc(),
+          onExtractorProgress: (extractorProgress) {
+            onProgress?.call(
+              CloudAwardForegroundProgress(
+                stage: CloudAwardForegroundStage.extracting,
+                tierCode: reference.tierCode,
+                pageNumber: extractorProgress.pageNumber,
+                pageCount: extractorProgress.pageCount,
+                message: _extractorProgressMessage(extractorProgress),
+              ),
+            );
+          },
           onProgress: (pageNumber, pageCount, rowCount) {
             onProgress?.call(
               CloudAwardForegroundProgress(
@@ -318,6 +352,21 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
           ),
         );
       } catch (error) {
+        final extractor = _indexBuilder.extractor;
+        if (extractor is FlutterPdfTextCloudAwardExtractor) {
+          final diagnostic = await extractor.readLastNativeDiagnostic();
+          final diagnosticText =
+              FlutterPdfTextCloudAwardExtractor.diagnosticText(diagnostic);
+          if (diagnosticText != null) {
+            onProgress?.call(
+              CloudAwardForegroundProgress(
+                stage: CloudAwardForegroundStage.failed,
+                tierCode: reference.tierCode,
+                diagnosticMessage: 'PDF 解析最後紀錄：' + diagnosticText,
+              ),
+            );
+          }
+        }
         final code = _failureCode(error);
         results.add(
           CloudAwardTierRefreshResult(
@@ -416,7 +465,35 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     return snapshot;
   }
 
+  static String _extractorProgressMessage(
+    CloudAwardPdfExtractorProgress progress,
+  ) {
+    final pageCount = progress.pageCount;
+    final chunkStart = progress.chunkStart ?? 0;
+    final chunkEnd = progress.chunkEnd ?? 0;
+    final page = progress.pageNumber ?? 0;
+    return switch (progress.stage) {
+      CloudAwardPdfExtractorStage.openingChunk =>
+        '開啟 PDF 解析批次 ' + chunkStart.toString() + '-' +
+            chunkEnd.toString() +
+            (pageCount == null ? '…' : ' / ' + pageCount.toString() + ' 頁…'),
+      CloudAwardPdfExtractorStage.chunkOpened =>
+        'PDF 解析批次 ' + chunkStart.toString() + '-' +
+            chunkEnd.toString() + ' 已開啟',
+      CloudAwardPdfExtractorStage.pageStarted =>
+        '解析 PDF 第 ' + page.toString() + '/' +
+            (pageCount ?? 0).toString() + ' 頁中…',
+      CloudAwardPdfExtractorStage.pageCompleted =>
+        'PDF 第 ' + page.toString() + '/' +
+            (pageCount ?? 0).toString() + ' 頁解析完成',
+      CloudAwardPdfExtractorStage.chunkClosed =>
+        '已釋放 PDF 解析批次 ' + chunkStart.toString() + '-' +
+            chunkEnd.toString() + ' 資源',
+    };
+  }
+
   static String _failureCode(Object error) {
+    if (error is PlatformException) return error.code;
     if (error is HttpException) return error.message;
     if (error is FormatException) return 'CLOUD_AWARD_FORMAT_INVALID';
     if (error is StateError) return error.message;
