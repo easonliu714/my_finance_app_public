@@ -205,19 +205,16 @@ class FlutterPdfTextCloudAwardExtractor extends CloudAwardPdfTextExtractor {
     final used = (diagnostic['heap_used_bytes'] as num?)?.toInt() ?? 0;
     final max = (diagnostic['heap_max_bytes'] as num?)?.toInt() ?? 0;
     final fileBytes = (diagnostic['file_bytes'] as num?)?.toInt() ?? 0;
-    final pageText = page > 0
-        ? ' · page ' + page.toString() +
-            (pageCount > 0 ? '/' + pageCount.toString() : '')
-        : '';
+    final pageText =
+        page > 0 ? ' · page $page${pageCount > 0 ? '/$pageCount' : ''}' : '';
     final heapText = max > 0
-        ? ' · heap ' +
-            (used / 1048576).toStringAsFixed(1) + '/' +
-            (max / 1048576).toStringAsFixed(1) + ' MB'
+        ? ' · heap ${(used / 1048576).toStringAsFixed(1)}/'
+            '${(max / 1048576).toStringAsFixed(1)} MB'
         : '';
     final fileText = fileBytes > 0
-        ? ' · PDF ' + (fileBytes / 1048576).toStringAsFixed(1) + ' MB'
+        ? ' · PDF ${(fileBytes / 1048576).toStringAsFixed(1)} MB'
         : '';
-    return stage + pageText + heapText + fileText;
+    return '$stage$pageText$heapText$fileText';
   }
 }
 
