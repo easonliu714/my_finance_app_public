@@ -10,7 +10,7 @@ void main() {
     expect(
       workflow,
       isNot(contains(
-        "grep -Ev '^(docs/|.*\\.md$|\\.gitignore$)' changed_files.txt | grep -q .",
+        r"grep -Ev '^(docs/|.*\\.md$|\\.gitignore$)' changed_files.txt | grep -q .",
       )),
     );
     expect(workflow, contains('> non_docs_changed_files.txt || true'));
