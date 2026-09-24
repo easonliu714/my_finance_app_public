@@ -14,12 +14,15 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.File
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
 
 /** PdfTextPlugin */
 class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
 
   private lateinit var applicationContext: Context
+  private val openDocuments = ConcurrentHashMap<String, PDDocument>()
 
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
     applicationContext = flutterPluginBinding.applicationContext
@@ -36,6 +39,23 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val path = args["path"] as String
             val password = args["password"] as String
             initDoc(result, path, password)
+          }
+          "openDocSession" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            val password = args["password"] as String
+            openDocSession(result, path, password)
+          }
+          "getDocSessionPageText" -> {
+            val args = call.arguments as Map<*, *>
+            val sessionId = args["sessionId"] as String
+            val pageNumber = args["number"] as Int
+            getDocSessionPageText(result, sessionId, pageNumber)
+          }
+          "closeDocSession" -> {
+            val args = call.arguments as Map<*, *>
+            val sessionId = args["sessionId"] as String
+            closeDocSession(result, sessionId)
           }
           "getDocPageText" -> {
             val args = call.arguments as Map<*, *>
@@ -62,6 +82,10 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+    openDocuments.values.forEach { doc ->
+      try { doc.close() } catch (_: Exception) {}
+    }
+    openDocuments.clear()
   }
 
   /**
@@ -97,6 +121,51 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
         result.success(data)
       }
     }
+  }
+
+  /** Opens one temp-file-backed PDFBox document for bounded page iteration. */
+  private fun openDocSession(result: Result, path: String, password: String) {
+    val doc = getDoc(result, path, password) ?: return
+    val sessionId = UUID.randomUUID().toString()
+    openDocuments[sessionId] = doc
+    Handler(Looper.getMainLooper()).post {
+      result.success(hashMapOf("sessionId" to sessionId, "length" to doc.numberOfPages))
+    }
+  }
+
+  /** Reads exactly one page from an already-open document without reloading it. */
+  private fun getDocSessionPageText(result: Result, sessionId: String, pageNumber: Int) {
+    val doc = openDocuments[sessionId]
+    if (doc == null) {
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDF_SESSION_NOT_FOUND", "PDF session is not available", null)
+      }
+      return
+    }
+    if (pageNumber < 1 || pageNumber > doc.numberOfPages) {
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDF_PAGE_OUT_OF_RANGE", "PDF page is outside document bounds", null)
+      }
+      return
+    }
+    try {
+      val stripper = PDFTextStripper()
+      stripper.startPage = pageNumber
+      stripper.endPage = pageNumber
+      val text = stripper.getText(doc)
+      Handler(Looper.getMainLooper()).post { result.success(text) }
+    } catch (e: Exception) {
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDF_SESSION_PAGE_FAILED", e.message, null)
+      }
+    }
+  }
+
+  /** Closes the bounded native document session even when Dart parsing fails. */
+  private fun closeDocSession(result: Result, sessionId: String) {
+    val doc = openDocuments.remove(sessionId)
+    try { doc?.close() } catch (_: Exception) {}
+    Handler(Looper.getMainLooper()).post { result.success(true) }
   }
 
   /**

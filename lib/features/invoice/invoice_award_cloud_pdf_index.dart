@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_pdf_text/flutter_pdf_text.dart';
 
 import 'invoice_award_cloud_artifact_downloader.dart';
@@ -30,14 +31,21 @@ abstract class CloudAwardPdfTextExtractor {
 class FlutterPdfTextCloudAwardExtractor extends CloudAwardPdfTextExtractor {
   const FlutterPdfTextCloudAwardExtractor();
 
+  static const MethodChannel _channel = MethodChannel('pdf_text');
+
   @override
-  String get extractorVersion => 'flutter_pdf_text-0.9.0-page-v1';
+  String get extractorVersion => 'flutter_pdf_text-0.9.0-android-session-page-v2';
 
   @override
   Future<void> forEachPage(
     File pdfFile,
     CloudAwardPdfPageCallback onPage,
   ) async {
+    if (Platform.isAndroid) {
+      await _forEachAndroidSession(pdfFile, onPage);
+      return;
+    }
+
     final document = await PDFDoc.fromFile(pdfFile);
     final pageCount = document.length;
     if (pageCount <= 0) {
@@ -46,6 +54,41 @@ class FlutterPdfTextCloudAwardExtractor extends CloudAwardPdfTextExtractor {
     for (var page = 1; page <= pageCount; page += 1) {
       final text = await document.pageAt(page).text;
       await onPage(page, pageCount, text);
+    }
+  }
+
+  Future<void> _forEachAndroidSession(
+    File pdfFile,
+    CloudAwardPdfPageCallback onPage,
+  ) async {
+    final opened = await _channel.invokeMapMethod<String, Object?>(
+      'openDocSession',
+      <String, Object?>{'path': pdfFile.path, 'password': ''},
+    );
+    final sessionId = opened?['sessionId']?.toString() ?? '';
+    final pageCount = (opened?['length'] as num?)?.toInt() ?? 0;
+    if (sessionId.isEmpty || pageCount <= 0) {
+      throw StateError('CLOUD_AWARD_PDF_SESSION_INVALID');
+    }
+
+    try {
+      for (var page = 1; page <= pageCount; page += 1) {
+        final text = await _channel.invokeMethod<String>(
+              'getDocSessionPageText',
+              <String, Object?>{'sessionId': sessionId, 'number': page},
+            ) ??
+            '';
+        await onPage(page, pageCount, text);
+      }
+    } finally {
+      try {
+        await _channel.invokeMethod<void>(
+          'closeDocSession',
+          <String, Object?>{'sessionId': sessionId},
+        );
+      } catch (_) {
+        // Cleanup failure must not mask the extraction result.
+      }
     }
   }
 }

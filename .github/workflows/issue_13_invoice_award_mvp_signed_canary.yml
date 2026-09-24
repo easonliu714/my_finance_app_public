@@ -119,6 +119,8 @@ jobs:
           flutter test test/invoice_award_check_route_test.dart
           flutter test test/invoice_award_match_projection_test.dart
           flutter test test/features/invoice/invoice_award_payout_bookkeeping_contract_test.dart
+          flutter test test/official_query_page_preparation_test.dart
+          flutter test test/p4_20_6_runtime_app_version_test.dart
 
       - name: Full Flutter regression suite
         run: flutter test
@@ -280,8 +282,8 @@ jobs:
           } > issue_13_award_mvp_canary_metadata.txt
           for required in \
             "ISSUE_13_EXACT_HEAD=$(git rev-parse HEAD)" \
-            'VERSION_NAME=4.20.6' \
-            'VERSION_CODE=464' \
+            'VERSION_NAME=4.20.7' \
+            'VERSION_CODE=465' \
             'GENERAL_OFFICIAL_ACQUISITION=PASS' \
             'EXISTING_FORMAL_TRANSACTION_SCAN=PASS' \
             'CLOUD_PUBLICATION_AND_INDEX=PASS' \

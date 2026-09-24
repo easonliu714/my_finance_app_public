@@ -13,6 +13,9 @@ void main() {
     final license = File('$packageRoot/LICENSE').readAsStringSync();
     final pluginSource = File(pluginSourcePath).readAsStringSync();
     final appPubspec = File('pubspec.yaml').readAsStringSync();
+    final appExtractor = File(
+      'lib/features/invoice/invoice_award_cloud_pdf_index.dart',
+    ).readAsStringSync();
 
     expect(packagePubspec, contains('name: flutter_pdf_text'));
     expect(
@@ -47,6 +50,17 @@ void main() {
       isFalse,
     );
     expect(RegExp(r'PDDocument\.load\(').allMatches(pluginSource).length, 1);
+    expect(pluginSource, contains('ConcurrentHashMap<String, PDDocument>()'));
+    expect(pluginSource, contains('"openDocSession"'));
+    expect(pluginSource, contains('"getDocSessionPageText"'));
+    expect(pluginSource, contains('"closeDocSession"'));
+    expect(pluginSource, contains('openDocuments[sessionId] = doc'));
+    expect(pluginSource, contains('openDocuments.remove(sessionId)'));
+    expect(appExtractor, contains('if (Platform.isAndroid)'));
+    expect(appExtractor, contains("'openDocSession'"));
+    expect(appExtractor, contains("'getDocSessionPageText'"));
+    expect(appExtractor, contains("'closeDocSession'"));
+    expect(appExtractor, contains('flutter_pdf_text-0.9.0-android-session-page-v2'));
     expect(
       pluginSource,
       contains(

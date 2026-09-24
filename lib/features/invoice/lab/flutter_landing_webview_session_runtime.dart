@@ -501,25 +501,6 @@ class FlutterLandingWebViewSessionRuntime
     if (_disposed) throw StateError('SESSION_RUNTIME_DISPOSED');
     if (controller == null) throw StateError('SESSION_NOT_OPEN');
     try {
-      if (prepareExportSelection) {
-        final desktopGateRaw = await controller.evaluateJavascript(
-          source: _buildDesktopResultStructureGateScript(),
-        );
-        if (!_desktopResultStructureReady(desktopGateRaw)) {
-          return const OfficialQueryPagePreparationResult(
-            code: 'DESKTOP_RESULT_LAYOUT_NOT_READY',
-            routeApproved: true,
-            pageSizeControlFound: false,
-            pageSize100Requested: false,
-            pageSizeApplyControlFound: false,
-            pageSizeApplyTriggered: false,
-            pageSizeAlreadyApplied: false,
-            headerCheckboxFound: false,
-            headerCheckboxSelected: false,
-          );
-        }
-      }
-
       final rawResult = await controller.evaluateJavascript(
         source: buildOfficialQueryPagePreparationScript(
           prepareExportSelection: prepareExportSelection,
@@ -549,85 +530,6 @@ class FlutterLandingWebViewSessionRuntime
         headerCheckboxSelected: false,
       );
     }
-  }
-
-  String _buildDesktopResultStructureGateScript() => r'''
-(() => {
-  const normalize = (value) => String(value || '')
-    .replace(/[\s＊*：:]/g, '')
-    .trim();
-  const rendered = (element) => {
-    if (!element) return false;
-    const style = window.getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    return style.display !== 'none' &&
-      style.visibility !== 'hidden' &&
-      rect.width > 0 && rect.height > 0;
-  };
-  const requiredHeaders = [
-    '載具自訂名稱',
-    '發票號碼',
-    '發票金額',
-    '發票日期',
-    '捐贈日期',
-    '買方統編',
-  ];
-  const roots = Array.from(document.querySelectorAll(
-    'table,[role="table"],[role="grid"],.table-responsive'
-  )).filter(rendered);
-  for (const root of roots) {
-    const headers = Array.from(root.querySelectorAll(
-      'th,[role="columnheader"],thead td'
-    )).filter(rendered).map((element) => normalize(element.textContent));
-    if (!requiredHeaders.every((header) =>
-      headers.some((candidate) => candidate.includes(header)))) {
-      continue;
-    }
-    const rows = Array.from(root.querySelectorAll(
-      'tbody tr,[role="row"]'
-    )).filter((row) =>
-      rendered(row) &&
-      !row.closest('thead') &&
-      !row.querySelector('[role="columnheader"]')
-    );
-    const headerCheckboxes = Array.from(root.querySelectorAll(
-      'thead input[type="checkbox"],thead [role="checkbox"],' +
-      '[role="columnheader"] input[type="checkbox"],' +
-      '[role="columnheader"] [role="checkbox"]'
-    )).filter(rendered);
-    const rowsWithTwoRoles = rows.filter((row) =>
-      Array.from(row.querySelectorAll(
-        'input[type="checkbox"],[role="checkbox"]'
-      )).filter(rendered).length >= 2
-    ).length;
-    if (headerCheckboxes.length >= 2 && rowsWithTwoRoles > 0) {
-      return JSON.stringify({
-        code: 'DESKTOP_RESULT_LAYOUT_READY',
-        ready: true,
-        headerCheckboxCount: headerCheckboxes.length,
-        rowsWithTwoRoles,
-      });
-    }
-  }
-  return JSON.stringify({
-    code: 'DESKTOP_RESULT_LAYOUT_NOT_READY',
-    ready: false,
-  });
-})()
-''';
-
-  bool _desktopResultStructureReady(Object? raw) {
-    Object? decoded = raw;
-    if (decoded is String) {
-      try {
-        decoded = jsonDecode(decoded);
-      } catch (_) {
-        return false;
-      }
-    }
-    return decoded is Map &&
-        decoded['ready'] == true &&
-        decoded['code'] == 'DESKTOP_RESULT_LAYOUT_READY';
   }
 
   @override
