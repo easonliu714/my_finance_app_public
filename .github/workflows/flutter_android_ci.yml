@@ -82,9 +82,13 @@ jobs:
             if [[ ! -s changed_files.txt ]]; then
               run_heavy=true
               reason="changed file list unavailable"
-            elif grep -Ev '^(docs/|.*\.md$|\.gitignore$)' changed_files.txt | grep -q .; then
-              run_heavy=true
-              reason="non-docs files changed"
+            else
+              grep -Ev '^(docs/|.*\.md$|\.gitignore$)' changed_files.txt \
+                > non_docs_changed_files.txt || true
+              if [[ -s non_docs_changed_files.txt ]]; then
+                run_heavy=true
+                reason="non-docs files changed"
+              fi
             fi
           fi
 
