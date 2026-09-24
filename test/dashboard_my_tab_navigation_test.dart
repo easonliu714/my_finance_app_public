@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:my_finance_app/routing/app_router.dart';
 
 void main() {
@@ -88,8 +89,8 @@ void main() {
       routerSource,
       matches(
         RegExp(
-          r"path: RepaymentPlanPage\.routePath,[\s\S]*?"
-          r"RootRouteBackGuard\(child: RepaymentPlanPage\(\)\)",
+          r'path: RepaymentPlanPage\.routePath,[\s\S]*?'
+          r'RootRouteBackGuard\(child: RepaymentPlanPage\(\)\)',
         ),
       ),
     );
@@ -97,8 +98,8 @@ void main() {
       routerSource,
       matches(
         RegExp(
-          r"path: LedgerDetailPage\.routePath,[\s\S]*?"
-          r"RootRouteBackGuard\(child: LedgerDetailPage\(\)\)",
+          r'path: LedgerDetailPage\.routePath,[\s\S]*?'
+          r'RootRouteBackGuard\(child: LedgerDetailPage\(\)\)',
         ),
       ),
     );
