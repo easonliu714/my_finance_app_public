@@ -127,9 +127,8 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
         _pdfCacheRepository = pdfCacheRepository ??
             CloudAwardPdfCacheRepository(
               rootDirectoryProvider: pdfCacheDirectoryProvider ??
-                  (temporaryDirectoryProvider == null
-                      ? getApplicationSupportDirectory
-                      : temporaryDirectoryProvider),
+                  temporaryDirectoryProvider ??
+                  getApplicationSupportDirectory,
             ),
         _clock = clock ?? DateTime.now,
         _publicationUri = publicationUri ?? currentPublicationUri;

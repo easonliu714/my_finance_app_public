@@ -358,7 +358,12 @@ class CloudAwardPdfCacheRepository {
     } finally {
       await handle.close();
     }
-    final hash = await Sha256().hashStream(file.openRead());
+    final sink = Sha256().newHashSink();
+    await for (final chunk in file.openRead()) {
+      sink.add(chunk);
+    }
+    sink.close();
+    final hash = await sink.hash();
     final sha = hash.bytes
         .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
         .join();
