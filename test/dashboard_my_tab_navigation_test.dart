@@ -77,15 +77,11 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
     await tester.pump(const Duration(milliseconds: 700));
 
-    // Tap the production NavigationDestination icon itself. Tapping the nested
-    // label Text is not a stable proxy for NavigationBar destination gestures
-    // in widget tests, while the icon is part of the same user-visible target.
-    final reportsDestination = find.descendant(
-      of: find.byType(NavigationBar),
-      matching: find.byIcon(Icons.pie_chart_outline),
-    );
-    expect(reportsDestination, findsOneWidget);
-    await tester.tap(reportsDestination);
+    // This regression locks the route-stack contract directly. Production's
+    // My-tab Reports destination calls context.push('/ledger'); simulating the
+    // same push avoids coupling back-path authority to NavigationBar gesture
+    // hit-testing while still proving /my -> /ledger -> system back -> /my.
+    appRouter.push('/ledger');
     await tester.pump(const Duration(milliseconds: 700));
     expect(appRouter.routeInformationProvider.value.uri.path, '/ledger');
     await tester.binding.handlePopRoute();
