@@ -7,7 +7,7 @@ void main() {
     expect(AppBuildMetadata.appVersion, '4.20.7+465');
     expect(
       AppBuildMetadata.phase,
-      'issue-13-existing-transaction-award-live-draw-mvp-464',
+      'issue-13-real-device-repair-465',
     );
     expect(PrivateCloudInvoiceLabConfig.validationVersion, '4.20.7+465');
   });
