@@ -63,7 +63,7 @@ void main() {
     expect(pluginSource, contains('"PAGE_OOM"'));
     expect(pluginSource, contains('"EXTRACTION_COMPLETE"'));
     expect(pluginSource, contains('catch (oom: OutOfMemoryError)'));
-    expect(pluginSource, contains('"heap_used_bytes=$usedHeap"'));
+    expect(pluginSource, contains(r'"heap_used_bytes=$usedHeap"'));
     expect(pluginSource, contains('"getLastDiagnostic"'));
     expect(appExtractor, contains('if (Platform.isAndroid)'));
     expect(appExtractor, contains("'openDocSession'"));
