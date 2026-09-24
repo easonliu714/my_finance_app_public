@@ -6,6 +6,7 @@ import 'existing_invoice_award_candidate_repository.dart';
 import 'existing_invoice_award_cloud_batch_matcher.dart';
 import 'existing_invoice_award_general_batch_matcher.dart';
 import 'invoice_award_cloud_foreground_acquisition.dart';
+import 'invoice_award_cloud_pdf_index.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_official_acquisition.dart';
 import 'invoice_award_official_dataset.dart';
@@ -80,7 +81,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     );
     if (!mounted || text == null) return;
     setState(() {
-      _cloudDiagnosticStatus = '上次 PDF 解析最後紀錄：' + text;
+      _cloudDiagnosticStatus = '上次 PDF 解析最後紀錄：$text';
     });
   }
 
@@ -372,7 +373,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: SelectableText(
-                    'PDF 解析診斷：' + _cloudDiagnosticStatus,
+                    'PDF 解析診斷：$_cloudDiagnosticStatus',
                   ),
                 ),
               ),
@@ -553,11 +554,10 @@ String _cloudProgressText(CloudAwardForegroundProgress progress) {
       '雲端專屬獎：$tier重用已保存官方 PDF，準備解析…',
     CloudAwardForegroundStage.extracting =>
       progress.message != null
-          ? '雲端專屬獎：' + tier + progress.message!
-          : '雲端專屬獎：' + tier + '解析 PDF ' +
-              (progress.pageNumber ?? 0).toString() + '/' +
-              (progress.pageCount ?? 0).toString() + ' 頁 · 已建立 ' +
-              (progress.rowCount ?? 0).toString() + ' 筆索引',
+          ? '雲端專屬獎：$tier${progress.message!}'
+          : '雲端專屬獎：$tier解析 PDF '
+              '${progress.pageNumber ?? 0}/${progress.pageCount ?? 0} 頁 · '
+              '已建立 ${progress.rowCount ?? 0} 筆索引',
     CloudAwardForegroundStage.promoting =>
       '雲端專屬獎：$tier正在驗證並保存本機索引…',
     CloudAwardForegroundStage.reused =>
