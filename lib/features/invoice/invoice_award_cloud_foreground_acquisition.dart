@@ -299,7 +299,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                 stage: CloudAwardForegroundStage.extracting,
                 tierCode: reference.tierCode,
                 message: '偵測到上次 PDF 解析中斷紀錄',
-                diagnosticMessage: '上次 PDF 解析最後紀錄：' + previousText,
+                diagnosticMessage: '上次 PDF 解析最後紀錄：$previousText',
               ),
             );
           }
@@ -362,7 +362,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
               CloudAwardForegroundProgress(
                 stage: CloudAwardForegroundStage.failed,
                 tierCode: reference.tierCode,
-                diagnosticMessage: 'PDF 解析最後紀錄：' + diagnosticText,
+                diagnosticMessage: 'PDF 解析最後紀錄：$diagnosticText',
               ),
             );
           }
@@ -474,21 +474,16 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     final page = progress.pageNumber ?? 0;
     return switch (progress.stage) {
       CloudAwardPdfExtractorStage.openingChunk =>
-        '開啟 PDF 解析批次 ' + chunkStart.toString() + '-' +
-            chunkEnd.toString() +
-            (pageCount == null ? '…' : ' / ' + pageCount.toString() + ' 頁…'),
+        '開啟 PDF 解析批次 $chunkStart-$chunkEnd'
+            '${pageCount == null ? '…' : ' / $pageCount 頁…'}',
       CloudAwardPdfExtractorStage.chunkOpened =>
-        'PDF 解析批次 ' + chunkStart.toString() + '-' +
-            chunkEnd.toString() + ' 已開啟',
+        'PDF 解析批次 $chunkStart-$chunkEnd 已開啟',
       CloudAwardPdfExtractorStage.pageStarted =>
-        '解析 PDF 第 ' + page.toString() + '/' +
-            (pageCount ?? 0).toString() + ' 頁中…',
+        '解析 PDF 第 $page/${pageCount ?? 0} 頁中…',
       CloudAwardPdfExtractorStage.pageCompleted =>
-        'PDF 第 ' + page.toString() + '/' +
-            (pageCount ?? 0).toString() + ' 頁解析完成',
+        'PDF 第 $page/${pageCount ?? 0} 頁解析完成',
       CloudAwardPdfExtractorStage.chunkClosed =>
-        '已釋放 PDF 解析批次 ' + chunkStart.toString() + '-' +
-            chunkEnd.toString() + ' 資源',
+        '已釋放 PDF 解析批次 $chunkStart-$chunkEnd 資源',
     };
   }
 
