@@ -270,13 +270,29 @@ jobs:
             printf 'VERSION_NAME=%s\nVERSION_CODE=%s\n' "$version_name" "$version_code"
             printf 'GENERAL_OFFICIAL_ACQUISITION=PASS\n'
             printf 'EXISTING_FORMAL_TRANSACTION_SCAN=PASS\n'
-            printf 'CLOUD_PUBLICATION_AND_INDEX=PASS\n'\n            printf 'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS\n'
+            printf 'CLOUD_PUBLICATION_AND_INDEX=PASS\n'
+            printf 'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS\n'
             printf 'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS\n'
             printf 'FORMAL_ACCOUNTING_WRITE=ZERO\n'
             printf 'APPID_APIKEY_RELEASE_DEPENDENCY=false\n'
             printf 'GCIS_RELEASE_DEPENDENCY=false\n'
             printf 'SIGNER_SHA256_PIN=PASS\n'
           } > issue_13_award_mvp_canary_metadata.txt
+          for required in \
+            "ISSUE_13_EXACT_HEAD=$(git rev-parse HEAD)" \
+            'VERSION_NAME=4.20.6' \
+            'VERSION_CODE=464' \
+            'GENERAL_OFFICIAL_ACQUISITION=PASS' \
+            'EXISTING_FORMAL_TRANSACTION_SCAN=PASS' \
+            'CLOUD_PUBLICATION_AND_INDEX=PASS' \
+            'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS' \
+            'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS' \
+            'FORMAL_ACCOUNTING_WRITE=ZERO' \
+            'APPID_APIKEY_RELEASE_DEPENDENCY=false' \
+            'GCIS_RELEASE_DEPENDENCY=false' \
+            'SIGNER_SHA256_PIN=PASS'; do
+            grep -Fxq "$required" issue_13_award_mvp_canary_metadata.txt
+          done
 
       - name: Generate APK SHA-256
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk | tee issue_13_award_mvp_signed_canary.sha256
