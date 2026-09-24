@@ -270,7 +270,7 @@ jobs:
             printf 'VERSION_NAME=%s\nVERSION_CODE=%s\n' "$version_name" "$version_code"
             printf 'GENERAL_OFFICIAL_ACQUISITION=PASS\n'
             printf 'EXISTING_FORMAL_TRANSACTION_SCAN=PASS\n'
-            printf 'CLOUD_PUBLICATION_AND_INDEX=PASS\n'            printf 'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS\n'
+            printf 'CLOUD_PUBLICATION_AND_INDEX=PASS\n'\n            printf 'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS\n'
             printf 'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS\n'
             printf 'FORMAL_ACCOUNTING_WRITE=ZERO\n'
             printf 'APPID_APIKEY_RELEASE_DEPENDENCY=false\n'
