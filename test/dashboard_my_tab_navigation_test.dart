@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:my_finance_app/app.dart';
+import 'package:go_router/go_router.dart';
 import 'package:my_finance_app/routing/app_router.dart';
 
 void main() {
@@ -10,8 +10,16 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(900, 1900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    appRouter.go('/my');
-    await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
+    final router = GoRouter(
+      initialLocation: '/my',
+      routes: buildAppRoutes(),
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('我的'), findsAtLeastNWidgets(1));
@@ -57,15 +65,29 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(900, 1900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    appRouter.go('/my');
-    await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
+    final router = GoRouter(
+      initialLocation: '/my',
+      routes: buildAppRoutes(),
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 700));
 
-    await tester.tap(find.text('計劃').last);
+    final planDestination = find.descendant(
+      of: find.byType(NavigationBar),
+      matching: find.text('計劃'),
+    );
+    expect(planDestination, findsOneWidget);
+    await tester.tap(planDestination);
     await tester.pump(const Duration(milliseconds: 700));
-    expect(find.text('計劃'), findsAtLeastNWidgets(1));
+    expect(router.routeInformationProvider.value.uri.path, '/plans');
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 500));
+    expect(router.routeInformationProvider.value.uri.path, '/my');
     expect(find.text('我的'), findsAtLeastNWidgets(1));
   });
 
@@ -73,20 +95,29 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(900, 1900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    appRouter.go('/my');
-    await tester.pumpWidget(const ProviderScope(child: MyFinanceApp()));
+    final router = GoRouter(
+      initialLocation: '/my',
+      routes: buildAppRoutes(),
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 700));
 
-    // This regression locks the route-stack contract directly. Production's
-    // My-tab Reports destination calls context.push('/ledger'); simulating the
-    // same push avoids coupling back-path authority to NavigationBar gesture
-    // hit-testing while still proving /my -> /ledger -> system back -> /my.
-    appRouter.push('/ledger');
+    final reportsDestination = find.descendant(
+      of: find.byType(NavigationBar),
+      matching: find.text('報表'),
+    );
+    expect(reportsDestination, findsOneWidget);
+    await tester.tap(reportsDestination);
     await tester.pump(const Duration(milliseconds: 700));
-    expect(appRouter.routeInformationProvider.value.uri.path, '/ledger');
+    expect(router.routeInformationProvider.value.uri.path, '/ledger');
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 500));
-    expect(appRouter.routeInformationProvider.value.uri.path, '/my');
+    expect(router.routeInformationProvider.value.uri.path, '/my');
     expect(find.text('我的'), findsAtLeastNWidgets(1));
   });
 }
