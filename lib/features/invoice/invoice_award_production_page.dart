@@ -239,7 +239,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           _cloudStatus = cloudComplete
               ? '雲端專屬獎四個獎別 authority 已驗證完成。'
               : '雲端專屬獎本次更新不完整：'
-                  '${cloudRefresh!.failureSummary}; '
+                  '${cloudRefresh.failureSummary}; '
                   '保留既有 LKG，無法宣稱完整未中獎。';
         }
       });
