@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud_artifact_downloader.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_candidate_scope.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_foreground_acquisition.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_index_lkg_repository.dart';
