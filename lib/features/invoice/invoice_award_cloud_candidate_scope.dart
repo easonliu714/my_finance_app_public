@@ -108,6 +108,25 @@ typedef CloudAwardSortedPdfCandidateProgressCallback = void Function(
   CloudAwardSortedPdfCandidateProgress progress,
 );
 
+class CloudAwardCandidateLookupCancelled implements Exception {
+  const CloudAwardCandidateLookupCancelled();
+
+  @override
+  String toString() => 'CLOUD_AWARD_CANDIDATE_LOOKUP_CANCELLED';
+}
+
+class CloudAwardCandidateLookupCancellation {
+  bool _cancelled = false;
+
+  bool get isCancelled => _cancelled;
+
+  void cancel() => _cancelled = true;
+
+  void throwIfCancelled() {
+    if (_cancelled) throw const CloudAwardCandidateLookupCancelled();
+  }
+}
+
 abstract class CloudAwardSortedPdfCandidateLookup {
   const CloudAwardSortedPdfCandidateLookup();
 
@@ -115,6 +134,7 @@ abstract class CloudAwardSortedPdfCandidateLookup {
     required OfficialCloudAwardDownloadedArtifact artifact,
     required Iterable<String> candidateInvoiceNumbers,
     CloudAwardSortedPdfCandidateProgressCallback? onProgress,
+    CloudAwardCandidateLookupCancellation? cancellation,
   });
 }
 
@@ -137,6 +157,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     required OfficialCloudAwardDownloadedArtifact artifact,
     required Iterable<String> candidateInvoiceNumbers,
     CloudAwardSortedPdfCandidateProgressCallback? onProgress,
+    CloudAwardCandidateLookupCancellation? cancellation,
   }) async {
     if (!Platform.isAndroid) {
       throw UnsupportedError('CLOUD_AWARD_PDFIUM_ANDROID_ONLY');
@@ -158,70 +179,74 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     }
 
     await _channel.invokeMethod<void>('clearLastDiagnostic');
-    final opened = await _channel.invokeMapMethod<String, Object?>(
-      'openPdfiumSession',
-      <String, Object?>{'path': artifact.file.path},
-    );
-    final sessionId = opened?['sessionId']?.toString() ?? '';
-    final pageCount = (opened?['length'] as num?)?.toInt() ?? 0;
-    if (sessionId.isEmpty || pageCount <= 0) {
-      throw StateError('CLOUD_AWARD_PDFIUM_SESSION_INVALID');
-    }
-
-    final pageCache = <int, List<String>>{};
     final matched = <String>{};
     var pagesRead = 0;
+    int? expectedPageCount;
 
-    Future<List<String>> pageTokens(
-      int pageNumber, {
-      required int candidateIndex,
-    }) async {
-      final cached = pageCache[pageNumber];
-      if (cached != null) return cached;
-      final text = await _channel.invokeMethod<String>(
-            'getPdfiumSessionPageText',
-            <String, Object?>{
-              'sessionId': sessionId,
-              'number': pageNumber,
-            },
-          ) ??
-          '';
-      final tokens = CloudAwardPdfIndexBuilder.extractInvoiceNumbers(text);
-      if (tokens.isEmpty) {
-        throw StateError('CLOUD_AWARD_SORTED_PDF_PAGE_EMPTY');
-      }
-      for (var index = 1; index < tokens.length; index += 1) {
-        if (tokens[index - 1].compareTo(tokens[index]) > 0) {
-          throw StateError('CLOUD_AWARD_SORTED_PDF_PAGE_NOT_SORTED');
+    for (var candidateIndex = 0;
+        candidateIndex < candidates.length;
+        candidateIndex += 1) {
+      cancellation?.throwIfCancelled();
+      final candidate = candidates[candidateIndex];
+      String sessionId = '';
+      try {
+        final opened = await _channel.invokeMapMethod<String, Object?>(
+          'openPdfiumSession',
+          <String, Object?>{'path': artifact.file.path},
+        );
+        sessionId = opened?['sessionId']?.toString() ?? '';
+        final pageCount = (opened?['length'] as num?)?.toInt() ?? 0;
+        if (sessionId.isEmpty || pageCount <= 0) {
+          throw StateError('CLOUD_AWARD_PDFIUM_SESSION_INVALID');
         }
-      }
-      pageCache[pageNumber] = List<String>.unmodifiable(tokens);
-      pagesRead += 1;
-      onProgress?.call(
-        CloudAwardSortedPdfCandidateProgress(
-          candidateIndex: candidateIndex,
-          candidateCount: candidates.length,
-          pageNumber: pageNumber,
-          pageCount: pageCount,
-          pagesRead: pagesRead,
-        ),
-      );
-      return pageCache[pageNumber]!;
-    }
+        if (expectedPageCount != null && expectedPageCount != pageCount) {
+          throw StateError('CLOUD_AWARD_PDFIUM_PAGE_COUNT_CHANGED');
+        }
+        expectedPageCount = pageCount;
+        final pageCache = <int, List<String>>{};
 
-    try {
-      for (var candidateIndex = 0;
-          candidateIndex < candidates.length;
-          candidateIndex += 1) {
-        final candidate = candidates[candidateIndex];
+        Future<List<String>> pageTokens(int pageNumber) async {
+          cancellation?.throwIfCancelled();
+          final cached = pageCache[pageNumber];
+          if (cached != null) return cached;
+          final text = await _channel.invokeMethod<String>(
+                'getPdfiumSessionPageText',
+                <String, Object?>{
+                  'sessionId': sessionId,
+                  'number': pageNumber,
+                },
+              ) ??
+              '';
+          cancellation?.throwIfCancelled();
+          final tokens = CloudAwardPdfIndexBuilder.extractInvoiceNumbers(text);
+          if (tokens.isEmpty) {
+            throw StateError('CLOUD_AWARD_SORTED_PDF_PAGE_EMPTY');
+          }
+          for (var index = 1; index < tokens.length; index += 1) {
+            if (tokens[index - 1].compareTo(tokens[index]) > 0) {
+              throw StateError('CLOUD_AWARD_SORTED_PDF_PAGE_NOT_SORTED');
+            }
+          }
+          pageCache[pageNumber] = List<String>.unmodifiable(tokens);
+          pagesRead += 1;
+          onProgress?.call(
+            CloudAwardSortedPdfCandidateProgress(
+              candidateIndex: candidateIndex + 1,
+              candidateCount: candidates.length,
+              pageNumber: pageNumber,
+              pageCount: pageCount,
+              pagesRead: pagesRead,
+            ),
+          );
+          return pageCache[pageNumber]!;
+        }
+
         var low = 1;
         var high = pageCount;
         while (low <= high) {
+          cancellation?.throwIfCancelled();
           final middle = low + ((high - low) >> 1);
-          final tokens = await pageTokens(
-            middle,
-            candidateIndex: candidateIndex + 1,
-          );
+          final tokens = await pageTokens(middle);
           final first = tokens.first;
           final last = tokens.last;
           if (candidate.compareTo(first) < 0) {
@@ -235,26 +260,29 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           if (tokens.contains(candidate)) matched.add(candidate);
           break;
         }
-      }
-
-      await _channel.invokeMethod<void>(
-        'markExtractionComplete',
-        <String, Object?>{'path': artifact.file.path},
-      );
-      return CloudAwardSortedPdfCandidateMatchResult(
-        pageCount: pageCount,
-        pagesRead: pagesRead,
-        matchedInvoiceNumbers: Set<String>.unmodifiable(matched),
-      );
-    } finally {
-      try {
-        await _channel.invokeMethod<void>(
-          'closePdfiumSession',
-          <String, Object?>{'sessionId': sessionId},
-        );
-      } catch (_) {
-        // Cleanup-only failure must not change the membership result.
+      } finally {
+        if (sessionId.isNotEmpty) {
+          try {
+            await _channel.invokeMethod<void>(
+              'closePdfiumSession',
+              <String, Object?>{'sessionId': sessionId},
+            );
+          } catch (_) {
+            // Session cleanup is idempotent and must not mask lookup results.
+          }
+        }
       }
     }
+
+    cancellation?.throwIfCancelled();
+    await _channel.invokeMethod<void>(
+      'markExtractionComplete',
+      <String, Object?>{'path': artifact.file.path},
+    );
+    return CloudAwardSortedPdfCandidateMatchResult(
+      pageCount: expectedPageCount ?? 0,
+      pagesRead: pagesRead,
+      matchedInvoiceNumbers: Set<String>.unmodifiable(matched),
+    );
   }
 }

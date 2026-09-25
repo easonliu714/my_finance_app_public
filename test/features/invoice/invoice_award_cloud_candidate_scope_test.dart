@@ -3,6 +3,17 @@ import 'package:my_finance_app/features/invoice/existing_invoice_award_candidate
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_candidate_scope.dart';
 
 void main() {
+  test('candidate lookup cancellation is explicit and idempotent', () {
+    final cancellation = CloudAwardCandidateLookupCancellation();
+    expect(cancellation.isCancelled, isFalse);
+    cancellation.cancel();
+    cancellation.cancel();
+    expect(cancellation.isCancelled, isTrue);
+    expect(
+      cancellation.throwIfCancelled,
+      throwsA(isA<CloudAwardCandidateLookupCancelled>()),
+    );
+  });
   test('candidate universe normalization is exact and order independent',
       () async {
     final normalized = normalizeCloudCandidateNumbers(

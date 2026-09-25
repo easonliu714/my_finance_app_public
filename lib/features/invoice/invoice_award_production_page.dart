@@ -32,9 +32,15 @@ class InvoiceAwardProductionPage extends StatefulWidget {
       _InvoiceAwardProductionPageState();
 }
 
-class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage> {
+class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
+    with WidgetsBindingObserver {
+  static bool _processRefreshActive = false;
+
   final http.Client _httpClient = http.Client();
   final CloudAwardIndexLkgRepository _cloudRepository = CloudAwardIndexLkgRepository();
+  CloudAwardCandidateLookupCancellation? _activeCloudCancellation;
+  bool _ownsProcessRefresh = false;
+  bool _disposed = false;
 
   late final List<InvoiceAwardSelectablePeriod> _periodOptions;
   late InvoiceAwardSelectablePeriod _selectedPeriod;
@@ -53,6 +59,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final now = _now();
     _periodOptions = InvoiceAwardRecentPeriodCatalog.visibleAt(now);
     _selectedPeriod = InvoiceAwardRecentPeriodCatalog.defaultAt(now);
@@ -62,8 +69,26 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
   @override
   void dispose() {
-    _httpClient.close();
+    _disposed = true;
+    _activeCloudCancellation?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    if (!_ownsProcessRefresh) _httpClient.close();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_ownsProcessRefresh) return;
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _activeCloudCancellation?.cancel();
+      if (mounted) {
+        setState(() {
+          _cloudStatus = 'App 已進入背景，正在安全中止本次雲端獎查找；完成資源釋放後可重試。';
+        });
+      }
+    }
   }
 
   DateTime _now() => widget.clock?.call() ?? DateTime.now();
@@ -113,6 +138,17 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       setState(() => _resetSelectedPeriodState(now));
       return;
     }
+    if (_processRefreshActive) {
+      setState(() {
+        _cloudStatus = '前一次中獎資料更新仍在安全收尾，請稍候再重試。';
+      });
+      return;
+    }
+    _processRefreshActive = true;
+    _ownsProcessRefresh = true;
+    final cancellation = CloudAwardCandidateLookupCancellation();
+    _activeCloudCancellation = cancellation;
+
     final usePreviousPublication =
         InvoiceAwardRecentPeriodCatalog.usesPreviousPublication(selectedPeriod, now);
     setState(() {
@@ -148,6 +184,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       );
 
       final generalResult = await generalController.refresh(selectedPeriod.period);
+      cancellation.throwIfCancelled();
       final dataset = generalResult.dataset;
       final candidates =
           await ExistingInvoiceAwardCandidateRepository().listCandidates();
@@ -171,6 +208,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           retentionUntil: selectedPeriod.redemptionEnd.toUtc(),
           candidateInvoiceNumbers: currentCloudCandidateNumbers,
           onProgress: _handleCloudProgress,
+          cancellation: cancellation,
         );
       } catch (_) {
         if (mounted) {
@@ -238,6 +276,15 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                   '保留既有 LKG，無法宣稱完整未中獎。';
         }
       });
+    } on CloudAwardCandidateLookupCancelled {
+      if (mounted) {
+        setState(() {
+          _refreshing = false;
+          _cloudCurrentAuthorityComplete = false;
+          _cloudStatus = '本次雲端獎查找因 App 進入背景而安全中止；未保存部分結果，可直接重新執行。';
+          _scanStatus = '既有交易掃描未完成；重新執行時會從完整 authority Gate 重新確認。';
+        });
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -247,6 +294,14 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         _cloudStatus = '雲端專屬獎結果未完成；不會宣稱完整未中獎。';
         _scanStatus = '既有交易掃描未完成；請稍後重新執行授權更新。';
       });
+    } finally {
+      _activeCloudCancellation = null;
+      _ownsProcessRefresh = false;
+      _processRefreshActive = false;
+      if (mounted && _refreshing) {
+        setState(() => _refreshing = false);
+      }
+      if (_disposed) _httpClient.close();
     }
   }
 

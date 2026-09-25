@@ -63,6 +63,7 @@ enum CloudAwardTierRefreshStatus {
   promoted,
   candidateScopedVerified,
   candidateScopedReused,
+  candidateScopedEmptyVerified,
   failed,
 }
 
@@ -87,7 +88,8 @@ class CloudAwardTierRefreshResult {
       status == CloudAwardTierRefreshStatus.reused ||
       status == CloudAwardTierRefreshStatus.promoted ||
       status == CloudAwardTierRefreshStatus.candidateScopedVerified ||
-      status == CloudAwardTierRefreshStatus.candidateScopedReused;
+      status == CloudAwardTierRefreshStatus.candidateScopedReused ||
+      status == CloudAwardTierRefreshStatus.candidateScopedEmptyVerified;
 }
 
 class CloudAwardForegroundRefreshResult {
@@ -193,6 +195,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     DateTime? retentionUntil,
     Iterable<String> candidateInvoiceNumbers = const <String>[],
     CloudAwardForegroundProgressCallback? onProgress,
+    CloudAwardCandidateLookupCancellation? cancellation,
   }) async {
     final normalizedCandidates =
         normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
@@ -246,6 +249,27 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
 
     final results = <CloudAwardTierRefreshResult>[];
     for (final reference in publication.artifacts) {
+      cancellation?.throwIfCancelled();
+      if (reference.tierCode == 'cloud-500' &&
+          normalizedCandidates.isEmpty) {
+        results.add(
+          CloudAwardTierRefreshResult(
+            tierCode: reference.tierCode,
+            status: CloudAwardTierRefreshStatus.candidateScopedEmptyVerified,
+            sourceUri: reference.sourceUri,
+          ),
+        );
+        onProgress?.call(
+          CloudAwardForegroundProgress(
+            stage: CloudAwardForegroundStage.candidateVerified,
+            tierCode: reference.tierCode,
+            rowCount: 0,
+            message: '本期沒有可比對的雲端候選，略過大型 500 元獎 PDF',
+          ),
+        );
+        continue;
+      }
+
       final reusable = await _reusableSnapshot(reference);
       if (reusable != null) {
         results.add(
@@ -301,6 +325,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
           final downloaded = await downloader.download(
             reference: reference,
             destinationTempFile: pdfTemp,
+            cancellation: cancellation,
             onProgress: (progress) {
               onProgress?.call(
                 CloudAwardForegroundProgress(
@@ -468,6 +493,8 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
             snapshot: promotion.snapshot,
           ),
         );
+      } on CloudAwardCandidateLookupCancelled {
+        rethrow;
       } catch (error) {
         final extractor = _indexBuilder.extractor;
         if (extractor is FlutterPdfTextCloudAwardExtractor) {

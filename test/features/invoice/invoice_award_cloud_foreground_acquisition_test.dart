@@ -50,7 +50,7 @@ void main() {
         clock: () => DateTime.utc(2026, 9, 25, 6),
       );
 
-  test('downloads four official PDFs sequentially and promotes complete LKG',
+  test('zero cloud-500 candidates skip giant PDF and other tiers promote',
       () async {
     final requests = <Uri>[];
     final client = MockClient((request) async {
@@ -70,13 +70,24 @@ void main() {
 
     expect(result.isComplete, isTrue);
     expect(result.tiers, hasLength(4));
+    final fiveHundred = result.tiers.singleWhere(
+      (item) => item.tierCode == 'cloud-500',
+    );
     expect(
-      result.tiers.every(
-        (item) => item.status == CloudAwardTierRefreshStatus.promoted,
-      ),
+      fiveHundred.status,
+      CloudAwardTierRefreshStatus.candidateScopedEmptyVerified,
+    );
+    expect(
+      result.tiers
+          .where((item) => item.tierCode != 'cloud-500')
+          .every((item) => item.status == CloudAwardTierRefreshStatus.promoted),
       isTrue,
     );
-    expect(requests.where((uri) => uri.path.startsWith('/pdf/')), hasLength(4));
+    expect(requests.where((uri) => uri.path.startsWith('/pdf/')), hasLength(3));
+    expect(
+      requests.any((uri) => uri.path.contains('_sorted_AI_D.pdf')),
+      isFalse,
+    );
     expect(
       requests.every(
         (uri) =>
@@ -124,9 +135,13 @@ void main() {
 
     expect(result.isComplete, isTrue);
     expect(
-      result.tiers.every(
-        (item) => item.status == CloudAwardTierRefreshStatus.reused,
-      ),
+      result.tiers.singleWhere((item) => item.tierCode == 'cloud-500').status,
+      CloudAwardTierRefreshStatus.candidateScopedEmptyVerified,
+    );
+    expect(
+      result.tiers
+          .where((item) => item.tierCode != 'cloud-500')
+          .every((item) => item.status == CloudAwardTierRefreshStatus.reused),
       isTrue,
     );
     expect(requests, hasLength(1));
@@ -318,7 +333,7 @@ void main() {
     expect(first.isComplete, isFalse);
     expect(
       firstRequests.where((uri) => uri.path.startsWith('/pdf/')),
-      hasLength(4),
+      hasLength(3),
     );
 
     final secondRequests = <Uri>[];
@@ -380,6 +395,7 @@ class _FixtureSortedCandidateLookup
     required OfficialCloudAwardDownloadedArtifact artifact,
     required Iterable<String> candidateInvoiceNumbers,
     CloudAwardSortedPdfCandidateProgressCallback? onProgress,
+    CloudAwardCandidateLookupCancellation? cancellation,
   }) async {
     calls += 1;
     final candidates = normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
