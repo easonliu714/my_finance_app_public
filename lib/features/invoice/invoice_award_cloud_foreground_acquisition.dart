@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'invoice_award_cloud_artifact_downloader.dart';
 import 'invoice_award_cloud_candidate_scope.dart';
+import 'invoice_award_cloud_candidate_scope_repository.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_cloud_pdf_cache_repository.dart';
 import 'invoice_award_cloud_pdf_index.dart';
@@ -61,6 +62,7 @@ enum CloudAwardTierRefreshStatus {
   reused,
   promoted,
   candidateScopedVerified,
+  candidateScopedReused,
   failed,
 }
 
@@ -84,7 +86,8 @@ class CloudAwardTierRefreshResult {
   bool get isReady =>
       status == CloudAwardTierRefreshStatus.reused ||
       status == CloudAwardTierRefreshStatus.promoted ||
-      status == CloudAwardTierRefreshStatus.candidateScopedVerified;
+      status == CloudAwardTierRefreshStatus.candidateScopedVerified ||
+      status == CloudAwardTierRefreshStatus.candidateScopedReused;
 }
 
 class CloudAwardForegroundRefreshResult {
@@ -134,6 +137,8 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     CloudAwardTemporaryDirectoryProvider? temporaryDirectoryProvider,
     CloudAwardPdfCacheDirectoryProvider? pdfCacheDirectoryProvider,
     CloudAwardPdfCacheRepository? pdfCacheRepository,
+    CloudAwardCandidateScopeDirectoryProvider? candidateScopeDirectoryProvider,
+    CloudAwardCandidateScopeRepository? candidateScopeRepository,
     CloudAwardSortedPdfCandidateLookup? sortedCandidateLookup,
     DateTime Function()? clock,
     Uri? publicationUri,
@@ -154,6 +159,12 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                   temporaryDirectoryProvider ??
                   getApplicationSupportDirectory,
             ),
+        _candidateScopeRepository = candidateScopeRepository ??
+            CloudAwardCandidateScopeRepository(
+              rootDirectoryProvider: candidateScopeDirectoryProvider ??
+                  temporaryDirectoryProvider ??
+                  getApplicationSupportDirectory,
+            ),
         _sortedCandidateLookup =
             sortedCandidateLookup ?? const PdfiumCloudAwardSortedPdfCandidateLookup(),
         _clock = clock ?? DateTime.now,
@@ -171,6 +182,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   final MinistryOfFinanceCloudAwardPublicationHtmlParser _publicationParser;
   final CloudAwardTemporaryDirectoryProvider _temporaryDirectoryProvider;
   final CloudAwardPdfCacheRepository _pdfCacheRepository;
+  final CloudAwardCandidateScopeRepository _candidateScopeRepository;
   final CloudAwardSortedPdfCandidateLookup _sortedCandidateLookup;
   final DateTime Function() _clock;
   final Uri _publicationUri;
@@ -184,10 +196,16 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   }) async {
     final normalizedCandidates =
         normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
+    final nowUtc = _clock().toUtc();
     try {
-      await _pdfCacheRepository.pruneExpired(nowUtc: _clock().toUtc());
+      await _pdfCacheRepository.pruneExpired(nowUtc: nowUtc);
     } catch (_) {
       // Cache cleanup is best effort and must not block a refresh.
+    }
+    try {
+      await _candidateScopeRepository.pruneExpired(nowUtc: nowUtc);
+    } catch (_) {
+      // Candidate-authority cleanup is best effort and must not block refresh.
     }
     onProgress?.call(
       const CloudAwardForegroundProgress(
@@ -314,6 +332,35 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
 
         if (reference.tierCode == 'cloud-500' &&
             normalizedCandidates.isNotEmpty) {
+          final cachedAuthority =
+              await _candidateScopeRepository.readValidated(
+            reference: reference,
+            pdfSha256: artifact.sha256,
+            candidateInvoiceNumbers: normalizedCandidates,
+            nowUtc: nowUtc,
+          );
+          if (cachedAuthority != null) {
+            results.add(
+              CloudAwardTierRefreshResult(
+                tierCode: reference.tierCode,
+                status: CloudAwardTierRefreshStatus.candidateScopedReused,
+                sourceUri: reference.sourceUri,
+                candidateAuthority: cachedAuthority,
+              ),
+            );
+            onProgress?.call(
+              CloudAwardForegroundProgress(
+                stage: CloudAwardForegroundStage.candidateVerified,
+                tierCode: reference.tierCode,
+                rowCount: cachedAuthority.matchedInvoiceNumbers.length,
+                message: '重用候選範圍已驗證 · '
+                    '${normalizedCandidates.length} 筆候選 · '
+                    '吻合 ${cachedAuthority.matchedInvoiceNumbers.length} 筆',
+              ),
+            );
+            continue;
+          }
+
           final universeSha =
               await cloudCandidateUniverseSha256(normalizedCandidates);
           final candidateMatch = await _sortedCandidateLookup.findMatches(
@@ -344,12 +391,20 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
             candidateNumbers: normalizedCandidates,
             matchedInvoiceNumbers: candidateMatch.matchedInvoiceNumbers,
           );
+          final persistedAuthority =
+              await _candidateScopeRepository.promoteValidated(
+            reference: reference,
+            pdfSha256: artifact.sha256,
+            authority: authority,
+            verifiedAtUtc: nowUtc,
+            retentionUntilUtc: retentionUntil?.toUtc(),
+          );
           results.add(
             CloudAwardTierRefreshResult(
               tierCode: reference.tierCode,
               status: CloudAwardTierRefreshStatus.candidateScopedVerified,
               sourceUri: reference.sourceUri,
-              candidateAuthority: authority,
+              candidateAuthority: persistedAuthority,
             ),
           );
           onProgress?.call(
@@ -357,7 +412,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
               stage: CloudAwardForegroundStage.candidateVerified,
               tierCode: reference.tierCode,
               rowCount: candidateMatch.matchedInvoiceNumbers.length,
-              message: '候選範圍已驗證 · '
+              message: '候選範圍已驗證並保存 · '
                   '${normalizedCandidates.length} 筆候選 · '
                   '吻合 ${candidateMatch.matchedInvoiceNumbers.length} 筆 · '
                   '讀取 ${candidateMatch.pagesRead}/'
