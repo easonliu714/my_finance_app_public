@@ -203,7 +203,14 @@ void main() {
     expect(second.isComplete, isTrue);
     expect(secondRequests, hasLength(1));
     expect(secondRequests.single.path, '/cloudNowNumber.html');
-    expect(scopedLookup.calls, 2);
+    final reusedFiveHundred = second.tiers.singleWhere(
+      (item) => item.tierCode == 'cloud-500',
+    );
+    expect(
+      reusedFiveHundred.status,
+      CloudAwardTierRefreshStatus.candidateScopedReused,
+    );
+    expect(scopedLookup.calls, 1);
   });
 
   test('wrong period publication fails before any artifact request', () async {
