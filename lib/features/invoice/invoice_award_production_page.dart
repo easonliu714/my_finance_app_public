@@ -151,16 +151,11 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       final dataset = generalResult.dataset;
       final candidates =
           await ExistingInvoiceAwardCandidateRepository().listCandidates();
-      final currentCloudCandidateNumbers = candidates
-          .where(
-            (candidate) =>
-                candidate.awardPeriod ==
-                    selectedPeriod.candidateAwardPeriodLabel &&
-                candidate.identitySource ==
-                    ExistingInvoiceAwardIdentitySource.cloudMetadata,
-          )
-          .map((candidate) => candidate.invoiceNumber)
-          .toSet();
+      final currentCloudCandidateNumbers =
+          cloudCandidateNumbersForAwardPeriod(
+        candidates: candidates,
+        awardPeriod: selectedPeriod.candidateAwardPeriodLabel,
+      );
 
       CloudAwardForegroundRefreshResult? cloudRefresh;
       try {
