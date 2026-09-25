@@ -25,8 +25,7 @@ void main() {
   test('115-07-08 remains unavailable on draw date before 14:10 Taipei',
       () {
     final before = DateTime.utc(2026, 9, 25, 6, 9, 59);
-    final period = InvoiceAwardRecentPeriodCatalog.period1150708;
-
+    const period = InvoiceAwardRecentPeriodCatalog.period1150708;
     expect(period.canCheckAt(before), isFalse);
     expect(
       period.statusLabel(before),
@@ -41,7 +40,7 @@ void main() {
   test('115-07-08 becomes checkable at official 14:10 Taipei availability',
       () {
     final atAvailability = DateTime.utc(2026, 9, 25, 6, 10);
-    final period = InvoiceAwardRecentPeriodCatalog.period1150708;
+    const period = InvoiceAwardRecentPeriodCatalog.period1150708;
 
     expect(period.canCheckAt(atAvailability), isTrue);
     expect(
