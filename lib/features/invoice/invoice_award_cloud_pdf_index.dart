@@ -100,11 +100,20 @@ class FlutterPdfTextCloudAwardExtractor extends CloudAwardPdfTextExtractor {
     }
   }
 
+  Future<void> _clearLastDiagnostic() async {
+    try {
+      await _channel.invokeMethod<void>('clearLastDiagnostic');
+    } catch (_) {
+      // Diagnostic cleanup is best effort and must not block extraction.
+    }
+  }
+
   Future<void> _forEachAndroidChunk(
     File pdfFile,
     CloudAwardPdfPageCallback onPage, {
     CloudAwardPdfExtractorProgressCallback? onProgress,
   }) async {
+    await _clearLastDiagnostic();
     var chunkStart = 1;
     int? pageCount;
 
@@ -303,7 +312,7 @@ class CloudAwardPdfIndexBuilder {
       await extractor.forEachPage(
         artifact.file,
         (pageNumber, pageCount, text) async {
-          final tokens = _extractInvoiceNumbers(text);
+          final tokens = extractInvoiceNumbers(text);
           for (final token in tokens) {
             sink!.writeln(token);
             rowCount += 1;
@@ -344,7 +353,7 @@ class CloudAwardPdfIndexBuilder {
     }
   }
 
-  static List<String> _extractInvoiceNumbers(String text) {
+  static List<String> extractInvoiceNumbers(String text) {
     final normalized = text.toUpperCase();
     final matches = RegExp(r'[A-Z]{2}\s*[0-9]{8}').allMatches(normalized);
     final result = <String>[];
