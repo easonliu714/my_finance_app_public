@@ -190,6 +190,34 @@ class OfficialInvoiceDetailEnrichmentReviewPage extends StatelessWidget {
             Text('已取得內容結果：${batchResult.results.length}'),
             Text('成功：${batchResult.successCount}'),
             Text('失敗／需覆核：${batchResult.failedCount}'),
+            Text(
+              '可進入正式交易：'
+              '${batchResult.results.where(isOfficialInvoiceDetailEligibleForFormalImportV2).length}',
+            ),
+            Text(
+              '目前不可進入正式交易：'
+              '${batchResult.results.where((item) => !isOfficialInvoiceDetailEligibleForFormalImportV2(item)).length}',
+            ),
+            if (batchResult.results.any(
+              (item) => !isOfficialInvoiceDetailEligibleForFormalImportV2(item),
+            )) ...[
+              const SizedBox(height: 8),
+              const Text(
+                '目前不可進入正式交易的項目',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              ...batchResult.results
+                  .where(
+                    (item) =>
+                        !isOfficialInvoiceDetailEligibleForFormalImportV2(item),
+                  )
+                  .map(
+                    (item) => Text(
+                      '• ${item.invoiceNumber.isEmpty ? item.requestedInvoiceNumber : item.invoiceNumber}｜'
+                      '${officialInvoiceDetailFailureLabel(item.errorCode ?? 'OFFICIAL_DETAIL_NOT_ELIGIBLE')}',
+                    ),
+                  ),
+            ],
             if (batchResult.truncatedCount > 0)
               Text(
                 '超過 100 項提示：${batchResult.truncatedCount} 筆；可繼續建立草稿與正式交易',

@@ -310,7 +310,14 @@ class _TransactionTile extends StatelessWidget {
     final isExpense = record.type == TransactionType.expense;
     final sign = isIncome ? '+' : isExpense ? '-' : '';
     final time = DateFormat('HH:mm').format(record.occurredAt);
-    final accountText = record.type == TransactionType.transfer ? '${record.fromAccountName ?? record.accountName} → ${record.toAccountName ?? ''}' : record.accountName;
+    final accountText = record.type == TransactionType.transfer
+        ? '${record.fromAccountName ?? record.accountName} → ${record.toAccountName ?? ''}'
+        : record.accountName;
+    final subtitleParts = <String>[time, accountText, record.memberName];
+    final merchant = record.merchantName.trim();
+    if (merchant.isNotEmpty && merchant != '不使用商家') {
+      subtitleParts.add(merchant);
+    }
     return ListTile(
       contentPadding: EdgeInsets.zero,
       onTap: () => context.pushNamed(
@@ -319,7 +326,11 @@ class _TransactionTile extends StatelessWidget {
       ),
       leading: CircleAvatar(child: Icon(_iconFor(record.type))),
       title: Text(record.category),
-      subtitle: Text('$time · $accountText · ${record.memberName} · ${record.merchantName}${record.note.isEmpty ? '' : ' · ${record.note}'}'),
+      subtitle: Text(
+        subtitleParts.join(' · '),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
       trailing: Text('$sign${currency.format(record.amount)}', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
     );
   }

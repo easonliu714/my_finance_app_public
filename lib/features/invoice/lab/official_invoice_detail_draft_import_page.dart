@@ -314,6 +314,19 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
                   const SizedBox(height: 8),
                 ],
               ],
+              if (snapshot.rejectedItems.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _sectionTitle('目前不可導入正式交易'),
+                for (final item in snapshot.rejectedItems) ...[
+                  _buildStatusCard(
+                    item,
+                    icon: Icons.block_outlined,
+                    label:
+                        '不可導入：${officialInvoiceDetailFailureLabel(item.message ?? 'OFFICIAL_DETAIL_NOT_ELIGIBLE')}',
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ],
               CheckboxListTile(
                 key: OfficialInvoiceDetailDraftImportPage.confirmationKey,
                 value: confirmed,
