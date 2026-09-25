@@ -90,7 +90,8 @@ class OfficialInvoiceDetailImportPreflightSnapshot {
 bool isOfficialInvoiceDetailEligibleForFormalImportV2(
   OfficialInvoiceDetailEnrichment item,
 ) {
-  if (isOfficialInvoiceDetailEligibleForReviewableDraft(item)) return true;
+  if (isOfficialInvoiceDetailEligibleForFormalImport(item)) return true;
+  if (isOfficialInvoiceDetailManualDifferenceReviewCandidate(item)) return true;
   return item.invoiceIdentityMatches &&
       item.detailTotalMatchesCsv &&
       item.sellerIdentifierConsistent &&
@@ -99,6 +100,54 @@ bool isOfficialInvoiceDetailEligibleForFormalImportV2(
       item.detailTotal! > 0 &&
       item.lineItems.isNotEmpty &&
       item.canUseUserConfirmedEstimatedTax;
+}
+
+OfficialInvoiceDetailEnrichment withUserConfirmedManualDifferenceReview(
+  OfficialInvoiceDetailEnrichment item,
+) {
+  if (!isOfficialInvoiceDetailManualDifferenceReviewCandidate(item)) {
+    throw StateError('MANUAL_DIFFERENCE_REVIEW_NOT_AVAILABLE');
+  }
+  return OfficialInvoiceDetailEnrichment(
+    requestedInvoiceNumber: item.requestedInvoiceNumber,
+    invoiceNumber: item.invoiceNumber,
+    selectorProfileVersion: item.selectorProfileVersion,
+    fetchedAt: item.fetchedAt,
+    success: item.success,
+    invoiceIdentityMatches: item.invoiceIdentityMatches,
+    detailTotalInternallyConsistent: item.detailTotalInternallyConsistent,
+    detailTotalMatchesCsv: item.detailTotalMatchesCsv,
+    sellerIdentifierConsistent: item.sellerIdentifierConsistent,
+    lineItems: item.lineItems,
+    exactTimestamp: item.exactTimestamp,
+    currencyCode: item.currencyCode,
+    officialStatus: item.officialStatus,
+    sellerIdentifier: item.sellerIdentifier,
+    sellerName: item.sellerName,
+    expectedTotal: item.expectedTotal,
+    detailTotal: item.detailTotal,
+    officialTaxAmount: item.officialTaxAmount,
+    officialTaxLabel: item.officialTaxLabel,
+    lineItemSubtotal: item.lineItemSubtotal,
+    unallocatedDifference: item.unallocatedDifference,
+    errorCode: item.errorCode,
+    warningCode: 'DETAIL_MANUAL_DIFFERENCE_REVIEW_CONFIRMED',
+    declaredItemCount: item.declaredItemCount,
+    omittedItemCount: item.omittedItemCount,
+    lineItemsTruncated: item.lineItemsTruncated,
+    dialogDetected: item.dialogDetected,
+    summaryTableDetected: item.summaryTableDetected,
+    itemTableDetected: item.itemTableDetected,
+    detectedItemRowCount: item.detectedItemRowCount,
+    initialItemRowCount: item.initialItemRowCount,
+    requiredVisibleItemCount: item.requiredVisibleItemCount,
+    pageSizeControlDetected: item.pageSizeControlDetected,
+    pageSize100OptionDetected: item.pageSize100OptionDetected,
+    pageSize100SelectionObserved: item.pageSize100SelectionObserved,
+    pageSizeApplyControlDetected: item.pageSizeApplyControlDetected,
+    pageSizeApplyTriggered: item.pageSizeApplyTriggered,
+    loadingMaskObserved: item.loadingMaskObserved,
+  );
 }
 
 OfficialInvoiceDetailEnrichment withUserConfirmedEstimatedTax(
@@ -320,6 +369,9 @@ class OfficialInvoiceDetailDraftImportV2Service {
           );
           continue;
         }
+        effectiveEnrichment =
+            withUserConfirmedManualDifferenceReview(effectiveEnrichment);
+        replacements[invoiceNumber] = effectiveEnrichment;
       }
       if (item.status ==
           OfficialInvoiceDetailImportPreflightStatus.rebuildableDeleted) {

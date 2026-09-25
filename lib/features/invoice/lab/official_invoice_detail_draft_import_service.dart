@@ -41,11 +41,17 @@ bool isOfficialInvoiceDetailManualDifferenceReviewCandidate(
       difference.abs() > 0.005;
 }
 
+bool isOfficialInvoiceDetailConfirmedManualDifferenceDraft(
+  OfficialInvoiceDetailEnrichment item,
+) =>
+    item.warningCode == 'DETAIL_MANUAL_DIFFERENCE_REVIEW_CONFIRMED' &&
+    isOfficialInvoiceDetailManualDifferenceReviewCandidate(item);
+
 bool isOfficialInvoiceDetailEligibleForReviewableDraft(
   OfficialInvoiceDetailEnrichment item,
 ) =>
     isOfficialInvoiceDetailEligibleForFormalImport(item) ||
-    isOfficialInvoiceDetailManualDifferenceReviewCandidate(item);
+    isOfficialInvoiceDetailConfirmedManualDifferenceDraft(item);
 
 enum OfficialInvoiceDetailDraftImportStatus {
   staged,
@@ -322,7 +328,7 @@ class OfficialInvoiceDetailDraftImportService
       if (sellerName.isEmpty) CloudInvoiceCandidateWarning.missingSellerName,
       if (item.officialTaxLabel == '推算稅額（使用者確認）' ||
           item.lineItemsTruncated ||
-          isOfficialInvoiceDetailManualDifferenceReviewCandidate(item))
+          isOfficialInvoiceDetailConfirmedManualDifferenceDraft(item))
         CloudInvoiceCandidateWarning.partialPayload,
     ];
     return CloudInvoiceCandidate(

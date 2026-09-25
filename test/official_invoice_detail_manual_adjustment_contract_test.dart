@@ -35,8 +35,17 @@ void main() {
 
     expect(item.canUseUserConfirmedEstimatedTax, isFalse);
     expect(isOfficialInvoiceDetailManualDifferenceReviewCandidate(item), isTrue);
-    expect(isOfficialInvoiceDetailEligibleForReviewableDraft(item), isTrue);
+    expect(isOfficialInvoiceDetailEligibleForReviewableDraft(item), isFalse);
     expect(isOfficialInvoiceDetailEligibleForFormalImportV2(item), isTrue);
+    final confirmed = withUserConfirmedManualDifferenceReview(item);
+    expect(
+      isOfficialInvoiceDetailConfirmedManualDifferenceDraft(confirmed),
+      isTrue,
+    );
+    expect(
+      isOfficialInvoiceDetailEligibleForReviewableDraft(confirmed),
+      isTrue,
+    );
     final preflight = OfficialInvoiceDetailImportPreflightItem(
       enrichment: item,
       status: OfficialInvoiceDetailImportPreflightStatus.selectable,
