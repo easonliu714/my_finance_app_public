@@ -133,6 +133,7 @@ void main() {
     expect(
       find.byKey(
         OfficialInvoiceDetailEnrichmentReviewPage.formalImportButtonKey,
+        skipOffstage: false,
       ),
       findsOneWidget,
     );
