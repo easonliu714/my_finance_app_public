@@ -1,4 +1,5 @@
 import 'existing_invoice_award_candidate_repository.dart';
+import 'invoice_award_cloud_candidate_scope.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_cloud_pdf_index.dart';
 
@@ -84,7 +85,11 @@ class ExistingInvoiceAwardCloudBatchMatcher {
 
   Future<List<ExistingInvoiceAwardCloudEvaluation>> evaluate({
     required Iterable<ExistingInvoiceAwardCandidate> candidates,
+    Iterable<CloudAwardCandidateScopedAuthority> candidateScopedAuthorities =
+        const <CloudAwardCandidateScopedAuthority>[],
   }) async {
+    final scopedAuthorities =
+        candidateScopedAuthorities.toList(growable: false);
     final frozen = candidates.toList(growable: false);
     final evaluations =
         <ExistingInvoiceAwardCandidate, ExistingInvoiceAwardCloudEvaluation>{};
@@ -132,6 +137,24 @@ class ExistingInvoiceAwardCloudBatchMatcher {
       final snapshots = <String, CloudAwardValidatedIndexSnapshot>{};
 
       for (final tier in tierPriority) {
+        CloudAwardCandidateScopedAuthority? scopedAuthority;
+        for (final candidateAuthority in scopedAuthorities) {
+          if (candidateAuthority.periodId == periodId &&
+              candidateAuthority.tierCode == tier &&
+              candidateAuthority.covers(
+                periodId: periodId,
+                tierCode: tier,
+                invoiceNumbers: invoiceNumbers,
+              )) {
+            scopedAuthority = candidateAuthority;
+            break;
+          }
+        }
+        if (scopedAuthority != null) {
+          matchesByTier[tier] = scopedAuthority.matchedInvoiceNumbers;
+          continue;
+        }
+
         final snapshot = await _readLatest(
           periodId: periodId,
           tierCode: tier,
