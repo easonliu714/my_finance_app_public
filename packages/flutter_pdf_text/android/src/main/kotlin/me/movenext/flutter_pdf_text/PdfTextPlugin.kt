@@ -3,6 +3,7 @@ package me.movenext.flutter_pdf_text
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import androidx.annotation.NonNull
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -13,6 +14,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import io.legere.pdfiumandroid.PdfDocument as PdfiumDocument
+import io.legere.pdfiumandroid.PdfiumCore
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -24,13 +27,17 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   private lateinit var applicationContext: Context
   private val openDocuments = ConcurrentHashMap<String, PDDocument>()
   private val openDocumentPaths = ConcurrentHashMap<String, String>()
+  private val pdfiumDocuments = ConcurrentHashMap<String, PdfiumDocument>()
+  private val pdfiumDocumentPaths = ConcurrentHashMap<String, String>()
   private val diagnosticFileName = "flutter_pdf_text_last_diagnostic.txt"
+  private lateinit var pdfiumCore: PdfiumCore
 
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
     applicationContext = flutterPluginBinding.applicationContext
     val channel = MethodChannel(flutterPluginBinding.binaryMessenger, "pdf_text")
     channel.setMethodCallHandler(this)
     PDFBoxResourceLoader.init(applicationContext)
+    pdfiumCore = PdfiumCore(applicationContext)
   }
 
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -61,6 +68,25 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
           }
           "getLastDiagnostic" -> {
             getLastDiagnostic(result)
+          }
+          "clearLastDiagnostic" -> {
+            clearLastDiagnostic(result)
+          }
+          "openPdfiumSession" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            openPdfiumSession(result, path)
+          }
+          "getPdfiumSessionPageText" -> {
+            val args = call.arguments as Map<*, *>
+            val sessionId = args["sessionId"] as String
+            val pageNumber = args["number"] as Int
+            getPdfiumSessionPageText(result, sessionId, pageNumber)
+          }
+          "closePdfiumSession" -> {
+            val args = call.arguments as Map<*, *>
+            val sessionId = args["sessionId"] as String
+            closePdfiumSession(result, sessionId)
           }
           "markExtractionComplete" -> {
             val args = call.arguments as Map<*, *>
@@ -98,6 +124,11 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     }
     openDocuments.clear()
     openDocumentPaths.clear()
+    pdfiumDocuments.values.forEach { document ->
+      try { document.close() } catch (_: Exception) {}
+    }
+    pdfiumDocuments.clear()
+    pdfiumDocumentPaths.clear()
   }
 
   /**
@@ -194,6 +225,117 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     val pageCount = doc?.numberOfPages ?: 0
     try { doc?.close() } catch (_: Exception) {}
     writeDiagnostic("SESSION_CLOSED", path, pageCount = pageCount)
+    Handler(Looper.getMainLooper()).post { result.success(true) }
+  }
+
+  private fun clearLastDiagnostic(result: Result) {
+    try {
+      File(applicationContext.filesDir, diagnosticFileName).delete()
+    } catch (_: Throwable) {
+      // Best effort only.
+    }
+    Handler(Looper.getMainLooper()).post { result.success(true) }
+  }
+
+  /**
+   * Opens a PDF through native PDFium instead of materializing PDFBox state on
+   * the Java heap. This path is reserved for very large sorted MOF cloud-award
+   * PDFs where PDFBox can exhaust the ~256 MB Android heap at document open.
+   */
+  private fun openPdfiumSession(result: Result, path: String) {
+    writeDiagnostic("PDFIUM_OPEN_BEGIN", path)
+    val file = File(path)
+    var descriptor: ParcelFileDescriptor? = null
+    try {
+      descriptor = ParcelFileDescriptor.open(
+        file,
+        ParcelFileDescriptor.MODE_READ_ONLY
+      )
+      val document = pdfiumCore.newDocument(descriptor)
+      descriptor = null // ownership transferred to PdfDocument
+      val pageCount = document.getPageCount()
+      if (pageCount <= 0) {
+        document.close()
+        writeDiagnostic("PDFIUM_OPEN_FAILED", path, error = "EMPTY_DOCUMENT")
+        Handler(Looper.getMainLooper()).post {
+          result.error("PDFIUM_DOCUMENT_EMPTY", "PDFium document has no pages", null)
+        }
+        return
+      }
+      val sessionId = UUID.randomUUID().toString()
+      pdfiumDocuments[sessionId] = document
+      pdfiumDocumentPaths[sessionId] = path
+      writeDiagnostic("PDFIUM_OPEN_OK", path, pageCount = pageCount)
+      Handler(Looper.getMainLooper()).post {
+        result.success(hashMapOf("sessionId" to sessionId, "length" to pageCount))
+      }
+    } catch (oom: OutOfMemoryError) {
+      try { descriptor?.close() } catch (_: Exception) {}
+      writeDiagnostic("PDFIUM_OPEN_OOM", path, error = oom.javaClass.simpleName)
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDFIUM_OPEN_OOM", "PDFium open exhausted memory", null)
+      }
+    } catch (e: Exception) {
+      try { descriptor?.close() } catch (_: Exception) {}
+      writeDiagnostic("PDFIUM_OPEN_FAILED", path, error = e.javaClass.simpleName)
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDFIUM_OPEN_FAILED", e.message, null)
+      }
+    }
+  }
+
+  /** Reads one arbitrary 1-based page from a native PDFium document session. */
+  private fun getPdfiumSessionPageText(
+    result: Result,
+    sessionId: String,
+    pageNumber: Int
+  ) {
+    val document = pdfiumDocuments[sessionId]
+    if (document == null) {
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDFIUM_SESSION_NOT_FOUND", "PDFium session is not available", null)
+      }
+      return
+    }
+    val pageCount = document.getPageCount()
+    if (pageNumber < 1 || pageNumber > pageCount) {
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDFIUM_PAGE_OUT_OF_RANGE", "PDFium page is outside document bounds", null)
+      }
+      return
+    }
+    val path = pdfiumDocumentPaths[sessionId] ?: ""
+    writeDiagnostic("PDFIUM_PAGE_BEGIN", path, pageNumber, pageCount)
+    try {
+      val page = document.openPage(pageNumber - 1)
+      page.use {
+        val textPage = page.openTextPage()
+        textPage.use {
+          val count = textPage.textPageCountChars()
+          val text = if (count <= 0) "" else textPage.textPageGetText(0, count).orEmpty()
+          writeDiagnostic("PDFIUM_PAGE_OK", path, pageNumber, pageCount)
+          Handler(Looper.getMainLooper()).post { result.success(text) }
+        }
+      }
+    } catch (oom: OutOfMemoryError) {
+      writeDiagnostic("PDFIUM_PAGE_OOM", path, pageNumber, pageCount, oom.javaClass.simpleName)
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDFIUM_PAGE_OOM", "PDFium page extraction exhausted memory", null)
+      }
+    } catch (e: Exception) {
+      writeDiagnostic("PDFIUM_PAGE_FAILED", path, pageNumber, pageCount, e.javaClass.simpleName)
+      Handler(Looper.getMainLooper()).post {
+        result.error("PDFIUM_PAGE_FAILED", e.message, null)
+      }
+    }
+  }
+
+  private fun closePdfiumSession(result: Result, sessionId: String) {
+    val document = pdfiumDocuments.remove(sessionId)
+    val path = pdfiumDocumentPaths.remove(sessionId) ?: ""
+    val pageCount = try { document?.getPageCount() ?: 0 } catch (_: Exception) { 0 }
+    try { document?.close() } catch (_: Exception) {}
+    writeDiagnostic("PDFIUM_SESSION_CLOSED", path, pageCount = pageCount)
     Handler(Looper.getMainLooper()).post { result.success(true) }
   }
 
