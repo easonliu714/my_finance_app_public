@@ -104,6 +104,7 @@ jobs:
           flutter test test/features/invoice/invoice_award_cloud_pdf_memory_policy_contract_test.dart
           flutter test test/features/invoice/invoice_award_cloud_pdf_index_test.dart
           flutter test test/features/invoice/invoice_award_cloud_candidate_scope_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_candidate_scope_repository_test.dart
           flutter test test/features/invoice/invoice_award_cloud_index_lkg_repository_test.dart
           flutter test test/features/invoice/invoice_award_cloud_foreground_acquisition_test.dart
           flutter test test/features/invoice/invoice_award_cloud_eligibility_test.dart
@@ -279,6 +280,7 @@ jobs:
             printf 'CLOUD_PDF_CRASH_DIAGNOSTICS=PASS\n'
             printf 'CLOUD_PDF_CHUNKED_SESSION=PASS\n'
             printf 'CLOUD_500_PDFIUM_CANDIDATE_SCOPE=PASS\n'
+            printf 'CLOUD_500_CANDIDATE_AUTHORITY_DURABLE=PASS\n'
             printf 'CLOUD_TIER_FAILURE_EVIDENCE=PASS\n'
             printf 'AWARD_OFFICIAL_AVAILABILITY_TIME_GATE=PASS\n'
             printf 'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS\n'
@@ -298,6 +300,7 @@ jobs:
             'CLOUD_PDF_CRASH_DIAGNOSTICS=PASS' \
             'CLOUD_PDF_CHUNKED_SESSION=PASS' \
             'CLOUD_500_PDFIUM_CANDIDATE_SCOPE=PASS' \
+            'CLOUD_500_CANDIDATE_AUTHORITY_DURABLE=PASS' \
             'CLOUD_TIER_FAILURE_EVIDENCE=PASS' \
             'AWARD_OFFICIAL_AVAILABILITY_TIME_GATE=PASS' \
             'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS' \
