@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'existing_invoice_award_candidate_repository.dart';
 import 'existing_invoice_award_cloud_batch_matcher.dart';
 import 'existing_invoice_award_general_batch_matcher.dart';
+import 'invoice_award_cloud_candidate_scope.dart';
 import 'invoice_award_cloud_foreground_acquisition.dart';
 import 'invoice_award_cloud_pdf_index.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
@@ -117,6 +118,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     setState(() {
       _refreshing = true;
       _cloudCurrentAuthorityComplete = false;
+      _cloudDiagnosticStatus = '';
       _status = '正在更新財政部一般獎資料…';
       _cloudStatus = '等待一般獎完成後更新雲端專屬獎…';
       _scanStatus = '等待官方資料驗證後掃描既有交易…';
@@ -147,6 +149,18 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
       final generalResult = await generalController.refresh(selectedPeriod.period);
       final dataset = generalResult.dataset;
+      final candidates =
+          await ExistingInvoiceAwardCandidateRepository().listCandidates();
+      final currentCloudCandidateNumbers = candidates
+          .where(
+            (candidate) =>
+                candidate.awardPeriod ==
+                    selectedPeriod.candidateAwardPeriodLabel &&
+                candidate.identitySource ==
+                    ExistingInvoiceAwardIdentitySource.cloudMetadata,
+          )
+          .map((candidate) => candidate.invoiceNumber)
+          .toSet();
 
       CloudAwardForegroundRefreshResult? cloudRefresh;
       try {
@@ -160,6 +174,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         cloudRefresh = await cloudService.refresh(
           periodId: selectedPeriod.period.id,
           retentionUntil: selectedPeriod.redemptionEnd.toUtc(),
+          candidateInvoiceNumbers: currentCloudCandidateNumbers,
           onProgress: _handleCloudProgress,
         );
       } catch (_) {
@@ -170,7 +185,6 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         }
       }
 
-      final candidates = await ExistingInvoiceAwardCandidateRepository().listCandidates();
       final generalEvaluations = dataset == null
           ? const <ExistingInvoiceAwardGeneralEvaluation>[]
           : const ExistingInvoiceAwardGeneralBatchMatcher().evaluate(
@@ -180,7 +194,12 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       final cloudEvaluations = await ExistingInvoiceAwardCloudBatchMatcher(
         readLatest: ({required String periodId, required String tierCode}) =>
             _cloudRepository.readLatest(periodId: periodId, tierCode: tierCode),
-      ).evaluate(candidates: candidates);
+      ).evaluate(
+        candidates: candidates,
+        candidateScopedAuthorities:
+            cloudRefresh?.candidateScopedAuthorities ??
+                const <CloudAwardCandidateScopedAuthority>[],
+      );
 
       final cloudComplete = cloudRefresh?.isComplete ?? false;
       final currentCandidates = candidates
@@ -218,8 +237,10 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         }
         if (cloudRefresh != null) {
           _cloudStatus = cloudComplete
-              ? '雲端專屬獎四個官方獎別資料已驗證完成。'
-              : '雲端專屬獎本次更新不完整；保留既有 LKG，無法宣稱完整未中獎。';
+              ? '雲端專屬獎四個獎別 authority 已驗證完成。'
+              : '雲端專屬獎本次更新不完整：'
+                  '${cloudRefresh!.failureSummary}; '
+                  '保留既有 LKG，無法宣稱完整未中獎。';
         }
       });
     } catch (_) {
@@ -444,6 +465,8 @@ String _cloudProgressText(CloudAwardForegroundProgress progress) {
         ? '雲端專屬獎：$tier${progress.message!}'
         : '雲端專屬獎：$tier解析 PDF ${progress.pageNumber ?? 0}/${progress.pageCount ?? 0} 頁 · 已建立 ${progress.rowCount ?? 0} 筆索引',
     CloudAwardForegroundStage.promoting => '雲端專屬獎：$tier正在驗證並保存本機索引…',
+    CloudAwardForegroundStage.candidateVerified =>
+      '雲端專屬獎：$tier${progress.message ?? '候選範圍已驗證'}',
     CloudAwardForegroundStage.reused => '雲端專屬獎：$tier已重用本機驗證資料',
     CloudAwardForegroundStage.completed => '雲端專屬獎四個官方獎別資料已驗證完成。',
     CloudAwardForegroundStage.failed => '雲端專屬獎：$tier更新未完成；保留既有已驗證資料',
