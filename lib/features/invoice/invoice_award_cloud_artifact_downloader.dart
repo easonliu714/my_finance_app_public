@@ -60,8 +60,13 @@ class MinistryOfFinanceCloudAwardArtifactDownloader {
   Future<OfficialCloudAwardDownloadedArtifact> download({
     required OfficialCloudAwardArtifactReference reference,
     required File destinationTempFile,
+    Object? cancellation,
     CloudAwardArtifactDownloadProgressCallback? onProgress,
   }) async {
+    // The foreground lifecycle cancellation token is accepted here so the
+    // acquisition boundary remains compatible with lifecycle-governed callers.
+    // Native PDFium cancellation is enforced separately by the candidate lookup;
+    // an interrupted HTTP stream is never promoted until the full PDF gates pass.
     if (!reference.isApprovedOfficialSource) {
       await _deleteIfExists(destinationTempFile);
       throw StateError('CLOUD_AWARD_ARTIFACT_SOURCE_NOT_ALLOWED');
