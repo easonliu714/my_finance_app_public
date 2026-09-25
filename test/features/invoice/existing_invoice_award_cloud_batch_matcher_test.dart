@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/existing_invoice_award_candidate_repository.dart';
 import 'package:my_finance_app/features/invoice/existing_invoice_award_cloud_batch_matcher.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud_candidate_scope.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_index_lkg_repository.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_index.dart';
 
@@ -204,6 +205,79 @@ void main() {
     expect(result.selectedTierCode, 'cloud-800');
     expect(result.missingTierCodes, contains('cloud-500'));
     expect(result.isConfirmedCloudNumberMatch, isFalse);
+  });
+
+  test('candidate-scoped 500 authority closes the missing-tier gap', () async {
+    await addTier('cloud-1000000', const <String>['ZX00000001']);
+    await addTier('cloud-2000', const <String>['ZX00000002']);
+    await addTier('cloud-800', const <String>['ZX00000003']);
+
+    final scoped = CloudAwardCandidateScopedAuthority(
+      periodId: '115-07-08',
+      tierCode: 'cloud-500',
+      officialSourceUri: Uri.parse(
+        'https://invoice.etax.nat.gov.tw/pdf/fixture_sorted_AI_D.pdf',
+      ),
+      pdfSha256: 'a' * 64,
+      candidateUniverseSha256: 'c' * 64,
+      candidateNumbers: const <String>{'AB12345678'},
+      matchedInvoiceNumbers: const <String>{},
+    );
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[scoped],
+    ))
+        .single;
+
+    expect(result.status, ExistingInvoiceAwardCloudEvaluationStatus.notMatched);
+    expect(result.missingTierCodes, isEmpty);
+    expect(result.hasCompleteAuthority, isTrue);
+  });
+
+  test('candidate-scoped 500 match remains eligible and exact-set bound',
+      () async {
+    await addTier('cloud-1000000', const <String>['ZX00000001']);
+    await addTier('cloud-2000', const <String>['ZX00000002']);
+    await addTier('cloud-800', const <String>['ZX00000003']);
+
+    final scoped = CloudAwardCandidateScopedAuthority(
+      periodId: '115-07-08',
+      tierCode: 'cloud-500',
+      officialSourceUri: Uri.parse(
+        'https://invoice.etax.nat.gov.tw/pdf/fixture_sorted_AI_D.pdf',
+      ),
+      pdfSha256: 'a' * 64,
+      candidateUniverseSha256: 'd' * 64,
+      candidateNumbers: const <String>{'AB12345678'},
+      matchedInvoiceNumbers: const <String>{'AB12345678'},
+    );
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[scoped],
+    ))
+        .single;
+
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(result.selectedTierCode, 'cloud-500');
+    expect(result.grossAmount, 500);
+
+    final changedUniverse = await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[
+        candidate(),
+        candidate(invoiceNumber: 'CD87654321'),
+      ],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[scoped],
+    );
+    expect(
+      changedUniverse.first.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete,
+    );
+    expect(changedUniverse.first.missingTierCodes, contains('cloud-500'));
   });
 
   test('multiple tier hits select highest amount and force anomaly review',
