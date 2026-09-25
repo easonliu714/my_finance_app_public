@@ -251,8 +251,20 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload failed full-test log
+      - name: Check failed full-test log availability
         if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' }}
+        id: failed_test_log
+        shell: bash
+        run: |
+          if [[ -f flutter-test.log ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No flutter-test.log: failure occurred before the test step." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload failed full-test log
+        if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' && steps.failed_test_log.outputs.available == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: flutter-full-test-failure-${{ github.event.pull_request.head.sha || github.sha }}

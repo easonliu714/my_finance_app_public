@@ -20,7 +20,12 @@ void main() {
       'lib/features/dashboard/ledger_detail_page.dart',
     ).readAsStringSync();
 
-    expect(report, contains("final subtitleParts = <String>[time, accountText, record.memberName]"));
+    expect(
+      report,
+      contains(
+        'final subtitleParts = <String>[time, accountText, record.memberName]',
+      ),
+    );
     expect(report, contains("merchant != '不使用商家'"));
     expect(report, contains('maxLines: 2'));
     expect(report, contains('overflow: TextOverflow.ellipsis'));
