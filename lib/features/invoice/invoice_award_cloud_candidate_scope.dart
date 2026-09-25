@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/services.dart';
 
+import 'existing_invoice_award_candidate_repository.dart';
 import 'invoice_award_cloud_artifact_downloader.dart';
 import 'invoice_award_cloud_pdf_index.dart';
 
@@ -45,6 +46,23 @@ Set<String> normalizeCloudCandidateNumbers(Iterable<String> values) =>
         for (final raw in values)
           raw.replaceAll(RegExp(r'[\s-]'), '').toUpperCase(),
       }.where((value) => RegExp(r'^[A-Z]{2}[0-9]{8}$').hasMatch(value)),
+    );
+
+Set<String> cloudCandidateNumbersForAwardPeriod({
+  required Iterable<ExistingInvoiceAwardCandidate> candidates,
+  required String awardPeriod,
+}) =>
+    normalizeCloudCandidateNumbers(
+      candidates
+          .where(
+            (candidate) =>
+                candidate.awardPeriod == awardPeriod &&
+                candidate.identitySource ==
+                    ExistingInvoiceAwardIdentitySource.cloudMetadata &&
+                candidate.cloudEligibility !=
+                    ExistingInvoiceAwardCloudEligibility.ineligible,
+          )
+          .map((candidate) => candidate.invoiceNumber),
     );
 
 Future<String> cloudCandidateUniverseSha256(Iterable<String> values) async {
