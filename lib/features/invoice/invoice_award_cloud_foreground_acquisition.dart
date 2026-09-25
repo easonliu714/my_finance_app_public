@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import 'invoice_award_cloud_artifact_downloader.dart';
+import 'invoice_award_cloud_candidate_scope.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_cloud_pdf_cache_repository.dart';
 import 'invoice_award_cloud_pdf_index.dart';
@@ -20,6 +21,7 @@ enum CloudAwardForegroundStage {
   cachedPdfReused,
   extracting,
   promoting,
+  candidateVerified,
   reused,
   completed,
   failed,
@@ -58,6 +60,7 @@ typedef CloudAwardForegroundProgressCallback = void Function(
 enum CloudAwardTierRefreshStatus {
   reused,
   promoted,
+  candidateScopedVerified,
   failed,
 }
 
@@ -67,6 +70,7 @@ class CloudAwardTierRefreshResult {
     required this.status,
     required this.sourceUri,
     this.snapshot,
+    this.candidateAuthority,
     this.failureCode,
   });
 
@@ -74,11 +78,13 @@ class CloudAwardTierRefreshResult {
   final CloudAwardTierRefreshStatus status;
   final Uri sourceUri;
   final CloudAwardValidatedIndexSnapshot? snapshot;
+  final CloudAwardCandidateScopedAuthority? candidateAuthority;
   final String? failureCode;
 
   bool get isReady =>
       status == CloudAwardTierRefreshStatus.reused ||
-      status == CloudAwardTierRefreshStatus.promoted;
+      status == CloudAwardTierRefreshStatus.promoted ||
+      status == CloudAwardTierRefreshStatus.candidateScopedVerified;
 }
 
 class CloudAwardForegroundRefreshResult {
@@ -96,6 +102,20 @@ class CloudAwardForegroundRefreshResult {
       publicationFailureCode == null &&
       tiers.length == 4 &&
       tiers.every((item) => item.isReady);
+
+  List<CloudAwardCandidateScopedAuthority> get candidateScopedAuthorities =>
+      List<CloudAwardCandidateScopedAuthority>.unmodifiable(
+        tiers
+            .map((item) => item.candidateAuthority)
+            .whereType<CloudAwardCandidateScopedAuthority>(),
+      );
+
+  String get failureSummary {
+    final failed = tiers.where((item) => !item.isReady).map(
+          (item) => '${item.tierCode}=${item.failureCode ?? 'UNKNOWN'}',
+        );
+    return failed.join(', ');
+  }
 }
 
 typedef CloudAwardTemporaryDirectoryProvider = Future<Directory> Function();
@@ -114,6 +134,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     CloudAwardTemporaryDirectoryProvider? temporaryDirectoryProvider,
     CloudAwardPdfCacheDirectoryProvider? pdfCacheDirectoryProvider,
     CloudAwardPdfCacheRepository? pdfCacheRepository,
+    CloudAwardSortedPdfCandidateLookup? sortedCandidateLookup,
     DateTime Function()? clock,
     Uri? publicationUri,
     this.maxPublicationBytes = 1024 * 1024,
@@ -133,6 +154,8 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                   temporaryDirectoryProvider ??
                   getApplicationSupportDirectory,
             ),
+        _sortedCandidateLookup =
+            sortedCandidateLookup ?? const PdfiumCloudAwardSortedPdfCandidateLookup(),
         _clock = clock ?? DateTime.now,
         _publicationUri = publicationUri ?? currentPublicationUri;
 
@@ -148,6 +171,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   final MinistryOfFinanceCloudAwardPublicationHtmlParser _publicationParser;
   final CloudAwardTemporaryDirectoryProvider _temporaryDirectoryProvider;
   final CloudAwardPdfCacheRepository _pdfCacheRepository;
+  final CloudAwardSortedPdfCandidateLookup _sortedCandidateLookup;
   final DateTime Function() _clock;
   final Uri _publicationUri;
   final int maxPublicationBytes;
@@ -155,8 +179,11 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   Future<CloudAwardForegroundRefreshResult> refresh({
     required String periodId,
     DateTime? retentionUntil,
+    Iterable<String> candidateInvoiceNumbers = const <String>[],
     CloudAwardForegroundProgressCallback? onProgress,
   }) async {
+    final normalizedCandidates =
+        normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
     try {
       await _pdfCacheRepository.pruneExpired(nowUtc: _clock().toUtc());
     } catch (_) {
@@ -285,24 +312,59 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
           );
         }
 
-        final extractor = _indexBuilder.extractor;
-        if (extractor is FlutterPdfTextCloudAwardExtractor) {
-          final previousDiagnostic =
-              await extractor.readLastNativeDiagnostic();
-          final previousText =
-              FlutterPdfTextCloudAwardExtractor.diagnosticText(
-            previousDiagnostic,
+        if (reference.tierCode == 'cloud-500' &&
+            normalizedCandidates.isNotEmpty) {
+          final universeSha =
+              await cloudCandidateUniverseSha256(normalizedCandidates);
+          final candidateMatch = await _sortedCandidateLookup.findMatches(
+            artifact: artifact,
+            candidateInvoiceNumbers: normalizedCandidates,
+            onProgress: (progress) {
+              onProgress?.call(
+                CloudAwardForegroundProgress(
+                  stage: CloudAwardForegroundStage.extracting,
+                  tierCode: reference.tierCode,
+                  pageNumber: progress.pageNumber,
+                  pageCount: progress.pageCount,
+                  rowCount: progress.pagesRead,
+                  message: '候選比對 ${progress.candidateIndex}/'
+                      '${progress.candidateCount} · '
+                      '讀取排序 PDF 第 ${progress.pageNumber}/'
+                      '${progress.pageCount} 頁',
+                ),
+              );
+            },
           );
-          if (previousText != null) {
-            onProgress?.call(
-              CloudAwardForegroundProgress(
-                stage: CloudAwardForegroundStage.extracting,
-                tierCode: reference.tierCode,
-                message: '偵測到上次 PDF 解析中斷紀錄',
-                diagnosticMessage: '上次 PDF 解析最後紀錄：$previousText',
-              ),
-            );
-          }
+          final authority = CloudAwardCandidateScopedAuthority(
+            periodId: reference.periodId,
+            tierCode: reference.tierCode,
+            officialSourceUri: reference.sourceUri,
+            pdfSha256: artifact.sha256.toLowerCase(),
+            candidateUniverseSha256: universeSha,
+            candidateNumbers: normalizedCandidates,
+            matchedInvoiceNumbers: candidateMatch.matchedInvoiceNumbers,
+          );
+          results.add(
+            CloudAwardTierRefreshResult(
+              tierCode: reference.tierCode,
+              status: CloudAwardTierRefreshStatus.candidateScopedVerified,
+              sourceUri: reference.sourceUri,
+              candidateAuthority: authority,
+            ),
+          );
+          onProgress?.call(
+            CloudAwardForegroundProgress(
+              stage: CloudAwardForegroundStage.candidateVerified,
+              tierCode: reference.tierCode,
+              rowCount: candidateMatch.matchedInvoiceNumbers.length,
+              message: '候選範圍已驗證 · '
+                  '${normalizedCandidates.length} 筆候選 · '
+                  '吻合 ${candidateMatch.matchedInvoiceNumbers.length} 筆 · '
+                  '讀取 ${candidateMatch.pagesRead}/'
+                  '${candidateMatch.pageCount} 頁',
+            ),
+          );
+          continue;
         }
 
         final build = await _indexBuilder.buildCandidate(
@@ -400,7 +462,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
             : CloudAwardForegroundStage.failed,
         message: result.isComplete
             ? '雲端專屬獎官方資料已驗證完成'
-            : '雲端專屬獎資料不完整；已保留既有 LKG',
+            : '雲端專屬獎資料不完整：${result.failureSummary}; 已保留既有 LKG',
       ),
     );
     return result;
