@@ -22,7 +22,7 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  const reference = OfficialCloudAwardArtifactReference(
+  final reference = OfficialCloudAwardArtifactReference(
     artifactId: '20260506_20260725124620_sorted_AI_D.pdf',
     sourceUri: Uri.parse(
       'https://invoice.etax.nat.gov.tw/pdf/'
