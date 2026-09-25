@@ -16,6 +16,12 @@ void main() {
     final appExtractor = File(
       'lib/features/invoice/invoice_award_cloud_pdf_index.dart',
     ).readAsStringSync();
+    final androidBuild = File(
+      'packages/flutter_pdf_text/android/build.gradle',
+    ).readAsStringSync();
+    final candidateScope = File(
+      'lib/features/invoice/invoice_award_cloud_candidate_scope.dart',
+    ).readAsStringSync();
 
     expect(packagePubspec, contains('name: flutter_pdf_text'));
     expect(
@@ -65,6 +71,24 @@ void main() {
     expect(pluginSource, contains('catch (oom: OutOfMemoryError)'));
     expect(pluginSource, contains(r'"heap_used_bytes=$usedHeap"'));
     expect(pluginSource, contains('"getLastDiagnostic"'));
+    expect(pluginSource, contains('PdfiumCore(applicationContext)'));
+    expect(pluginSource, contains('"openPdfiumSession"'));
+    expect(pluginSource, contains('"getPdfiumSessionPageText"'));
+    expect(pluginSource, contains('"closePdfiumSession"'));
+    expect(pluginSource, contains('"PDFIUM_OPEN_OK"'));
+    expect(pluginSource, contains('"PDFIUM_PAGE_OK"'));
+    expect(
+      androidBuild,
+      contains("implementation 'io.legere:pdfiumandroid:1.0.24'"),
+    );
+    expect(androidBuild, contains('minSdkVersion 23'));
+    expect(
+      candidateScope,
+      contains('class PdfiumCloudAwardSortedPdfCandidateLookup'),
+    );
+    expect(candidateScope, contains("'openPdfiumSession'"));
+    expect(candidateScope, contains('while (low <= high)'));
+    expect(candidateScope, contains('candidateUniverseSha256'));
     expect(appExtractor, contains('if (Platform.isAndroid)'));
     expect(appExtractor, contains("'openDocSession'"));
     expect(appExtractor, contains("'getDocSessionPageText'"));
