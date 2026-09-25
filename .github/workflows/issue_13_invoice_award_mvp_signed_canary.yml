@@ -126,6 +126,7 @@ jobs:
           flutter test test/official_query_page_preparation_test.dart
           flutter test test/p4_20_6_runtime_app_version_test.dart
           flutter test test/issue_13_ledger_import_usability_contract_test.dart
+          flutter test test/official_invoice_detail_manual_adjustment_contract_test.dart
 
       - name: Full Flutter regression suite
         run: flutter test
@@ -285,11 +286,15 @@ jobs:
             printf 'CLOUD_500_CANDIDATE_AUTHORITY_DURABLE=PASS\n'
             printf 'CLOUD_500_EMPTY_CANDIDATE_SKIP=PASS\n'
             printf 'CLOUD_500_PDFIUM_LIFECYCLE_RETRY=PASS\n'
+            printf 'CLOUD_500_PDFIUM_BATCHED_SESSION=PASS\n'
+            printf 'CLOUD_500_PDFIUM_1X_REFRESH=PASS\n'
+            printf 'CLOUD_FOUR_TIER_SUMMARY=PASS\n'
             printf 'CLOUD_TIER_FAILURE_EVIDENCE=PASS\n'
             printf 'AWARD_OFFICIAL_AVAILABILITY_TIME_GATE=PASS\n'
             printf 'LEDGER_FULL_HISTORY_READ=PASS\n'
             printf 'LEDGER_COMPACT_ROW=PASS\n'
             printf 'OFFICIAL_IMPORT_REASON_EVIDENCE=PASS\n'
+            printf 'OFFICIAL_IMPORT_MANUAL_DIFFERENCE_REVIEW=PASS\n'
             printf 'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS\n'
             printf 'FORMAL_ACCOUNTING_WRITE=ZERO\n'
             printf 'APPID_APIKEY_RELEASE_DEPENDENCY=false\n'
@@ -298,8 +303,8 @@ jobs:
           } > issue_13_award_mvp_canary_metadata.txt
           for required in \
             "ISSUE_13_EXACT_HEAD=$(git rev-parse HEAD)" \
-            'VERSION_NAME=4.20.11' \
-            'VERSION_CODE=469' \
+            'VERSION_NAME=4.20.12' \
+            'VERSION_CODE=470' \
             'GENERAL_OFFICIAL_ACQUISITION=PASS' \
             'EXISTING_FORMAL_TRANSACTION_SCAN=PASS' \
             'CLOUD_PUBLICATION_AND_INDEX=PASS' \
@@ -310,11 +315,15 @@ jobs:
             'CLOUD_500_CANDIDATE_AUTHORITY_DURABLE=PASS' \
             'CLOUD_500_EMPTY_CANDIDATE_SKIP=PASS' \
             'CLOUD_500_PDFIUM_LIFECYCLE_RETRY=PASS' \
+            'CLOUD_500_PDFIUM_BATCHED_SESSION=PASS' \
+            'CLOUD_500_PDFIUM_1X_REFRESH=PASS' \
+            'CLOUD_FOUR_TIER_SUMMARY=PASS' \
             'CLOUD_TIER_FAILURE_EVIDENCE=PASS' \
             'AWARD_OFFICIAL_AVAILABILITY_TIME_GATE=PASS' \
             'LEDGER_FULL_HISTORY_READ=PASS' \
             'LEDGER_COMPACT_ROW=PASS' \
             'OFFICIAL_IMPORT_REASON_EVIDENCE=PASS' \
+            'OFFICIAL_IMPORT_MANUAL_DIFFERENCE_REVIEW=PASS' \
             'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS' \
             'FORMAL_ACCOUNTING_WRITE=ZERO' \
             'APPID_APIKEY_RELEASE_DEPENDENCY=false' \

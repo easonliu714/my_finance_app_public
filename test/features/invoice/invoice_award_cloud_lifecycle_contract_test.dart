@@ -13,6 +13,9 @@ void main() {
     final pageSource = File(
       'lib/features/invoice/invoice_award_production_page.dart',
     ).readAsStringSync();
+    final pluginGradle = File(
+      'packages/flutter_pdf_text/android/build.gradle',
+    ).readAsStringSync();
 
     expect(candidateSource, contains('CloudAwardCandidateLookupCancellation'));
     expect(candidateSource, contains("'openPdfiumSession'"));
@@ -34,5 +37,6 @@ void main() {
     expect(pageSource, contains('_cloudTierSummaries'));
     expect(pageSource, contains('雲端獎項解析摘要'));
     expect(pageSource, contains('_safeCloudFailureCode'));
+    expect(pluginGradle, contains('io.legere:pdfiumandroid:1.0.35'));
   });
 }
