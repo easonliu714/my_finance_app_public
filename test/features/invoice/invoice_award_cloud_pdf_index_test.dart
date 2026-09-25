@@ -39,7 +39,7 @@ void main() {
     final output = File('${tempDir.path}/cloud-800.index.candidate');
     final result = await const CloudAwardPdfIndexBuilder(
       extractor: _FakeExtractor(<String>[
-        'header AD00166192 other text AD 00169681',
+        'header AD00166192 other text AD 00169681 A D 0 0 1 7 0 0 0 1',
         'AE12345678 footer',
       ]),
     ).buildCandidate(
@@ -50,13 +50,13 @@ void main() {
 
     expect(
       await output.readAsLines(),
-      <String>['AD00166192', 'AD00169681', 'AE12345678'],
+      <String>['AD00166192', 'AD00169681', 'AD00170001', 'AE12345678'],
     );
     expect(result.manifest.periodId, '115-05-06');
     expect(result.manifest.tierCode, 'cloud-800');
     expect(result.manifest.pdfSha256, 'a' * 64);
     expect(result.manifest.indexSha256, hasLength(64));
-    expect(result.manifest.rowCount, 3);
+    expect(result.manifest.rowCount, 4);
     expect(
       result.manifest.extractorVersion,
       'fake-page-extractor-v1',
