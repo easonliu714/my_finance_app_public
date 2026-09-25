@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud_candidate_scope.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_foreground_acquisition.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_index_lkg_repository.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_index.dart';
@@ -33,6 +34,7 @@ void main() {
     CloudAwardIndexLkgRepository? repo,
     Uri? publicationUri,
     CloudAwardPdfIndexBuilder? indexBuilder,
+    CloudAwardSortedPdfCandidateLookup? sortedCandidateLookup,
   }) =>
       MinistryOfFinanceCloudAwardForegroundAcquisitionService(
         client: client,
@@ -42,6 +44,7 @@ void main() {
             const CloudAwardPdfIndexBuilder(
               extractor: _FixtureExtractor(),
             ),
+        sortedCandidateLookup: sortedCandidateLookup,
         temporaryDirectoryProvider: () async => tempDir,
         clock: () => DateTime.utc(2026, 9, 25, 6),
       );
@@ -127,6 +130,79 @@ void main() {
     );
     expect(requests, hasLength(1));
     expect(requests.single.path, '/cloudNowNumber.html');
+  });
+
+  test('cloud-500 candidate-scoped verification closes authority without full index',
+      () async {
+    final repo = repository();
+    final scopedLookup = _FixtureSortedCandidateLookup(
+      const <String>{'AB12345678'},
+    );
+    final firstRequests = <Uri>[];
+    final firstClient = MockClient((request) async {
+      firstRequests.add(request.url);
+      if (request.url.path == '/cloudNowNumber.html') {
+        return _html(_publicationFixture);
+      }
+      if (request.url.path.startsWith('/pdf/')) return _pdf();
+      return http.Response('unexpected', 404);
+    });
+
+    final first = await service(
+      client: firstClient,
+      repo: repo,
+      sortedCandidateLookup: scopedLookup,
+    ).refresh(
+      periodId: '115-07-08',
+      candidateInvoiceNumbers: const <String>[
+        'AB12345678',
+        'CD87654321',
+      ],
+    );
+
+    expect(first.isComplete, isTrue);
+    final fiveHundred = first.tiers.singleWhere(
+      (item) => item.tierCode == 'cloud-500',
+    );
+    expect(
+      fiveHundred.status,
+      CloudAwardTierRefreshStatus.candidateScopedVerified,
+    );
+    expect(
+      fiveHundred.candidateAuthority?.matchedInvoiceNumbers,
+      const <String>{'AB12345678'},
+    );
+    expect(
+      fiveHundred.candidateAuthority?.candidateNumbers,
+      const <String>{'AB12345678', 'CD87654321'},
+    );
+    expect(scopedLookup.calls, 1);
+
+    final secondRequests = <Uri>[];
+    final secondClient = MockClient((request) async {
+      secondRequests.add(request.url);
+      if (request.url.path == '/cloudNowNumber.html') {
+        return _html(_publicationFixture);
+      }
+      return http.Response('durable PDF and LKG must be reused', 500);
+    });
+
+    final second = await service(
+      client: secondClient,
+      repo: repo,
+      sortedCandidateLookup: scopedLookup,
+    ).refresh(
+      periodId: '115-07-08',
+      candidateInvoiceNumbers: const <String>[
+        'AB12345678',
+        'CD87654321',
+      ],
+    );
+
+    expect(second.isComplete, isTrue);
+    expect(secondRequests, hasLength(1));
+    expect(secondRequests.single.path, '/cloudNowNumber.html');
+    expect(scopedLookup.calls, 2);
   });
 
   test('wrong period publication fails before any artifact request', () async {
@@ -282,6 +358,31 @@ void main() {
     expect(result.isComplete, isTrue);
     expect(requests.first.path, '/cloudLastNumber.html');
   });
+}
+
+class _FixtureSortedCandidateLookup
+    extends CloudAwardSortedPdfCandidateLookup {
+  _FixtureSortedCandidateLookup(this.matches);
+
+  final Set<String> matches;
+  int calls = 0;
+
+  @override
+  Future<CloudAwardSortedPdfCandidateMatchResult> findMatches({
+    required OfficialCloudAwardDownloadedArtifact artifact,
+    required Iterable<String> candidateInvoiceNumbers,
+    CloudAwardSortedPdfCandidateProgressCallback? onProgress,
+  }) async {
+    calls += 1;
+    final candidates = normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
+    return CloudAwardSortedPdfCandidateMatchResult(
+      pageCount: 77000,
+      pagesRead: 17,
+      matchedInvoiceNumbers: Set<String>.unmodifiable(
+        matches.intersection(candidates),
+      ),
+    );
+  }
 }
 
 class _AlwaysFailExtractor extends CloudAwardPdfTextExtractor {
