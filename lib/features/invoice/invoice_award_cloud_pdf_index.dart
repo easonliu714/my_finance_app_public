@@ -355,7 +355,7 @@ class CloudAwardPdfIndexBuilder {
 
   static List<String> extractInvoiceNumbers(String text) {
     final normalized = text.toUpperCase();
-    final matches = RegExp(r'[A-Z]{2}\s*[0-9]{8}').allMatches(normalized);
+    final matches = RegExp(r'[A-Z]\s*[A-Z](?:\s*[0-9]){8}').allMatches(normalized);
     final result = <String>[];
     for (final match in matches) {
       final before = match.start == 0 ? null : normalized[match.start - 1];
