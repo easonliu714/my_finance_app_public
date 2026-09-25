@@ -36,6 +36,9 @@ class OfficialInvoiceDetailImportPreflightItem {
       status == OfficialInvoiceDetailImportPreflightStatus.rebuildableDeleted;
   bool get requiresEstimatedTaxConfirmation =>
       isSelectable && enrichment.canUseUserConfirmedEstimatedTax;
+  bool get requiresManualDifferenceConfirmation =>
+      isSelectable &&
+      isOfficialInvoiceDetailManualDifferenceReviewCandidate(enrichment);
 }
 
 class OfficialInvoiceDetailImportPreflightSnapshot {
@@ -87,7 +90,7 @@ class OfficialInvoiceDetailImportPreflightSnapshot {
 bool isOfficialInvoiceDetailEligibleForFormalImportV2(
   OfficialInvoiceDetailEnrichment item,
 ) {
-  if (isOfficialInvoiceDetailEligibleForFormalImport(item)) return true;
+  if (isOfficialInvoiceDetailEligibleForReviewableDraft(item)) return true;
   return item.invoiceIdentityMatches &&
       item.detailTotalMatchesCsv &&
       item.sellerIdentifierConsistent &&
@@ -205,6 +208,7 @@ class OfficialInvoiceDetailDraftImportV2Service {
     required OfficialInvoiceDetailBatchResult batchResult,
     required Set<String> invoiceNumbers,
     required Set<String> confirmedEstimatedTaxInvoiceNumbers,
+    Set<String> confirmedManualDifferenceInvoiceNumbers = const <String>{},
     required AccountRecord? account,
     required bool finalConfirmation,
   }) async {
@@ -220,6 +224,10 @@ class OfficialInvoiceDetailDraftImportV2Service {
         .where((value) => value.isNotEmpty)
         .toSet();
     final confirmedEstimates = confirmedEstimatedTaxInvoiceNumbers
+        .map(normalizeInvoiceNumber)
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final confirmedManualDifferences = confirmedManualDifferenceInvoiceNumbers
         .map(normalizeInvoiceNumber)
         .where((value) => value.isNotEmpty)
         .toSet();
@@ -298,6 +306,20 @@ class OfficialInvoiceDetailDraftImportV2Service {
           effectiveEnrichment,
         );
         replacements[invoiceNumber] = effectiveEnrichment;
+      }
+      if (isOfficialInvoiceDetailManualDifferenceReviewCandidate(
+        effectiveEnrichment,
+      )) {
+        if (!confirmedManualDifferences.contains(invoiceNumber)) {
+          preResults.add(
+            OfficialInvoiceDetailDraftImportResult(
+              invoiceNumber: invoiceNumber,
+              status: OfficialInvoiceDetailDraftImportStatus.rejected,
+              message: 'MANUAL_DIFFERENCE_CONFIRMATION_REQUIRED',
+            ),
+          );
+          continue;
+        }
       }
       if (item.status ==
           OfficialInvoiceDetailImportPreflightStatus.rebuildableDeleted) {

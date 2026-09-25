@@ -24,6 +24,29 @@ bool isOfficialInvoiceDetailEligibleForFormalImport(
       item.lineItems.isNotEmpty;
 }
 
+bool isOfficialInvoiceDetailManualDifferenceReviewCandidate(
+  OfficialInvoiceDetailEnrichment item,
+) {
+  final difference = item.unallocatedDifference;
+  return item.errorCode == 'DETAIL_UNALLOCATED_DIFFERENCE' &&
+      !item.canUseUserConfirmedEstimatedTax &&
+      item.invoiceIdentityMatches &&
+      item.detailTotalMatchesCsv &&
+      item.sellerIdentifierConsistent &&
+      item.exactTimestamp != null &&
+      item.detailTotal != null &&
+      item.detailTotal! > 0 &&
+      item.lineItems.isNotEmpty &&
+      difference != null &&
+      difference.abs() > 0.005;
+}
+
+bool isOfficialInvoiceDetailEligibleForReviewableDraft(
+  OfficialInvoiceDetailEnrichment item,
+) =>
+    isOfficialInvoiceDetailEligibleForFormalImport(item) ||
+    isOfficialInvoiceDetailManualDifferenceReviewCandidate(item);
+
 enum OfficialInvoiceDetailDraftImportStatus {
   staged,
   replay,
@@ -179,7 +202,7 @@ class OfficialInvoiceDetailDraftImportService
         );
         continue;
       }
-      if (!isOfficialInvoiceDetailEligibleForFormalImport(item)) {
+      if (!isOfficialInvoiceDetailEligibleForReviewableDraft(item)) {
         results.add(
           OfficialInvoiceDetailDraftImportResult(
             invoiceNumber: invoiceNumber,
@@ -259,7 +282,7 @@ class OfficialInvoiceDetailDraftImportService
     AccountRecord? account,
     OfficialInvoiceDetailEnrichment item,
   ) {
-    if (!isOfficialInvoiceDetailEligibleForFormalImport(item)) {
+    if (!isOfficialInvoiceDetailEligibleForReviewableDraft(item)) {
       throw StateError('OFFICIAL_DETAIL_NOT_ELIGIBLE');
     }
     final candidate = _candidateFromEnrichment(item);
@@ -298,7 +321,8 @@ class OfficialInvoiceDetailDraftImportService
     final warnings = <CloudInvoiceCandidateWarning>[
       if (sellerName.isEmpty) CloudInvoiceCandidateWarning.missingSellerName,
       if (item.officialTaxLabel == '推算稅額（使用者確認）' ||
-          item.lineItemsTruncated)
+          item.lineItemsTruncated ||
+          isOfficialInvoiceDetailManualDifferenceReviewCandidate(item))
         CloudInvoiceCandidateWarning.partialPayload,
     ];
     return CloudInvoiceCandidate(
