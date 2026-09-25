@@ -6,6 +6,8 @@ class InvoiceAwardSelectablePeriod {
     required this.drawYear,
     required this.drawMonth,
     required this.drawDay,
+    required this.officialAvailabilityTaipeiHour,
+    required this.officialAvailabilityTaipeiMinute,
     required this.redemptionStartYear,
     required this.redemptionStartMonth,
     required this.redemptionStartDay,
@@ -18,6 +20,8 @@ class InvoiceAwardSelectablePeriod {
   final int drawYear;
   final int drawMonth;
   final int drawDay;
+  final int officialAvailabilityTaipeiHour;
+  final int officialAvailabilityTaipeiMinute;
   final int redemptionStartYear;
   final int redemptionStartMonth;
   final int redemptionStartDay;
@@ -26,6 +30,19 @@ class InvoiceAwardSelectablePeriod {
   final int redemptionEndDay;
 
   DateTime get drawDate => DateTime(drawYear, drawMonth, drawDay);
+
+  /// The app does not treat midnight on the draw date as authoritative.
+  ///
+  /// MOF's Electronic Invoice Integration Platform publishes a concrete
+  /// same-day availability time for redemption-app winning status. Taiwan does
+  /// not observe daylight saving time, so Asia/Taipei is fixed at UTC+8.
+  DateTime get officialAvailabilityUtc => DateTime.utc(
+        drawYear,
+        drawMonth,
+        drawDay,
+        officialAvailabilityTaipeiHour - 8,
+        officialAvailabilityTaipeiMinute,
+      );
   DateTime get redemptionStart =>
       DateTime(redemptionStartYear, redemptionStartMonth, redemptionStartDay);
   DateTime get redemptionEnd =>
@@ -39,7 +56,8 @@ class InvoiceAwardSelectablePeriod {
       '${period.startMonth.toString().padLeft(2, '0')}-'
       '${period.endMonth.toString().padLeft(2, '0')}月';
 
-  bool isDrawnAt(DateTime now) => !now.isBefore(drawDate);
+  bool isDrawnAt(DateTime now) =>
+      !now.toUtc().isBefore(officialAvailabilityUtc);
   bool isExpiredAt(DateTime now) => now.isAfter(redemptionEnd);
   bool canCheckAt(DateTime now) => isDrawnAt(now) && !isExpiredAt(now);
 
@@ -47,7 +65,9 @@ class InvoiceAwardSelectablePeriod {
       !now.isBefore(redemptionStart) && !now.isAfter(redemptionEnd);
 
   String statusLabel(DateTime now) {
-    if (!isDrawnAt(now)) return '尚未開獎（${_date(drawDate)}）';
+    if (!isDrawnAt(now)) {
+      return '官方中獎資料尚未開放（${_availabilityLabel()} 起）';
+    }
     if (isExpiredAt(now)) return '已逾兌獎期限';
     if (!isRedeemableAt(now)) {
       return '已開獎，兌獎尚未開始（${_date(redemptionStart)} 起）';
@@ -56,6 +76,12 @@ class InvoiceAwardSelectablePeriod {
   }
 
   String menuLabel(DateTime now) => '$periodLabel · ${statusLabel(now)}';
+
+  String _availabilityLabel() =>
+      '$drawYear-${drawMonth.toString().padLeft(2, '0')}-'
+      '${drawDay.toString().padLeft(2, '0')} '
+      '${officialAvailabilityTaipeiHour.toString().padLeft(2, '0')}:'
+      '${officialAvailabilityTaipeiMinute.toString().padLeft(2, '0')}';
 
   static String _date(DateTime value) =>
       '${value.year}-${value.month.toString().padLeft(2, '0')}-'
@@ -70,6 +96,8 @@ class InvoiceAwardRecentPeriodCatalog {
     drawYear: 2026,
     drawMonth: 9,
     drawDay: 25,
+    officialAvailabilityTaipeiHour: 14,
+    officialAvailabilityTaipeiMinute: 10,
     redemptionStartYear: 2026,
     redemptionStartMonth: 10,
     redemptionStartDay: 6,
@@ -83,6 +111,8 @@ class InvoiceAwardRecentPeriodCatalog {
     drawYear: 2026,
     drawMonth: 7,
     drawDay: 25,
+    officialAvailabilityTaipeiHour: 14,
+    officialAvailabilityTaipeiMinute: 10,
     redemptionStartYear: 2026,
     redemptionStartMonth: 8,
     redemptionStartDay: 6,
