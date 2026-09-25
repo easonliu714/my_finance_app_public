@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/invoice/existing_invoice_award_candidate_repository.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_candidate_scope.dart';
 
 void main() {
@@ -27,6 +28,59 @@ void main() {
 
     expect(first, hasLength(64));
     expect(second, first);
+  });
+
+  test('candidate universe matches cloud matcher eligibility semantics', () {
+    ExistingInvoiceAwardCandidate candidate({
+      required String number,
+      required ExistingInvoiceAwardIdentitySource source,
+      required ExistingInvoiceAwardCloudEligibility eligibility,
+      String awardPeriod = '115/06',
+    }) =>
+        ExistingInvoiceAwardCandidate(
+          transactionId: 'tx-$number',
+          invoiceNumber: number,
+          invoiceDate: DateTime(2026, 6, 1),
+          awardPeriod: awardPeriod,
+          identitySource: source,
+          sourceProvenance: 'fixture',
+          cloudEligibility: eligibility,
+        );
+
+    final universe = cloudCandidateNumbersForAwardPeriod(
+      candidates: <ExistingInvoiceAwardCandidate>[
+        candidate(
+          number: 'AB12345678',
+          source: ExistingInvoiceAwardIdentitySource.cloudMetadata,
+          eligibility: ExistingInvoiceAwardCloudEligibility.eligible,
+        ),
+        candidate(
+          number: 'CD87654321',
+          source: ExistingInvoiceAwardIdentitySource.cloudMetadata,
+          eligibility:
+              ExistingInvoiceAwardCloudEligibility.unknownReviewRequired,
+        ),
+        candidate(
+          number: 'EF11112222',
+          source: ExistingInvoiceAwardIdentitySource.cloudMetadata,
+          eligibility: ExistingInvoiceAwardCloudEligibility.ineligible,
+        ),
+        candidate(
+          number: 'GH33334444',
+          source: ExistingInvoiceAwardIdentitySource.governedReviewNote,
+          eligibility: ExistingInvoiceAwardCloudEligibility.eligible,
+        ),
+        candidate(
+          number: 'IJ55556666',
+          source: ExistingInvoiceAwardIdentitySource.cloudMetadata,
+          eligibility: ExistingInvoiceAwardCloudEligibility.eligible,
+          awardPeriod: '115/08',
+        ),
+      ],
+      awardPeriod: '115/06',
+    );
+
+    expect(universe, const <String>{'AB12345678', 'CD87654321'});
   });
 
   test('candidate-scoped authority covers only the exact candidate universe',
