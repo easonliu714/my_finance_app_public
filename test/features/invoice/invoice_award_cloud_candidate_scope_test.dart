@@ -94,6 +94,13 @@ void main() {
     expect(universe, const <String>{'AB12345678', 'CD87654321'});
   });
 
+  test('known 115-05-06 cloud-500 winner remains a canonical candidate token', () {
+    final universe = normalizeCloudCandidateNumbers(
+      const <String>['BM23888900', 'bm-23888900'],
+    );
+    expect(universe, const <String>{'BM23888900'});
+  });
+
   test('candidate-scoped authority covers only the exact candidate universe',
       () {
     final authority = CloudAwardCandidateScopedAuthority(

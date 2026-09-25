@@ -17,7 +17,11 @@ void main() {
     expect(candidateSource, contains('CloudAwardCandidateLookupCancellation'));
     expect(candidateSource, contains("'openPdfiumSession'"));
     expect(candidateSource, contains("'closePdfiumSession'"));
-    expect(candidateSource, contains('for (var candidateIndex = 0;'));
+    expect(candidateSource, contains('candidateBatchSize = 8'));
+    expect(candidateSource, contains('for (var batchStart = 0;'));
+    expect(candidateSource, contains('uniquePagesRead'));
+    expect(candidateSource, contains('toSet()'));
+    expect(candidateSource, contains('..sort()'));
     expect(foregroundSource, contains('candidateScopedEmptyVerified'));
     expect(
       foregroundSource,
@@ -27,5 +31,8 @@ void main() {
     expect(pageSource, contains('_processRefreshActive'));
     expect(pageSource, contains('_activeCloudCancellation?.cancel()'));
     expect(pageSource, contains('on CloudAwardCandidateLookupCancelled'));
+    expect(pageSource, contains('_cloudTierSummaries'));
+    expect(pageSource, contains('雲端獎項解析摘要'));
+    expect(pageSource, contains('_safeCloudFailureCode'));
   });
 }

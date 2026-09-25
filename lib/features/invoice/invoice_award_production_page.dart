@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -51,6 +52,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   String _cloudStatus = '';
   String _cloudDiagnosticStatus = '';
   String _scanStatus = '';
+  final Map<String, String> _cloudTierSummaries = <String, String>{};
+  String? _activeCloudTierCode;
 
   List<ExistingInvoiceAwardCandidate> _candidates = const [];
   List<ExistingInvoiceAwardGeneralEvaluation> _generalEvaluations = const [];
@@ -107,6 +110,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   void _resetSelectedPeriodState(DateTime now) {
     _cloudCurrentAuthorityComplete = false;
     _cloudDiagnosticStatus = '';
+    _cloudTierSummaries.clear();
+    _activeCloudTierCode = null;
     _candidates = const [];
     _generalEvaluations = const [];
     _cloudEvaluations = const [];
@@ -155,6 +160,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       _refreshing = true;
       _cloudCurrentAuthorityComplete = false;
       _cloudDiagnosticStatus = '';
+      _cloudTierSummaries.clear();
+      _activeCloudTierCode = null;
       _status = '正在更新財政部一般獎資料…';
       _cloudStatus = '等待一般獎完成後更新雲端專屬獎…';
       _scanStatus = '等待官方資料驗證後掃描既有交易…';
@@ -210,10 +217,16 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           onProgress: _handleCloudProgress,
           cancellation: cancellation,
         );
-      } catch (_) {
+      } catch (error) {
+        final failureCode = _safeCloudFailureCode(error);
         if (mounted) {
           setState(() {
-            _cloudStatus = '雲端專屬獎本次更新失敗；保留既有已驗證資料，結果不會宣稱完整未中獎。';
+            final activeTier = _activeCloudTierCode;
+            if (activeTier != null) {
+              _cloudTierSummaries[activeTier] = '失敗：$failureCode';
+            }
+            _cloudStatus = '雲端專屬獎本次更新失敗：$failureCode；'
+                '保留既有已驗證資料，結果不會宣稱完整未中獎。';
           });
         }
       }
@@ -269,6 +282,13 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           _status = '一般獎更新失敗，且目前沒有可用的已驗證官方資料。';
         }
         if (cloudRefresh != null) {
+          for (final tierResult in cloudRefresh.tiers) {
+            _cloudTierSummaries[tierResult.tierCode] =
+                _terminalCloudTierSummary(
+              tierResult,
+              _cloudTierSummaries[tierResult.tierCode],
+            );
+          }
           _cloudStatus = cloudComplete
               ? '雲端專屬獎四個獎別 authority 已驗證完成。'
               : '雲端專屬獎本次更新不完整：'
@@ -308,6 +328,11 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   void _handleCloudProgress(CloudAwardForegroundProgress progress) {
     if (!mounted) return;
     setState(() {
+      final tierCode = progress.tierCode;
+      if (tierCode != null) {
+        _activeCloudTierCode = tierCode;
+        _cloudTierSummaries[tierCode] = _cloudTierProgressSummary(progress);
+      }
       _cloudStatus = _cloudProgressText(progress);
       final diagnostic = progress.diagnosticMessage;
       if (diagnostic != null && diagnostic.isNotEmpty) {
@@ -377,6 +402,35 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             Semantics(liveRegion: true, child: Text(_status)),
             const SizedBox(height: 8),
             Semantics(liveRegion: true, child: Text(_cloudStatus)),
+            if (_cloudTierSummaries.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '雲端獎項解析摘要',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 6),
+                      for (final tierCode in const <String>[
+                        'cloud-500',
+                        'cloud-800',
+                        'cloud-2000',
+                        'cloud-1000000',
+                      ])
+                        if (_cloudTierSummaries[tierCode] != null)
+                          Text(
+                            '${_tierLabel(tierCode)}：'
+                            '${_cloudTierSummaries[tierCode]}',
+                          ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             if (_cloudDiagnosticStatus.isNotEmpty) ...[
               const SizedBox(height: 8),
               Card(
@@ -502,6 +556,60 @@ String _cloudResultText(
     ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired =>
       '雲端專屬獎：號碼出現在多個獎別資料；暫列最高 NT\$${_formatAmount(evaluation.grossAmount)}，需人工確認',
   };
+}
+
+String _cloudTierProgressSummary(CloudAwardForegroundProgress progress) {
+  final message = progress.message?.trim();
+  if (message != null && message.isNotEmpty) return message;
+  return switch (progress.stage) {
+    CloudAwardForegroundStage.downloading =>
+      '下載中 ${_downloadProgress(progress)}',
+    CloudAwardForegroundStage.downloadedSaved => '下載完成並已保存',
+    CloudAwardForegroundStage.cachedPdfReused => '重用已保存官方 PDF',
+    CloudAwardForegroundStage.extracting =>
+      '解析 ${progress.pageNumber ?? 0}/${progress.pageCount ?? 0} 頁'
+      '${progress.rowCount == null ? '' : ' · rows=${progress.rowCount}'}',
+    CloudAwardForegroundStage.promoting =>
+      '正在驗證並保存'
+      '${progress.rowCount == null ? '' : ' · rows=${progress.rowCount}'}',
+    CloudAwardForegroundStage.candidateVerified => '候選範圍已驗證',
+    CloudAwardForegroundStage.reused =>
+      '重用已驗證資料'
+      '${progress.rowCount == null ? '' : ' · rows=${progress.rowCount}'}',
+    CloudAwardForegroundStage.failed => '更新失敗',
+    _ => progress.stage.name,
+  };
+}
+
+String _terminalCloudTierSummary(
+  CloudAwardTierRefreshResult result,
+  String? latestProgress,
+) {
+  return switch (result.status) {
+    CloudAwardTierRefreshStatus.failed =>
+      '失敗：${result.failureCode ?? 'UNKNOWN'}',
+    CloudAwardTierRefreshStatus.candidateScopedEmptyVerified =>
+      '候選 0/0 · 已驗證（略過大型 PDF）',
+    CloudAwardTierRefreshStatus.candidateScopedVerified =>
+      latestProgress ??
+          '候選範圍已驗證並保存 · 吻合 '
+              '${result.candidateAuthority?.matchedInvoiceNumbers.length ?? 0}',
+    CloudAwardTierRefreshStatus.candidateScopedReused =>
+      latestProgress ??
+          '重用候選範圍 · 吻合 '
+              '${result.candidateAuthority?.matchedInvoiceNumbers.length ?? 0}',
+    CloudAwardTierRefreshStatus.promoted =>
+      '完整索引已保存 · rows=${result.snapshot?.manifest.rowCount ?? 0}',
+    CloudAwardTierRefreshStatus.reused =>
+      '重用已驗證資料 · rows=${result.snapshot?.manifest.rowCount ?? 0}',
+  };
+}
+
+String _safeCloudFailureCode(Object error) {
+  if (error is PlatformException) return error.code;
+  final text = error.toString().toUpperCase();
+  final match = RegExp(r'(?:CLOUD|PDFIUM|PDF)_[A-Z0-9_]+').firstMatch(text);
+  return match?.group(0) ?? error.runtimeType.toString();
 }
 
 String _cloudProgressText(CloudAwardForegroundProgress progress) {

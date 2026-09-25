@@ -151,6 +151,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   const PdfiumCloudAwardSortedPdfCandidateLookup();
 
   static const MethodChannel _channel = MethodChannel('pdf_text');
+  static const int candidateBatchSize = 8;
 
   @override
   Future<CloudAwardSortedPdfCandidateMatchResult> findMatches({
@@ -180,14 +181,14 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
 
     await _channel.invokeMethod<void>('clearLastDiagnostic');
     final matched = <String>{};
-    var pagesRead = 0;
+    final uniquePagesRead = <int>{};
     int? expectedPageCount;
 
-    for (var candidateIndex = 0;
-        candidateIndex < candidates.length;
-        candidateIndex += 1) {
+    for (var batchStart = 0;
+        batchStart < candidates.length;
+        batchStart += candidateBatchSize) {
       cancellation?.throwIfCancelled();
-      final candidate = candidates[candidateIndex];
+      final batchEnd = min(batchStart + candidateBatchSize, candidates.length);
       String sessionId = '';
       try {
         final opened = await _channel.invokeMapMethod<String, Object?>(
@@ -205,7 +206,10 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
         expectedPageCount = pageCount;
         final pageCache = <int, List<String>>{};
 
-        Future<List<String>> pageTokens(int pageNumber) async {
+        Future<List<String>> pageTokens(
+          int pageNumber, {
+          required int candidateIndex,
+        }) async {
           cancellation?.throwIfCancelled();
           final cached = pageCache[pageNumber];
           if (cached != null) return cached;
@@ -218,47 +222,94 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               ) ??
               '';
           cancellation?.throwIfCancelled();
-          final tokens = CloudAwardPdfIndexBuilder.extractInvoiceNumbers(text);
+          final tokens = CloudAwardPdfIndexBuilder.extractInvoiceNumbers(text)
+              .toSet()
+              .toList()
+            ..sort();
           if (tokens.isEmpty) {
             throw StateError('CLOUD_AWARD_SORTED_PDF_PAGE_EMPTY');
           }
-          for (var index = 1; index < tokens.length; index += 1) {
-            if (tokens[index - 1].compareTo(tokens[index]) > 0) {
-              throw StateError('CLOUD_AWARD_SORTED_PDF_PAGE_NOT_SORTED');
-            }
-          }
           pageCache[pageNumber] = List<String>.unmodifiable(tokens);
-          pagesRead += 1;
+          uniquePagesRead.add(pageNumber);
           onProgress?.call(
             CloudAwardSortedPdfCandidateProgress(
               candidateIndex: candidateIndex + 1,
               candidateCount: candidates.length,
               pageNumber: pageNumber,
               pageCount: pageCount,
-              pagesRead: pagesRead,
+              pagesRead: uniquePagesRead.length,
             ),
           );
           return pageCache[pageNumber]!;
         }
 
-        var low = 1;
-        var high = pageCount;
-        while (low <= high) {
+        for (var candidateIndex = batchStart;
+            candidateIndex < batchEnd;
+            candidateIndex += 1) {
           cancellation?.throwIfCancelled();
-          final middle = low + ((high - low) >> 1);
-          final tokens = await pageTokens(middle);
-          final first = tokens.first;
-          final last = tokens.last;
-          if (candidate.compareTo(first) < 0) {
-            high = middle - 1;
-            continue;
+          final candidate = candidates[candidateIndex];
+          var low = 1;
+          var high = pageCount;
+          var resolved = false;
+
+          while (low <= high) {
+            cancellation?.throwIfCancelled();
+            final middle = low + ((high - low) >> 1);
+            final tokens = await pageTokens(
+              middle,
+              candidateIndex: candidateIndex,
+            );
+            final first = tokens.first;
+            final last = tokens.last;
+            if (candidate.compareTo(first) < 0) {
+              high = middle - 1;
+              continue;
+            }
+            if (candidate.compareTo(last) > 0) {
+              low = middle + 1;
+              continue;
+            }
+
+            if (tokens.contains(candidate)) {
+              matched.add(candidate);
+              resolved = true;
+              break;
+            }
+
+            // PDFium text extraction can move a boundary token to an adjacent
+            // visual page. Probe only the two neighbors; this stays bounded
+            // while avoiding a false negative at an official sorted-page edge.
+            for (final neighbor in <int>[middle - 1, middle + 1]) {
+              if (neighbor < 1 || neighbor > pageCount) continue;
+              final neighborTokens = await pageTokens(
+                neighbor,
+                candidateIndex: candidateIndex,
+              );
+              if (neighborTokens.contains(candidate)) {
+                matched.add(candidate);
+                resolved = true;
+                break;
+              }
+            }
+            break;
           }
-          if (candidate.compareTo(last) > 0) {
-            low = middle + 1;
-            continue;
+
+          if (!resolved && low > high) {
+            // Check the final insertion boundary once. This is useful when a
+            // page's first/last token was reordered by native text extraction.
+            final boundaryPages = <int>{low, high}
+                .where((page) => page >= 1 && page <= pageCount);
+            for (final page in boundaryPages) {
+              final tokens = await pageTokens(
+                page,
+                candidateIndex: candidateIndex,
+              );
+              if (tokens.contains(candidate)) {
+                matched.add(candidate);
+                break;
+              }
+            }
           }
-          if (tokens.contains(candidate)) matched.add(candidate);
-          break;
         }
       } finally {
         if (sessionId.isNotEmpty) {
@@ -268,7 +319,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               <String, Object?>{'sessionId': sessionId},
             );
           } catch (_) {
-            // Session cleanup is idempotent and must not mask lookup results.
+            // Cleanup is idempotent; never promote a partial lookup.
           }
         }
       }
@@ -281,7 +332,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     );
     return CloudAwardSortedPdfCandidateMatchResult(
       pageCount: expectedPageCount ?? 0,
-      pagesRead: pagesRead,
+      pagesRead: uniquePagesRead.length,
       matchedInvoiceNumbers: Set<String>.unmodifiable(matched),
     );
   }
