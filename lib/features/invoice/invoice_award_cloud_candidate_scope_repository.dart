@@ -47,10 +47,18 @@ class CloudAwardCandidateScopeRepository {
           decoded['schemaVersion'] != schemaVersion) {
         return null;
       }
+      final verifiedAt =
+          DateTime.tryParse(decoded['verifiedAtUtc']?.toString() ?? '')?.toUtc();
+      if (verifiedAt == null) return null;
       final retentionRaw = decoded['retentionUntilUtc']?.toString();
       final retention = retentionRaw == null || retentionRaw.isEmpty
           ? null
           : DateTime.tryParse(retentionRaw)?.toUtc();
+      if (retentionRaw != null &&
+          retentionRaw.isNotEmpty &&
+          retention == null) {
+        return null;
+      }
       final effectiveNow = nowUtc?.toUtc();
       if (retention != null &&
           effectiveNow != null &&
