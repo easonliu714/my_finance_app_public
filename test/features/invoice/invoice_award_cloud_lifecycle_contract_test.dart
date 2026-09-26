@@ -21,6 +21,14 @@ void main() {
     expect(candidateSource, contains("'openPdfiumSession'"));
     expect(candidateSource, contains("'closePdfiumSession'"));
     expect(candidateSource, contains('candidateBatchSize = 8'));
+    expect(
+      candidateSource,
+      contains('maxInProcessPdfiumPdfBytes = 120 * 1024 * 1024'),
+    );
+    expect(
+      candidateSource,
+      contains('CLOUD_AWARD_PDFIUM_IN_PROCESS_SIZE_GUARD'),
+    );
     expect(candidateSource, contains('for (var batchStart = 0;'));
     expect(candidateSource, contains('uniquePagesRead'));
     expect(candidateSource, contains('toSet()'));
@@ -37,6 +45,14 @@ void main() {
     expect(pageSource, contains('_cloudTierSummaries'));
     expect(pageSource, contains('雲端獎項解析摘要'));
     expect(pageSource, contains('_safeCloudFailureCode'));
+    expect(
+      foregroundSource,
+      contains("const code = 'CLOUD_AWARD_CANDIDATE_LOOKUP_CANCELLED'"),
+    );
+    expect(
+      foregroundSource,
+      contains('Preserve already promoted earlier-tier authority'),
+    );
     expect(pluginGradle, contains('io.legere:pdfiumandroid:1.0.35'));
   });
 }

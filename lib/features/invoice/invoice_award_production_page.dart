@@ -167,6 +167,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       _scanStatus = '等待官方資料驗證後掃描既有交易…';
     });
 
+    var generalStageCompleted = false;
     try {
       final preferences = await SharedPreferences.getInstance();
       const validator = OfficialInvoiceAwardDatasetValidator();
@@ -195,6 +196,56 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       final dataset = generalResult.dataset;
       final candidates =
           await ExistingInvoiceAwardCandidateRepository().listCandidates();
+      final generalEvaluations = dataset == null
+          ? const <ExistingInvoiceAwardGeneralEvaluation>[]
+          : const ExistingInvoiceAwardGeneralBatchMatcher().evaluate(
+              dataset: dataset,
+              candidates: candidates,
+            );
+      final currentCandidates = candidates
+          .where(
+            (candidate) =>
+                candidate.awardPeriod ==
+                selectedPeriod.candidateAwardPeriodLabel,
+          )
+          .toList(growable: false);
+      final currentKeys = currentCandidates.map(_candidateKey).toSet();
+      final generalWinners = generalEvaluations
+          .where(
+            (item) =>
+                currentKeys.contains(_candidateKey(item.candidate)) &&
+                item.isWinner,
+          )
+          .length;
+
+      // General awards and cloud-exclusive awards are independent authority
+      // domains. Publish the validated general result before any large native
+      // cloud-PDF work so a cloud failure cannot suppress a general match.
+      if (!mounted) return;
+      setState(() {
+        _candidates = candidates;
+        _generalEvaluations = generalEvaluations;
+        _cloudEvaluations = const <ExistingInvoiceAwardCloudEvaluation>[];
+        _scanStatus = '一般獎對獎已完成：本期候選 '
+            '${currentCandidates.length} 筆；中獎 $generalWinners 筆。'
+            ' 雲端專屬獎另行更新中。';
+        if (generalResult.isSuccess && dataset != null) {
+          final fetched = dataset.provenance.fetchedAt.toLocal();
+          _status = '一般獎官方資料已驗證：${dataset.period.id} · '
+              '更新 ${fetched.year}-'
+              '${fetched.month.toString().padLeft(2, '0')}-'
+              '${fetched.day.toString().padLeft(2, '0')} '
+              '${fetched.hour.toString().padLeft(2, '0')}:'
+              '${fetched.minute.toString().padLeft(2, '0')}';
+        } else if (dataset != null) {
+          _status = '一般獎更新失敗；已保留並使用 '
+              '${dataset.period.id} 的最後已驗證資料。';
+        } else {
+          _status = '一般獎更新失敗，且目前沒有可用的已驗證官方資料。';
+        }
+      });
+      generalStageCompleted = true;
+
       final currentCloudCandidateNumbers =
           cloudCandidateNumbersForAwardPeriod(
         candidates: candidates,
@@ -231,12 +282,6 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         }
       }
 
-      final generalEvaluations = dataset == null
-          ? const <ExistingInvoiceAwardGeneralEvaluation>[]
-          : const ExistingInvoiceAwardGeneralBatchMatcher().evaluate(
-              dataset: dataset,
-              candidates: candidates,
-            );
       final cloudEvaluations = await ExistingInvoiceAwardCloudBatchMatcher(
         readLatest: ({required String periodId, required String tierCode}) =>
             _cloudRepository.readLatest(periodId: periodId, tierCode: tierCode),
@@ -248,13 +293,6 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       );
 
       final cloudComplete = cloudRefresh?.isComplete ?? false;
-      final currentCandidates = candidates
-          .where((candidate) => candidate.awardPeriod == selectedPeriod.candidateAwardPeriodLabel)
-          .toList(growable: false);
-      final currentKeys = currentCandidates.map(_candidateKey).toSet();
-      final generalWinners = generalEvaluations
-          .where((item) => currentKeys.contains(_candidateKey(item.candidate)) && item.isWinner)
-          .length;
       final cloudNumberMatches = cloudEvaluations
           .where((item) =>
               currentKeys.contains(_candidateKey(item.candidate)) && item.hasCloudNumberMatch)
@@ -269,18 +307,6 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         _cloudEvaluations = cloudEvaluations;
         _scanStatus = '本期既有交易候選 ${currentCandidates.length} 筆；'
             '一般獎中獎 $generalWinners 筆；雲端專屬獎號碼吻合 $cloudNumberMatches 筆。';
-        if (generalResult.isSuccess && dataset != null) {
-          final fetched = dataset.provenance.fetchedAt.toLocal();
-          _status = '一般獎官方資料已驗證：${dataset.period.id} · '
-              '更新 ${fetched.year}-${fetched.month.toString().padLeft(2, '0')}-'
-              '${fetched.day.toString().padLeft(2, '0')} '
-              '${fetched.hour.toString().padLeft(2, '0')}:'
-              '${fetched.minute.toString().padLeft(2, '0')}';
-        } else if (dataset != null) {
-          _status = '一般獎更新失敗；已保留並使用 ${dataset.period.id} 的最後已驗證資料。';
-        } else {
-          _status = '一般獎更新失敗，且目前沒有可用的已驗證官方資料。';
-        }
         if (cloudRefresh != null) {
           for (final tierResult in cloudRefresh.tiers) {
             _cloudTierSummaries[tierResult.tierCode] =
@@ -302,7 +328,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           _refreshing = false;
           _cloudCurrentAuthorityComplete = false;
           _cloudStatus = '本次雲端獎查找因 App 進入背景而安全中止；未保存部分結果，可直接重新執行。';
-          _scanStatus = '既有交易掃描未完成；重新執行時會從完整 authority Gate 重新確認。';
+          _scanStatus = generalStageCompleted
+              ? '一般獎對獎結果已保留；雲端專屬獎查找因 App 進入背景而中止，可直接重試雲端更新。'
+              : '既有交易掃描未完成；重新執行時會從一般獎 authority Gate 重新確認。';
         });
       }
     } catch (_) {
@@ -310,9 +338,13 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       setState(() {
         _refreshing = false;
         _cloudCurrentAuthorityComplete = false;
-        _status = '更新失敗；未變更任何既有已驗證資料。';
+        if (!generalStageCompleted) {
+          _status = '更新失敗；未變更任何既有已驗證資料。';
+          _scanStatus = '一般獎對獎未完成；請稍後重新執行授權更新。';
+        } else {
+          _scanStatus = '一般獎對獎結果已保留；雲端專屬獎未完成。';
+        }
         _cloudStatus = '雲端專屬獎結果未完成；不會宣稱完整未中獎。';
-        _scanStatus = '既有交易掃描未完成；請稍後重新執行授權更新。';
       });
     } finally {
       _activeCloudCancellation = null;

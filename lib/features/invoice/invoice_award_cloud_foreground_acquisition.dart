@@ -494,7 +494,26 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
           ),
         );
       } on CloudAwardCandidateLookupCancelled {
-        rethrow;
+        const code = 'CLOUD_AWARD_CANDIDATE_LOOKUP_CANCELLED';
+        results.add(
+          CloudAwardTierRefreshResult(
+            tierCode: reference.tierCode,
+            status: CloudAwardTierRefreshStatus.failed,
+            sourceUri: reference.sourceUri,
+            failureCode: code,
+          ),
+        );
+        onProgress?.call(
+          CloudAwardForegroundProgress(
+            stage: CloudAwardForegroundStage.failed,
+            tierCode: reference.tierCode,
+            message: code,
+          ),
+        );
+        // Preserve already promoted earlier-tier authority (notably cloud-500)
+        // and stop the remaining cloud tiers. Returning a partial refresh is
+        // fail-closed but lets the matcher retain a proven number match.
+        break;
       } catch (error) {
         final extractor = _indexBuilder.extractor;
         if (extractor is FlutterPdfTextCloudAwardExtractor) {

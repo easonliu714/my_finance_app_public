@@ -154,6 +154,11 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   static const MethodChannel _channel = MethodChannel('pdf_text');
   static const int candidateBatchSize = 8;
 
+  // Temporary in-process safety boundary from real-device evidence: the
+  // 128.9 MiB 115-07-08 cloud-500 PDF kills the native Pdfium process during
+  // open, while the prior ~114.2 MiB artifact remains operable.
+  static const int maxInProcessPdfiumPdfBytes = 120 * 1024 * 1024;
+
   @override
   Future<CloudAwardSortedPdfCandidateMatchResult> findMatches({
     required OfficialCloudAwardDownloadedArtifact artifact,
@@ -178,6 +183,10 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
         pagesRead: 0,
         matchedInvoiceNumbers: <String>{},
       );
+    }
+
+    if (artifact.sizeBytes > maxInProcessPdfiumPdfBytes) {
+      throw StateError('CLOUD_AWARD_PDFIUM_IN_PROCESS_SIZE_GUARD');
     }
 
     await _channel.invokeMethod<void>('clearLastDiagnostic');
