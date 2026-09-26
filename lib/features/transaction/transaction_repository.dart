@@ -179,7 +179,7 @@ class TransactionRepository implements TransactionStore {
     final rows = await db.query(
       'transactions',
       orderBy: 'occurred_at DESC, created_at DESC',
-      limit: limit,
+      limit: limit > 0 ? limit : null,
     );
     return rows.map(TransactionRecord.fromMap).toList();
   }

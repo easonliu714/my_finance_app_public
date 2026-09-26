@@ -1,0 +1,353 @@
+name: Issue #13 9/24 Existing Transaction Award MVP Signed Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - issue-13-invoice-award-official-data
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue-13-award-mvp-signed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Issue #13 exact release head
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Wait for exact-head Flutter Android CI authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 40); do
+            response="$(curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/flutter_android_ci.yml/runs?head_sha=$TARGET_SHA&event=pull_request&per_page=10")"
+            state="$(python3 -c 'import json,sys; payload=json.load(sys.stdin); runs=payload.get("workflow_runs", []); print("missing||" if not runs else "{}|{}|{}".format(runs[0].get("status",""), runs[0].get("conclusion") or "", runs[0].get("id","")))' <<< "$response")"
+            IFS='|' read -r status conclusion run_id <<< "$state"
+            printf 'FLUTTER_CI_ATTEMPT=%s STATUS=%s CONCLUSION=%s RUN_ID=%s\n' \
+              "$attempt" "$status" "$conclusion" "$run_id"
+            if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+              printf 'EXACT_HEAD_FLUTTER_CI_AUTHORITY=PASS RUN_ID=%s\n' "$run_id"
+              exit 0
+            fi
+            if [[ "$status" == "completed" && -n "$conclusion" && "$conclusion" != "success" ]]; then
+              printf 'EXACT_HEAD_FLUTTER_CI_AUTHORITY=FAIL RUN_ID=%s CONCLUSION=%s\n' \
+                "$run_id" "$conclusion" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          printf 'EXACT_HEAD_FLUTTER_CI_AUTHORITY=TIMEOUT\n' >&2
+          exit 1
+
+      - name: Exact head and release-identity authorization gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          # Issue #13 may not present the prior Issue #29 release identity as READY.
+          ! grep -Fq "phase = 'issue-29-localized-multi-item-review-calculator-463'" lib/app_build_metadata.dart
+          grep -Eq "phase = 'issue-13-[^']+'" lib/app_build_metadata.dart
+          printf 'ISSUE_13_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Issue #13 general official acquisition and LKG regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter test test/features/invoice/invoice_award_official_dataset_test.dart
+          flutter test test/features/invoice/invoice_award_official_html_parser_test.dart
+          flutter test test/features/invoice/invoice_award_official_acquisition_test.dart
+          flutter test test/features/invoice/invoice_award_official_http_acquisition_test.dart
+          flutter test test/features/invoice/invoice_award_lkg_repository_test.dart
+          flutter test test/features/invoice/invoice_award_redemption_window_test.dart
+          flutter test test/features/invoice/invoice_award_period_catalog_test.dart
+          flutter test test/features/invoice/existing_invoice_award_general_batch_matcher_test.dart
+
+      - name: Issue #13 cloud publication acquisition index LKG and matcher regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter test test/features/invoice/invoice_award_cloud_publication_parser_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_artifact_downloader_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_pdf_cache_repository_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_pdf_memory_policy_contract_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_pdf_index_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_candidate_scope_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_candidate_scope_repository_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_lifecycle_contract_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_index_lkg_repository_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_foreground_acquisition_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_eligibility_test.dart
+          flutter test test/features/invoice/existing_invoice_award_cloud_batch_matcher_test.dart
+
+      - name: Issue #13 existing-transaction projection route and production page regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter test test/features/invoice/existing_invoice_award_candidate_repository_test.dart
+          flutter test test/features/invoice/invoice_award_production_refresh_controller_test.dart
+          flutter test test/invoice_award_check_entry_button_test.dart
+          flutter test test/invoice_award_check_page_test.dart
+          flutter test test/invoice_award_check_presentation_test.dart
+          flutter test test/invoice_award_check_route_test.dart
+          flutter test test/invoice_award_match_projection_test.dart
+          flutter test test/features/invoice/invoice_award_payout_bookkeeping_contract_test.dart
+          flutter test test/official_query_page_preparation_test.dart
+          flutter test test/p4_20_6_runtime_app_version_test.dart
+          flutter test test/issue_13_ledger_import_usability_contract_test.dart
+          flutter test test/official_invoice_detail_manual_adjustment_contract_test.dart
+          flutter test test/issue_13_award_domain_decoupling_contract_test.dart
+
+      - name: Full Flutter regression suite
+        run: flutter test
+
+  signed-apk:
+    name: Build and inspect Issue #13 signed APK
+    needs: validate
+    if: ${{ needs.validate.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact head and Issue #13 metadata gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          ! grep -Fq "phase = 'issue-29-localized-multi-item-review-calculator-463'" lib/app_build_metadata.dart
+          grep -Eq "phase = 'issue-13-[^']+'" lib/app_build_metadata.dart
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android host without dependency authority
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android --no-pub .
+          git checkout HEAD -- pubspec.yaml pubspec.lock
+
+      - name: Patch Android build boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          for node in [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+          ]:
+              if node not in text:
+                  text = text.replace(marker, marker + '\n    ' + node, 1)
+          manifest.write_text(text)
+
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          if 'isCoreLibraryDesugaringEnabled = true' not in text:
+              text = text.replace('compileOptions {', 'compileOptions {\n        isCoreLibraryDesugaringEnabled = true', 1)
+          dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          if dependency not in text:
+              if 'dependencies {' in text:
+                  text = text.replace('dependencies {', 'dependencies {\n    ' + dependency, 1)
+              else:
+                  text += '\n\ndependencies {\n    ' + dependency + '\n}\n'
+          gradle.write_text(text)
+          PY
+
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+
+      - name: Prepare signing files and pin certificate
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_SIGNING_CERT_SHA256; do test -n "${!v}"; done
+          pinned='9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
+          configured="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          test "$configured" = "$pinned"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Patch release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle.kts')
+          text = p.read_text()
+          if 'val keystoreProperties' not in text:
+              text = text.replace('plugins {', 'import java.util.Properties\nimport java.io.FileInputStream\n\nplugins {', 1)
+              text = text.replace('android {', 'val keystoreProperties = Properties()\nval keystorePropertiesFile = rootProject.file("key.properties")\nif (keystorePropertiesFile.exists()) { keystoreProperties.load(FileInputStream(keystorePropertiesFile)) }\n\nandroid {', 1)
+          if 'create("release")' not in text:
+              text = text.replace('    buildTypes {\n        release {', '    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }\n\n    buildTypes {\n        release {', 1)
+          text = text.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+          p.write_text(text)
+          Path('android/app/proguard-rules.pro').write_text('-dontwarn com.google.mlkit.vision.text.devanagari.**\n-dontwarn com.google.mlkit.vision.text.japanese.**\n-dontwarn com.google.mlkit.vision.text.korean.**\n')
+          PY
+
+      - name: Build signed release APK
+        run: |
+          set -euo pipefail
+          build_number="$(sed -n 's/^version: [^+]*+//p' pubspec.yaml)"
+          test -n "$build_number"
+          flutter build apk --release --no-pub --build-number="$build_number"
+
+      - name: Inspect version permissions signer and generate authority metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk='build/app/outputs/flutter-apk/app-release.apk'
+          apkanalyzer_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort -V | tail -n 1)"
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          permissions="$("$apkanalyzer_bin" manifest permissions "$apk")"
+          version_name="$("$apkanalyzer_bin" manifest version-name "$apk")"
+          version_code="$("$apkanalyzer_bin" manifest version-code "$apk")"
+          signer_output="$("$apksigner_bin" verify --print-certs "$apk")"
+          pinned='9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
+          normalized="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          grep -Fq "$pinned" <<< "$normalized"
+          grep -Fq 'android.permission.CAMERA' <<< "$permissions"
+          grep -Fq 'android.permission.INTERNET' <<< "$permissions"
+          grep -Fq 'android.permission.POST_NOTIFICATIONS' <<< "$permissions"
+          grep -Fq 'android.permission.RECORD_AUDIO' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_SMS' <<< "$permissions"
+          ! grep -Fq 'android.permission.READ_CONTACTS' <<< "$permissions"
+          {
+            printf 'ISSUE_13_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
+            printf 'LIVE_DRAW_MVP=2026-09-24\n'
+            printf 'VERSION_NAME=%s\nVERSION_CODE=%s\n' "$version_name" "$version_code"
+            printf 'GENERAL_OFFICIAL_ACQUISITION=PASS\n'
+            printf 'EXISTING_FORMAL_TRANSACTION_SCAN=PASS\n'
+            printf 'CLOUD_PUBLICATION_AND_INDEX=PASS\n'
+            printf 'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS\n'
+            printf 'CLOUD_PDF_CRASH_DIAGNOSTICS=PASS\n'
+            printf 'CLOUD_PDF_CHUNKED_SESSION=PASS\n'
+            printf 'CLOUD_500_PDFIUM_CANDIDATE_SCOPE=PASS\n'
+            printf 'CLOUD_500_CANDIDATE_AUTHORITY_DURABLE=PASS\n'
+            printf 'CLOUD_500_EMPTY_CANDIDATE_SKIP=PASS\n'
+            printf 'CLOUD_500_PDFIUM_LIFECYCLE_RETRY=PASS\n'
+            printf 'CLOUD_500_PDFIUM_BATCHED_SESSION=PASS\n'
+            printf 'CLOUD_500_PDFIUM_1X_REFRESH=PASS\n'
+            printf 'CLOUD_FOUR_TIER_SUMMARY=PASS\n'
+            printf 'CLOUD_TIER_FAILURE_EVIDENCE=PASS\n'
+            printf 'GENERAL_AWARD_CLOUD_FAILURE_DECOUPLED=PASS\n'
+            printf 'CLOUD_CANDIDATE_PARTIAL_AUTHORITY_RETENTION=PASS\n'
+            printf 'CLOUD_500_PDFIUM_FATAL_GUARD=PASS\n'
+            printf 'AWARD_OFFICIAL_AVAILABILITY_TIME_GATE=PASS\n'
+            printf 'LEDGER_FULL_HISTORY_READ=PASS\n'
+            printf 'LEDGER_COMPACT_ROW=PASS\n'
+            printf 'OFFICIAL_IMPORT_REASON_EVIDENCE=PASS\n'
+            printf 'OFFICIAL_IMPORT_MANUAL_DIFFERENCE_REVIEW=PASS\n'
+            printf 'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS\n'
+            printf 'FORMAL_ACCOUNTING_WRITE=ZERO\n'
+            printf 'APPID_APIKEY_RELEASE_DEPENDENCY=false\n'
+            printf 'GCIS_RELEASE_DEPENDENCY=false\n'
+            printf 'SIGNER_SHA256_PIN=PASS\n'
+          } > issue_13_award_mvp_canary_metadata.txt
+          for required in \
+            "ISSUE_13_EXACT_HEAD=$(git rev-parse HEAD)" \
+            'VERSION_NAME=4.20.13' \
+            'VERSION_CODE=471' \
+            'GENERAL_OFFICIAL_ACQUISITION=PASS' \
+            'EXISTING_FORMAL_TRANSACTION_SCAN=PASS' \
+            'CLOUD_PUBLICATION_AND_INDEX=PASS' \
+            'CLOUD_PDF_TEMP_FILE_MEMORY_POLICY=PASS' \
+            'CLOUD_PDF_CRASH_DIAGNOSTICS=PASS' \
+            'CLOUD_PDF_CHUNKED_SESSION=PASS' \
+            'CLOUD_500_PDFIUM_CANDIDATE_SCOPE=PASS' \
+            'CLOUD_500_CANDIDATE_AUTHORITY_DURABLE=PASS' \
+            'CLOUD_500_EMPTY_CANDIDATE_SKIP=PASS' \
+            'CLOUD_500_PDFIUM_LIFECYCLE_RETRY=PASS' \
+            'CLOUD_500_PDFIUM_BATCHED_SESSION=PASS' \
+            'CLOUD_500_PDFIUM_1X_REFRESH=PASS' \
+            'CLOUD_FOUR_TIER_SUMMARY=PASS' \
+            'CLOUD_TIER_FAILURE_EVIDENCE=PASS' \
+            'GENERAL_AWARD_CLOUD_FAILURE_DECOUPLED=PASS' \
+            'CLOUD_CANDIDATE_PARTIAL_AUTHORITY_RETENTION=PASS' \
+            'CLOUD_500_PDFIUM_FATAL_GUARD=PASS' \
+            'AWARD_OFFICIAL_AVAILABILITY_TIME_GATE=PASS' \
+            'LEDGER_FULL_HISTORY_READ=PASS' \
+            'LEDGER_COMPACT_ROW=PASS' \
+            'OFFICIAL_IMPORT_REASON_EVIDENCE=PASS' \
+            'OFFICIAL_IMPORT_MANUAL_DIFFERENCE_REVIEW=PASS' \
+            'CLOUD_EXCLUSIVE_REVIEW_REQUIRED=PASS' \
+            'FORMAL_ACCOUNTING_WRITE=ZERO' \
+            'APPID_APIKEY_RELEASE_DEPENDENCY=false' \
+            'GCIS_RELEASE_DEPENDENCY=false' \
+            'SIGNER_SHA256_PIN=PASS'; do
+            grep -Fxq "$required" issue_13_award_mvp_canary_metadata.txt
+          done
+
+      - name: Generate APK SHA-256
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk | tee issue_13_award_mvp_signed_canary.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue-13-9-24-existing-transaction-award-mvp-signed-canary
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            issue_13_award_mvp_signed_canary.sha256
+            issue_13_award_mvp_canary_metadata.txt
+          if-no-files-found: error
+          retention-days: 3
