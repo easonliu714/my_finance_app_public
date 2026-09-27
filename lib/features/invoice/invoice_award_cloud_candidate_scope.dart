@@ -154,10 +154,11 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   static const MethodChannel _channel = MethodChannel('pdf_text');
   static const int candidateBatchSize = 8;
 
-  // Temporary in-process safety boundary from real-device evidence: the
-  // 128.9 MiB 115-07-08 cloud-500 PDF kills the native Pdfium process during
-  // open, while the prior ~114.2 MiB artifact remains operable.
-  static const int maxInProcessPdfiumPdfBytes = 120 * 1024 * 1024;
+  // Above this real-device boundary, native PDFium opens in a dedicated
+  // Android process. If that worker is killed, the Flutter process survives
+  // and no partial candidate authority is promoted.
+  static const int crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024;
+  static const Duration workerResultTimeout = Duration(seconds: 120);
 
   @override
   Future<CloudAwardSortedPdfCandidateMatchResult> findMatches({
@@ -185,8 +186,12 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
       );
     }
 
-    if (artifact.sizeBytes > maxInProcessPdfiumPdfBytes) {
-      throw StateError('CLOUD_AWARD_PDFIUM_IN_PROCESS_SIZE_GUARD');
+    if (artifact.sizeBytes > crashIsolatedPdfiumPdfBytes) {
+      return _findMatchesCrashIsolated(
+        artifact: artifact,
+        candidates: candidates,
+        cancellation: cancellation,
+      );
     }
 
     await _channel.invokeMethod<void>('clearLastDiagnostic');
@@ -345,5 +350,80 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
       pagesRead: uniquePagesRead.length,
       matchedInvoiceNumbers: Set<String>.unmodifiable(matched),
     );
+  }
+
+  Future<CloudAwardSortedPdfCandidateMatchResult> _findMatchesCrashIsolated({
+    required OfficialCloudAwardDownloadedArtifact artifact,
+    required List<String> candidates,
+    CloudAwardCandidateLookupCancellation? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
+    final started = await _channel.invokeMapMethod<String, Object?>(
+      'startPdfiumCandidateWorker',
+      <String, Object?>{
+        'path': artifact.file.path,
+        'candidatesJson': jsonEncode(candidates),
+      },
+    );
+    final requestId = started?['requestId']?.toString() ?? '';
+    final resultPath = started?['resultPath']?.toString() ?? '';
+    if (requestId.isEmpty || resultPath.isEmpty) {
+      throw StateError('CLOUD_AWARD_PDFIUM_WORKER_START_INVALID');
+    }
+
+    final resultFile = File(resultPath);
+    final deadline = DateTime.now().add(workerResultTimeout);
+    while (DateTime.now().isBefore(deadline)) {
+      cancellation?.throwIfCancelled();
+      if (await resultFile.exists()) {
+        try {
+          final decoded = jsonDecode(await resultFile.readAsString());
+          if (decoded is! Map<String, dynamic> ||
+              decoded['request_id']?.toString() != requestId) {
+            throw StateError('CLOUD_AWARD_PDFIUM_WORKER_RESULT_INVALID');
+          }
+          final status = decoded['status']?.toString();
+          if (status == 'failed') {
+            throw StateError(
+              decoded['error']?.toString() ??
+                  'CLOUD_AWARD_PDFIUM_WORKER_FAILED',
+            );
+          }
+          if (status != 'complete') {
+            throw StateError('CLOUD_AWARD_PDFIUM_WORKER_RESULT_INVALID');
+          }
+          final pageCount = (decoded['page_count'] as num?)?.toInt() ?? 0;
+          final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;
+          final candidateCount =
+              (decoded['candidate_count'] as num?)?.toInt() ?? -1;
+          final matchedRaw = decoded['matched'];
+          if (pageCount <= 0 ||
+              pagesRead < 0 ||
+              candidateCount != candidates.length ||
+              matchedRaw is! List<dynamic>) {
+            throw StateError('CLOUD_AWARD_PDFIUM_WORKER_RESULT_INVALID');
+          }
+          final matched = normalizeCloudCandidateNumbers(
+            matchedRaw.map((value) => value.toString()),
+          );
+          if (!candidates.toSet().containsAll(matched)) {
+            throw StateError('CLOUD_AWARD_PDFIUM_WORKER_SCOPE_MISMATCH');
+          }
+          return CloudAwardSortedPdfCandidateMatchResult(
+            pageCount: pageCount,
+            pagesRead: pagesRead,
+            matchedInvoiceNumbers: matched,
+          );
+        } finally {
+          try {
+            if (await resultFile.exists()) await resultFile.delete();
+          } catch (_) {
+            // Best-effort transient worker-result cleanup only.
+          }
+        }
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    throw StateError('CLOUD_AWARD_PDFIUM_WORKER_TIMEOUT');
   }
 }
