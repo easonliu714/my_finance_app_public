@@ -16,6 +16,12 @@ void main() {
     final pluginGradle = File(
       'packages/flutter_pdf_text/android/build.gradle',
     ).readAsStringSync();
+    final pluginSource = File(
+      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PdfTextPlugin.kt',
+    ).readAsStringSync();
+    final pluginManifest = File(
+      'packages/flutter_pdf_text/android/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
 
     expect(candidateSource, contains('CloudAwardCandidateLookupCancellation'));
     expect(candidateSource, contains("'openPdfiumSession'"));
@@ -23,12 +29,11 @@ void main() {
     expect(candidateSource, contains('candidateBatchSize = 8'));
     expect(
       candidateSource,
-      contains('maxInProcessPdfiumPdfBytes = 120 * 1024 * 1024'),
+      contains('crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024'),
     );
-    expect(
-      candidateSource,
-      contains('CLOUD_AWARD_PDFIUM_IN_PROCESS_SIZE_GUARD'),
-    );
+    expect(candidateSource, contains("'startPdfiumCandidateWorker'"));
+    expect(candidateSource, contains('CLOUD_AWARD_PDFIUM_WORKER_TIMEOUT'));
+    expect(candidateSource, contains('_findMatchesCrashIsolated'));
     expect(candidateSource, contains('for (var batchStart = 0;'));
     expect(candidateSource, contains('uniquePagesRead'));
     expect(candidateSource, contains('toSet()'));
@@ -53,6 +58,10 @@ void main() {
       foregroundSource,
       contains('Preserve already promoted earlier-tier authority'),
     );
+    expect(pluginSource, contains('"startPdfiumCandidateWorker"'));
+    expect(pluginSource, contains('PdfiumCandidateWorkerService::class.java'));
+    expect(pluginManifest, contains('android:process=":pdfium_candidate_worker"'));
+    expect(pluginManifest, contains('android:exported="false"'));
     expect(pluginGradle, contains('io.legere:pdfiumandroid:1.0.35'));
   });
 }
