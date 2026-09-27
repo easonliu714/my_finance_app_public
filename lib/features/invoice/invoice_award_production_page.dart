@@ -58,6 +58,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   List<ExistingInvoiceAwardCandidate> _candidates = const [];
   List<ExistingInvoiceAwardGeneralEvaluation> _generalEvaluations = const [];
   List<ExistingInvoiceAwardCloudEvaluation> _cloudEvaluations = const [];
+  final Map<String, GlobalKey> _candidateTileKeys = <String, GlobalKey>{};
 
   @override
   void initState() {
@@ -373,6 +374,20 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     });
   }
 
+  GlobalKey _tileKeyFor(ExistingInvoiceAwardCandidate candidate) =>
+      _candidateTileKeys.putIfAbsent(_candidateKey(candidate), GlobalKey.new);
+
+  void _scrollToCandidate(ExistingInvoiceAwardCandidate candidate) {
+    final targetContext = _tileKeyFor(candidate).currentContext;
+    if (targetContext == null) return;
+    Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+      alignment: 0.08,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final generalByKey = <String, ExistingInvoiceAwardGeneralEvaluation>{
@@ -384,6 +399,16 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     final visibleCandidates = _candidates
         .where((candidate) => candidate.awardPeriod == _selectedPeriod.candidateAwardPeriodLabel)
         .toList(growable: false);
+    final winningCandidates = visibleCandidates.where((candidate) {
+      final key = _candidateKey(candidate);
+      return (generalByKey[key]?.isWinner ?? false) ||
+          (cloudByKey[key]?.hasCloudNumberMatch ?? false);
+    }).toList(growable: false);
+    final hasCloudReviewWinner = winningCandidates.any((candidate) {
+      final evaluation = cloudByKey[_candidateKey(candidate)];
+      return evaluation?.hasCloudNumberMatch == true &&
+          (evaluation!.requiresReview || !_cloudCurrentAuthorityComplete);
+    });
     final now = _now();
     final canCheckSelectedPeriod = _selectedPeriod.canCheckAt(now);
 
@@ -474,16 +499,77 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             ],
             const SizedBox(height: 8),
             Semantics(liveRegion: true, child: Text(_scanStatus)),
+            if (winningCandidates.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '中獎摘要',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text('點選中獎發票可直接跳到下方該筆明細。'),
+                      const SizedBox(height: 6),
+                      for (final candidate in winningCandidates)
+                        TextButton.icon(
+                          key: Key(
+                            'invoice_award_winner_jump_${candidate.invoiceNumber}',
+                          ),
+                          onPressed: () => _scrollToCandidate(candidate),
+                          icon: const Icon(Icons.arrow_downward),
+                          label: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '${candidate.invoiceNumber} · '
+                              '${_winnerSummaryText(
+                                generalByKey[_candidateKey(candidate)],
+                                cloudByKey[_candidateKey(candidate)],
+                                currentCloudAuthorityComplete:
+                                    _cloudCurrentAuthorityComplete,
+                              )}',
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (hasCloudReviewWinner) ...[
+              const SizedBox(height: 8),
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    '雲端專屬獎資格怎麼看？\n'
+                    '號碼吻合代表這張發票已對中雲端專屬獎號。'
+                    '本 App 無法從本機資料確認你在開獎前是否已列印電子發票證明聯，'
+                    '所以會先標示「資格待確認」。\n'
+                    '依財政部現行規則：開獎前已列印證明聯，該張就不屬於雲端發票專屬獎；'
+                    '若是在開獎後才列印中獎證明聯，不會因此讓已中的獎失效，'
+                    '但紙本會成為兌獎憑證，遺失後不能再重印。'
+                    '未列印者可依官方兌獎 App／自動匯款流程領獎。'
+                  ),
+                ),
+              ),
+            ],
             if (visibleCandidates.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text('既有交易對獎結果', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               for (final candidate in visibleCandidates)
-                _ExistingTransactionAwardTile(
-                  candidate: candidate,
-                  generalEvaluation: generalByKey[_candidateKey(candidate)],
-                  cloudEvaluation: cloudByKey[_candidateKey(candidate)],
-                  cloudCurrentAuthorityComplete: _cloudCurrentAuthorityComplete,
+                KeyedSubtree(
+                  key: _tileKeyFor(candidate),
+                  child: _ExistingTransactionAwardTile(
+                    candidate: candidate,
+                    generalEvaluation: generalByKey[_candidateKey(candidate)],
+                    cloudEvaluation: cloudByKey[_candidateKey(candidate)],
+                    cloudCurrentAuthorityComplete: _cloudCurrentAuthorityComplete,
+                  ),
                 ),
             ],
             const SizedBox(height: 16),
@@ -561,6 +647,28 @@ String _generalResultText(ExistingInvoiceAwardGeneralEvaluation? evaluation) {
   };
 }
 
+String _winnerSummaryText(
+  ExistingInvoiceAwardGeneralEvaluation? general,
+  ExistingInvoiceAwardCloudEvaluation? cloud, {
+  required bool currentCloudAuthorityComplete,
+}) {
+  final parts = <String>[];
+  if (general?.isWinner ?? false) {
+    parts.add(
+      '一般獎 ${general!.tierLabel} NT\${_formatAmount(general.grossAmount)}',
+    );
+  }
+  if (cloud?.hasCloudNumberMatch ?? false) {
+    final suffix = cloud!.requiresReview || !currentCloudAuthorityComplete
+        ? '（資格待確認）'
+        : '';
+    parts.add(
+      '雲端專屬獎 NT\${_formatAmount(cloud.grossAmount)}$suffix',
+    );
+  }
+  return parts.isEmpty ? '尚無中獎結果' : parts.join(' · ');
+}
+
 String _cloudResultText(
   ExistingInvoiceAwardCloudEvaluation? evaluation, {
   required bool currentAuthorityComplete,
@@ -584,7 +692,8 @@ String _cloudResultText(
     ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible =>
       '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；仍請依官方兌獎規則確認',
     ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired =>
-      '雲端專屬獎號碼吻合／資格待確認 · NT\$${_formatAmount(evaluation.grossAmount)}',
+      '雲端專屬獎：號碼吻合 · NT\${_formatAmount(evaluation.grossAmount)}；'
+      '資格待確認（請核對開獎前是否曾列印證明聯）',
     ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired =>
       '雲端專屬獎：號碼出現在多個獎別資料；暫列最高 NT\$${_formatAmount(evaluation.grossAmount)}，需人工確認',
   };
