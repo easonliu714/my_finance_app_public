@@ -1,6 +1,7 @@
 package me.movenext.flutter_pdf_text
 
 import android.content.Context
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
@@ -71,6 +72,12 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
           }
           "clearLastDiagnostic" -> {
             clearLastDiagnostic(result)
+          }
+          "startPdfiumCandidateWorker" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            val candidatesJson = args["candidatesJson"] as String
+            startPdfiumCandidateWorker(result, path, candidatesJson)
           }
           "openPdfiumSession" -> {
             val args = call.arguments as Map<*, *>
@@ -235,6 +242,54 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       // Best effort only.
     }
     Handler(Looper.getMainLooper()).post { result.success(true) }
+  }
+
+  /**
+   * Starts a dedicated-process candidate lookup for PDFs that have proven too
+   * large for the main Flutter process. The worker receives only a validated
+   * local PDF path plus normalized local candidate invoice numbers.
+   */
+  private fun startPdfiumCandidateWorker(
+    result: Result,
+    path: String,
+    candidatesJson: String
+  ) {
+    try {
+      val source = File(path)
+      if (!source.isFile) {
+        Handler(Looper.getMainLooper()).post {
+          result.error("PDFIUM_WORKER_SOURCE_MISSING", "Candidate PDF is missing", null)
+        }
+        return
+      }
+      val requestId = UUID.randomUUID().toString()
+      val resultDir = File(applicationContext.cacheDir, "pdfium_candidate_worker")
+      resultDir.mkdirs()
+      val resultFile = File(resultDir, "$requestId.json")
+      if (resultFile.exists()) resultFile.delete()
+      val intent = Intent(applicationContext, PdfiumCandidateWorkerService::class.java)
+        .putExtra(PdfiumCandidateWorkerService.EXTRA_PDF_PATH, source.absolutePath)
+        .putExtra(PdfiumCandidateWorkerService.EXTRA_CANDIDATES_JSON, candidatesJson)
+        .putExtra(PdfiumCandidateWorkerService.EXTRA_RESULT_PATH, resultFile.absolutePath)
+        .putExtra(PdfiumCandidateWorkerService.EXTRA_REQUEST_ID, requestId)
+      applicationContext.startService(intent)
+      Handler(Looper.getMainLooper()).post {
+        result.success(
+          hashMapOf(
+            "requestId" to requestId,
+            "resultPath" to resultFile.absolutePath
+          )
+        )
+      }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "PDFIUM_WORKER_START_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
   }
 
   /**
