@@ -388,6 +388,18 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
 
           final universeSha =
               await cloudCandidateUniverseSha256(normalizedCandidates);
+          if (artifact.sizeBytes >
+              PdfiumCloudAwardSortedPdfCandidateLookup
+                  .crashIsolatedPdfiumPdfBytes) {
+            onProgress?.call(
+              CloudAwardForegroundProgress(
+                stage: CloudAwardForegroundStage.extracting,
+                tierCode: reference.tierCode,
+                message: '大型 500 元獎 PDF 於隔離程序進行候選比對；'
+                    '即使原生解析程序異常，主 App 仍會保留一般獎與既有結果。',
+              ),
+            );
+          }
           final candidateMatch = await _sortedCandidateLookup.findMatches(
             artifact: artifact,
             candidateInvoiceNumbers: normalizedCandidates,
