@@ -154,9 +154,9 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   static const MethodChannel _channel = MethodChannel('pdf_text');
   static const int candidateBatchSize = 8;
 
-  // Above this real-device boundary, native PDFium opens in a dedicated
-  // Android process. If that worker is killed, the Flutter process survives
-  // and no partial candidate authority is promoted.
+  // Above this real-device boundary, candidate lookup runs in a dedicated
+  // Android process with disk-backed scratch. If that worker is killed, the
+  // Flutter process survives and no partial candidate authority is promoted.
   static const int crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024;
   static const Duration workerResultTimeout = Duration(seconds: 120);
 
@@ -190,6 +190,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
       return _findMatchesCrashIsolated(
         artifact: artifact,
         candidates: candidates,
+        onProgress: onProgress,
         cancellation: cancellation,
       );
     }
@@ -355,6 +356,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   Future<CloudAwardSortedPdfCandidateMatchResult> _findMatchesCrashIsolated({
     required OfficialCloudAwardDownloadedArtifact artifact,
     required List<String> candidates,
+    CloudAwardSortedPdfCandidateProgressCallback? onProgress,
     CloudAwardCandidateLookupCancellation? cancellation,
   }) async {
     cancellation?.throwIfCancelled();
@@ -368,29 +370,69 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     final requestId = started?['requestId']?.toString() ?? '';
     final resultPath = started?['resultPath']?.toString() ?? '';
     if (requestId.isEmpty || resultPath.isEmpty) {
-      throw StateError('CLOUD_AWARD_PDFIUM_WORKER_START_INVALID');
+      throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_START_INVALID');
     }
 
     final resultFile = File(resultPath);
-    final deadline = DateTime.now().add(workerResultTimeout);
+    var deadline = DateTime.now().add(workerResultTimeout);
+    var lastProgressSignature = '';
+    var lastStage = 'STARTED';
+
     while (DateTime.now().isBefore(deadline)) {
       cancellation?.throwIfCancelled();
       if (await resultFile.exists()) {
-        try {
-          final decoded = jsonDecode(await resultFile.readAsString());
-          if (decoded is! Map<String, dynamic> ||
-              decoded['request_id']?.toString() != requestId) {
-            throw StateError('CLOUD_AWARD_PDFIUM_WORKER_RESULT_INVALID');
+        final decoded = jsonDecode(await resultFile.readAsString());
+        if (decoded is! Map<String, dynamic> ||
+            decoded['request_id']?.toString() != requestId) {
+          throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID');
+        }
+
+        final status = decoded['status']?.toString();
+        if (status == 'running') {
+          final stage = decoded['stage']?.toString() ?? 'RUNNING';
+          final candidateIndex =
+              (decoded['candidate_index'] as num?)?.toInt() ?? 0;
+          final candidateCount =
+              (decoded['candidate_count'] as num?)?.toInt() ?? candidates.length;
+          final pageNumber = (decoded['page_number'] as num?)?.toInt() ?? 0;
+          final pageCount = (decoded['page_count'] as num?)?.toInt() ?? 0;
+          final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;
+          final updatedAt = (decoded['updated_at_ms'] as num?)?.toInt() ?? 0;
+          final signature =
+              '$stage|$candidateIndex|$pageNumber|$pagesRead|$updatedAt';
+
+          if (signature != lastProgressSignature) {
+            lastProgressSignature = signature;
+            lastStage = stage;
+            deadline = DateTime.now().add(workerResultTimeout);
+            if (candidateIndex > 0 &&
+                candidateCount == candidates.length &&
+                pageNumber > 0 &&
+                pageCount > 0) {
+              onProgress?.call(
+                CloudAwardSortedPdfCandidateProgress(
+                  candidateIndex: candidateIndex,
+                  candidateCount: candidateCount,
+                  pageNumber: pageNumber,
+                  pageCount: pageCount,
+                  pagesRead: pagesRead,
+                ),
+              );
+            }
           }
-          final status = decoded['status']?.toString();
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
+
+        try {
           if (status == 'failed') {
             throw StateError(
               decoded['error']?.toString() ??
-                  'CLOUD_AWARD_PDFIUM_WORKER_FAILED',
+                  'CLOUD_AWARD_CANDIDATE_WORKER_FAILED',
             );
           }
           if (status != 'complete') {
-            throw StateError('CLOUD_AWARD_PDFIUM_WORKER_RESULT_INVALID');
+            throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID');
           }
           final pageCount = (decoded['page_count'] as num?)?.toInt() ?? 0;
           final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;
@@ -401,13 +443,13 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               pagesRead < 0 ||
               candidateCount != candidates.length ||
               matchedRaw is! List<dynamic>) {
-            throw StateError('CLOUD_AWARD_PDFIUM_WORKER_RESULT_INVALID');
+            throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID');
           }
           final matched = normalizeCloudCandidateNumbers(
             matchedRaw.map((value) => value.toString()),
           );
           if (!candidates.toSet().containsAll(matched)) {
-            throw StateError('CLOUD_AWARD_PDFIUM_WORKER_SCOPE_MISMATCH');
+            throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_SCOPE_MISMATCH');
           }
           return CloudAwardSortedPdfCandidateMatchResult(
             pageCount: pageCount,
@@ -424,6 +466,9 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    throw StateError('CLOUD_AWARD_PDFIUM_WORKER_TIMEOUT');
+
+    final safeStage = lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
+    throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_TIMEOUT_$safeStage');
   }
+
 }

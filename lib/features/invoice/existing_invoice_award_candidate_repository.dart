@@ -26,6 +26,9 @@ class ExistingInvoiceAwardCandidate {
     required this.identitySource,
     required this.sourceProvenance,
     required this.cloudEligibility,
+    this.merchantName = '',
+    this.transactionAmount = 0,
+    this.transactionCurrencyCode = 'TWD',
   });
 
   final String transactionId;
@@ -35,6 +38,17 @@ class ExistingInvoiceAwardCandidate {
   final ExistingInvoiceAwardIdentitySource identitySource;
   final String sourceProvenance;
   final ExistingInvoiceAwardCloudEligibility cloudEligibility;
+  final String merchantName;
+  final double transactionAmount;
+  final String transactionCurrencyCode;
+
+  String get merchantDisplayName =>
+      merchantName.trim().isEmpty ? '消費地點未提供' : merchantName.trim();
+
+  String get invoiceTypeLabel => switch (identitySource) {
+        ExistingInvoiceAwardIdentitySource.cloudMetadata => '雲端發票',
+        ExistingInvoiceAwardIdentitySource.governedReviewNote => '一般發票（辨識覆核）',
+      };
 
   String get dedupeKey => '$transactionId|$invoiceNumber|${_dateKey(invoiceDate)}';
 }
@@ -103,6 +117,9 @@ class ExistingInvoiceAwardCandidateRepository {
         sourceProvenance: 'cloud_invoice_metadata_links:${link['id'] ?? link['operation_key'] ?? ''}',
         cloudEligibility:
             ExistingInvoiceAwardCloudEligibility.unknownReviewRequired,
+        merchantName: transaction.merchantName,
+        transactionAmount: transaction.amount,
+        transactionCurrencyCode: transaction.currency.code,
       );
       identities['$number|${_dateKey(date)}'] = candidate;
     }
@@ -128,6 +145,9 @@ class ExistingInvoiceAwardCandidateRepository {
       identitySource: ExistingInvoiceAwardIdentitySource.governedReviewNote,
       sourceProvenance: GovernedInvoiceReviewNoteParser.sourceMarker,
       cloudEligibility: ExistingInvoiceAwardCloudEligibility.ineligible,
+      merchantName: transaction.merchantName,
+      transactionAmount: transaction.amount,
+      transactionCurrencyCode: transaction.currency.code,
     );
   }
 

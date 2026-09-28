@@ -415,9 +415,11 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     return Scaffold(
       appBar: AppBar(title: const Text('統一發票中獎檢查')),
       body: SafeArea(
-        child: ListView(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
-          children: [
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             const Text('只向財政部官方來源取得中獎資料，不上傳發票或記帳內容。'),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -577,7 +579,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                 '號碼吻合不等於已確認可領獎；資格證據不足時會標示待確認。'),
             const SizedBox(height: 12),
             const Text('本 App 僅提供本機中獎比對與記帳輔助，不是兌獎、領獎或自動匯款平台。'),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -599,9 +602,6 @@ class _ExistingTransactionAwardTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sourceLabel = candidate.identitySource == ExistingInvoiceAwardIdentitySource.cloudMetadata
-        ? '雲端發票資料'
-        : '發票辨識覆核';
     final lines = <Widget>[Text(_generalResultText(generalEvaluation))];
     if (candidate.identitySource == ExistingInvoiceAwardIdentitySource.cloudMetadata) {
       lines.add(const SizedBox(height: 4));
@@ -625,7 +625,12 @@ class _ExistingTransactionAwardTile extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('$sourceLabel · ${candidate.awardPeriod} · 交易 ${candidate.transactionId}'),
+            Text('${candidate.invoiceTypeLabel} · ${_formatCandidateDate(candidate.invoiceDate)}'),
+            Text(
+              '${candidate.merchantDisplayName} · '
+              '${candidate.transactionCurrencyCode} '
+              '${_formatTransactionAmount(candidate.transactionAmount)}',
+            ),
             const SizedBox(height: 6),
             ...lines,
           ],
@@ -655,7 +660,7 @@ String _winnerSummaryText(
   final parts = <String>[];
   if (general?.isWinner ?? false) {
     parts.add(
-      '一般獎 ${general!.tierLabel} NT\${_formatAmount(general.grossAmount)}',
+      '一般獎 ${general!.tierLabel} NT\$${_formatAmount(general.grossAmount)}',
     );
   }
   if (cloud?.hasCloudNumberMatch ?? false) {
@@ -663,7 +668,7 @@ String _winnerSummaryText(
         ? '（資格待確認）'
         : '';
     parts.add(
-      '雲端專屬獎 NT\${_formatAmount(cloud.grossAmount)}$suffix',
+      '雲端專屬獎 NT\$${_formatAmount(cloud.grossAmount)}$suffix',
     );
   }
   return parts.isEmpty ? '尚無中獎結果' : parts.join(' · ');
@@ -692,7 +697,7 @@ String _cloudResultText(
     ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible =>
       '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；仍請依官方兌獎規則確認',
     ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired =>
-      '雲端專屬獎：號碼吻合 · NT\${_formatAmount(evaluation.grossAmount)}；'
+      '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；'
       '資格待確認（請核對開獎前是否曾列印證明聯）',
     ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired =>
       '雲端專屬獎：號碼出現在多個獎別資料；暫列最高 NT\$${_formatAmount(evaluation.grossAmount)}，需人工確認',
@@ -796,6 +801,23 @@ String _tierLabel(String tierCode) => switch (tierCode) {
 
 String _candidateKey(ExistingInvoiceAwardCandidate candidate) =>
     '${candidate.transactionId}|${candidate.invoiceNumber}|${candidate.invoiceDate.toIso8601String()}';
+
+String _formatCandidateDate(DateTime value) {
+  final local = value.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
+}
+
+String _formatTransactionAmount(double value) {
+  final rounded = value.roundToDouble();
+  final text = value == rounded
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(2);
+  final parts = text.split('.');
+  final whole = _formatAmount(int.parse(parts.first));
+  return parts.length == 1 ? whole : '$whole.${parts.last}';
+}
 
 String _formatAmount(int value) {
   final digits = value.toString();
