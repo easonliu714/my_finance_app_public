@@ -100,24 +100,21 @@ void main() {
     const candidate = 'BM23888900';
     const chunkBytes = 128;
     const overlapBytes = 32;
-    final prefix =
+    const prefix =
         '%PDF-1.7\n1 0 obj\n<< /Type /Pages /Count 77000 >>\nstream\n';
     final prefixLength = latin1.encode(prefix).length;
-    final targetStartModulo = chunkBytes - 4;
+    const targetStartModulo = chunkBytes - 4;
     final paddingLength =
         (targetStartModulo - (prefixLength % chunkBytes) + chunkBytes) %
             chunkBytes;
-    final body = prefix +
-        List<String>.filled(paddingLength, 'X').join() +
-        candidate +
-        '\nendstream\nendobj\n';
+    final body =
+        "$prefix${List<String>.filled(paddingLength, 'X').join()}"
+        '$candidate\nendstream\nendobj\n';
     final xrefOffset = latin1.encode(body).length;
-    final fixture = body +
-        'xref\n0 1\n0000000000 65535 f \n'
-            'trailer\n<< /Size 1 >>\n'
-            'startxref\n' +
-        xrefOffset.toString() +
-        '\n%%EOF\n';
+    final fixture =
+        '${body}xref\n0 1\n0000000000 65535 f \n'
+        'trailer\n<< /Size 1 >>\n'
+        'startxref\n$xrefOffset\n%%EOF\n';
     final file = await _writeFixture(tempDir, 'boundary.pdf', fixture);
 
     final result = await const CloudAwardPdfStructureProbe(
@@ -144,7 +141,7 @@ Future<File> _writeFixture(
   String name,
   String content,
 ) async {
-  final file = File(directory.path + '/' + name);
+  final file = File('${directory.path}/$name');
   await file.writeAsBytes(latin1.encode(content), flush: true);
   return file;
 }
@@ -158,34 +155,24 @@ String _classicFixture({
       '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n'
       '2 0 obj\n<< /Type /Pages /Count 77000 >>\nendobj\n'
       '3 0 obj\n<< /Length 10 /Filter /FlateDecode >>\n'
-      'stream\n' +
-      candidate +
-      '\nendstream\nendobj\n';
+      'stream\n$candidate\nendstream\nendobj\n';
   final xrefOffset = latin1.encode(body).length;
-  return body +
-      'xref\n0 4\n'
-          '0000000000 65535 f \n'
-          '0000000010 00000 n \n'
-          '0000000050 00000 n \n'
-          '0000000090 00000 n \n'
-          'trailer\n<< /Size 4 /Root 1 0 R ' +
-      trailerExtras +
-      ' >>\n'
-          'startxref\n' +
-      xrefOffset.toString() +
-      '\n%%EOF\n';
+  return '${body}xref\n0 4\n'
+      '0000000000 65535 f \n'
+      '0000000010 00000 n \n'
+      '0000000050 00000 n \n'
+      '0000000090 00000 n \n'
+      'trailer\n<< /Size 4 /Root 1 0 R $trailerExtras >>\n'
+      'startxref\n$xrefOffset\n%%EOF\n';
 }
 
 String _xrefStreamFixture() {
-  final body =
+  const body =
       '%PDF-1.7\n'
       '1 0 obj\n<< /Type /Catalog >>\nendobj\n';
   final xrefOffset = latin1.encode(body).length;
-  return body +
-      '5 0 obj\n'
-          '<< /Type /XRef /Length 0 /W [1 4 2] /Size 6 /Filter /FlateDecode >>\n'
-          'stream\n\nendstream\nendobj\n'
-          'startxref\n' +
-      xrefOffset.toString() +
-      '\n%%EOF\n';
+  return '${body}5 0 obj\n'
+      '<< /Type /XRef /Length 0 /W [1 4 2] /Size 6 /Filter /FlateDecode >>\n'
+      'stream\n\nendstream\nendobj\n'
+      'startxref\n$xrefOffset\n%%EOF\n';
 }
