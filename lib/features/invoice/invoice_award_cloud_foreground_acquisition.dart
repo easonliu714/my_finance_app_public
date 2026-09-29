@@ -13,6 +13,7 @@ import 'invoice_award_cloud_candidate_scope_repository.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_cloud_pdf_cache_repository.dart';
 import 'invoice_award_cloud_pdf_index.dart';
+import 'invoice_award_cloud_pdf_structure_probe.dart';
 import 'invoice_award_cloud_publication_parser.dart';
 
 enum CloudAwardForegroundStage {
@@ -391,12 +392,26 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
           if (artifact.sizeBytes >
               PdfiumCloudAwardSortedPdfCandidateLookup
                   .crashIsolatedPdfiumPdfBytes) {
+            final structure =
+                await const CloudAwardPdfStructureProbe().inspect(
+              file: artifact.file,
+              exactCandidateNumbers: normalizedCandidates,
+            );
+            if (structure.sha256.toLowerCase() !=
+                    artifact.sha256.toLowerCase() ||
+                structure.byteLength != artifact.sizeBytes) {
+              throw StateError(
+                'CLOUD_AWARD_PDF_STRUCTURE_SOURCE_MISMATCH',
+              );
+            }
             onProgress?.call(
               CloudAwardForegroundProgress(
                 stage: CloudAwardForegroundStage.extracting,
                 tierCode: reference.tierCode,
                 message: '大型 500 元獎 PDF 於隔離程序進行候選比對；'
                     '即使原生解析程序異常，主 App 仍會保留一般獎與既有結果。',
+                diagnosticMessage: '大型 PDF 結構：'
+                    '${structure.safeDiagnosticText(candidateCount: normalizedCandidates.length)}',
               ),
             );
           }

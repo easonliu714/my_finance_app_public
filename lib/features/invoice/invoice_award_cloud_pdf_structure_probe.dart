@@ -49,6 +49,27 @@ class CloudAwardPdfStructureProbeResult {
   final List<int> declaredPageCounts;
   final Set<String> rawVisibleCandidateNumbers;
   final int maxResidentScanWindowBytes;
+
+  /// Non-sensitive characterization summary safe to expose in diagnostics.
+  ///
+  /// Exact local candidate values are intentionally omitted; only the number
+  /// of raw-visible candidates is reported.
+  String safeDiagnosticText({required int candidateCount}) {
+    final filters = filterHistogram.isEmpty
+        ? 'none'
+        : filterHistogram.entries
+            .map((entry) => '${entry.key}:${entry.value}')
+            .join(',');
+    final pageCounts =
+        declaredPageCounts.isEmpty ? 'none' : declaredPageCounts.join(',');
+    return 'sha256=$sha256 bytes=$byteLength pdf=$pdfVersion '
+        'startxref=$startXrefOffset xref=${xrefTopology.name} '
+        'incremental=$hasIncrementalPreviousRevision '
+        'encrypted=$hasEncryptionMarker objstm=$objectStreamCount '
+        'streams=$streamCount filters=$filters page_counts=$pageCounts '
+        'raw_candidate_hits=${rawVisibleCandidateNumbers.length}/$candidateCount '
+        'window_bytes=$maxResidentScanWindowBytes';
+  }
 }
 
 /// Bounded raw-byte characterization for an already validated official PDF.

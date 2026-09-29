@@ -368,8 +368,12 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       }
       _cloudStatus = _cloudProgressText(progress);
       final diagnostic = progress.diagnosticMessage;
-      if (diagnostic != null && diagnostic.isNotEmpty) {
-        _cloudDiagnosticStatus = diagnostic;
+      if (diagnostic != null &&
+          diagnostic.isNotEmpty &&
+          !_cloudDiagnosticStatus.split('\n').contains(diagnostic)) {
+        _cloudDiagnosticStatus = _cloudDiagnosticStatus.isEmpty
+            ? diagnostic
+            : '$_cloudDiagnosticStatus\n$diagnostic';
       }
     });
   }

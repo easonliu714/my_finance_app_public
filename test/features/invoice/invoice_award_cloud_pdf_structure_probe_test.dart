@@ -45,6 +45,25 @@ void main() {
     expect(result.sha256, matches(RegExp(r'^[0-9a-f]{64}$')));
   });
 
+  test('safe diagnostic text never exposes exact candidate values', () async {
+    const candidate = 'BM23888900';
+    final file = await _writeFixture(
+      tempDir,
+      'diagnostic.pdf',
+      _classicFixture(candidate: candidate),
+    );
+
+    final result = await const CloudAwardPdfStructureProbe().inspect(
+      file: file,
+      exactCandidateNumbers: const <String>[candidate],
+    );
+    final diagnostic = result.safeDiagnosticText(candidateCount: 1);
+
+    expect(diagnostic, contains('raw_candidate_hits=1/1'));
+    expect(diagnostic, contains('sha256='));
+    expect(diagnostic, isNot(contains(candidate)));
+  });
+
   test('classifies xref stream without opening a document model', () async {
     final file = await _writeFixture(
       tempDir,

@@ -79,6 +79,8 @@ The probe:
 
 Synthetic tests cover classic xref, xref-stream, hybrid xref, invalid `startxref`, and a candidate token split across scan-chunk boundaries. Real official binary characterization is still required before stream decoding or candidate authority can be admitted.
 
+For >120 MiB cloud-500 artifacts, the foreground acquisition path now runs this bounded probe before launching the legacy isolated worker. The UI receives a selectable non-sensitive diagnostic summary containing source SHA/bytes/PDF version/startxref/xref topology/incremental+encryption flags/object-stream and stream counts/filter histogram/page-count markers/raw-visible candidate hit count/window bound. Exact candidate invoice numbers are never included. Probe SHA and byte length must match the already validated cached artifact or the tier fails closed with `CLOUD_AWARD_PDF_STRUCTURE_SOURCE_MISMATCH`.
+
 ## Current blocker
 
 The repository does not contain the owner-cached 115-05-06 / 115-07-08 official PDF binaries. Until at least the failing 115-07-08 exact PDF is supplied, xref/object-stream/filter/token representation is unknown and production parser selection remains HOLD.
