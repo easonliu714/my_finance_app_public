@@ -69,6 +69,22 @@ class CloudAwardPdfBoundedStreamDecoder {
       );
     }
 
+    // Dart's chunked zlib decoder can accept a truncated stream and close
+    // without throwing. Verify the same bounded bytes with the strict
+    // one-shot decoder first so incomplete/malformed Flate data can never be
+    // promoted as a valid empty or partial PDF content stream.
+    try {
+      ZLibDecoder().convert(bytes);
+    } on FormatException {
+      throw const CloudAwardPdfBoundedStreamDecodeException(
+        'CLOUD_AWARD_PDF_STREAM_MALFORMED_FLATE',
+      );
+    } catch (_) {
+      throw const CloudAwardPdfBoundedStreamDecodeException(
+        'CLOUD_AWARD_PDF_STREAM_DECODE_FAILED',
+      );
+    }
+
     final output = _BoundedDecodedByteSink(maxBytes: maxDecodedBytes);
     try {
       final input = ZLibDecoder().startChunkedConversion(output);
