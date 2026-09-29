@@ -62,6 +62,23 @@ When the two owner-cached official PDFs are available, characterize them without
 6. test exact candidate bytes in raw data; if absent, decode only individually admitted streams with bounded output and test the exact candidate set;
 7. retain deterministic evidence sufficient to map a hit to source SHA and byte/object/stream/page provenance.
 
+## Implemented bounded probe scaffold
+
+The branch now includes a production-safe diagnostic probe at
+`lib/features/invoice/invoice_award_cloud_pdf_structure_probe.dart` plus focused synthetic topology tests.
+
+The probe:
+
+- uses `RandomAccessFile` fixed-size windows/chunks and never calls PDFBox/Pdfium document open;
+- streams SHA-256 while scanning, so exact bytes can be bound to the characterization record;
+- validates `%PDF-`, terminal `%%EOF`, terminal `startxref`, and classifies classic xref / xref-stream / hybrid forms;
+- reports `/ObjStm`, stream, `/Filter`, `/Pages /Count`, `/Prev`, `/Encrypt`, and exact raw-visible local candidate evidence;
+- keeps memory bounded to the configured scan chunk plus overlap window;
+- fails closed on missing/invalid `startxref` and unsupported xref topology;
+- is diagnostic only and is not wired to cloud-award authority promotion.
+
+Synthetic tests cover classic xref, xref-stream, hybrid xref, invalid `startxref`, and a candidate token split across scan-chunk boundaries. Real official binary characterization is still required before stream decoding or candidate authority can be admitted.
+
 ## Current blocker
 
 The repository does not contain the owner-cached 115-05-06 / 115-07-08 official PDF binaries. Until at least the failing 115-07-08 exact PDF is supplied, xref/object-stream/filter/token representation is unknown and production parser selection remains HOLD.
