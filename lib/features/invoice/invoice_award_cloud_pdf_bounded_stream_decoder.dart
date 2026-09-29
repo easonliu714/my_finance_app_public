@@ -61,15 +61,17 @@ class CloudAwardPdfBoundedStreamDecoder {
 
     final filter = normalizedFilters.single;
     if (filter != 'FlateDecode' && filter != 'Fl') {
+      final normalizedFilterName = filter
+          .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')
+          .toUpperCase();
       throw CloudAwardPdfBoundedStreamDecodeException(
-        'CLOUD_AWARD_PDF_STREAM_UNSUPPORTED_FILTER_' +
-            filter.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_').toUpperCase(),
+        'CLOUD_AWARD_PDF_STREAM_UNSUPPORTED_FILTER_$normalizedFilterName',
       );
     }
 
     final output = _BoundedDecodedByteSink(maxBytes: maxDecodedBytes);
     try {
-      final input = const ZLibDecoder().startChunkedConversion(output);
+      final input = ZLibDecoder().startChunkedConversion(output);
       for (var offset = 0; offset < bytes.length; offset += inputChunkBytes) {
         final end = offset + inputChunkBytes < bytes.length
             ? offset + inputChunkBytes
