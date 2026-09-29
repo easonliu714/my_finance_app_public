@@ -280,6 +280,83 @@ void main() {
     expect(changedUniverse.first.missingTierCodes, contains('cloud-500'));
   });
 
+  test('owner-reported known 5-6 winner is candidate-only, never a shortcut',
+      () async {
+    final knownInvoice = <String>['BM', '23888900'].join();
+
+    final productionRoots = <Directory>[
+      Directory('lib'),
+      Directory('packages/flutter_pdf_text/android/src/main/kotlin'),
+    ];
+    for (final root in productionRoots) {
+      if (!root.existsSync()) continue;
+      for (final entity in root.listSync(recursive: true)) {
+        if (entity is! File) continue;
+        final extension = entity.path.split('.').last.toLowerCase();
+        if (!const <String>{'dart', 'kt', 'java'}.contains(extension)) continue;
+        expect(
+          entity.readAsStringSync(),
+          isNot(contains(knownInvoice)),
+          reason: 'known winner must never be hard-coded in production: '
+              '${entity.path}',
+        );
+      }
+    }
+
+    await addTier('cloud-1000000', const <String>['ZX00000001'], periodId: '115-05-06');
+    await addTier('cloud-2000', const <String>['ZX00000002'], periodId: '115-05-06');
+    await addTier('cloud-800', const <String>['ZX00000003'], periodId: '115-05-06');
+
+    CloudAwardCandidateScopedAuthority scoped({required bool matched}) =>
+        CloudAwardCandidateScopedAuthority(
+          periodId: '115-05-06',
+          tierCode: 'cloud-500',
+          officialSourceUri: Uri.parse(
+            'https://invoice.etax.nat.gov.tw/pdf/fixture_sorted_AI_D.pdf',
+          ),
+          pdfSha256: 'e' * 64,
+          candidateUniverseSha256: 'f' * 64,
+          candidateNumbers: <String>{knownInvoice},
+          matchedInvoiceNumbers:
+              matched ? <String>{knownInvoice} : const <String>{},
+        );
+
+    final knownCandidate = candidate(
+      invoiceNumber: knownInvoice,
+      awardPeriod: '115/06',
+    );
+
+    final noOfficialMatch = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[knownCandidate],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[
+        scoped(matched: false),
+      ],
+    ))
+        .single;
+
+    expect(
+      noOfficialMatch.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.notMatched,
+    );
+    expect(noOfficialMatch.selectedTierCode, isNull);
+    expect(noOfficialMatch.grossAmount, 0);
+
+    final officialMatch = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[knownCandidate],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[
+        scoped(matched: true),
+      ],
+    ))
+        .single;
+
+    expect(
+      officialMatch.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(officialMatch.selectedTierCode, 'cloud-500');
+    expect(officialMatch.grossAmount, 500);
+  });
+
   test('multiple tier hits select highest amount and force anomaly review',
       () async {
     await addAllTiers(
