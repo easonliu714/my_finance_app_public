@@ -81,6 +81,20 @@ Synthetic tests cover classic xref, xref-stream, hybrid xref, invalid `startxref
 
 For >120 MiB cloud-500 artifacts, the foreground acquisition path now runs this bounded probe before launching the legacy isolated worker. The UI receives a selectable non-sensitive diagnostic summary containing source SHA/bytes/PDF version/startxref/xref topology/incremental+encryption flags/object-stream and stream counts/filter histogram/page-count markers/raw-visible candidate hit count/window bound. Exact candidate invoice numbers are never included. Probe SHA and byte length must match the already validated cached artifact or the tier fails closed with `CLOUD_AWARD_PDF_STRUCTURE_SOURCE_MISMATCH`.
 
+## Bounded stream-decoder scaffold
+
+A second non-authority primitive is now defined for individually admitted PDF streams:
+
+- hard limit on compressed bytes per stream;
+- hard limit on decoded bytes per stream;
+- chunked zlib/Flate decoding rather than whole-document parsing;
+- only a single `FlateDecode` / `Fl` filter is admitted by the scaffold;
+- multi-filter chains and all other filters fail closed until exact official-binary characterization explicitly admits them;
+- malformed Flate and decompression expansion beyond the configured bound fail closed;
+- this decoder is not connected to award promotion or the >120 MiB worker yet.
+
+Deterministic tests cover raw pass-through, chunked Flate decode, the `Fl` abbreviation, unsupported filters, filter chains, compressed-byte limits, decompression-bomb limits, and malformed data.
+
 ## Current blocker
 
 The repository does not contain the owner-cached 115-05-06 / 115-07-08 official PDF binaries. Until at least the failing 115-07-08 exact PDF is supplied, xref/object-stream/filter/token representation is unknown and production parser selection remains HOLD.
