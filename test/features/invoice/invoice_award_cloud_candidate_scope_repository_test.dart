@@ -35,6 +35,9 @@ void main() {
   Future<CloudAwardCandidateScopedAuthority> authority({
     Set<String> candidates = const <String>{'AB12345678', 'CD87654321'},
     Set<String> matches = const <String>{'CD87654321'},
+    Map<String, int> matchedPages = const <String, int>{
+      'CD87654321': 42,
+    },
   }) async {
     return CloudAwardCandidateScopedAuthority(
       periodId: reference.periodId,
@@ -44,6 +47,7 @@ void main() {
       candidateUniverseSha256: await cloudCandidateUniverseSha256(candidates),
       candidateNumbers: candidates,
       matchedInvoiceNumbers: matches,
+      matchedPageNumbers: matchedPages,
     );
   }
 
@@ -58,6 +62,9 @@ void main() {
     );
 
     expect(promoted.matchedInvoiceNumbers, const <String>{'CD87654321'});
+    expect(promoted.matchedPageNumbers, const <String, int>{
+      'CD87654321': 42,
+    });
 
     final readBack = await repository.readValidated(
       reference: reference,
@@ -75,6 +82,9 @@ void main() {
       'CD87654321',
     });
     expect(readBack.matchedInvoiceNumbers, const <String>{'CD87654321'});
+    expect(readBack.matchedPageNumbers, const <String, int>{
+      'CD87654321': 42,
+    });
   });
 
   test('candidate set or PDF SHA change invalidates durable authority', () async {

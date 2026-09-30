@@ -19,6 +19,7 @@ class CloudAwardCandidateScopedAuthority {
     required this.candidateUniverseSha256,
     required this.candidateNumbers,
     required this.matchedInvoiceNumbers,
+    this.matchedPageNumbers = const <String, int>{},
   });
 
   final String periodId;
@@ -28,6 +29,7 @@ class CloudAwardCandidateScopedAuthority {
   final String candidateUniverseSha256;
   final Set<String> candidateNumbers;
   final Set<String> matchedInvoiceNumbers;
+  final Map<String, int> matchedPageNumbers;
 
   bool covers({
     required String periodId,

@@ -72,6 +72,23 @@ class CloudAwardCandidateScopeRepository {
               .toSet() ??
           const <String>{};
       final normalizedMatches = normalizeCloudCandidateNumbers(storedMatches);
+      final matchedPageNumbers = <String, int>{};
+      final matchedPageNumbersRaw = decoded['matchedPageNumbers'];
+      if (matchedPageNumbersRaw != null) {
+        if (matchedPageNumbersRaw is! Map<String, dynamic>) return null;
+        for (final entry in matchedPageNumbersRaw.entries) {
+          final normalizedKey =
+              normalizeCloudCandidateNumbers(<String>[entry.key]);
+          final pageNumber = (entry.value as num?)?.toInt() ?? 0;
+          if (normalizedKey.length != 1 ||
+              !normalizedMatches.contains(normalizedKey.single) ||
+              pageNumber <= 0 ||
+              matchedPageNumbers.containsKey(normalizedKey.single)) {
+            return null;
+          }
+          matchedPageNumbers[normalizedKey.single] = pageNumber;
+        }
+      }
       if (decoded['periodId'] != reference.periodId ||
           decoded['tierCode'] != reference.tierCode ||
           decoded['artifactId'] != reference.artifactId ||
@@ -91,6 +108,8 @@ class CloudAwardCandidateScopeRepository {
         candidateUniverseSha256: universeSha,
         candidateNumbers: normalized,
         matchedInvoiceNumbers: normalizedMatches,
+        matchedPageNumbers:
+            Map<String, int>.unmodifiable(matchedPageNumbers),
       );
     } catch (_) {
       return null;
@@ -120,7 +139,10 @@ class CloudAwardCandidateScopeRepository {
         authority.candidateUniverseSha256 != universeSha ||
         !_shaPattern.hasMatch(pdfSha) ||
         normalized.isEmpty ||
-        !normalized.containsAll(authority.matchedInvoiceNumbers)) {
+        !normalized.containsAll(authority.matchedInvoiceNumbers) ||
+        !authority.matchedInvoiceNumbers
+            .containsAll(authority.matchedPageNumbers.keys) ||
+        authority.matchedPageNumbers.values.any((page) => page <= 0)) {
       throw StateError('CLOUD_AWARD_CANDIDATE_AUTHORITY_MISMATCH');
     }
 
@@ -139,6 +161,10 @@ class CloudAwardCandidateScopeRepository {
       'pdfSha256': pdfSha,
       'candidateUniverseSha256': universeSha,
       'matchedInvoiceNumbers': authority.matchedInvoiceNumbers.toList()..sort(),
+      'matchedPageNumbers': <String, int>{
+        for (final key in (authority.matchedPageNumbers.keys.toList()..sort()))
+          key: authority.matchedPageNumbers[key]!,
+      },
       'verifiedAtUtc': verifiedAtUtc.toIso8601String(),
       'retentionUntilUtc': retentionUntilUtc?.toIso8601String(),
     };
@@ -165,7 +191,14 @@ class CloudAwardCandidateScopeRepository {
         readBack.matchedInvoiceNumbers.length !=
             authority.matchedInvoiceNumbers.length ||
         !readBack.matchedInvoiceNumbers
-            .containsAll(authority.matchedInvoiceNumbers)) {
+            .containsAll(authority.matchedInvoiceNumbers) ||
+        (authority.matchedPageNumbers.isNotEmpty &&
+            (readBack.matchedPageNumbers.length !=
+                    authority.matchedPageNumbers.length ||
+                authority.matchedPageNumbers.entries.any(
+                  (entry) =>
+                      readBack.matchedPageNumbers[entry.key] != entry.value,
+                )))) {
       throw StateError('CLOUD_AWARD_CANDIDATE_AUTHORITY_READBACK_MISMATCH');
     }
     return readBack;

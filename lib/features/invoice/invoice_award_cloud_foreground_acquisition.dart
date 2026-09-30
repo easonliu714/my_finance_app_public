@@ -442,6 +442,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
             candidateUniverseSha256: universeSha,
             candidateNumbers: normalizedCandidates,
             matchedInvoiceNumbers: candidateMatch.matchedInvoiceNumbers,
+            matchedPageNumbers: candidateMatch.matchedPageNumbers,
           );
           final persistedAuthority =
               await _candidateScopeRepository.promoteValidated(
