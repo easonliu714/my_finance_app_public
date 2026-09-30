@@ -83,6 +83,28 @@ void main() {
     expect(workerSource, contains('"PDFIUM_OPEN_BEGIN"'));
     expect(workerSource, contains('"PDFIUM_CANDIDATE_SEARCH"'));
     expect(workerSource, contains('"pdfium-random-access-candidate-search"'));
+    expect(workerSource, contains('MessageDigest.getInstance("SHA-256")'));
+    expect(workerSource, contains('"PDFIUM_SOURCE_SHA256"'));
+    expect(workerSource, contains('"PDFIUM_WORKER_SOURCE_SHA256_MISMATCH"'));
+    expect(
+      workerSource,
+      contains('"PDFIUM_WORKER_CANDIDATE_UNIVERSE_SHA256_MISMATCH"'),
+    );
+    expect(workerSource, contains('.put("source_sha256", actualSourceSha256)'));
+    expect(
+      workerSource,
+      contains(
+        '.put("candidate_universe_sha256", actualCandidateUniverseSha256)',
+      ),
+    );
+    expect(
+      candidateScope,
+      contains("'candidateUniverseSha256': expectedCandidateUniverseSha256"),
+    );
+    expect(
+      candidateScope,
+      contains("'CLOUD_AWARD_CANDIDATE_WORKER_PROVENANCE_MISMATCH'"),
+    );
     expect(
       RegExp(r'PDDocument\.load\s*\(').hasMatch(workerSource),
       isFalse,

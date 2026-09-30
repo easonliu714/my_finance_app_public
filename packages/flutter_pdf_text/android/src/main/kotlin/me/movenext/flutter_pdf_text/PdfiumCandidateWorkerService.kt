@@ -8,6 +8,7 @@ import io.legere.pdfiumandroid.PdfiumCore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 import kotlin.concurrent.thread
 
 /**
@@ -25,6 +26,10 @@ class PdfiumCandidateWorkerService : Service() {
   companion object {
     const val EXTRA_PDF_PATH = "pdf_path"
     const val EXTRA_CANDIDATES_JSON = "candidates_json"
+    const val EXTRA_EXPECTED_SOURCE_SHA256 = "expected_source_sha256"
+    const val EXTRA_EXPECTED_SOURCE_BYTES = "expected_source_bytes"
+    const val EXTRA_EXPECTED_CANDIDATE_UNIVERSE_SHA256 =
+      "expected_candidate_universe_sha256"
     const val EXTRA_RESULT_PATH = "result_path"
     const val EXTRA_REQUEST_ID = "request_id"
   }
@@ -45,11 +50,25 @@ class PdfiumCandidateWorkerService : Service() {
     }
     val pdfPath = intent.getStringExtra(EXTRA_PDF_PATH).orEmpty()
     val candidatesJson = intent.getStringExtra(EXTRA_CANDIDATES_JSON).orEmpty()
+    val expectedSourceSha256 =
+      intent.getStringExtra(EXTRA_EXPECTED_SOURCE_SHA256).orEmpty()
+    val expectedSourceBytes =
+      intent.getLongExtra(EXTRA_EXPECTED_SOURCE_BYTES, -1L)
+    val expectedCandidateUniverseSha256 =
+      intent.getStringExtra(EXTRA_EXPECTED_CANDIDATE_UNIVERSE_SHA256).orEmpty()
     val resultPath = intent.getStringExtra(EXTRA_RESULT_PATH).orEmpty()
     val requestId = intent.getStringExtra(EXTRA_REQUEST_ID).orEmpty()
     thread(start = true, name = "issue13-cloud500-worker") {
       try {
-        runLookup(pdfPath, candidatesJson, resultPath, requestId)
+        runLookup(
+          pdfPath,
+          candidatesJson,
+          expectedSourceSha256,
+          expectedSourceBytes,
+          expectedCandidateUniverseSha256,
+          resultPath,
+          requestId
+        )
       } catch (oom: OutOfMemoryError) {
         writeFailure(resultPath, requestId, "PDFIUM_WORKER_OOM")
       } catch (error: Throwable) {
@@ -68,26 +87,89 @@ class PdfiumCandidateWorkerService : Service() {
   private fun runLookup(
     pdfPath: String,
     candidatesJson: String,
+    expectedSourceSha256: String,
+    expectedSourceBytes: Long,
+    expectedCandidateUniverseSha256: String,
     resultPath: String,
     requestId: String
   ) {
     require(pdfPath.isNotBlank() && resultPath.isNotBlank() && requestId.isNotBlank())
+    val sha256Pattern = Regex("^[0-9a-fA-F]{64}$")
+    if (!sha256Pattern.matches(expectedSourceSha256) ||
+        !sha256Pattern.matches(expectedCandidateUniverseSha256) ||
+        expectedSourceBytes <= 0L) {
+      writeFailure(resultPath, requestId, "PDFIUM_WORKER_PROVENANCE_INPUT_INVALID")
+      return
+    }
+
     val source = File(pdfPath)
-    require(source.isFile)
+    if (!source.isFile) {
+      writeFailure(resultPath, requestId, "PDFIUM_WORKER_SOURCE_MISSING")
+      return
+    }
+    if (source.length() != expectedSourceBytes) {
+      writeFailure(resultPath, requestId, "PDFIUM_WORKER_SOURCE_BYTES_MISMATCH")
+      return
+    }
+
     val raw = JSONArray(candidatesJson)
     val candidates = (0 until raw.length())
       .map { raw.getString(it).replace(Regex("[\\s-]"), "").uppercase() }
       .filter { Regex("^[A-Z]{2}[0-9]{8}$").matches(it) }
       .distinct()
       .sorted()
-    require(candidates.size == raw.length())
+    if (candidates.size != raw.length()) {
+      writeFailure(resultPath, requestId, "PDFIUM_WORKER_CANDIDATE_SCOPE_INVALID")
+      return
+    }
+
+    val actualCandidateUniverseSha256 = sha256Bytes(
+      candidates.joinToString("\n").toByteArray(Charsets.UTF_8)
+    )
+    if (!actualCandidateUniverseSha256.equals(
+        expectedCandidateUniverseSha256,
+        ignoreCase = true
+      )) {
+      writeFailure(
+        resultPath,
+        requestId,
+        "PDFIUM_WORKER_CANDIDATE_UNIVERSE_SHA256_MISMATCH"
+      )
+      return
+    }
+
+    writeRunning(
+      resultPath = resultPath,
+      requestId = requestId,
+      stage = "PDFIUM_SOURCE_SHA256",
+      candidateIndex = 0,
+      candidateCount = candidates.size,
+      sourceBytesTotal = expectedSourceBytes
+    )
+    val actualSourceSha256 = sha256File(source) { bytesRead ->
+      writeRunning(
+        resultPath = resultPath,
+        requestId = requestId,
+        stage = "PDFIUM_SOURCE_SHA256",
+        candidateIndex = 0,
+        candidateCount = candidates.size,
+        sourceBytesRead = bytesRead,
+        sourceBytesTotal = expectedSourceBytes
+      )
+    }
+    if (!actualSourceSha256.equals(expectedSourceSha256, ignoreCase = true)) {
+      writeFailure(resultPath, requestId, "PDFIUM_WORKER_SOURCE_SHA256_MISMATCH")
+      return
+    }
 
     writeRunning(
       resultPath = resultPath,
       requestId = requestId,
       stage = "PDFIUM_OPEN_BEGIN",
       candidateIndex = 0,
-      candidateCount = candidates.size
+      candidateCount = candidates.size,
+      sourceBytesRead = expectedSourceBytes,
+      sourceBytesTotal = expectedSourceBytes
     )
 
     var descriptor: ParcelFileDescriptor? = null
@@ -193,6 +275,9 @@ class PdfiumCandidateWorkerService : Service() {
           .put("page_count", pageCount)
           .put("pages_read", pagesRead.size)
           .put("candidate_count", candidates.size)
+          .put("source_sha256", actualSourceSha256)
+          .put("source_bytes", source.length())
+          .put("candidate_universe_sha256", actualCandidateUniverseSha256)
           .put("matched", JSONArray(matched.toList()))
         writeAtomic(resultPath, payload.toString())
       }
@@ -225,7 +310,9 @@ class PdfiumCandidateWorkerService : Service() {
     candidateCount: Int,
     pageNumber: Int = 0,
     pageCount: Int = 0,
-    pagesRead: Int = 0
+    pagesRead: Int = 0,
+    sourceBytesRead: Long = 0L,
+    sourceBytesTotal: Long = 0L
   ) {
     val payload = JSONObject()
       .put("request_id", requestId)
@@ -237,8 +324,42 @@ class PdfiumCandidateWorkerService : Service() {
       .put("page_number", pageNumber)
       .put("page_count", pageCount)
       .put("pages_read", pagesRead)
+      .put("source_bytes_read", sourceBytesRead)
+      .put("source_bytes_total", sourceBytesTotal)
       .put("updated_at_ms", System.currentTimeMillis())
     writeAtomic(resultPath, payload.toString())
+  }
+
+  private fun sha256File(file: File, onProgress: (Long) -> Unit): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val buffer = ByteArray(64 * 1024)
+    var totalRead = 0L
+    var nextProgress = 8L * 1024L * 1024L
+    file.inputStream().buffered().use { input ->
+      while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        if (read == 0) continue
+        digest.update(buffer, 0, read)
+        totalRead += read
+        if (totalRead >= nextProgress) {
+          onProgress(totalRead)
+          nextProgress = totalRead + 8L * 1024L * 1024L
+        }
+      }
+    }
+    onProgress(totalRead)
+    return digest.digest().joinToString("") {
+      (it.toInt() and 0xff).toString(16).padStart(2, '0')
+    }
+  }
+
+  private fun sha256Bytes(bytes: ByteArray): String {
+    return MessageDigest.getInstance("SHA-256")
+      .digest(bytes)
+      .joinToString("") {
+        (it.toInt() and 0xff).toString(16).padStart(2, '0')
+      }
   }
 
   private fun writeFailure(resultPath: String, requestId: String, code: String) {

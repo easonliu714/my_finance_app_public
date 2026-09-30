@@ -77,7 +77,17 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val args = call.arguments as Map<*, *>
             val path = args["path"] as String
             val candidatesJson = args["candidatesJson"] as String
-            startPdfiumCandidateWorker(result, path, candidatesJson)
+            val sourceSha256 = args["sourceSha256"] as String
+            val sourceBytes = (args["sourceBytes"] as Number).toLong()
+            val candidateUniverseSha256 = args["candidateUniverseSha256"] as String
+            startPdfiumCandidateWorker(
+              result,
+              path,
+              candidatesJson,
+              sourceSha256,
+              sourceBytes,
+              candidateUniverseSha256
+            )
           }
           "openPdfiumSession" -> {
             val args = call.arguments as Map<*, *>
@@ -252,7 +262,10 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   private fun startPdfiumCandidateWorker(
     result: Result,
     path: String,
-    candidatesJson: String
+    candidatesJson: String,
+    sourceSha256: String,
+    sourceBytes: Long,
+    candidateUniverseSha256: String
   ) {
     try {
       val source = File(path)
@@ -270,6 +283,12 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       val intent = Intent(applicationContext, PdfiumCandidateWorkerService::class.java)
         .putExtra(PdfiumCandidateWorkerService.EXTRA_PDF_PATH, source.absolutePath)
         .putExtra(PdfiumCandidateWorkerService.EXTRA_CANDIDATES_JSON, candidatesJson)
+        .putExtra(PdfiumCandidateWorkerService.EXTRA_EXPECTED_SOURCE_SHA256, sourceSha256)
+        .putExtra(PdfiumCandidateWorkerService.EXTRA_EXPECTED_SOURCE_BYTES, sourceBytes)
+        .putExtra(
+          PdfiumCandidateWorkerService.EXTRA_EXPECTED_CANDIDATE_UNIVERSE_SHA256,
+          candidateUniverseSha256
+        )
         .putExtra(PdfiumCandidateWorkerService.EXTRA_RESULT_PATH, resultFile.absolutePath)
         .putExtra(PdfiumCandidateWorkerService.EXTRA_REQUEST_ID, requestId)
       applicationContext.startService(intent)

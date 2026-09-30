@@ -360,11 +360,16 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     CloudAwardCandidateLookupCancellation? cancellation,
   }) async {
     cancellation?.throwIfCancelled();
+    final expectedCandidateUniverseSha256 =
+        await cloudCandidateUniverseSha256(candidates);
     final started = await _channel.invokeMapMethod<String, Object?>(
       'startPdfiumCandidateWorker',
       <String, Object?>{
         'path': artifact.file.path,
         'candidatesJson': jsonEncode(candidates),
+        'sourceSha256': artifact.sha256,
+        'sourceBytes': artifact.sizeBytes,
+        'candidateUniverseSha256': expectedCandidateUniverseSha256,
       },
     );
     final requestId = started?['requestId']?.toString() ?? '';
@@ -438,12 +443,28 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;
           final candidateCount =
               (decoded['candidate_count'] as num?)?.toInt() ?? -1;
+          final sourceSha256 =
+              decoded['source_sha256']?.toString().toLowerCase() ?? '';
+          final sourceBytes =
+              (decoded['source_bytes'] as num?)?.toInt() ?? -1;
+          final candidateUniverseSha256 =
+              decoded['candidate_universe_sha256']
+                      ?.toString()
+                      .toLowerCase() ??
+                  '';
           final matchedRaw = decoded['matched'];
           if (pageCount <= 0 ||
               pagesRead < 0 ||
               candidateCount != candidates.length ||
               matchedRaw is! List<dynamic>) {
             throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID');
+          }
+          if (sourceSha256 != artifact.sha256.toLowerCase() ||
+              sourceBytes != artifact.sizeBytes ||
+              candidateUniverseSha256 != expectedCandidateUniverseSha256) {
+            throw StateError(
+              'CLOUD_AWARD_CANDIDATE_WORKER_PROVENANCE_MISMATCH',
+            );
           }
           final matched = normalizeCloudCandidateNumbers(
             matchedRaw.map((value) => value.toString()),
