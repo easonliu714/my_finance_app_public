@@ -54,7 +54,9 @@ class CloudAwardCandidateScopeRepository {
           if (normalizedKey.length != 1 ||
               !normalizedMatches.contains(normalizedKey.single) ||
               pageNumber <= 0 ||
-              matchedPageNumbers.containsKey(normalizedKey.single)) return null;
+              matchedPageNumbers.containsKey(normalizedKey.single)) {
+            return null;
+          }
           matchedPageNumbers[normalizedKey.single] = pageNumber;
         }
       }
@@ -67,7 +69,9 @@ class CloudAwardCandidateScopeRepository {
           normalizedMatches.length != storedMatches.length ||
           !normalized.containsAll(normalizedMatches) ||
           matchedPageNumbers.length != normalizedMatches.length ||
-          !matchedPageNumbers.keys.toSet().containsAll(normalizedMatches)) return null;
+          !matchedPageNumbers.keys.toSet().containsAll(normalizedMatches)) {
+        return null;
+      }
 
       return CloudAwardCandidateScopedAuthority(
         periodId: reference.periodId,
