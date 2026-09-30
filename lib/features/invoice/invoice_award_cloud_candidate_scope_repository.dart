@@ -9,13 +9,10 @@ import 'invoice_award_cloud_publication_parser.dart';
 typedef CloudAwardCandidateScopeDirectoryProvider = Future<Directory> Function();
 
 class CloudAwardCandidateScopeRepository {
-  CloudAwardCandidateScopeRepository({
-    CloudAwardCandidateScopeDirectoryProvider? rootDirectoryProvider,
-  }) : _rootDirectoryProvider =
-            rootDirectoryProvider ?? getApplicationSupportDirectory;
+  CloudAwardCandidateScopeRepository({CloudAwardCandidateScopeDirectoryProvider? rootDirectoryProvider})
+      : _rootDirectoryProvider = rootDirectoryProvider ?? getApplicationSupportDirectory;
 
   static const int schemaVersion = 1;
-
   final CloudAwardCandidateScopeDirectoryProvider _rootDirectoryProvider;
 
   Future<CloudAwardCandidateScopedAuthority?> readValidated({
@@ -24,68 +21,40 @@ class CloudAwardCandidateScopeRepository {
     required Iterable<String> candidateInvoiceNumbers,
     DateTime? nowUtc,
   }) async {
-    if (!reference.isApprovedOfficialSource ||
-        reference.tierCode != 'cloud-500') {
-      return null;
-    }
+    if (!reference.isApprovedOfficialSource || reference.tierCode != 'cloud-500') return null;
     final normalized = normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
     if (normalized.isEmpty) return null;
     final universeSha = await cloudCandidateUniverseSha256(normalized);
     final pdfSha = pdfSha256.toLowerCase();
     if (!_shaPattern.hasMatch(pdfSha)) return null;
-
-    final file = await _manifestFile(
-      reference: reference,
-      pdfSha256: pdfSha,
-      candidateUniverseSha256: universeSha,
-    );
+    final file = await _manifestFile(reference: reference, pdfSha256: pdfSha, candidateUniverseSha256: universeSha);
     if (!await file.exists()) return null;
 
     try {
       final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map<String, dynamic> ||
-          decoded['schemaVersion'] != schemaVersion) {
-        return null;
-      }
-      final verifiedAt =
-          DateTime.tryParse(decoded['verifiedAtUtc']?.toString() ?? '')?.toUtc();
+      if (decoded is! Map<String, dynamic> || decoded['schemaVersion'] != schemaVersion) return null;
+      final verifiedAt = DateTime.tryParse(decoded['verifiedAtUtc']?.toString() ?? '')?.toUtc();
       if (verifiedAt == null) return null;
       final retentionRaw = decoded['retentionUntilUtc']?.toString();
-      final retention = retentionRaw == null || retentionRaw.isEmpty
-          ? null
-          : DateTime.tryParse(retentionRaw)?.toUtc();
-      if (retentionRaw != null &&
-          retentionRaw.isNotEmpty &&
-          retention == null) {
-        return null;
-      }
+      final retention = retentionRaw == null || retentionRaw.isEmpty ? null : DateTime.tryParse(retentionRaw)?.toUtc();
+      if (retentionRaw != null && retentionRaw.isNotEmpty && retention == null) return null;
       final effectiveNow = nowUtc?.toUtc();
-      if (retention != null &&
-          effectiveNow != null &&
-          effectiveNow.isAfter(retention)) {
-        return null;
-      }
+      if (retention != null && effectiveNow != null && effectiveNow.isAfter(retention)) return null;
 
       final source = Uri.tryParse(decoded['officialSourceUri']?.toString() ?? '');
-      final storedMatches = (decoded['matchedInvoiceNumbers'] as List<dynamic>?)
-              ?.map((item) => item.toString())
-              .toSet() ??
-          const <String>{};
+      final storedMatches = (decoded['matchedInvoiceNumbers'] as List<dynamic>?)?.map((item) => item.toString()).toSet() ?? const <String>{};
       final normalizedMatches = normalizeCloudCandidateNumbers(storedMatches);
       final matchedPageNumbers = <String, int>{};
       final matchedPageNumbersRaw = decoded['matchedPageNumbers'];
       if (matchedPageNumbersRaw != null) {
         if (matchedPageNumbersRaw is! Map<String, dynamic>) return null;
         for (final entry in matchedPageNumbersRaw.entries) {
-          final normalizedKey =
-              normalizeCloudCandidateNumbers(<String>[entry.key]);
+          final normalizedKey = normalizeCloudCandidateNumbers(<String>[entry.key]);
           final pageNumber = (entry.value as num?)?.toInt() ?? 0;
           if (normalizedKey.length != 1 ||
               !normalizedMatches.contains(normalizedKey.single) ||
               pageNumber <= 0 ||
-              matchedPageNumbers.containsKey(normalizedKey.single)) {
-            return null;
-          }
+              matchedPageNumbers.containsKey(normalizedKey.single)) return null;
           matchedPageNumbers[normalizedKey.single] = pageNumber;
         }
       }
@@ -96,9 +65,9 @@ class CloudAwardCandidateScopeRepository {
           decoded['pdfSha256']?.toString().toLowerCase() != pdfSha ||
           decoded['candidateUniverseSha256'] != universeSha ||
           normalizedMatches.length != storedMatches.length ||
-          !normalized.containsAll(normalizedMatches)) {
-        return null;
-      }
+          !normalized.containsAll(normalizedMatches) ||
+          matchedPageNumbers.length != normalizedMatches.length ||
+          !matchedPageNumbers.keys.toSet().containsAll(normalizedMatches)) return null;
 
       return CloudAwardCandidateScopedAuthority(
         periodId: reference.periodId,
@@ -108,8 +77,7 @@ class CloudAwardCandidateScopeRepository {
         candidateUniverseSha256: universeSha,
         candidateNumbers: normalized,
         matchedInvoiceNumbers: normalizedMatches,
-        matchedPageNumbers:
-            Map<String, int>.unmodifiable(matchedPageNumbers),
+        matchedPageNumbers: Map<String, int>.unmodifiable(matchedPageNumbers),
       );
     } catch (_) {
       return null;
@@ -140,17 +108,13 @@ class CloudAwardCandidateScopeRepository {
         !_shaPattern.hasMatch(pdfSha) ||
         normalized.isEmpty ||
         !normalized.containsAll(authority.matchedInvoiceNumbers) ||
-        !authority.matchedInvoiceNumbers
-            .containsAll(authority.matchedPageNumbers.keys) ||
+        authority.matchedPageNumbers.length != authority.matchedInvoiceNumbers.length ||
+        !authority.matchedPageNumbers.keys.toSet().containsAll(authority.matchedInvoiceNumbers) ||
         authority.matchedPageNumbers.values.any((page) => page <= 0)) {
       throw StateError('CLOUD_AWARD_CANDIDATE_AUTHORITY_MISMATCH');
     }
 
-    final file = await _manifestFile(
-      reference: reference,
-      pdfSha256: pdfSha,
-      candidateUniverseSha256: universeSha,
-    );
+    final file = await _manifestFile(reference: reference, pdfSha256: pdfSha, candidateUniverseSha256: universeSha);
     await file.parent.create(recursive: true);
     final payload = <String, Object?>{
       'schemaVersion': schemaVersion,
@@ -161,17 +125,11 @@ class CloudAwardCandidateScopeRepository {
       'pdfSha256': pdfSha,
       'candidateUniverseSha256': universeSha,
       'matchedInvoiceNumbers': authority.matchedInvoiceNumbers.toList()..sort(),
-      'matchedPageNumbers': <String, int>{
-        for (final key in (authority.matchedPageNumbers.keys.toList()..sort()))
-          key: authority.matchedPageNumbers[key]!,
-      },
+      'matchedPageNumbers': <String, int>{for (final key in (authority.matchedPageNumbers.keys.toList()..sort())) key: authority.matchedPageNumbers[key]!},
       'verifiedAtUtc': verifiedAtUtc.toIso8601String(),
       'retentionUntilUtc': retentionUntilUtc?.toIso8601String(),
     };
-
-    final temp = File(
-      '${file.path}.candidate-${DateTime.now().microsecondsSinceEpoch}',
-    );
+    final temp = File('${file.path}.candidate-${DateTime.now().microsecondsSinceEpoch}');
     try {
       await temp.writeAsString(jsonEncode(payload), flush: true);
       await temp.rename(file.path);
@@ -188,26 +146,17 @@ class CloudAwardCandidateScopeRepository {
     );
     if (readBack == null ||
         readBack.candidateUniverseSha256 != universeSha ||
-        readBack.matchedInvoiceNumbers.length !=
-            authority.matchedInvoiceNumbers.length ||
-        !readBack.matchedInvoiceNumbers
-            .containsAll(authority.matchedInvoiceNumbers) ||
-        (authority.matchedPageNumbers.isNotEmpty &&
-            (readBack.matchedPageNumbers.length !=
-                    authority.matchedPageNumbers.length ||
-                authority.matchedPageNumbers.entries.any(
-                  (entry) =>
-                      readBack.matchedPageNumbers[entry.key] != entry.value,
-                )))) {
+        readBack.matchedInvoiceNumbers.length != authority.matchedInvoiceNumbers.length ||
+        !readBack.matchedInvoiceNumbers.containsAll(authority.matchedInvoiceNumbers) ||
+        readBack.matchedPageNumbers.length != authority.matchedPageNumbers.length ||
+        authority.matchedPageNumbers.entries.any((entry) => readBack.matchedPageNumbers[entry.key] != entry.value)) {
       throw StateError('CLOUD_AWARD_CANDIDATE_AUTHORITY_READBACK_MISMATCH');
     }
     return readBack;
   }
 
   Future<int> pruneExpired({required DateTime nowUtc}) async {
-    if (!nowUtc.isUtc) {
-      throw StateError('CLOUD_AWARD_CANDIDATE_AUTHORITY_PRUNE_TIME_NOT_UTC');
-    }
+    if (!nowUtc.isUtc) throw StateError('CLOUD_AWARD_CANDIDATE_AUTHORITY_PRUNE_TIME_NOT_UTC');
     final root = await _root();
     if (!await root.exists()) return 0;
     var removed = 0;
@@ -238,19 +187,12 @@ class CloudAwardCandidateScopeRepository {
     final root = await _root();
     final safePeriod = reference.periodId.replaceAll(RegExp(r'[^0-9-]'), '_');
     final safeTier = reference.tierCode.replaceAll(RegExp(r'[^a-z0-9-]'), '_');
-    return File(
-      '${root.path}${Platform.pathSeparator}$safePeriod'
-      '${Platform.pathSeparator}$safeTier'
-      '${Platform.pathSeparator}$pdfSha256-$candidateUniverseSha256.json',
-    );
+    return File('${root.path}${Platform.pathSeparator}$safePeriod${Platform.pathSeparator}$safeTier${Platform.pathSeparator}$pdfSha256-$candidateUniverseSha256.json');
   }
 
   Future<Directory> _root() async {
     final support = await _rootDirectoryProvider();
-    return Directory(
-      '${support.path}${Platform.pathSeparator}invoice_award'
-      '${Platform.pathSeparator}cloud_candidate_scope',
-    );
+    return Directory('${support.path}${Platform.pathSeparator}invoice_award${Platform.pathSeparator}cloud_candidate_scope');
   }
 
   static final RegExp _shaPattern = RegExp(r'^[0-9a-f]{64}$');
