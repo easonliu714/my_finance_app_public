@@ -6,11 +6,14 @@ void main() {
   const packageRoot = 'packages/flutter_pdf_text';
   const pluginSourcePath =
       '$packageRoot/android/src/main/kotlin/me/movenext/flutter_pdf_text/PdfTextPlugin.kt';
+  const workerSourcePath =
+      '$packageRoot/android/src/main/kotlin/me/movenext/flutter_pdf_text/PdfiumCandidateWorkerService.kt';
 
-  test('vendored flutter_pdf_text uses temp-file-backed PDFBox policy', () {
+  test('vendored flutter_pdf_text keeps bounded large-PDF policies', () {
     final packagePubspec = File('$packageRoot/pubspec.yaml').readAsStringSync();
     final license = File('$packageRoot/LICENSE').readAsStringSync();
     final pluginSource = File(pluginSourcePath).readAsStringSync();
+    final workerSource = File(workerSourcePath).readAsStringSync();
     final appPubspec = File('pubspec.yaml').readAsStringSync();
     final appExtractor = File(
       'lib/features/invoice/invoice_award_cloud_pdf_index.dart',
@@ -70,6 +73,20 @@ void main() {
     expect(candidateScope, contains("'openPdfiumSession'"));
     expect(candidateScope, contains('while (low <= high)'));
     expect(candidateScope, contains('candidateUniverseSha256'));
+
+    // >120 MiB authority must never regress to PDFBox whole-document open.
+    expect(workerSource, contains('PdfiumCore(applicationContext)'));
+    expect(workerSource, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(workerSource, contains('pdfiumCore.newDocument(descriptor)'));
+    expect(workerSource, contains('document.openPage(pageNumber - 1)'));
+    expect(workerSource, contains('page.openTextPage()'));
+    expect(workerSource, contains('"PDFIUM_OPEN_BEGIN"'));
+    expect(workerSource, contains('"PDFIUM_CANDIDATE_SEARCH"'));
+    expect(workerSource, contains('"pdfium-random-access-candidate-search"'));
+    expect(workerSource, isNot(contains('PDDocument.load')));
+    expect(workerSource, isNot(contains('PDFTextStripper')));
+    expect(workerSource, isNot(contains('MemoryUsageSetting')));
+
     expect(appExtractor, contains('if (Platform.isAndroid)'));
     expect(appExtractor, contains("'openDocSession'"));
     expect(appExtractor, contains("'getDocSessionPageText'"));
