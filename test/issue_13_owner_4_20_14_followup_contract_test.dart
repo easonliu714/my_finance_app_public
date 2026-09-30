@@ -31,13 +31,20 @@ void main() {
     expect(page, contains('_formatCandidateDate(candidate.invoiceDate)'));
     expect(candidateRepo, contains('transaction.currency.code'));
 
-    // The >120 MiB cloud-500 path uses a fresh process, disk-backed PDF
-    // scratch, and exact candidate-only page search rather than full indexing.
-    expect(worker, contains('MemoryUsageSetting.setupTempFileOnly()'));
-    expect(worker, contains('PDDocument.load(source, "", memoryUsage)'));
-    expect(worker, contains('PDFTextStripper()'));
-    expect(worker, contains('pdfbox-tempfile-candidate-search'));
-    expect(worker, isNot(contains('PdfiumCore(applicationContext)')));
+    // The >120 MiB cloud-500 path uses a fresh process plus native PDFium
+    // random-access candidate-only page search rather than PDFBox whole-
+    // document object-graph loading or full indexing.
+    expect(worker, contains('PdfiumCore(applicationContext)'));
+    expect(worker, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(worker, contains('pdfiumCore.newDocument(descriptor)'));
+    expect(worker, contains('document.openPage(pageNumber - 1)'));
+    expect(worker, contains('page.openTextPage()'));
+    expect(worker, contains('pdfium-random-access-candidate-search'));
+    expect(
+      RegExp(r'PDDocument\.load\s*\(').hasMatch(worker),
+      isFalse,
+    );
+    expect(worker, isNot(contains('PDFTextStripper()')));
     expect(scope, contains("status == 'running'"));
     expect(scope, contains('CLOUD_AWARD_CANDIDATE_WORKER_TIMEOUT_'));
   });
