@@ -69,21 +69,7 @@ class CloudAwardPdfBoundedStreamDecoder {
       );
     }
 
-    // Dart's chunked zlib decoder can accept a truncated stream and close
-    // without throwing. Verify the same bounded bytes with the strict
-    // one-shot decoder first so incomplete/malformed Flate data can never be
-    // promoted as a valid empty or partial PDF content stream.
-    try {
-      ZLibDecoder().convert(bytes);
-    } on FormatException {
-      throw const CloudAwardPdfBoundedStreamDecodeException(
-        'CLOUD_AWARD_PDF_STREAM_MALFORMED_FLATE',
-      );
-    } catch (_) {
-      throw const CloudAwardPdfBoundedStreamDecodeException(
-        'CLOUD_AWARD_PDF_STREAM_DECODE_FAILED',
-      );
-    }
+    _validateZlibHeader(bytes);
 
     final output = _BoundedDecodedByteSink(maxBytes: maxDecodedBytes);
     try {
@@ -95,7 +81,10 @@ class CloudAwardPdfBoundedStreamDecoder {
         input.add(bytes.sublist(offset, end));
       }
       input.close();
-      return output.takeBytes();
+
+      final decoded = output.takeBytes();
+      _validateAdler32(bytes: bytes, decoded: decoded);
+      return decoded;
     } on CloudAwardPdfBoundedStreamDecodeException {
       rethrow;
     } on FormatException {
@@ -107,6 +96,68 @@ class CloudAwardPdfBoundedStreamDecoder {
         'CLOUD_AWARD_PDF_STREAM_DECODE_FAILED',
       );
     }
+  }
+
+  void _validateZlibHeader(List<int> bytes) {
+    // RFC 1950 requires CMF + FLG + at least a four-byte Adler-32 trailer.
+    // Rejecting an incomplete envelope before decoding prevents Dart's
+    // permissive chunked decoder from accepting a truncated stream.
+    if (bytes.length < 6) {
+      throw const CloudAwardPdfBoundedStreamDecodeException(
+        'CLOUD_AWARD_PDF_STREAM_MALFORMED_FLATE',
+      );
+    }
+
+    final cmf = bytes[0];
+    final flg = bytes[1];
+    final compressionMethod = cmf & 0x0f;
+    final compressionInfo = cmf >> 4;
+    final header = (cmf << 8) | flg;
+
+    if (compressionMethod != 8 ||
+        compressionInfo > 7 ||
+        header % 31 != 0) {
+      throw const CloudAwardPdfBoundedStreamDecodeException(
+        'CLOUD_AWARD_PDF_STREAM_MALFORMED_FLATE',
+      );
+    }
+
+    if ((flg & 0x20) != 0) {
+      throw const CloudAwardPdfBoundedStreamDecodeException(
+        'CLOUD_AWARD_PDF_STREAM_UNSUPPORTED_ZLIB_DICTIONARY',
+      );
+    }
+  }
+
+  void _validateAdler32({
+    required List<int> bytes,
+    required Uint8List decoded,
+  }) {
+    final trailerOffset = bytes.length - 4;
+    final expected = (bytes[trailerOffset] << 24) |
+        (bytes[trailerOffset + 1] << 16) |
+        (bytes[trailerOffset + 2] << 8) |
+        bytes[trailerOffset + 3];
+    final actual = _adler32(decoded);
+
+    if (actual != expected) {
+      throw const CloudAwardPdfBoundedStreamDecodeException(
+        'CLOUD_AWARD_PDF_STREAM_MALFORMED_FLATE',
+      );
+    }
+  }
+
+  int _adler32(List<int> bytes) {
+    const modulus = 65521;
+    var a = 1;
+    var b = 0;
+
+    for (final value in bytes) {
+      a = (a + value) % modulus;
+      b = (b + a) % modulus;
+    }
+
+    return (b << 16) | a;
   }
 }
 
