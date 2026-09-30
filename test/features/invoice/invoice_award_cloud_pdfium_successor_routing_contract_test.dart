@@ -35,6 +35,30 @@ void main() {
       contains('matchedPageNumbers: candidateMatch.matchedPageNumbers'),
     );
 
+    // Cloud-500 must terminate its exact-candidate branch after authority is
+    // persisted. It must never fall through to the generic index builder, whose
+    // extractor is the historical PDFBox whole-document path for other tiers.
+    final cloud500Branch = source.indexOf(
+      "if (reference.tierCode == 'cloud-500' &&\n            normalizedCandidates.isNotEmpty)",
+    );
+    final candidateLookup = source.indexOf(
+      'final candidateMatch = await _sortedCandidateLookup.findMatches(',
+      cloud500Branch,
+    );
+    final genericIndexBuilder = source.indexOf(
+      'final build = await _indexBuilder.buildCandidate(',
+      candidateLookup,
+    );
+    final branchContinue = source.lastIndexOf(
+      'continue;',
+      genericIndexBuilder,
+    );
+    expect(cloud500Branch, greaterThanOrEqualTo(0));
+    expect(candidateLookup, greaterThan(cloud500Branch));
+    expect(genericIndexBuilder, greaterThan(candidateLookup));
+    expect(branchContinue, greaterThan(candidateLookup));
+    expect(branchContinue, lessThan(genericIndexBuilder));
+
     // The foreground service must not itself contain a PDFBox whole-document
     // open primitive. Native PDFium owns the >120 MiB candidate search.
     expect(source, isNot(contains('PDDocument.load')));
