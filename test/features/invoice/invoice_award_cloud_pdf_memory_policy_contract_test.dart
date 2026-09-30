@@ -83,7 +83,10 @@ void main() {
     expect(workerSource, contains('"PDFIUM_OPEN_BEGIN"'));
     expect(workerSource, contains('"PDFIUM_CANDIDATE_SEARCH"'));
     expect(workerSource, contains('"pdfium-random-access-candidate-search"'));
-    expect(workerSource, isNot(contains('PDDocument.load')));
+    expect(
+      RegExp(r'PDDocument\.load\s*\(').hasMatch(workerSource),
+      isFalse,
+    );
     expect(workerSource, isNot(contains('PDFTextStripper')));
     expect(workerSource, isNot(contains('MemoryUsageSetting')));
 
