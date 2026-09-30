@@ -18,6 +18,9 @@ void main() {
     final appExtractor = File(
       'lib/features/invoice/invoice_award_cloud_pdf_index.dart',
     ).readAsStringSync();
+    final foregroundAcquisition = File(
+      'lib/features/invoice/invoice_award_cloud_foreground_acquisition.dart',
+    ).readAsStringSync();
     final androidBuild = File(
       'packages/flutter_pdf_text/android/build.gradle',
     ).readAsStringSync();
@@ -118,6 +121,31 @@ void main() {
     );
     expect(workerSource, isNot(contains('PDFTextStripper')));
     expect(workerSource, isNot(contains('MemoryUsageSetting')));
+
+    // Production foreground cloud-500 routing must default to the PDFium
+    // exact-candidate lookup and carry its page evidence into durable authority.
+    expect(
+      foregroundAcquisition,
+      contains(
+        'sortedCandidateLookup ?? const PdfiumCloudAwardSortedPdfCandidateLookup()',
+      ),
+    );
+    expect(
+      foregroundAcquisition,
+      contains("reference.tierCode == 'cloud-500' &&"),
+    );
+    expect(
+      foregroundAcquisition,
+      contains('final candidateMatch = await _sortedCandidateLookup.findMatches('),
+    );
+    expect(
+      foregroundAcquisition,
+      contains('matchedPageNumbers: candidateMatch.matchedPageNumbers'),
+    );
+    expect(
+      foregroundAcquisition,
+      contains('candidateUniverseSha256: universeSha'),
+    );
 
     expect(appExtractor, contains('if (Platform.isAndroid)'));
     expect(appExtractor, contains("'openDocSession'"));
