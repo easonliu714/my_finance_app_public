@@ -64,4 +64,45 @@ void main() {
     expect(source, isNot(contains('PDDocument.load')));
     expect(source, isNot(contains('PDFTextStripper')));
   });
+
+  test('cloud-500 native worker keeps exact-candidate authority bounded and provenance-bearing', () {
+    final worker = File(
+      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PdfiumCandidateWorkerService.kt',
+    ).readAsStringSync();
+
+    // Regression guard for the 128.9 MiB failure mode: the isolated worker may
+    // open the official PDF only through random-access PDFium. An executable
+    // PDFBox whole-document load must never return to this production path.
+    expect(worker, contains('ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)'));
+    expect(worker, contains('pdfiumCore.newDocument(descriptor)'));
+    expect(worker, isNot(matches(RegExp(r'PDDocument\s*\.\s*load\s*\('))));
+
+    // Candidate scope stays local and exact. The worker normalizes only the
+    // supplied candidate universe and never constructs a full-document index.
+    expect(worker, contains('JSONArray(candidatesJson)'));
+    expect(worker, contains('Regex("^[A-Z]{2}[0-9]{8}\$")'));
+    expect(worker, contains('candidates.forEachIndexed'));
+    expect(worker, contains('var low = 1'));
+    expect(worker, contains('var high = pageCount'));
+    expect(worker, contains('val middle = low + ((high - low) ushr 1)'));
+
+    // Promotion evidence must independently bind source bytes/SHA, candidate
+    // universe SHA and the page on which every positive match was observed.
+    expect(worker, contains('actualSourceSha256'));
+    expect(worker, contains('actualCandidateUniverseSha256'));
+    expect(worker, contains('matchedPages[candidate] = middle'));
+    expect(worker, contains('.put("source_sha256", actualSourceSha256)'));
+    expect(worker, contains('.put("source_bytes", source.length())'));
+    expect(worker, contains('.put("candidate_universe_sha256", actualCandidateUniverseSha256)'));
+    expect(worker, contains('.put("matched_pages", matchedPagesJson)'));
+
+    // Long source verification and page search remain observable; a killed or
+    // partial worker cannot silently promote authority.
+    expect(worker, contains('stage = "PDFIUM_SOURCE_SHA256"'));
+    expect(worker, contains('stage = "PDFIUM_OPEN_BEGIN"'));
+    expect(worker, contains('stage = "PDFIUM_PAGE_BEGIN"'));
+    expect(worker, contains('stage = "PDFIUM_CANDIDATE_SEARCH"'));
+    expect(worker, contains('.put("status", "complete")'));
+    expect(worker, contains('.put("status", "failed")'));
+  });
 }
