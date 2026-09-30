@@ -10,12 +10,8 @@ void main() {
   late CloudAwardCandidateScopeRepository repository;
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp(
-      'cloud_candidate_scope_repo_',
-    );
-    repository = CloudAwardCandidateScopeRepository(
-      rootDirectoryProvider: () async => tempDir,
-    );
+    tempDir = await Directory.systemTemp.createTemp('cloud_candidate_scope_repo_');
+    repository = CloudAwardCandidateScopeRepository(rootDirectoryProvider: () async => tempDir);
   });
 
   tearDown(() async {
@@ -24,10 +20,7 @@ void main() {
 
   final reference = OfficialCloudAwardArtifactReference(
     artifactId: '20260506_20260725124620_sorted_AI_D.pdf',
-    sourceUri: Uri.parse(
-      'https://invoice.etax.nat.gov.tw/pdf/'
-      '20260506_20260725124620_sorted_AI_D.pdf',
-    ),
+    sourceUri: Uri.parse('https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124620_sorted_AI_D.pdf'),
     periodId: '115-05-06',
     tierCode: 'cloud-500',
   );
@@ -35,24 +28,19 @@ void main() {
   Future<CloudAwardCandidateScopedAuthority> authority({
     Set<String> candidates = const <String>{'AB12345678', 'CD87654321'},
     Set<String> matches = const <String>{'CD87654321'},
-    Map<String, int> matchedPages = const <String, int>{
-      'CD87654321': 42,
-    },
-  }) async {
-    return CloudAwardCandidateScopedAuthority(
-      periodId: reference.periodId,
-      tierCode: reference.tierCode,
-      officialSourceUri: reference.sourceUri,
-      pdfSha256: 'a' * 64,
-      candidateUniverseSha256: await cloudCandidateUniverseSha256(candidates),
-      candidateNumbers: candidates,
-      matchedInvoiceNumbers: matches,
-      matchedPageNumbers: matchedPages,
-    );
-  }
+    Map<String, int> matchedPages = const <String, int>{'CD87654321': 42},
+  }) async => CloudAwardCandidateScopedAuthority(
+        periodId: reference.periodId,
+        tierCode: reference.tierCode,
+        officialSourceUri: reference.sourceUri,
+        pdfSha256: 'a' * 64,
+        candidateUniverseSha256: await cloudCandidateUniverseSha256(candidates),
+        candidateNumbers: candidates,
+        matchedInvoiceNumbers: matches,
+        matchedPageNumbers: matchedPages,
+      );
 
-  test('promote read-back reuses exact source PDF and candidate universe',
-      () async {
+  test('promote read-back reuses exact source PDF and candidate universe', () async {
     final promoted = await repository.promoteValidated(
       reference: reference,
       pdfSha256: 'a' * 64,
@@ -60,49 +48,35 @@ void main() {
       verifiedAtUtc: DateTime.utc(2026, 9, 25, 2),
       retentionUntilUtc: DateTime.utc(2026, 11, 5, 15, 59, 59),
     );
-
     expect(promoted.matchedInvoiceNumbers, const <String>{'CD87654321'});
-    expect(promoted.matchedPageNumbers, const <String, int>{
-      'CD87654321': 42,
-    });
+    expect(promoted.matchedPageNumbers, const <String, int>{'CD87654321': 42});
 
     final readBack = await repository.readValidated(
       reference: reference,
       pdfSha256: 'a' * 64,
-      candidateInvoiceNumbers: const <String>[
-        'cd87654321',
-        'ab-12345678',
-      ],
+      candidateInvoiceNumbers: const <String>['cd87654321', 'ab-12345678'],
       nowUtc: DateTime.utc(2026, 9, 25, 3),
     );
-
     expect(readBack, isNotNull);
-    expect(readBack!.candidateNumbers, const <String>{
-      'AB12345678',
-      'CD87654321',
-    });
+    expect(readBack!.candidateNumbers, const <String>{'AB12345678', 'CD87654321'});
     expect(readBack.matchedInvoiceNumbers, const <String>{'CD87654321'});
-    expect(readBack.matchedPageNumbers, const <String, int>{
-      'CD87654321': 42,
-    });
+    expect(readBack.matchedPageNumbers, const <String, int>{'CD87654321': 42});
   });
 
-  test('matched candidates require durable page evidence before promotion',
-      () async {
+  test('matched candidates require durable page evidence before promotion', () async {
+    final incompleteAuthority = await authority(matchedPages: const <String, int>{});
     expect(
-      () => repository.promoteValidated(
+      repository.promoteValidated(
         reference: reference,
         pdfSha256: 'a' * 64,
-        authority: await authority(matchedPages: const <String, int>{}),
+        authority: incompleteAuthority,
         verifiedAtUtc: DateTime.utc(2026, 9, 25, 2),
       ),
-      throwsA(
-        isA<StateError>().having(
-          (error) => error.message,
-          'message',
-          'CLOUD_AWARD_CANDIDATE_AUTHORITY_MISMATCH',
-        ),
-      ),
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        'CLOUD_AWARD_CANDIDATE_AUTHORITY_MISMATCH',
+      )),
     );
   });
 
@@ -113,7 +87,6 @@ void main() {
       authority: await authority(),
       verifiedAtUtc: DateTime.utc(2026, 9, 25, 2),
     );
-
     expect(
       await repository.readValidated(
         reference: reference,
@@ -126,10 +99,7 @@ void main() {
       await repository.readValidated(
         reference: reference,
         pdfSha256: 'b' * 64,
-        candidateInvoiceNumbers: const <String>[
-          'AB12345678',
-          'CD87654321',
-        ],
+        candidateInvoiceNumbers: const <String>['AB12345678', 'CD87654321'],
       ),
       isNull,
     );
@@ -143,21 +113,12 @@ void main() {
       verifiedAtUtc: DateTime.utc(2026, 9, 25, 2),
       retentionUntilUtc: DateTime.utc(2026, 9, 25, 3),
     );
-
-    expect(
-      await repository.pruneExpired(
-        nowUtc: DateTime.utc(2026, 9, 25, 4),
-      ),
-      1,
-    );
+    expect(await repository.pruneExpired(nowUtc: DateTime.utc(2026, 9, 25, 4)), 1);
     expect(
       await repository.readValidated(
         reference: reference,
         pdfSha256: 'a' * 64,
-        candidateInvoiceNumbers: const <String>[
-          'AB12345678',
-          'CD87654321',
-        ],
+        candidateInvoiceNumbers: const <String>['AB12345678', 'CD87654321'],
         nowUtc: DateTime.utc(2026, 9, 25, 4),
       ),
       isNull,
