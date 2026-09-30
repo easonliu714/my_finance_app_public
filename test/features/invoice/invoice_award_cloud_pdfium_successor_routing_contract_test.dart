@@ -86,6 +86,15 @@ void main() {
     expect(worker, contains('var high = pageCount'));
     expect(worker, contains('val middle = low + ((high - low) ushr 1)'));
 
+    // Bounded means page-at-a-time random access, not a disguised sequential
+    // traversal of all 77k pages. Every opened page/text page is scoped by use
+    // and the worker has no production full-page-range loop.
+    expect(worker, contains('val page = document.openPage(pageNumber - 1)'));
+    expect(worker, contains('val text = page.use {'));
+    expect(worker, contains('textPage.use {'));
+    expect(worker, isNot(matches(RegExp(r'for\s*\([^)]*1\s*\.\.\s*pageCount'))));
+    expect(worker, isNot(matches(RegExp(r'for\s*\([^)]*0\s+until\s+pageCount'))));
+
     // Promotion evidence must independently bind source bytes/SHA, candidate
     // universe SHA and the page on which every positive match was observed.
     expect(worker, contains('actualSourceSha256'));
