@@ -113,5 +113,25 @@ void main() {
     expect(worker, contains('stage = "PDFIUM_CANDIDATE_SEARCH"'));
     expect(worker, contains('.put("status", "complete")'));
     expect(worker, contains('.put("status", "failed")'));
+
+    // Fail-closed errors must remain specific enough to distinguish provenance,
+    // candidate-scope and isolated-worker failures from the historical generic
+    // PDFBox OOM. Running heartbeats must carry monotonic work coordinates so a
+    // caller can surface source-byte and page/candidate progress without ever
+    // treating a partial result as authority.
+    expect(worker, contains('PDFIUM_WORKER_PROVENANCE_INPUT_INVALID'));
+    expect(worker, contains('PDFIUM_WORKER_SOURCE_BYTES_MISMATCH'));
+    expect(worker, contains('PDFIUM_WORKER_CANDIDATE_SCOPE_INVALID'));
+    expect(worker, contains('PDFIUM_WORKER_CANDIDATE_UNIVERSE_SHA256_MISMATCH'));
+    expect(worker, contains('PDFIUM_WORKER_SOURCE_SHA256_MISMATCH'));
+    expect(worker, contains('PDFIUM_WORKER_OOM'));
+    expect(worker, contains('.put("candidate_index", candidateIndex)'));
+    expect(worker, contains('.put("candidate_count", candidateCount)'));
+    expect(worker, contains('.put("page_number", pageNumber)'));
+    expect(worker, contains('.put("page_count", pageCount)'));
+    expect(worker, contains('.put("pages_read", pagesRead)'));
+    expect(worker, contains('.put("source_bytes_read", sourceBytesRead)'));
+    expect(worker, contains('.put("source_bytes_total", sourceBytesTotal)'));
+    expect(worker, contains('.put("updated_at_ms", System.currentTimeMillis())'));
   });
 }
