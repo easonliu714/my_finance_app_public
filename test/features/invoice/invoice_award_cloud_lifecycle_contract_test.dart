@@ -63,10 +63,19 @@ void main() {
     );
     expect(pluginSource, contains('"startPdfiumCandidateWorker"'));
     expect(pluginSource, contains('PdfiumCandidateWorkerService::class.java'));
-    expect(workerSource, contains('MemoryUsageSetting.setupTempFileOnly()'));
-    expect(workerSource, contains('PDDocument.load(source, "", memoryUsage)'));
-    expect(workerSource, contains('pdfbox-tempfile-candidate-search'));
-    expect(workerSource, isNot(contains('PdfiumCore(applicationContext)')));
+    expect(workerSource, contains('PdfiumCore(applicationContext)'));
+    expect(workerSource, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(workerSource, contains('pdfiumCore.newDocument(descriptor)'));
+    expect(workerSource, contains('document.openPage(pageNumber - 1)'));
+    expect(workerSource, contains('page.openTextPage()'));
+    expect(workerSource, contains('pdfium-random-access-candidate-search'));
+    expect(workerSource, contains('"PDFIUM_OPEN_BEGIN"'));
+    expect(workerSource, contains('"PDFIUM_CANDIDATE_SEARCH"'));
+    expect(
+      RegExp(r'PDDocument\.load\s*\(').hasMatch(workerSource),
+      isFalse,
+    );
+    expect(workerSource, isNot(contains('PDFTextStripper()')));
     expect(pluginManifest, contains('android:process=":pdfium_candidate_worker"'));
     expect(pluginManifest, contains('android:exported="false"'));
     expect(pluginGradle, contains('io.legere:pdfiumandroid:1.0.35'));
