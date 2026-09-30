@@ -3,10 +3,8 @@ package me.movenext.flutter_pdf_text
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
-import com.tom_roush.pdfbox.io.MemoryUsageSetting
-import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.text.PDFTextStripper
+import android.os.ParcelFileDescriptor
+import io.legere.pdfiumandroid.PdfiumCore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -16,9 +14,11 @@ import kotlin.concurrent.thread
  * Crash-isolated exact-candidate lookup for very large sorted MOF cloud-award
  * PDFs. The service runs in a dedicated Android process with a fresh heap.
  *
- * The large cloud-500 file is not expanded into a full local index here.
- * PDFBox uses disk-backed scratch, and the worker only extracts pages reached
- * by binary search for the exact on-device invoice-number candidate universe.
+ * This worker deliberately uses native PDFium rather than PDFBox. PDFBox's
+ * PDDocument.load materializes the whole document object graph and exhausted
+ * the worker heap on the 115-07-08 cloud-500 PDF. PDFium keeps the validated
+ * file random-access and this worker opens/extracts only pages reached by the
+ * bounded binary search for the exact on-device candidate universe.
  * No invoice/accounting data leaves the device.
  */
 class PdfiumCandidateWorkerService : Service() {
@@ -29,9 +29,11 @@ class PdfiumCandidateWorkerService : Service() {
     const val EXTRA_REQUEST_ID = "request_id"
   }
 
+  private lateinit var pdfiumCore: PdfiumCore
+
   override fun onCreate() {
     super.onCreate()
-    PDFBoxResourceLoader.init(applicationContext)
+    pdfiumCore = PdfiumCore(applicationContext)
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -49,12 +51,12 @@ class PdfiumCandidateWorkerService : Service() {
       try {
         runLookup(pdfPath, candidatesJson, resultPath, requestId)
       } catch (oom: OutOfMemoryError) {
-        writeFailure(resultPath, requestId, "PDFBOX_WORKER_OOM")
+        writeFailure(resultPath, requestId, "PDFIUM_WORKER_OOM")
       } catch (error: Throwable) {
         writeFailure(
           resultPath,
           requestId,
-          "PDFBOX_WORKER_FAILED:${error.javaClass.simpleName}"
+          "PDFIUM_WORKER_FAILED:${error.javaClass.simpleName}"
         )
       } finally {
         stopSelf(startId)
@@ -83,99 +85,119 @@ class PdfiumCandidateWorkerService : Service() {
     writeRunning(
       resultPath = resultPath,
       requestId = requestId,
-      stage = "PDFBOX_OPEN_BEGIN",
+      stage = "PDFIUM_OPEN_BEGIN",
       candidateIndex = 0,
       candidateCount = candidates.size
     )
 
-    val scratch = File(cacheDir, "cloud500_pdfbox_scratch")
-    scratch.mkdirs()
-    val memoryUsage = MemoryUsageSetting.setupTempFileOnly().setTempDir(scratch)
-    PDDocument.load(source, "", memoryUsage).use { document ->
-      val pageCount = document.numberOfPages
-      require(pageCount > 0)
-      val matched = linkedSetOf<String>()
-      val pagesRead = linkedSetOf<Int>()
+    var descriptor: ParcelFileDescriptor? = null
+    try {
+      descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+      val document = pdfiumCore.newDocument(descriptor)
+      descriptor = null // ownership transferred to PdfDocument
+      document.use {
+        val pageCount = document.getPageCount()
+        require(pageCount > 0)
+        val matched = linkedSetOf<String>()
+        val pagesRead = linkedSetOf<Int>()
 
-      writeRunning(
-        resultPath = resultPath,
-        requestId = requestId,
-        stage = "PDFBOX_OPEN_OK",
-        candidateIndex = 0,
-        candidateCount = candidates.size,
-        pageCount = pageCount
-      )
-
-      fun pageTokens(pageNumber: Int, candidateIndex: Int): List<String> {
-        require(pageNumber in 1..pageCount)
-        val stripper = PDFTextStripper()
-        stripper.startPage = pageNumber
-        stripper.endPage = pageNumber
-        val text = stripper.getText(document)
-        pagesRead.add(pageNumber)
         writeRunning(
           resultPath = resultPath,
           requestId = requestId,
-          stage = "PDFBOX_SEARCHING",
-          candidateIndex = candidateIndex,
+          stage = "PDFIUM_OPEN_OK",
+          candidateIndex = 0,
           candidateCount = candidates.size,
-          pageNumber = pageNumber,
-          pageCount = pageCount,
-          pagesRead = pagesRead.size
+          pageCount = pageCount
         )
-        return extractInvoiceNumbers(text)
-      }
 
-      candidates.forEachIndexed { index, candidate ->
-        var low = 1
-        var high = pageCount
-        var found = false
-        while (low <= high) {
-          val middle = low + ((high - low) ushr 1)
-          val tokens = pageTokens(middle, index + 1)
-          require(tokens.isNotEmpty())
-          when {
-            candidate < tokens.first() -> high = middle - 1
-            candidate > tokens.last() -> low = middle + 1
-            else -> {
-              if (tokens.contains(candidate)) {
-                matched.add(candidate)
-                found = true
-              } else {
-                listOf(middle - 1, middle + 1)
-                  .filter { it in 1..pageCount }
-                  .forEach { neighbor ->
-                    if (!found && pageTokens(neighbor, index + 1).contains(candidate)) {
-                      matched.add(candidate)
-                      found = true
-                    }
-                  }
-              }
-              break
+        fun pageTokens(pageNumber: Int, candidateIndex: Int): List<String> {
+          require(pageNumber in 1..pageCount)
+          writeRunning(
+            resultPath = resultPath,
+            requestId = requestId,
+            stage = "PDFIUM_PAGE_BEGIN",
+            candidateIndex = candidateIndex,
+            candidateCount = candidates.size,
+            pageNumber = pageNumber,
+            pageCount = pageCount,
+            pagesRead = pagesRead.size
+          )
+          val page = document.openPage(pageNumber - 1)
+          val text = page.use {
+            val textPage = page.openTextPage()
+            textPage.use {
+              val count = textPage.textPageCountChars()
+              if (count <= 0) "" else textPage.textPageGetText(0, count).orEmpty()
             }
           }
+          pagesRead.add(pageNumber)
+          writeRunning(
+            resultPath = resultPath,
+            requestId = requestId,
+            stage = "PDFIUM_CANDIDATE_SEARCH",
+            candidateIndex = candidateIndex,
+            candidateCount = candidates.size,
+            pageNumber = pageNumber,
+            pageCount = pageCount,
+            pagesRead = pagesRead.size
+          )
+          return extractInvoiceNumbers(text)
         }
-        if (!found && low > high) {
-          setOf(low, high)
-            .filter { it in 1..pageCount }
-            .forEach { boundary ->
-              if (!found && pageTokens(boundary, index + 1).contains(candidate)) {
-                matched.add(candidate)
-                found = true
+
+        candidates.forEachIndexed { index, candidate ->
+          var low = 1
+          var high = pageCount
+          var found = false
+          while (low <= high) {
+            val middle = low + ((high - low) ushr 1)
+            val tokens = pageTokens(middle, index + 1)
+            require(tokens.isNotEmpty())
+            when {
+              candidate < tokens.first() -> high = middle - 1
+              candidate > tokens.last() -> low = middle + 1
+              else -> {
+                if (tokens.contains(candidate)) {
+                  matched.add(candidate)
+                  found = true
+                } else {
+                  listOf(middle - 1, middle + 1)
+                    .filter { it in 1..pageCount }
+                    .forEach { neighbor ->
+                      if (!found && pageTokens(neighbor, index + 1).contains(candidate)) {
+                        matched.add(candidate)
+                        found = true
+                      }
+                    }
+                }
+                break
               }
             }
+          }
+          if (!found && low > high) {
+            setOf(low, high)
+              .filter { it in 1..pageCount }
+              .forEach { boundary ->
+                if (!found && pageTokens(boundary, index + 1).contains(candidate)) {
+                  matched.add(candidate)
+                  found = true
+                }
+              }
+          }
         }
-      }
 
-      val payload = JSONObject()
-        .put("request_id", requestId)
-        .put("status", "complete")
-        .put("engine", "pdfbox-tempfile-candidate-search")
-        .put("page_count", pageCount)
-        .put("pages_read", pagesRead.size)
-        .put("candidate_count", candidates.size)
-        .put("matched", JSONArray(matched.toList()))
-      writeAtomic(resultPath, payload.toString())
+        val payload = JSONObject()
+          .put("request_id", requestId)
+          .put("status", "complete")
+          .put("engine", "pdfium-random-access-candidate-search")
+          .put("stage", "PDFIUM_COMPLETE")
+          .put("page_count", pageCount)
+          .put("pages_read", pagesRead.size)
+          .put("candidate_count", candidates.size)
+          .put("matched", JSONArray(matched.toList()))
+        writeAtomic(resultPath, payload.toString())
+      }
+    } finally {
+      try { descriptor?.close() } catch (_: Exception) {}
     }
   }
 
@@ -208,7 +230,7 @@ class PdfiumCandidateWorkerService : Service() {
     val payload = JSONObject()
       .put("request_id", requestId)
       .put("status", "running")
-      .put("engine", "pdfbox-tempfile-candidate-search")
+      .put("engine", "pdfium-random-access-candidate-search")
       .put("stage", stage)
       .put("candidate_index", candidateIndex)
       .put("candidate_count", candidateCount)
@@ -225,7 +247,7 @@ class PdfiumCandidateWorkerService : Service() {
       val payload = JSONObject()
         .put("request_id", requestId)
         .put("status", "failed")
-        .put("engine", "pdfbox-tempfile-candidate-search")
+        .put("engine", "pdfium-random-access-candidate-search")
         .put("error", code)
       writeAtomic(resultPath, payload.toString())
     } catch (_: Throwable) {
