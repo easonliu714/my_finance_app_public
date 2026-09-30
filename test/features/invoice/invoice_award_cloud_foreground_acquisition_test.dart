@@ -192,6 +192,10 @@ void main() {
       fiveHundred.candidateAuthority?.candidateNumbers,
       const <String>{'AB12345678', 'CD87654321'},
     );
+    expect(
+      fiveHundred.candidateAuthority?.matchedPageNumbers,
+      const <String, int>{'AB12345678': 42},
+    );
     expect(scopedLookup.calls, 1);
 
     final secondRequests = <Uri>[];
@@ -224,6 +228,10 @@ void main() {
     expect(
       reusedFiveHundred.status,
       CloudAwardTierRefreshStatus.candidateScopedReused,
+    );
+    expect(
+      reusedFiveHundred.candidateAuthority?.matchedPageNumbers,
+      const <String, int>{'AB12345678': 42},
     );
     expect(scopedLookup.calls, 1);
   });
@@ -399,11 +407,13 @@ class _FixtureSortedCandidateLookup
   }) async {
     calls += 1;
     final candidates = normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
+    final matched = matches.intersection(candidates);
     return CloudAwardSortedPdfCandidateMatchResult(
       pageCount: 77000,
       pagesRead: 17,
-      matchedInvoiceNumbers: Set<String>.unmodifiable(
-        matches.intersection(candidates),
+      matchedInvoiceNumbers: Set<String>.unmodifiable(matched),
+      matchedPageNumbers: Map<String, int>.unmodifiable(
+        <String, int>{for (final candidate in matched) candidate: 42},
       ),
     );
   }
@@ -424,7 +434,6 @@ class _AlwaysFailExtractor extends CloudAwardPdfTextExtractor {
     throw StateError('FIXTURE_EXTRACTION_FAILURE');
   }
 }
-
 
 class _FixtureExtractor extends CloudAwardPdfTextExtractor {
   const _FixtureExtractor();
