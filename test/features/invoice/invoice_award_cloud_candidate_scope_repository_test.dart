@@ -87,6 +87,25 @@ void main() {
     });
   });
 
+  test('matched candidates require durable page evidence before promotion',
+      () async {
+    expect(
+      () => repository.promoteValidated(
+        reference: reference,
+        pdfSha256: 'a' * 64,
+        authority: await authority(matchedPages: const <String, int>{}),
+        verifiedAtUtc: DateTime.utc(2026, 9, 25, 2),
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'CLOUD_AWARD_CANDIDATE_AUTHORITY_MISMATCH',
+        ),
+      ),
+    );
+  });
+
   test('candidate set or PDF SHA change invalidates durable authority', () async {
     await repository.promoteValidated(
       reference: reference,
