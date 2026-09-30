@@ -105,6 +105,13 @@ void main() {
       candidateScope,
       contains("'CLOUD_AWARD_CANDIDATE_WORKER_PROVENANCE_MISMATCH'"),
     );
+    expect(workerSource, contains('val matchedPages = linkedMapOf<String, Int>()'));
+    expect(workerSource, contains('.put("matched_pages", matchedPagesJson)'));
+    expect(
+      candidateScope,
+      contains("'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH'"),
+    );
+    expect(candidateScope, contains('matchedPageNumbers'));
     expect(
       RegExp(r'PDDocument\.load\s*\(').hasMatch(workerSource),
       isFalse,

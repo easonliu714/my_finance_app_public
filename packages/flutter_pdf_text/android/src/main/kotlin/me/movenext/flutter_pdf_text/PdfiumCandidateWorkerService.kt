@@ -181,6 +181,7 @@ class PdfiumCandidateWorkerService : Service() {
         val pageCount = document.getPageCount()
         require(pageCount > 0)
         val matched = linkedSetOf<String>()
+        val matchedPages = linkedMapOf<String, Int>()
         val pagesRead = linkedSetOf<Int>()
 
         writeRunning(
@@ -240,6 +241,7 @@ class PdfiumCandidateWorkerService : Service() {
               else -> {
                 if (tokens.contains(candidate)) {
                   matched.add(candidate)
+                  matchedPages[candidate] = middle
                   found = true
                 } else {
                   listOf(middle - 1, middle + 1)
@@ -247,6 +249,7 @@ class PdfiumCandidateWorkerService : Service() {
                     .forEach { neighbor ->
                       if (!found && pageTokens(neighbor, index + 1).contains(candidate)) {
                         matched.add(candidate)
+                        matchedPages[candidate] = neighbor
                         found = true
                       }
                     }
@@ -261,12 +264,17 @@ class PdfiumCandidateWorkerService : Service() {
               .forEach { boundary ->
                 if (!found && pageTokens(boundary, index + 1).contains(candidate)) {
                   matched.add(candidate)
+                  matchedPages[candidate] = boundary
                   found = true
                 }
               }
           }
         }
 
+        val matchedPagesJson = JSONObject()
+        matchedPages.forEach { (candidate, pageNumber) ->
+          matchedPagesJson.put(candidate, pageNumber)
+        }
         val payload = JSONObject()
           .put("request_id", requestId)
           .put("status", "complete")
@@ -279,6 +287,7 @@ class PdfiumCandidateWorkerService : Service() {
           .put("source_bytes", source.length())
           .put("candidate_universe_sha256", actualCandidateUniverseSha256)
           .put("matched", JSONArray(matched.toList()))
+          .put("matched_pages", matchedPagesJson)
         writeAtomic(resultPath, payload.toString())
       }
     } finally {

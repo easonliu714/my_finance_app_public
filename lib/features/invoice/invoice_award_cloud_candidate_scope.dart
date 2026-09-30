@@ -82,11 +82,13 @@ class CloudAwardSortedPdfCandidateMatchResult {
     required this.pageCount,
     required this.pagesRead,
     required this.matchedInvoiceNumbers,
+    this.matchedPageNumbers = const <String, int>{},
   });
 
   final int pageCount;
   final int pagesRead;
   final Set<String> matchedInvoiceNumbers;
+  final Map<String, int> matchedPageNumbers;
 }
 
 class CloudAwardSortedPdfCandidateProgress {
@@ -197,6 +199,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
 
     await _channel.invokeMethod<void>('clearLastDiagnostic');
     final matched = <String>{};
+    final matchedPageNumbers = <String, int>{};
     final uniquePagesRead = <int>{};
     int? expectedPageCount;
 
@@ -288,6 +291,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
 
             if (tokens.contains(candidate)) {
               matched.add(candidate);
+              matchedPageNumbers[candidate] = middle;
               resolved = true;
               break;
             }
@@ -303,6 +307,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               );
               if (neighborTokens.contains(candidate)) {
                 matched.add(candidate);
+                matchedPageNumbers[candidate] = neighbor;
                 resolved = true;
                 break;
               }
@@ -322,6 +327,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               );
               if (tokens.contains(candidate)) {
                 matched.add(candidate);
+                matchedPageNumbers[candidate] = page;
                 break;
               }
             }
@@ -350,6 +356,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
       pageCount: expectedPageCount ?? 0,
       pagesRead: uniquePagesRead.length,
       matchedInvoiceNumbers: Set<String>.unmodifiable(matched),
+      matchedPageNumbers: Map<String, int>.unmodifiable(matchedPageNumbers),
     );
   }
 
@@ -453,10 +460,12 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                       .toLowerCase() ??
                   '';
           final matchedRaw = decoded['matched'];
+          final matchedPagesRaw = decoded['matched_pages'];
           if (pageCount <= 0 ||
               pagesRead < 0 ||
               candidateCount != candidates.length ||
-              matchedRaw is! List<dynamic>) {
+              matchedRaw is! List<dynamic> ||
+              matchedPagesRaw is! Map<String, dynamic>) {
             throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID');
           }
           if (sourceSha256 != artifact.sha256.toLowerCase() ||
@@ -472,10 +481,32 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           if (!candidates.toSet().containsAll(matched)) {
             throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_SCOPE_MISMATCH');
           }
+          final matchedPageNumbers = <String, int>{};
+          for (final entry in matchedPagesRaw.entries) {
+            final normalizedKey =
+                normalizeCloudCandidateNumbers(<String>[entry.key]);
+            final pageNumber = (entry.value as num?)?.toInt() ?? 0;
+            if (normalizedKey.length != 1 ||
+                !matched.contains(normalizedKey.single) ||
+                pageNumber < 1 ||
+                pageNumber > pageCount) {
+              throw StateError(
+                'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH',
+              );
+            }
+            matchedPageNumbers[normalizedKey.single] = pageNumber;
+          }
+          if (matchedPageNumbers.length != matched.length) {
+            throw StateError(
+              'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH',
+            );
+          }
           return CloudAwardSortedPdfCandidateMatchResult(
             pageCount: pageCount,
             pagesRead: pagesRead,
             matchedInvoiceNumbers: matched,
+            matchedPageNumbers:
+                Map<String, int>.unmodifiable(matchedPageNumbers),
           );
         } finally {
           try {
