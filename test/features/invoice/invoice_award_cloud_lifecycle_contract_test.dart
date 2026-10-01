@@ -44,11 +44,11 @@ void main() {
     expect(foregroundSource, contains('candidateScopedEmptyVerified'));
     expect(
       foregroundSource,
-      contains('二分搜尋目前定位第 ${progress.pageNumber}/'),
+      contains(r'二分搜尋目前定位第 ${progress.pageNumber}/'),
     );
     expect(
       foregroundSource,
-      contains('累計實際讀取 ${progress.pagesRead} 頁'),
+      contains(r'累計實際讀取 ${progress.pagesRead} 頁'),
     );
     expect(
       foregroundSource,
