@@ -426,10 +426,11 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                   pageNumber: progress.pageNumber,
                   pageCount: progress.pageCount,
                   rowCount: progress.pagesRead,
-                  message: '候選比對 ${progress.candidateIndex}/'
+                  message: '候選號碼 ${progress.candidateIndex}/'
                       '${progress.candidateCount} · '
-                      '讀取排序 PDF 第 ${progress.pageNumber}/'
-                      '${progress.pageCount} 頁',
+                      '二分搜尋目前定位第 ${progress.pageNumber}/'
+                      '${progress.pageCount} 頁 · '
+                      '累計實際讀取 ${progress.pagesRead} 頁',
                 ),
               );
             },
@@ -468,8 +469,8 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
               message: '候選範圍已驗證並保存 · '
                   '${normalizedCandidates.length} 筆候選 · '
                   '吻合 ${candidateMatch.matchedInvoiceNumbers.length} 筆 · '
-                  '讀取 ${candidateMatch.pagesRead}/'
-                  '${candidateMatch.pageCount} 頁',
+                  '二分搜尋累計實際讀取 ${candidateMatch.pagesRead} 頁'
+                  '（PDF 共 ${candidateMatch.pageCount} 頁，非逐頁掃描）',
             ),
           );
           continue;

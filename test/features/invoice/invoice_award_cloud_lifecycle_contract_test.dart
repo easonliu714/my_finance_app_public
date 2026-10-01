@@ -44,11 +44,46 @@ void main() {
     expect(foregroundSource, contains('candidateScopedEmptyVerified'));
     expect(
       foregroundSource,
+      contains('二分搜尋目前定位第 ${progress.pageNumber}/'),
+    );
+    expect(
+      foregroundSource,
+      contains('累計實際讀取 ${progress.pagesRead} 頁'),
+    );
+    expect(
+      foregroundSource,
+      contains('非逐頁掃描'),
+    );
+    expect(
+      foregroundSource,
       contains('本期沒有可比對的雲端候選，略過大型 500 元獎 PDF'),
     );
     expect(pageSource, contains('with WidgetsBindingObserver'));
     expect(pageSource, contains('_processRefreshActive'));
     expect(pageSource, contains('_activeCloudCancellation?.cancel()'));
+    final lifecycleStart =
+        pageSource.indexOf('void didChangeAppLifecycleState(');
+    final lifecycleEnd = pageSource.indexOf('DateTime _now()', lifecycleStart);
+    expect(lifecycleStart, greaterThanOrEqualTo(0));
+    expect(lifecycleEnd, greaterThan(lifecycleStart));
+    final lifecycleSource =
+        pageSource.substring(lifecycleStart, lifecycleEnd);
+    expect(
+      lifecycleSource,
+      isNot(contains('state == AppLifecycleState.inactive')),
+    );
+    expect(
+      lifecycleSource,
+      contains('state == AppLifecycleState.hidden'),
+    );
+    expect(
+      lifecycleSource,
+      contains('state == AppLifecycleState.paused'),
+    );
+    expect(
+      lifecycleSource,
+      contains('state == AppLifecycleState.detached'),
+    );
     expect(pageSource, contains('on CloudAwardCandidateLookupCancelled'));
     expect(pageSource, contains('_cloudTierSummaries'));
     expect(pageSource, contains('雲端獎項解析摘要'));

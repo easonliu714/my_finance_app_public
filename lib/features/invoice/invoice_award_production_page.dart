@@ -83,13 +83,19 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!_ownsProcessRefresh) return;
-    if (state == AppLifecycleState.inactive ||
+
+    // On Android, inactive can be a transient focus loss while the Activity is
+    // still visible (for example a system overlay/notification surface). That
+    // is not a safe signal to abort a long exact-candidate PDF lookup. Cancel
+    // only once Flutter reports that the App is actually hidden/paused, or the
+    // engine is detached.
+    if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _activeCloudCancellation?.cancel();
       if (mounted) {
         setState(() {
-          _cloudStatus = 'App 已進入背景，正在安全中止本次雲端獎查找；完成資源釋放後可重試。';
+          _cloudStatus = 'App 已離開前景，正在安全中止本次雲端獎查找；完成資源釋放後可重試。';
         });
       }
     }
@@ -328,9 +334,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         setState(() {
           _refreshing = false;
           _cloudCurrentAuthorityComplete = false;
-          _cloudStatus = '本次雲端獎查找因 App 進入背景而安全中止；未保存部分結果，可直接重新執行。';
+          _cloudStatus = '本次雲端獎查找因 App 已離開前景而安全中止；未保存部分結果，可直接重新執行。';
           _scanStatus = generalStageCompleted
-              ? '一般獎對獎結果已保留；雲端專屬獎查找因 App 進入背景而中止，可直接重試雲端更新。'
+              ? '一般獎對獎結果已保留；雲端專屬獎查找因 App 已離開前景而中止，可直接重試雲端更新。'
               : '既有交易掃描未完成；重新執行時會從一般獎 authority Gate 重新確認。';
         });
       }
