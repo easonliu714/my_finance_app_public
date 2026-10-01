@@ -26,25 +26,25 @@ void main() {
       // >120 MiB worker must never regain executable PDFBox whole-document
       // loading. Historical root-cause comments are allowed.
       expect(
-        RegExp(r'^import\\s+com\\.tom_roush\\.pdfbox\\.', multiLine: true)
+        RegExp(r'^import\s+com\.tom_roush\.pdfbox\.', multiLine: true)
             .hasMatch(workerSource),
         isFalse,
       );
       expect(
-        RegExp(r'\\bPDDocument\\s*\\.\\s*load\\s*\\(')
+        RegExp(r'\bPDDocument\s*\.\s*load\s*\(')
             .hasMatch(workerSource),
         isFalse,
       );
       expect(
-        RegExp(r'\\bPDFTextStripper\\s*\\(').hasMatch(workerSource),
+        RegExp(r'\bPDFTextStripper\s*\(').hasMatch(workerSource),
         isFalse,
       );
       expect(
-        RegExp(r'\\bMemoryUsageSetting\\s*\\.').hasMatch(workerSource),
+        RegExp(r'\bMemoryUsageSetting\s*\.').hasMatch(workerSource),
         isFalse,
       );
       expect(
-        RegExp(r'\\bsetupTempFileOnly\\s*\\(').hasMatch(workerSource),
+        RegExp(r'\bsetupTempFileOnly\s*\(').hasMatch(workerSource),
         isFalse,
       );
     });
