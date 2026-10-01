@@ -118,7 +118,10 @@ class PdfiumCandidateWorkerService : Service() {
       .filter { Regex("^[A-Z]{2}[0-9]{8}$").matches(it) }
       .distinct()
       .sorted()
-    if (candidates.size != raw.length()) {
+    // A vacuous candidate universe cannot establish cloud-500 authority. Fail
+    // before hashing the source or opening PDFium so no empty lookup can ever
+    // be promoted as a completed verification.
+    if (candidates.isEmpty() || candidates.size != raw.length()) {
       writeFailure(resultPath, requestId, "PDFIUM_WORKER_CANDIDATE_SCOPE_INVALID")
       return
     }
