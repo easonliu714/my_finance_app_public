@@ -23,11 +23,30 @@ void main() {
       );
 
       // Regression gate for the 115-07-08 cloud-500 OOM root cause: the
-      // >120 MiB worker must never return to PDFBox whole-document loading.
-      expect(workerSource, isNot(contains('PDDocument')));
-      expect(workerSource, isNot(contains('PDFBox')));
-      expect(workerSource, isNot(contains('MemoryUsageSetting')));
-      expect(workerSource, isNot(contains('setupTempFileOnly')));
+      // >120 MiB worker must never regain executable PDFBox whole-document
+      // loading. Historical root-cause comments are allowed.
+      expect(
+        RegExp(r'^import\\s+com\\.tom_roush\\.pdfbox\\.', multiLine: true)
+            .hasMatch(workerSource),
+        isFalse,
+      );
+      expect(
+        RegExp(r'\\bPDDocument\\s*\\.\\s*load\\s*\\(')
+            .hasMatch(workerSource),
+        isFalse,
+      );
+      expect(
+        RegExp(r'\\bPDFTextStripper\\s*\\(').hasMatch(workerSource),
+        isFalse,
+      );
+      expect(
+        RegExp(r'\\bMemoryUsageSetting\\s*\\.').hasMatch(workerSource),
+        isFalse,
+      );
+      expect(
+        RegExp(r'\\bsetupTempFileOnly\\s*\\(').hasMatch(workerSource),
+        isFalse,
+      );
     });
 
     test('candidate authority is non-vacuous and provenance-bound', () {
