@@ -561,7 +561,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       FilledButton(
         onPressed: _busy
             ? null
-            : () => _run('下載/驗證 115-07-08 $500 PDF', () async {
+            : () => _run('下載/驗證 115-07-08 \\$500 PDF', () async {
                   await _ensureExactPdf();
                 }),
         child: const Text('1. 下載／驗證官方 PDF'),
