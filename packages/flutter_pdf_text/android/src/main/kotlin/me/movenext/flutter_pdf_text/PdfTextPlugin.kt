@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import androidx.annotation.NonNull
+import androidx.core.content.FileProvider
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -32,6 +33,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   private val pdfiumDocuments = ConcurrentHashMap<String, PdfiumDocument>()
   private val pdfiumDocumentPaths = ConcurrentHashMap<String, String>()
   private val diagnosticFileName = "flutter_pdf_text_last_diagnostic.txt"
+  private val cloud500LabLogFileName = "issue13_cloud500_diag_native.log"
   private lateinit var pdfiumCore: PdfiumCore
 
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
@@ -94,6 +96,14 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val args = call.arguments as Map<*, *>
             val workerPid = (args["workerPid"] as Number).toInt()
             getPdfiumCandidateWorkerLiveness(result, workerPid)
+          }
+          "clearCloud500LabNativeLog" -> {
+            clearCloud500LabNativeLog(result)
+          }
+          "openExternalPdf" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            openExternalPdf(result, path)
           }
           "openPdfiumSession" -> {
             val args = call.arguments as Map<*, *>
@@ -361,14 +371,22 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
    */
   private fun openPdfiumSession(result: Result, path: String) {
     writeDiagnostic("PDFIUM_OPEN_BEGIN", path)
+    appendCloud500LabLog("PDFIUM_SESSION_BEGIN", path)
     val file = File(path)
     var descriptor: ParcelFileDescriptor? = null
+    val startedAt = android.os.SystemClock.elapsedRealtime()
     try {
       descriptor = ParcelFileDescriptor.open(
         file,
         ParcelFileDescriptor.MODE_READ_ONLY
       )
+      appendCloud500LabLog("PDFIUM_NEW_DOCUMENT_BEGIN", path)
       val document = pdfiumCore.newDocument(descriptor)
+      appendCloud500LabLog(
+        "PDFIUM_NEW_DOCUMENT_OK",
+        path,
+        "elapsed_ms=" + (android.os.SystemClock.elapsedRealtime() - startedAt)
+      )
       descriptor = null // ownership transferred to PdfDocument
       val pageCount = document.getPageCount()
       if (pageCount <= 0) {
@@ -383,18 +401,36 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       pdfiumDocuments[sessionId] = document
       pdfiumDocumentPaths[sessionId] = path
       writeDiagnostic("PDFIUM_OPEN_OK", path, pageCount = pageCount)
+      appendCloud500LabLog(
+        "PDFIUM_OPEN_OK",
+        path,
+        "page_count=$pageCount elapsed_ms=" +
+          (android.os.SystemClock.elapsedRealtime() - startedAt)
+      )
       Handler(Looper.getMainLooper()).post {
         result.success(hashMapOf("sessionId" to sessionId, "length" to pageCount))
       }
     } catch (oom: OutOfMemoryError) {
       try { descriptor?.close() } catch (_: Exception) {}
       writeDiagnostic("PDFIUM_OPEN_OOM", path, error = oom.javaClass.simpleName)
+      appendCloud500LabLog(
+        "PDFIUM_OPEN_OOM",
+        path,
+        "elapsed_ms=" + (android.os.SystemClock.elapsedRealtime() - startedAt) +
+          " stack=" + android.util.Log.getStackTraceString(oom)
+      )
       Handler(Looper.getMainLooper()).post {
         result.error("PDFIUM_OPEN_OOM", "PDFium open exhausted memory", null)
       }
     } catch (e: Exception) {
       try { descriptor?.close() } catch (_: Exception) {}
       writeDiagnostic("PDFIUM_OPEN_FAILED", path, error = e.javaClass.simpleName)
+      appendCloud500LabLog(
+        "PDFIUM_OPEN_FAILED",
+        path,
+        "elapsed_ms=" + (android.os.SystemClock.elapsedRealtime() - startedAt) +
+          " stack=" + android.util.Log.getStackTraceString(e)
+      )
       Handler(Looper.getMainLooper()).post {
         result.error("PDFIUM_OPEN_FAILED", e.message, null)
       }
@@ -423,24 +459,52 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     }
     val path = pdfiumDocumentPaths[sessionId] ?: ""
     writeDiagnostic("PDFIUM_PAGE_BEGIN", path, pageNumber, pageCount)
+    val pageStartedAt = android.os.SystemClock.elapsedRealtime()
+    appendCloud500LabLog(
+      "PDFIUM_PAGE_BEGIN",
+      path,
+      "page=$pageNumber/$pageCount session=$sessionId"
+    )
     try {
       val page = document.openPage(pageNumber - 1)
+      appendCloud500LabLog(
+        "PDFIUM_PAGE_OPEN_OK",
+        path,
+        "page=$pageNumber elapsed_ms=" +
+          (android.os.SystemClock.elapsedRealtime() - pageStartedAt)
+      )
       page.use {
         val textPage = page.openTextPage()
         textPage.use {
           val count = textPage.textPageCountChars()
           val text = if (count <= 0) "" else textPage.textPageGetText(0, count).orEmpty()
           writeDiagnostic("PDFIUM_PAGE_OK", path, pageNumber, pageCount)
+          appendCloud500LabLog(
+            "PDFIUM_PAGE_TEXT_OK",
+            path,
+            "page=$pageNumber chars=$count elapsed_ms=" +
+              (android.os.SystemClock.elapsedRealtime() - pageStartedAt)
+          )
           Handler(Looper.getMainLooper()).post { result.success(text) }
         }
       }
     } catch (oom: OutOfMemoryError) {
       writeDiagnostic("PDFIUM_PAGE_OOM", path, pageNumber, pageCount, oom.javaClass.simpleName)
+      appendCloud500LabLog(
+        "PDFIUM_PAGE_OOM",
+        path,
+        "page=$pageNumber stack=" + android.util.Log.getStackTraceString(oom)
+      )
       Handler(Looper.getMainLooper()).post {
         result.error("PDFIUM_PAGE_OOM", "PDFium page extraction exhausted memory", null)
       }
     } catch (e: Exception) {
       writeDiagnostic("PDFIUM_PAGE_FAILED", path, pageNumber, pageCount, e.javaClass.simpleName)
+      appendCloud500LabLog(
+        "PDFIUM_PAGE_FAILED",
+        path,
+        "page=$pageNumber stack=" + android.util.Log.getStackTraceString(e)
+      )
       Handler(Looper.getMainLooper()).post {
         result.error("PDFIUM_PAGE_FAILED", e.message, null)
       }
@@ -453,7 +517,91 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     val pageCount = try { document?.getPageCount() ?: 0 } catch (_: Exception) { 0 }
     try { document?.close() } catch (_: Exception) {}
     writeDiagnostic("PDFIUM_SESSION_CLOSED", path, pageCount = pageCount)
+    appendCloud500LabLog(
+      "PDFIUM_SESSION_CLOSED",
+      path,
+      "page_count=$pageCount session=$sessionId"
+    )
     Handler(Looper.getMainLooper()).post { result.success(true) }
+  }
+
+  private fun clearCloud500LabNativeLog(result: Result) {
+    try {
+      File(applicationContext.filesDir, cloud500LabLogFileName).delete()
+      Handler(Looper.getMainLooper()).post { result.success(true) }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error("LAB_LOG_CLEAR_FAILED", error.message, null)
+      }
+    }
+  }
+
+  private fun appendCloud500LabLog(
+    event: String,
+    path: String = "",
+    detail: String = ""
+  ) {
+    try {
+      val runtime = Runtime.getRuntime()
+      val usedHeap = runtime.totalMemory() - runtime.freeMemory()
+      val source = if (path.isBlank()) null else File(path)
+      val line = buildString {
+        append(System.currentTimeMillis())
+        append(" event=").append(event)
+        append(" pid=").append(android.os.Process.myPid())
+        append(" thread=").append(Thread.currentThread().name)
+        append(" file_bytes=").append(source?.takeIf { it.exists() }?.length() ?: 0L)
+        append(" heap_used=").append(usedHeap)
+        append(" heap_total=").append(runtime.totalMemory())
+        append(" heap_max=").append(runtime.maxMemory())
+        if (detail.isNotBlank()) {
+          append(" detail=").append(detail.replace("\n", "\\n"))
+        }
+        append("\n")
+      }
+      File(applicationContext.filesDir, cloud500LabLogFileName)
+        .appendText(line)
+    } catch (_: Throwable) {
+      // Lab diagnostics are best effort and must not hide the primary result.
+    }
+  }
+
+  private fun openExternalPdf(result: Result, path: String) {
+    try {
+      val file = File(path)
+      if (!file.isFile) {
+        Handler(Looper.getMainLooper()).post {
+          result.error("LAB_PDF_FILE_MISSING", "PDF file is missing", null)
+        }
+        return
+      }
+      appendCloud500LabLog("EXTERNAL_VIEW_BEGIN", path)
+      val uri = FileProvider.getUriForFile(
+        applicationContext,
+        applicationContext.packageName + ".cloud500diag.fileprovider",
+        file
+      )
+      val intent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, "application/pdf")
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      applicationContext.startActivity(intent)
+      appendCloud500LabLog("EXTERNAL_VIEW_DISPATCHED", path, "uri=$uri")
+      Handler(Looper.getMainLooper()).post { result.success(true) }
+    } catch (error: Throwable) {
+      appendCloud500LabLog(
+        "EXTERNAL_VIEW_FAILED",
+        path,
+        android.util.Log.getStackTraceString(error)
+      )
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "LAB_EXTERNAL_VIEW_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
   }
 
   private fun getLastDiagnostic(result: Result) {

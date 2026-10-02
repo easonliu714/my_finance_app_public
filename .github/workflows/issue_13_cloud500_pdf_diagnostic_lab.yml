@@ -1,0 +1,125 @@
+name: Issue13 Cloud500 PDF Diagnostic Lab
+
+on:
+  push:
+    branches:
+      - issue-13-cloud500-pdf-diagnostic-lab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue13-cloud500-pdf-diagnostic-lab
+  cancel-in-progress: true
+
+jobs:
+  build-diagnostic-apk:
+    name: Build standalone diagnostic APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android host
+        run: flutter create --platforms=android .
+
+      - name: Patch standalone package identity and Android contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          text = text.replace(
+              'applicationId = "com.example.my_finance_app"',
+              'applicationId = "com.easonliu.cloud500diag"',
+          )
+          text = text.replace(
+              'namespace = "com.example.my_finance_app"',
+              'namespace = "com.easonliu.cloud500diag"',
+          )
+          if 'isCoreLibraryDesugaringEnabled = true' not in text:
+              text = text.replace(
+                  'compileOptions {',
+                  'compileOptions {\n'
+                  '        isCoreLibraryDesugaringEnabled = true',
+                  1,
+              )
+          if 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' not in text:
+              if 'dependencies {' not in text:
+                  text += '\n\ndependencies {\n'
+                  text += '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n'
+                  text += '}\n'
+              else:
+                  text = text.replace(
+                      'dependencies {',
+                      'dependencies {\n'
+                      '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")',
+                      1,
+                  )
+          gradle.write_text(text)
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          permission = '<uses-permission android:name="android.permission.INTERNET" />'
+          if permission not in text:
+              text = text.replace(marker, marker + '\n    ' + permission, 1)
+          text = text.replace(
+              'android:label="my_finance_app"',
+              'android:label="Cloud500 PDF Lab"',
+          )
+          manifest.write_text(text)
+          PY
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze diagnostic entry point
+        run: flutter analyze lib/issue13_cloud500_diag_main.dart packages/flutter_pdf_text/lib
+
+      - name: Build standalone debug APK
+        run: flutter build apk --debug -t lib/issue13_cloud500_diag_main.dart
+
+      - name: Record APK authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum build/app/outputs/flutter-apk/app-debug.apk | tee issue13-cloud500-diag.apk.sha256
+          {
+            echo "DIAGNOSTIC_BRANCH=issue-13-cloud500-pdf-diagnostic-lab"
+            echo "DIAGNOSTIC_HEAD=$(git rev-parse HEAD)"
+            echo "APPLICATION_ID=com.easonliu.cloud500diag"
+            echo "TARGET_PERIOD=115-07-08"
+            echo "EXPECTED_PDF_BYTES=135200798"
+            echo "EXPECTED_PDF_SHA256=f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571"
+          } | tee issue13-cloud500-diag-authority.txt
+
+      - name: Upload standalone diagnostic APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue13-cloud500-pdf-diagnostic-lab
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            issue13-cloud500-diag.apk.sha256
+            issue13-cloud500-diag-authority.txt
+          if-no-files-found: error
+          retention-days: 5

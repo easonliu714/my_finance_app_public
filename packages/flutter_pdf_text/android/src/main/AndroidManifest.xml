@@ -9,5 +9,14 @@
       android:foregroundServiceType="dataSync"
       android:process=":pdfium_candidate_worker"
       android:stopWithTask="false" />
+    <provider
+      android:name="androidx.core.content.FileProvider"
+      android:authorities="${applicationId}.cloud500diag.fileprovider"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/cloud500_diag_file_paths" />
+    </provider>
   </application>
 </manifest>
