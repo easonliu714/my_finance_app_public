@@ -94,7 +94,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze diagnostic entry point
-        run: flutter analyze lib/issue13_cloud500_diag_main.dart packages/flutter_pdf_text/lib
+        run: flutter analyze lib/issue13_cloud500_diag_main.dart
 
       - name: Build standalone debug APK
         run: flutter build apk --debug -t lib/issue13_cloud500_diag_main.dart
