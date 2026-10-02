@@ -133,5 +133,6 @@ void main() {
     expect(worker, contains('.put("source_bytes_read", sourceBytesRead)'));
     expect(worker, contains('.put("source_bytes_total", sourceBytesTotal)'));
     expect(worker, contains('.put("updated_at_ms", System.currentTimeMillis())'));
+    expect(worker, contains('.put("worker_pid", android.os.Process.myPid())'));
   });
 }

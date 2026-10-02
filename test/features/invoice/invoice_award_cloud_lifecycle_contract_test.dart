@@ -37,11 +37,19 @@ void main() {
     expect(candidateSource, contains("'startPdfiumCandidateWorker'"));
     expect(
       candidateSource,
-      contains('CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_'),
+      isNot(contains('CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_')),
     );
     expect(
       candidateSource,
-      contains('workerHeartbeatStaleAfter = Duration(seconds: 45)'),
+      contains('workerHeartbeatProbeAfter = Duration(seconds: 15)'),
+    );
+    expect(
+      candidateSource,
+      contains("'getPdfiumCandidateWorkerLiveness'"),
+    );
+    expect(
+      candidateSource,
+      contains('CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_'),
     );
     expect(
       candidateSource,
@@ -128,6 +136,8 @@ void main() {
       contains('Preserve already promoted earlier-tier authority'),
     );
     expect(pluginSource, contains('"startPdfiumCandidateWorker"'));
+    expect(pluginSource, contains('"getPdfiumCandidateWorkerLiveness"'));
+    expect(pluginSource, contains('ActivityManager'));
     expect(pluginSource, contains('PdfiumCandidateWorkerService::class.java'));
     expect(pluginSource, contains('startForegroundService(intent)'));
     expect(workerSource, contains('PdfiumCore(applicationContext)'));

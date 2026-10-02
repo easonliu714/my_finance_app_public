@@ -1,5 +1,6 @@
 package me.movenext.flutter_pdf_text
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
@@ -88,6 +89,11 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
               sourceBytes,
               candidateUniverseSha256
             )
+          }
+          "getPdfiumCandidateWorkerLiveness" -> {
+            val args = call.arguments as Map<*, *>
+            val workerPid = (args["workerPid"] as Number).toInt()
+            getPdfiumCandidateWorkerLiveness(result, workerPid)
           }
           "openPdfiumSession" -> {
             val args = call.arguments as Map<*, *>
@@ -308,6 +314,39 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       Handler(Looper.getMainLooper()).post {
         result.error(
           "PDFIUM_WORKER_START_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
+  }
+
+  private fun getPdfiumCandidateWorkerLiveness(
+    result: Result,
+    workerPid: Int
+  ) {
+    try {
+      val manager =
+        applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      val expectedProcess =
+        applicationContext.packageName + ":pdfium_candidate_worker"
+      val running = manager.runningAppProcesses.orEmpty().firstOrNull {
+        it.pid == workerPid && it.processName == expectedProcess
+      }
+      Handler(Looper.getMainLooper()).post {
+        result.success(
+          hashMapOf(
+            "alive" to (running != null),
+            "pid" to (running?.pid ?: workerPid),
+            "processName" to (running?.processName ?: expectedProcess),
+            "importance" to (running?.importance ?: -1)
+          )
+        )
+      }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "PDFIUM_WORKER_LIVENESS_QUERY_FAILED",
           error.message ?: error.javaClass.simpleName,
           null
         )

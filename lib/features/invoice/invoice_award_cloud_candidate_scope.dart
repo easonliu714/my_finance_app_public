@@ -172,10 +172,14 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   // Android process with disk-backed scratch. If that worker is killed, the
   // Flutter process survives and no partial candidate authority is promoted.
   static const int crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024;
-  // This is a liveness watchdog, not a total job timeout. A foreground worker
-  // may run for as long as the official PDF requires, provided it keeps
-  // emitting heartbeats. Only a stale heartbeat is treated as a lost worker.
-  static const Duration workerHeartbeatStaleAfter = Duration(seconds: 45);
+  // A missing worker-file heartbeat is only a prompt to verify the dedicated
+  // Android process. It is NOT a timeout. If the OS still reports the exact
+  // worker PID alive, the lookup continues indefinitely and the UI emits
+  // synthetic elapsed-time progress until native PDFium produces measurable
+  // progress again.
+  static const Duration workerHeartbeatProbeAfter = Duration(seconds: 15);
+  static const Duration workerLivenessProbeEvery = Duration(seconds: 2);
+  static const Duration syntheticOpenProgressEvery = Duration(seconds: 1);
 
   @override
   Future<CloudAwardSortedPdfCandidateMatchResult> findMatches({
@@ -406,6 +410,9 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     DateTime? candidateSearchStartedAt;
     var lastProgressSignature = '';
     var lastStage = 'STARTED';
+    var lastWorkerPid = 0;
+    var lastLivenessProbeAt = workerStartedAt;
+    var lastSyntheticProgressAt = workerStartedAt;
 
     while (true) {
       cancellation?.throwIfCancelled();
@@ -433,6 +440,8 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           final updatedAt = (decoded['updated_at_ms'] as num?)?.toInt() ?? 0;
           final stageElapsedMs =
               (decoded['stage_elapsed_ms'] as num?)?.toInt() ?? 0;
+          final workerPid = (decoded['worker_pid'] as num?)?.toInt() ?? 0;
+          if (workerPid > 0) lastWorkerPid = workerPid;
           if (updatedAt > 0) {
             lastHeartbeatAt =
                 DateTime.fromMillisecondsSinceEpoch(updatedAt);
@@ -493,13 +502,49 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             );
           }
 
-          if (DateTime.now().difference(lastHeartbeatAt) >
-              workerHeartbeatStaleAfter) {
-            final safeStage =
-                lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
-            throw StateError(
-              'CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_$safeStage',
-            );
+          final now = DateTime.now();
+          if (now.difference(lastHeartbeatAt) > workerHeartbeatProbeAfter) {
+            if (lastWorkerPid <= 0) {
+              throw StateError(
+                'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PID_MISSING',
+              );
+            }
+            if (now.difference(lastLivenessProbeAt) >=
+                workerLivenessProbeEvery) {
+              lastLivenessProbeAt = now;
+              final liveness =
+                  await _channel.invokeMapMethod<String, Object?>(
+                'getPdfiumCandidateWorkerLiveness',
+                <String, Object?>{'workerPid': lastWorkerPid},
+              );
+              if (liveness?['alive'] != true) {
+                final safeStage =
+                    lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
+                throw StateError(
+                  'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_$safeStage',
+                );
+              }
+            }
+            if (now.difference(lastSyntheticProgressAt) >=
+                syntheticOpenProgressEvery) {
+              lastSyntheticProgressAt = now;
+              onProgress?.call(
+                CloudAwardSortedPdfCandidateProgress(
+                  candidateIndex: candidateIndex,
+                  candidateCount: candidateCount,
+                  pageNumber: pageNumber,
+                  pageCount: pageCount,
+                  pagesRead: pagesRead,
+                  stage: stage == 'PDFIUM_OPEN_BEGIN'
+                      ? 'PDFIUM_OPEN_WAIT'
+                      : stage,
+                  elapsed: now.difference(workerStartedAt),
+                  estimatedRemaining: null,
+                  sourceBytesRead: sourceBytesRead,
+                  sourceBytesTotal: sourceBytesTotal,
+                ),
+              );
+            }
           }
           await Future<void>.delayed(const Duration(milliseconds: 250));
           continue;
@@ -585,13 +630,22 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           }
         }
       }
-      if (DateTime.now().difference(lastHeartbeatAt) >
-          workerHeartbeatStaleAfter) {
-        final safeStage =
-            lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
-        throw StateError(
-          'CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_$safeStage',
+      final now = DateTime.now();
+      if (now.difference(lastHeartbeatAt) > workerHeartbeatProbeAfter &&
+          lastWorkerPid > 0 &&
+          now.difference(lastLivenessProbeAt) >= workerLivenessProbeEvery) {
+        lastLivenessProbeAt = now;
+        final liveness = await _channel.invokeMapMethod<String, Object?>(
+          'getPdfiumCandidateWorkerLiveness',
+          <String, Object?>{'workerPid': lastWorkerPid},
         );
+        if (liveness?['alive'] != true) {
+          final safeStage =
+              lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
+          throw StateError(
+            'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_$safeStage',
+          );
+        }
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }

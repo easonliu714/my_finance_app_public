@@ -449,8 +449,11 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                       '${_formatCloudWorkerBytes(progress.sourceBytesRead)}'
                       '/${_formatCloudWorkerBytes(progress.sourceBytesTotal)} · '
                       '已耗時 $elapsed · 預估剩餘 $eta',
-                'PDFIUM_OPEN_BEGIN' || 'PDFIUM_OPEN_WAIT' =>
-                  '背景服務正在開啟大型 PDF · 已耗時 $elapsed · '
+                'PDFIUM_OPEN_BEGIN' =>
+                  '背景服務正在啟動大型 PDF · 已耗時 $elapsed · '
+                      '預估剩餘：尚無法可靠估算（此原生階段沒有可量測百分比）',
+                'PDFIUM_OPEN_WAIT' =>
+                  '背景服務程序仍存活，正在開啟大型 PDF · 已耗時 $elapsed · '
                       '預估剩餘：尚無法可靠估算（此原生階段沒有可量測百分比）',
                 _ =>
                   '候選號碼 ${progress.candidateIndex}/'
