@@ -3,6 +3,6 @@ class AppBuildMetadata {
 
   static const String appName = 'my_finance_app';
   static const String appDisplayName = 'My Finance App';
-  static const String appVersion = '4.20.17+475';
-  static const String phase = 'issue-13-cloud500-pdfium-lifecycle-safe-475';
+  static const String appVersion = '4.20.18+476';
+  static const String phase = 'issue-13-cloud500-pdfium-background-heartbeat-476';
 }

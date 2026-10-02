@@ -290,7 +290,7 @@ jobs:
             printf 'CLOUD_500_PDFIUM_CANDIDATE_SCOPE=PASS\n'
             printf 'CLOUD_500_CANDIDATE_AUTHORITY_DURABLE=PASS\n'
             printf 'CLOUD_500_EMPTY_CANDIDATE_SKIP=PASS\n'
-            printf 'CLOUD_500_PDFIUM_LIFECYCLE_RETRY=PASS\n'
+            printf 'CLOUD_500_PDFIUM_LIFECYCLE_RETRY=PASS\n'\n            printf 'CLOUD_500_BACKGROUND_FOREGROUND_SERVICE=PASS\n'\n            printf 'CLOUD_500_HEARTBEAT_LIVENESS=PASS\n'\n            printf 'CLOUD_500_FIXED_TOTAL_TIMEOUT_ABSENT=PASS\n'
             printf 'CLOUD_500_PDFIUM_BATCHED_SESSION=PASS\n'
             printf 'CLOUD_500_PDFIUM_1X_REFRESH=PASS\n'
             printf 'CLOUD_FOUR_TIER_SUMMARY=PASS\n'
@@ -321,8 +321,8 @@ jobs:
           } > issue_13_award_mvp_canary_metadata.txt
           for required in \
             "ISSUE_13_EXACT_HEAD=$(git rev-parse HEAD)" \
-            'VERSION_NAME=4.20.17' \
-            'VERSION_CODE=475' \
+            'VERSION_NAME=4.20.18' \
+            'VERSION_CODE=476' \
             'GENERAL_OFFICIAL_ACQUISITION=PASS' \
             'EXISTING_FORMAL_TRANSACTION_SCAN=PASS' \
             'CLOUD_PUBLICATION_AND_INDEX=PASS' \
