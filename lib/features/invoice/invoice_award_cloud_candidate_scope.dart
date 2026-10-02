@@ -465,7 +465,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               final completed = max(candidateIndex - 1, 0);
               if (completed > 0) {
                 final searchElapsed =
-                    now.difference(candidateSearchStartedAt!);
+                    now.difference(candidateSearchStartedAt);
                 final remaining = max(candidateCount - completed, 0);
                 eta = Duration(
                   milliseconds:

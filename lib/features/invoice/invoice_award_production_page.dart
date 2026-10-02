@@ -39,7 +39,6 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
   final http.Client _httpClient = http.Client();
   final CloudAwardIndexLkgRepository _cloudRepository = CloudAwardIndexLkgRepository();
-  CloudAwardCandidateLookupCancellation? _activeCloudCancellation;
   bool _ownsProcessRefresh = false;
   bool _disposed = false;
 
@@ -159,7 +158,6 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     _processRefreshActive = true;
     _ownsProcessRefresh = true;
     final cancellation = CloudAwardCandidateLookupCancellation();
-    _activeCloudCancellation = cancellation;
 
     final usePreviousPublication =
         InvoiceAwardRecentPeriodCatalog.usesPreviousPublication(selectedPeriod, now);
@@ -354,7 +352,6 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         _cloudStatus = '雲端專屬獎結果未完成；不會宣稱完整未中獎。';
       });
     } finally {
-      _activeCloudCancellation = null;
       _ownsProcessRefresh = false;
       _processRefreshActive = false;
       if (mounted && _refreshing) {
