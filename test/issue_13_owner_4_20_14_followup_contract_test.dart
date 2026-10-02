@@ -46,6 +46,17 @@ void main() {
     );
     expect(worker, isNot(contains('PDFTextStripper()')));
     expect(scope, contains("status == 'running'"));
-    expect(scope, contains('CLOUD_AWARD_CANDIDATE_WORKER_TIMEOUT_'));
+    expect(
+      scope,
+      contains('CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_'),
+    );
+    expect(
+      scope,
+      contains('workerHeartbeatStaleAfter = Duration(seconds: 45)'),
+    );
+    expect(
+      scope,
+      isNot(contains('workerResultTimeout = Duration(seconds: 120)')),
+    );
   });
 }
