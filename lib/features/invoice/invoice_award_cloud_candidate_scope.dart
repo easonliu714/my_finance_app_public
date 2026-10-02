@@ -100,6 +100,11 @@ class CloudAwardSortedPdfCandidateProgress {
     required this.pageNumber,
     required this.pageCount,
     required this.pagesRead,
+    this.stage = 'PDFIUM_CANDIDATE_SEARCH',
+    this.elapsed = Duration.zero,
+    this.estimatedRemaining,
+    this.sourceBytesRead = 0,
+    this.sourceBytesTotal = 0,
   });
 
   final int candidateIndex;
@@ -107,6 +112,11 @@ class CloudAwardSortedPdfCandidateProgress {
   final int pageNumber;
   final int pageCount;
   final int pagesRead;
+  final String stage;
+  final Duration elapsed;
+  final Duration? estimatedRemaining;
+  final int sourceBytesRead;
+  final int sourceBytesTotal;
 }
 
 typedef CloudAwardSortedPdfCandidateProgressCallback = void Function(
@@ -162,7 +172,10 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   // Android process with disk-backed scratch. If that worker is killed, the
   // Flutter process survives and no partial candidate authority is promoted.
   static const int crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024;
-  static const Duration workerResultTimeout = Duration(seconds: 120);
+  // This is a liveness watchdog, not a total job timeout. A foreground worker
+  // may run for as long as the official PDF requires, provided it keeps
+  // emitting heartbeats. Only a stale heartbeat is treated as a lost worker.
+  static const Duration workerHeartbeatStaleAfter = Duration(seconds: 45);
 
   @override
   Future<CloudAwardSortedPdfCandidateMatchResult> findMatches({
@@ -388,11 +401,13 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     }
 
     final resultFile = File(resultPath);
-    var deadline = DateTime.now().add(workerResultTimeout);
+    final workerStartedAt = DateTime.now();
+    DateTime lastHeartbeatAt = workerStartedAt;
+    DateTime? candidateSearchStartedAt;
     var lastProgressSignature = '';
     var lastStage = 'STARTED';
 
-    while (DateTime.now().isBefore(deadline)) {
+    while (true) {
       cancellation?.throwIfCancelled();
       if (await resultFile.exists()) {
         final decoded = jsonDecode(await resultFile.readAsString());
@@ -411,28 +426,80 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           final pageNumber = (decoded['page_number'] as num?)?.toInt() ?? 0;
           final pageCount = (decoded['page_count'] as num?)?.toInt() ?? 0;
           final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;
+          final sourceBytesRead =
+              (decoded['source_bytes_read'] as num?)?.toInt() ?? 0;
+          final sourceBytesTotal =
+              (decoded['source_bytes_total'] as num?)?.toInt() ?? 0;
           final updatedAt = (decoded['updated_at_ms'] as num?)?.toInt() ?? 0;
+          final stageElapsedMs =
+              (decoded['stage_elapsed_ms'] as num?)?.toInt() ?? 0;
+          if (updatedAt > 0) {
+            lastHeartbeatAt =
+                DateTime.fromMillisecondsSinceEpoch(updatedAt);
+          }
           final signature =
               '$stage|$candidateIndex|$pageNumber|$pagesRead|$updatedAt';
 
           if (signature != lastProgressSignature) {
             lastProgressSignature = signature;
             lastStage = stage;
-            deadline = DateTime.now().add(workerResultTimeout);
-            if (candidateIndex > 0 &&
-                candidateCount == candidates.length &&
-                pageNumber > 0 &&
-                pageCount > 0) {
-              onProgress?.call(
-                CloudAwardSortedPdfCandidateProgress(
-                  candidateIndex: candidateIndex,
-                  candidateCount: candidateCount,
-                  pageNumber: pageNumber,
-                  pageCount: pageCount,
-                  pagesRead: pagesRead,
-                ),
+            final now = DateTime.now();
+            final elapsed = now.difference(workerStartedAt);
+            Duration? eta;
+
+            if (stage == 'PDFIUM_SOURCE_SHA256' &&
+                sourceBytesRead > 0 &&
+                sourceBytesTotal > sourceBytesRead &&
+                elapsed.inMilliseconds > 0) {
+              final remainingRatio =
+                  (sourceBytesTotal - sourceBytesRead) / sourceBytesRead;
+              eta = Duration(
+                milliseconds:
+                    (elapsed.inMilliseconds * remainingRatio).round(),
               );
+            } else if ((stage == 'PDFIUM_PAGE_BEGIN' ||
+                    stage == 'PDFIUM_CANDIDATE_SEARCH') &&
+                candidateIndex > 0 &&
+                candidateCount > 0) {
+              candidateSearchStartedAt ??= now;
+              final completed = max(candidateIndex - 1, 0);
+              if (completed > 0) {
+                final searchElapsed =
+                    now.difference(candidateSearchStartedAt!);
+                final remaining = max(candidateCount - completed, 0);
+                eta = Duration(
+                  milliseconds:
+                      (searchElapsed.inMilliseconds * remaining / completed)
+                          .round(),
+                );
+              }
             }
+
+            onProgress?.call(
+              CloudAwardSortedPdfCandidateProgress(
+                candidateIndex: candidateIndex,
+                candidateCount: candidateCount,
+                pageNumber: pageNumber,
+                pageCount: pageCount,
+                pagesRead: pagesRead,
+                stage: stage,
+                elapsed: stageElapsedMs > 0
+                    ? Duration(milliseconds: stageElapsedMs)
+                    : elapsed,
+                estimatedRemaining: eta,
+                sourceBytesRead: sourceBytesRead,
+                sourceBytesTotal: sourceBytesTotal,
+              ),
+            );
+          }
+
+          if (DateTime.now().difference(lastHeartbeatAt) >
+              workerHeartbeatStaleAfter) {
+            final safeStage =
+                lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
+            throw StateError(
+              'CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_$safeStage',
+            );
           }
           await Future<void>.delayed(const Duration(milliseconds: 250));
           continue;
@@ -518,11 +585,16 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           }
         }
       }
+      if (DateTime.now().difference(lastHeartbeatAt) >
+          workerHeartbeatStaleAfter) {
+        final safeStage =
+            lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
+        throw StateError(
+          'CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_$safeStage',
+        );
+      }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-
-    final safeStage = lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
-    throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_TIMEOUT_$safeStage');
   }
 
 }

@@ -291,7 +291,11 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
         )
         .putExtra(PdfiumCandidateWorkerService.EXTRA_RESULT_PATH, resultFile.absolutePath)
         .putExtra(PdfiumCandidateWorkerService.EXTRA_REQUEST_ID, requestId)
-      applicationContext.startService(intent)
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        applicationContext.startForegroundService(intent)
+      } else {
+        applicationContext.startService(intent)
+      }
       Handler(Looper.getMainLooper()).post {
         result.success(
           hashMapOf(

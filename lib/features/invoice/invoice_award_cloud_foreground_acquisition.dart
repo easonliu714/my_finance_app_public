@@ -131,6 +131,22 @@ typedef CloudAwardTemporaryDirectoryProvider = Future<Directory> Function();
 /// Network requests contain only the fixed public publication URL and the four
 /// official PDF URLs discovered from it. No local invoice, transaction,
 /// merchant, account, device identity, AppID or carrier credential is sent.
+String _formatCloudWorkerDuration(Duration value) {
+  final seconds = value.inSeconds.clamp(0, 359999).toInt();
+  final hours = seconds ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  final secs = seconds % 60;
+  String two(int n) => n.toString().padLeft(2, '0');
+  return hours > 0
+      ? '${two(hours)}:${two(minutes)}:${two(secs)}'
+      : '${two(minutes)}:${two(secs)}';
+}
+
+String _formatCloudWorkerBytes(int bytes) {
+  if (bytes <= 0) return '0.0 MB';
+  return '${(bytes / 1048576).toStringAsFixed(1)} MB';
+}
+
 class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   MinistryOfFinanceCloudAwardForegroundAcquisitionService({
     required http.Client client,
@@ -408,7 +424,8 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
               CloudAwardForegroundProgress(
                 stage: CloudAwardForegroundStage.extracting,
                 tierCode: reference.tierCode,
-                message: '大型 500 元獎 PDF 於隔離程序進行候選比對；'
+                message: '大型 500 元獎 PDF 由系統背景服務進行候選比對；'
+                    '可暫時切換到其他 App，回來後會接續顯示進度與結果；'
                     '即使原生解析程序異常，主 App 仍會保留一般獎與既有結果。',
                 diagnosticMessage: '大型 PDF 結構：'
                     '${structure.safeDiagnosticText(candidateCount: normalizedCandidates.length)}',
@@ -419,6 +436,30 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
             artifact: artifact,
             candidateInvoiceNumbers: normalizedCandidates,
             onProgress: (progress) {
+              final elapsed = _formatCloudWorkerDuration(progress.elapsed);
+              final eta = progress.estimatedRemaining == null
+                  ? '尚無法可靠估算'
+                  : _formatCloudWorkerDuration(progress.estimatedRemaining!);
+              final timedSuffix = progress.elapsed == Duration.zero
+                  ? ''
+                  : ' · 已耗時 $elapsed · 預估剩餘 $eta';
+              final message = switch (progress.stage) {
+                'PDFIUM_SOURCE_SHA256' =>
+                  '驗證官方 PDF 完整性 '
+                      '${_formatCloudWorkerBytes(progress.sourceBytesRead)}'
+                      '/${_formatCloudWorkerBytes(progress.sourceBytesTotal)} · '
+                      '已耗時 $elapsed · 預估剩餘 $eta',
+                'PDFIUM_OPEN_BEGIN' || 'PDFIUM_OPEN_WAIT' =>
+                  '背景服務正在開啟大型 PDF · 已耗時 $elapsed · '
+                      '預估剩餘：尚無法可靠估算（此原生階段沒有可量測百分比）',
+                _ =>
+                  '候選號碼 ${progress.candidateIndex}/'
+                      '${progress.candidateCount} · '
+                      '二分搜尋目前定位第 ${progress.pageNumber}/'
+                      '${progress.pageCount} 頁 · '
+                      '累計實際讀取 ${progress.pagesRead} 頁'
+                      '$timedSuffix',
+              };
               onProgress?.call(
                 CloudAwardForegroundProgress(
                   stage: CloudAwardForegroundStage.extracting,
@@ -426,11 +467,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                   pageNumber: progress.pageNumber,
                   pageCount: progress.pageCount,
                   rowCount: progress.pagesRead,
-                  message: '候選號碼 ${progress.candidateIndex}/'
-                      '${progress.candidateCount} · '
-                      '二分搜尋目前定位第 ${progress.pageNumber}/'
-                      '${progress.pageCount} 頁 · '
-                      '累計實際讀取 ${progress.pagesRead} 頁',
+                  message: message,
                 ),
               );
             },

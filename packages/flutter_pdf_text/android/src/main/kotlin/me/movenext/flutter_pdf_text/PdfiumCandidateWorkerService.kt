@@ -1,14 +1,20 @@
 package me.movenext.flutter_pdf_text
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import io.legere.pdfiumandroid.PdfiumCore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /**
@@ -32,6 +38,9 @@ class PdfiumCandidateWorkerService : Service() {
       "expected_candidate_universe_sha256"
     const val EXTRA_RESULT_PATH = "result_path"
     const val EXTRA_REQUEST_ID = "request_id"
+    private const val NOTIFICATION_CHANNEL_ID = "cloud_award_pdf_worker"
+    private const val NOTIFICATION_ID = 1320475
+    private const val OPEN_HEARTBEAT_INTERVAL_MS = 5_000L
   }
 
   private lateinit var pdfiumCore: PdfiumCore
@@ -39,6 +48,7 @@ class PdfiumCandidateWorkerService : Service() {
   override fun onCreate() {
     super.onCreate()
     pdfiumCore = PdfiumCore(applicationContext)
+    ensureNotificationChannel()
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -48,6 +58,11 @@ class PdfiumCandidateWorkerService : Service() {
       stopSelf(startId)
       return START_NOT_STICKY
     }
+    startForeground(
+      NOTIFICATION_ID,
+      buildNotification("正在處理大型官方 PDF 候選比對")
+    )
+
     val pdfPath = intent.getStringExtra(EXTRA_PDF_PATH).orEmpty()
     val candidatesJson = intent.getStringExtra(EXTRA_CANDIDATES_JSON).orEmpty()
     val expectedSourceSha256 =
@@ -78,6 +93,7 @@ class PdfiumCandidateWorkerService : Service() {
           "PDFIUM_WORKER_FAILED:${error.javaClass.simpleName}"
         )
       } finally {
+        stopForeground(true)
         stopSelf(startId)
       }
     }
@@ -176,9 +192,38 @@ class PdfiumCandidateWorkerService : Service() {
     )
 
     var descriptor: ParcelFileDescriptor? = null
+    val opening = AtomicBoolean(true)
+    val openStartedAt = SystemClock.elapsedRealtime()
+    val openHeartbeat = thread(
+      start = true,
+      isDaemon = true,
+      name = "issue13-cloud500-open-heartbeat"
+    ) {
+      while (opening.get()) {
+        try {
+          Thread.sleep(OPEN_HEARTBEAT_INTERVAL_MS)
+          if (opening.get()) {
+            writeRunning(
+              resultPath = resultPath,
+              requestId = requestId,
+              stage = "PDFIUM_OPEN_WAIT",
+              candidateIndex = 0,
+              candidateCount = candidates.size,
+              sourceBytesRead = expectedSourceBytes,
+              sourceBytesTotal = expectedSourceBytes,
+              stageElapsedMs = SystemClock.elapsedRealtime() - openStartedAt
+            )
+          }
+        } catch (_: InterruptedException) {
+          break
+        }
+      }
+    }
     try {
       descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
       val document = pdfiumCore.newDocument(descriptor)
+      opening.set(false)
+      openHeartbeat.interrupt()
       descriptor = null // ownership transferred to PdfDocument
       document.use {
         val pageCount = document.getPageCount()
@@ -294,6 +339,8 @@ class PdfiumCandidateWorkerService : Service() {
         writeAtomic(resultPath, payload.toString())
       }
     } finally {
+      opening.set(false)
+      openHeartbeat.interrupt()
       try { descriptor?.close() } catch (_: Exception) {}
     }
   }
@@ -324,7 +371,8 @@ class PdfiumCandidateWorkerService : Service() {
     pageCount: Int = 0,
     pagesRead: Int = 0,
     sourceBytesRead: Long = 0L,
-    sourceBytesTotal: Long = 0L
+    sourceBytesTotal: Long = 0L,
+    stageElapsedMs: Long = 0L
   ) {
     val payload = JSONObject()
       .put("request_id", requestId)
@@ -338,6 +386,7 @@ class PdfiumCandidateWorkerService : Service() {
       .put("pages_read", pagesRead)
       .put("source_bytes_read", sourceBytesRead)
       .put("source_bytes_total", sourceBytesTotal)
+      .put("stage_elapsed_ms", stageElapsedMs)
       .put("updated_at_ms", System.currentTimeMillis())
     writeAtomic(resultPath, payload.toString())
   }
@@ -372,6 +421,37 @@ class PdfiumCandidateWorkerService : Service() {
       .joinToString("") {
         (it.toInt() and 0xff).toString(16).padStart(2, '0')
       }
+  }
+
+  private fun ensureNotificationChannel() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = getSystemService(NotificationManager::class.java)
+    val channel = NotificationChannel(
+      NOTIFICATION_CHANNEL_ID,
+      "雲端發票中獎資料處理",
+      NotificationManager.IMPORTANCE_LOW
+    ).apply {
+      description = "大型財政部官方 PDF 背景候選比對"
+      setShowBadge(false)
+    }
+    manager.createNotificationChannel(channel)
+  }
+
+  private fun buildNotification(message: String): Notification {
+    val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
+    } else {
+      @Suppress("DEPRECATION")
+      Notification.Builder(this)
+    }
+    return builder
+      .setSmallIcon(android.R.drawable.stat_sys_download)
+      .setContentTitle("雲端發票中獎資料處理中")
+      .setContentText(message)
+      .setCategory(Notification.CATEGORY_PROGRESS)
+      .setOngoing(true)
+      .setOnlyAlertOnce(true)
+      .build()
   }
 
   private fun writeFailure(resultPath: String, requestId: String, code: String) {

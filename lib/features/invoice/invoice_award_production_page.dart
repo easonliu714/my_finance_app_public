@@ -74,7 +74,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   @override
   void dispose() {
     _disposed = true;
-    _activeCloudCancellation?.cancel();
+    // Large cloud-500 verification is owned by a native foreground service.
+    // Navigating away or backgrounding the Activity must not revoke an
+    // already-authorized local lookup.
     WidgetsBinding.instance.removeObserver(this);
     if (!_ownsProcessRefresh) _httpClient.close();
     super.dispose();
@@ -82,22 +84,20 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!_ownsProcessRefresh) return;
+    if (!_ownsProcessRefresh || !mounted) return;
 
-    // On Android, inactive can be a transient focus loss while the Activity is
-    // still visible (for example a system overlay/notification surface). That
-    // is not a safe signal to abort a long exact-candidate PDF lookup. Cancel
-    // only once Flutter reports that the App is actually hidden/paused, or the
-    // engine is detached.
     if (state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _activeCloudCancellation?.cancel();
-      if (mounted) {
-        setState(() {
-          _cloudStatus = 'App 已離開前景，正在安全中止本次雲端獎查找；完成資源釋放後可重試。';
-        });
-      }
+        state == AppLifecycleState.paused) {
+      setState(() {
+        _cloudStatus = 'App 已進入背景；大型雲端獎 PDF 仍由系統背景服務持續比對，'
+            '回到 App 後會接續顯示進度與結果。';
+      });
+      return;
+    }
+    if (state == AppLifecycleState.resumed && _refreshing) {
+      setState(() {
+        _cloudStatus = '已回到 App；正在同步背景雲端獎比對進度與結果。';
+      });
     }
   }
 
@@ -453,7 +453,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
               child: Padding(
                 padding: EdgeInsets.all(12),
                 child: Text('雲端專屬獎官方資料包含大型 PDF。首次更新可能需要較多網路流量與處理時間；'
-                    '四個獎別會依序下載與建立本機索引，已驗證且來源相同的資料會直接重用。'),
+                    '大型 500 元獎候選比對會交由系統背景服務執行，可暫時切換到其他 App；'
+                    '四個獎別會依序驗證，已驗證且來源相同的資料會直接重用。'),
               ),
             ),
             const SizedBox(height: 12),

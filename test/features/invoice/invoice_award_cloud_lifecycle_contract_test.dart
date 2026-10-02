@@ -35,7 +35,18 @@ void main() {
       contains('crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024'),
     );
     expect(candidateSource, contains("'startPdfiumCandidateWorker'"));
-    expect(candidateSource, contains('CLOUD_AWARD_CANDIDATE_WORKER_TIMEOUT_'));
+    expect(
+      candidateSource,
+      contains('CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_'),
+    );
+    expect(
+      candidateSource,
+      contains('workerHeartbeatStaleAfter = Duration(seconds: 45)'),
+    );
+    expect(
+      candidateSource,
+      isNot(contains('workerResultTimeout = Duration(seconds: 120)')),
+    );
     expect(candidateSource, contains('_findMatchesCrashIsolated'));
     expect(candidateSource, contains('for (var batchStart = 0;'));
     expect(candidateSource, contains('uniquePagesRead'));
@@ -56,11 +67,18 @@ void main() {
     );
     expect(
       foregroundSource,
+      contains('背景服務正在開啟大型 PDF'),
+    );
+    expect(
+      foregroundSource,
+      contains('預估剩餘'),
+    );
+    expect(
+      foregroundSource,
       contains('本期沒有可比對的雲端候選，略過大型 500 元獎 PDF'),
     );
     expect(pageSource, contains('with WidgetsBindingObserver'));
     expect(pageSource, contains('_processRefreshActive'));
-    expect(pageSource, contains('_activeCloudCancellation?.cancel()'));
     final lifecycleStart =
         pageSource.indexOf('void didChangeAppLifecycleState(');
     final lifecycleEnd = pageSource.indexOf('DateTime _now()', lifecycleStart);
@@ -68,6 +86,10 @@ void main() {
     expect(lifecycleEnd, greaterThan(lifecycleStart));
     final lifecycleSource =
         pageSource.substring(lifecycleStart, lifecycleEnd);
+    expect(
+      lifecycleSource,
+      isNot(contains('_activeCloudCancellation?.cancel()')),
+    );
     expect(
       lifecycleSource,
       isNot(contains('state == AppLifecycleState.inactive')),
@@ -82,7 +104,16 @@ void main() {
     );
     expect(
       lifecycleSource,
-      contains('state == AppLifecycleState.detached'),
+      contains('state == AppLifecycleState.resumed'),
+    );
+    final disposeStart = pageSource.indexOf('void dispose()');
+    final disposeEnd =
+        pageSource.indexOf('void didChangeAppLifecycleState', disposeStart);
+    expect(disposeStart, greaterThanOrEqualTo(0));
+    expect(disposeEnd, greaterThan(disposeStart));
+    expect(
+      pageSource.substring(disposeStart, disposeEnd),
+      isNot(contains('_activeCloudCancellation?.cancel()')),
     );
     expect(pageSource, contains('on CloudAwardCandidateLookupCancelled'));
     expect(pageSource, contains('_cloudTierSummaries'));
@@ -98,6 +129,7 @@ void main() {
     );
     expect(pluginSource, contains('"startPdfiumCandidateWorker"'));
     expect(pluginSource, contains('PdfiumCandidateWorkerService::class.java'));
+    expect(pluginSource, contains('startForegroundService(intent)'));
     expect(workerSource, contains('PdfiumCore(applicationContext)'));
     expect(workerSource, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
     expect(workerSource, contains('pdfiumCore.newDocument(descriptor)'));
@@ -105,6 +137,10 @@ void main() {
     expect(workerSource, contains('page.openTextPage()'));
     expect(workerSource, contains('pdfium-random-access-candidate-search'));
     expect(workerSource, contains('"PDFIUM_OPEN_BEGIN"'));
+    expect(workerSource, contains('"PDFIUM_OPEN_WAIT"'));
+    expect(workerSource, contains('OPEN_HEARTBEAT_INTERVAL_MS = 5_000L'));
+    expect(workerSource, contains('startForeground('));
+    expect(workerSource, contains('NotificationChannel('));
     expect(workerSource, contains('"PDFIUM_CANDIDATE_SEARCH"'));
     expect(
       RegExp(r'PDDocument\.load\s*\(').hasMatch(workerSource),
@@ -113,6 +149,12 @@ void main() {
     expect(workerSource, isNot(contains('PDFTextStripper()')));
     expect(pluginManifest, contains('android:process=":pdfium_candidate_worker"'));
     expect(pluginManifest, contains('android:exported="false"'));
+    expect(pluginManifest, contains('android:foregroundServiceType="dataSync"'));
+    expect(pluginManifest, contains('android:stopWithTask="false"'));
+    expect(
+      pluginManifest,
+      contains('android.permission.FOREGROUND_SERVICE_DATA_SYNC'),
+    );
     expect(pluginGradle, contains('io.legere:pdfiumandroid:1.0.35'));
   });
 }
