@@ -171,7 +171,7 @@ jobs:
           APK=build/app/outputs/flutter-apk/app-debug.apk
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
           "$APKSIGNER" verify --print-certs "$APK" | tee issue13-cloud500-diag.signer.txt
-          ACTUAL="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' issue13-cloud500-diag.signer.txt | tr 'A-F' 'a-f' | head -1)"
+          ACTUAL="$(awk -F': ' '/certificate SHA-256 digest:/ {print $NF; exit}' issue13-cloud500-diag.signer.txt | tr 'A-F' 'a-f')"
           EXPECTED="51c7fc93ef3d2a04bcd993e6e716b37949efdb74be9af7f48689cfc7ff5c3c53"
           echo "Expected Lab signer SHA256 : $EXPECTED"
           echo "Actual Lab signer SHA256   : $ACTUAL"
