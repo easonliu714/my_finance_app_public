@@ -39,6 +39,18 @@ jobs:
       - name: Generate Android host
         run: flutter create --platforms=android .
 
+      - name: Materialize stable Lab signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d tools/issue13_cloud500_lab_signing/cloud500_lab_signing.p12.b64 > /tmp/cloud500_lab_signing.p12
+          keytool -list -v \
+            -keystore /tmp/cloud500_lab_signing.p12 \
+            -storepass 'cloud500lab-diagnostic-only' \
+            -alias cloud500lab | tee /tmp/cloud500_lab_signer.txt
+          grep -Fq 'SHA256: 51:C7:FC:93:EF:3D:2A:04:BC:D9:93:E6:E7:16:B3:79:49:EF:DB:74:BE:9A:F7:F4:86:89:CF:C7:FF:5C:3C:53' /tmp/cloud500_lab_signer.txt
+          echo 'LAB_STABLE_SIGNING_KEY_GATE=PASS'
+
       - name: Patch standalone package identity and Android contracts
         shell: bash
         run: |
@@ -71,6 +83,26 @@ jobs:
                       '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")',
                       1,
                   )
+          signing = '''
+    signingConfigs {
+        create("cloud500Lab") {
+            storeFile = file("/tmp/cloud500_lab_signing.p12")
+            storePassword = "cloud500lab-diagnostic-only"
+            keyAlias = "cloud500lab"
+            keyPassword = "cloud500lab-diagnostic-only"
+        }
+    }
+'''
+          if 'create("cloud500Lab")' not in text:
+              text = text.replace('    buildTypes {', signing + '\n    buildTypes {', 1)
+              text = text.replace(
+                  '    buildTypes {',
+                  '    buildTypes {\n'
+                  '        getByName("debug") {\n'
+                  '            signingConfig = signingConfigs.getByName("cloud500Lab")\n'
+                  '        }',
+                  1,
+              )
           gradle.write_text(text)
 
           manifest = Path('android/app/src/main/AndroidManifest.xml')
@@ -122,7 +154,29 @@ jobs:
         run: flutter analyze lib/issue13_cloud500_diag_main.dart
 
       - name: Build standalone debug APK
-        run: flutter build apk --debug -t lib/issue13_cloud500_diag_main.dart
+        shell: bash
+        run: |
+          set -euo pipefail
+          LAB_BUILD_NUMBER=$((900000 + GITHUB_RUN_NUMBER))
+          echo "LAB_BUILD_NUMBER=$LAB_BUILD_NUMBER" >> "$GITHUB_ENV"
+          flutter build apk --debug \
+            -t lib/issue13_cloud500_diag_main.dart \
+            --build-name "0.3.${GITHUB_RUN_NUMBER}" \
+            --build-number "$LAB_BUILD_NUMBER"
+
+      - name: Verify stable Lab signer
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-debug.apk
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          "$APKSIGNER" verify --print-certs "$APK" | tee issue13-cloud500-diag.signer.txt
+          ACTUAL="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' issue13-cloud500-diag.signer.txt | tr 'A-F' 'a-f' | head -1)"
+          EXPECTED="51c7fc93ef3d2a04bcd993e6e716b37949efdb74be9af7f48689cfc7ff5c3c53"
+          echo "Expected Lab signer SHA256 : $EXPECTED"
+          echo "Actual Lab signer SHA256   : $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+          echo 'LAB_STABLE_SIGNER_GATE=PASS'
 
       - name: Record APK authority
         shell: bash
@@ -133,6 +187,10 @@ jobs:
             echo "DIAGNOSTIC_BRANCH=issue-13-cloud500-pdf-diagnostic-lab"
             echo "DIAGNOSTIC_HEAD=$(git rev-parse HEAD)"
             echo "APPLICATION_ID=com.easonliu.cloud500diag"
+            echo "LAB_VERSION_NAME=0.3.${GITHUB_RUN_NUMBER}"
+            echo "LAB_VERSION_CODE=${LAB_BUILD_NUMBER}"
+            echo "LAB_SIGNER_SHA256=51c7fc93ef3d2a04bcd993e6e716b37949efdb74be9af7f48689cfc7ff5c3c53"
+            echo "LAB_OVERWRITE_UPDATE_READY=TRUE"
             echo "TARGET_PERIOD=115-07-08"
             echo "EXPECTED_PDF_BYTES=135200798"
             echo "EXPECTED_PDF_SHA256=f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571"
@@ -148,5 +206,6 @@ jobs:
             build/app/outputs/flutter-apk/app-debug.apk
             issue13-cloud500-diag.apk.sha256
             issue13-cloud500-diag-authority.txt
+            issue13-cloud500-diag.signer.txt
           if-no-files-found: error
           retention-days: 5

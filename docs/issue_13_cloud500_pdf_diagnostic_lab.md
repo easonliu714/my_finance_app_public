@@ -48,3 +48,19 @@ v3 therefore:
   description when the platform exposes them.
 
 Production PR #45 remains frozen; this dependency change is diagnostic-only.
+
+
+## Stable overwrite-install signing
+
+Beginning with Lab v3, the standalone package uses a fixed diagnostic-only
+signing certificate and monotonically increasing Lab versionCode. This is
+deliberately separate from production signing authority.
+
+Android requires both the same applicationId and signer for an in-place update.
+The earlier v2 APK used an ephemeral CI debug key, so **one final uninstall is
+required when moving from v2 to the first stable-signed Lab build**. After that
+transition, future Lab APKs can be installed over the existing Lab and preserve
+the downloaded official PDF, cache and debug logs.
+
+Stable Lab signer SHA-256:
+`51c7fc93ef3d2a04bcd993e6e716b37949efdb74be9af7f48689cfc7ff5c3c53`

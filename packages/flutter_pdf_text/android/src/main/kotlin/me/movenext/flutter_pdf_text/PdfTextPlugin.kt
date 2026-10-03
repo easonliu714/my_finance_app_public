@@ -480,6 +480,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     )
     try {
       val page = document.openPage(pageNumber - 1)
+        ?: throw IllegalStateException("PDFIUM_PAGE_OPEN_NULL")
       appendCloud500LabLog(
         "PDFIUM_PAGE_OPEN_OK",
         path,
@@ -488,6 +489,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       )
       page.use {
         val textPage = page.openTextPage()
+          ?: throw IllegalStateException("PDFIUM_TEXT_PAGE_OPEN_NULL")
         textPage.use {
           val count = textPage.textPageCountChars()
           val text = if (count <= 0) "" else textPage.textPageGetText(0, count).orEmpty()
