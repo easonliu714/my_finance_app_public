@@ -52,10 +52,6 @@ jobs:
               'applicationId = "com.example.my_finance_app"',
               'applicationId = "com.easonliu.cloud500diag"',
           )
-          text = text.replace(
-              'namespace = "com.example.my_finance_app"',
-              'namespace = "com.easonliu.cloud500diag"',
-          )
           if 'isCoreLibraryDesugaringEnabled = true' not in text:
               text = text.replace(
                   'compileOptions {',
@@ -88,6 +84,35 @@ jobs:
               'android:label="Cloud500 PDF Lab"',
           )
           manifest.write_text(text)
+
+          # Launch-contract gate: applicationId may differ from namespace, but
+          # the generated relative .MainActivity must resolve to the namespace
+          # package that actually exists in MainActivity.kt.
+          gradle_text = gradle.read_text()
+          if 'applicationId = "com.easonliu.cloud500diag"' not in gradle_text:
+              raise SystemExit('LAB_APPLICATION_ID_GATE=FAIL')
+          if 'namespace = "com.example.my_finance_app"' not in gradle_text:
+              raise SystemExit('LAB_ANDROID_NAMESPACE_GATE=FAIL')
+
+          main_activity = next(
+              Path('android/app/src/main/kotlin').rglob('MainActivity.kt'),
+              None,
+          )
+          if main_activity is None:
+              raise SystemExit('LAB_MAIN_ACTIVITY_PRESENT_GATE=FAIL')
+          main_activity_text = main_activity.read_text()
+          if 'package com.example.my_finance_app' not in main_activity_text:
+              raise SystemExit(
+                  'LAB_MAIN_ACTIVITY_PACKAGE_GATE=FAIL path=' + str(main_activity)
+              )
+          if 'android:name=".MainActivity"' not in manifest.read_text():
+              raise SystemExit('LAB_RELATIVE_ACTIVITY_GATE=FAIL')
+
+          print('LAB_APPLICATION_ID_GATE=PASS')
+          print('LAB_ANDROID_NAMESPACE_GATE=PASS')
+          print('LAB_MAIN_ACTIVITY_PRESENT_GATE=PASS')
+          print('LAB_MAIN_ACTIVITY_PACKAGE_GATE=PASS')
+          print('LAB_RELATIVE_ACTIVITY_GATE=PASS')
           PY
 
       - name: Get dependencies
