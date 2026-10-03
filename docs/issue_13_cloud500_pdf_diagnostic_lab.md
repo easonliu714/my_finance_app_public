@@ -31,3 +31,20 @@ page token first/last values, result pages, worker stages and progress.
 
 This branch is a diagnostic lab only. It is not release authority and must not
 be merged into production without a separate reviewed successor decision.
+
+
+## v3 isolated open probe
+
+Owner v2 evidence proved that the exact 135,200,798-byte PDF opens in the
+Android system viewer, while pdfiumandroid 1.0.35 terminates the app process
+inside `PdfiumCore.newDocument()` before any Java/Kotlin exception is returned.
+
+v3 therefore:
+- upgrades only the Lab to stable `io.legere:pdfiumandroid:2.0.3`;
+- runs Gate 3 in `:pdfium_open_probe`, never in the Lab UI process;
+- emits a 2-second heartbeat while native document-open is in progress;
+- if heartbeat stops, the UI queries Android `ApplicationExitInfo` and records
+  process running state, exit reason/status, importance, PSS/RSS, timestamp and
+  description when the platform exposes them.
+
+Production PR #45 remains frozen; this dependency change is diagnostic-only.

@@ -320,16 +320,95 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
 
   Future<void> _testPdfiumOpenOnly() async {
     final file = await _ensureExactPdf();
-    final opened = await _openPdfium(file);
-    final sessionId = opened['sessionId']?.toString() ?? '';
-    final pageCount = (opened['length'] as num?)?.toInt() ?? 0;
-    await _log('PDFIUM_OPEN_ONLY_PASS session=$sessionId page_count=$pageCount');
-    if (sessionId.isNotEmpty) {
-      await _channel.invokeMethod<void>(
-        'closePdfiumSession',
-        <String, Object?>{'sessionId': sessionId},
-      );
-      await _log('PDFIUM_OPEN_ONLY_CLOSED');
+    final lab = _labDirectory;
+    if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    final requestId = DateTime.now().microsecondsSinceEpoch.toString();
+    final resultFile = File(
+      '${lab.path}${Platform.pathSeparator}open_probe_$requestId.json',
+    );
+    if (await resultFile.exists()) await resultFile.delete();
+
+    await _log(
+      'OPEN_PROBE_DISPATCH request=$requestId backend=pdfiumandroid-2.0.3',
+    );
+    await _channel.invokeMethod<void>(
+      'startPdfiumOpenProbe',
+      <String, Object?>{
+        'path': file.path,
+        'resultPath': resultFile.path,
+        'requestId': requestId,
+      },
+    );
+
+    var lastUpdatedAt = 0;
+    var lastPid = -1;
+    var lastStage = 'DISPATCHED';
+    var lastReportAt = DateTime.now();
+    while (true) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!await resultFile.exists()) continue;
+      Map<String, dynamic> decoded;
+      try {
+        decoded = jsonDecode(await resultFile.readAsString())
+            as Map<String, dynamic>;
+      } on FormatException {
+        continue;
+      }
+      if (decoded['request_id']?.toString() != requestId) continue;
+      final status = decoded['status']?.toString() ?? '';
+      final stage = decoded['stage']?.toString() ?? '';
+      final pid = (decoded['pid'] as num?)?.toInt() ?? -1;
+      final updatedAt = (decoded['updated_at_ms'] as num?)?.toInt() ?? 0;
+      final elapsed = (decoded['elapsed_ms'] as num?)?.toInt() ?? 0;
+      lastPid = pid;
+      lastStage = stage;
+
+      if (updatedAt > lastUpdatedAt) {
+        lastUpdatedAt = updatedAt;
+        lastReportAt = DateTime.now();
+        await _log(
+          'OPEN_PROBE_PROGRESS status=$status stage=$stage pid=$pid '
+          'elapsed_ms=$elapsed page_count=${decoded['page_count'] ?? 0}',
+        );
+      }
+
+      if (status == 'complete') {
+        await _log(
+          'OPEN_PROBE_PASS backend=pdfiumandroid-2.0.3 '
+          'page_count=${decoded['page_count']} elapsed_ms=$elapsed',
+        );
+        return;
+      }
+      if (status == 'failure') {
+        await _log(
+          'OPEN_PROBE_CAUGHT_FAILURE stage=$stage '
+          'error=${decoded['error']} message=${decoded['message']}',
+        );
+        return;
+      }
+
+      if (DateTime.now().difference(lastReportAt) >
+          const Duration(seconds: 8)) {
+        final info = await _channel.invokeMapMethod<String, Object?>(
+          'inspectPdfiumOpenProbeProcess',
+          <String, Object?>{'pid': lastPid},
+        );
+        await _log(
+          'OPEN_PROBE_STALE_HEARTBEAT stage=$lastStage pid=$lastPid '
+          'process_info=$info',
+        );
+        final running = info?['running'] == true;
+        if (!running) {
+          await _log(
+            'OPEN_PROBE_NATIVE_PROCESS_EXIT_CONFIRMED '
+            'reason=${info?['reason']} status=${info?['status']} '
+            'pss=${info?['pss']} rss=${info?['rss']} '
+            'description=${info?['description']}',
+          );
+          return;
+        }
+        lastReportAt = DateTime.now();
+      }
     }
   }
 
@@ -574,7 +653,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       FilledButton.tonal(
         onPressed:
             _busy ? null : () => _run('PDFium Open Only', _testPdfiumOpenOnly),
-        child: const Text('3. 只測 PDFium Open + PageCount'),
+        child: const Text('3. 隔離測試 PDFium 2.0.3 Open + PageCount'),
       ),
       TextField(
         controller: _candidateController,

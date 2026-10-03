@@ -1,6 +1,7 @@
 package me.movenext.flutter_pdf_text
 
 import android.app.ActivityManager
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
@@ -96,6 +97,18 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val args = call.arguments as Map<*, *>
             val workerPid = (args["workerPid"] as Number).toInt()
             getPdfiumCandidateWorkerLiveness(result, workerPid)
+          }
+          "startPdfiumOpenProbe" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            val resultPath = args["resultPath"] as String
+            val requestId = args["requestId"] as String
+            startPdfiumOpenProbe(result, path, resultPath, requestId)
+          }
+          "inspectPdfiumOpenProbeProcess" -> {
+            val args = call.arguments as Map<*, *>
+            val pid = (args["pid"] as Number).toInt()
+            inspectPdfiumOpenProbeProcess(result, pid)
           }
           "clearCloud500LabNativeLog" -> {
             clearCloud500LabNativeLog(result)
@@ -523,6 +536,81 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       "page_count=$pageCount session=$sessionId"
     )
     Handler(Looper.getMainLooper()).post { result.success(true) }
+  }
+
+  private fun startPdfiumOpenProbe(
+    result: Result,
+    path: String,
+    resultPath: String,
+    requestId: String
+  ) {
+    try {
+      val intent = Intent(applicationContext, PdfiumOpenProbeService::class.java)
+        .putExtra(PdfiumOpenProbeService.EXTRA_PDF_PATH, path)
+        .putExtra(PdfiumOpenProbeService.EXTRA_RESULT_PATH, resultPath)
+        .putExtra(PdfiumOpenProbeService.EXTRA_REQUEST_ID, requestId)
+      applicationContext.startService(intent)
+      appendCloud500LabLog(
+        "PDFIUM_OPEN_PROBE_DISPATCHED",
+        path,
+        "request=$requestId result=$resultPath"
+      )
+      Handler(Looper.getMainLooper()).post { result.success(true) }
+    } catch (error: Throwable) {
+      appendCloud500LabLog(
+        "PDFIUM_OPEN_PROBE_DISPATCH_FAILED",
+        path,
+        android.util.Log.getStackTraceString(error)
+      )
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "LAB_OPEN_PROBE_DISPATCH_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
+  }
+
+  private fun inspectPdfiumOpenProbeProcess(result: Result, pid: Int) {
+    try {
+      val manager =
+        applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      val running = manager.runningAppProcesses?.any { it.pid == pid } == true
+      val payload = mutableMapOf<String, Any?>(
+        "pid" to pid,
+        "running" to running,
+        "sdk" to android.os.Build.VERSION.SDK_INT
+      )
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        val exit = manager
+          .getHistoricalProcessExitReasons(applicationContext.packageName, pid, 8)
+          .firstOrNull { it.pid == pid }
+        if (exit != null) {
+          payload["process_name"] = exit.processName
+          payload["reason"] = exit.reason
+          payload["status"] = exit.status
+          payload["importance"] = exit.importance
+          payload["pss"] = exit.pss
+          payload["rss"] = exit.rss
+          payload["timestamp_ms"] = exit.timestamp
+          payload["description"] = exit.description
+        }
+      }
+      appendCloud500LabLog(
+        "PDFIUM_OPEN_PROBE_PROCESS_INSPECT",
+        detail = payload.entries.joinToString(" ") { "${it.key}=${it.value}" }
+      )
+      Handler(Looper.getMainLooper()).post { result.success(payload) }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "LAB_OPEN_PROBE_INSPECT_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
   }
 
   private fun clearCloud500LabNativeLog(result: Result) {

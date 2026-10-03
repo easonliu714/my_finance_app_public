@@ -9,6 +9,11 @@
       android:foregroundServiceType="dataSync"
       android:process=":pdfium_candidate_worker"
       android:stopWithTask="false" />
+    <service
+      android:name=".PdfiumOpenProbeService"
+      android:exported="false"
+      android:process=":pdfium_open_probe"
+      android:stopWithTask="false" />
     <provider
       android:name="androidx.core.content.FileProvider"
       android:authorities="${applicationId}.cloud500diag.fileprovider"
