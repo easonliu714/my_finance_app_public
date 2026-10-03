@@ -1,7 +1,6 @@
 package me.movenext.flutter_pdf_text
 
 import android.app.ActivityManager
-import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
