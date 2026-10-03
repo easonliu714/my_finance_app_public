@@ -83,16 +83,16 @@ jobs:
                       '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")',
                       1,
                   )
-          signing = '''
-    signingConfigs {
-        create("cloud500Lab") {
-            storeFile = file("/tmp/cloud500_lab_signing.p12")
-            storePassword = "cloud500lab-diagnostic-only"
-            keyAlias = "cloud500lab"
-            keyPassword = "cloud500lab-diagnostic-only"
-        }
-    }
-'''
+          signing = (
+              '    signingConfigs {\n'
+              '        create("cloud500Lab") {\n'
+              '            storeFile = file("/tmp/cloud500_lab_signing.p12")\n'
+              '            storePassword = "cloud500lab-diagnostic-only"\n'
+              '            keyAlias = "cloud500lab"\n'
+              '            keyPassword = "cloud500lab-diagnostic-only"\n'
+              '        }\n'
+              '    }\n'
+          )
           if 'create("cloud500Lab")' not in text:
               text = text.replace('    buildTypes {', signing + '\n    buildTypes {', 1)
               text = text.replace(
