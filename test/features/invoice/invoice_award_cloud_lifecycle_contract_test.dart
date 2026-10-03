@@ -19,8 +19,8 @@ void main() {
     final pluginSource = File(
       'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PdfTextPlugin.kt',
     ).readAsStringSync();
-    final workerSource = File(
-      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PdfiumCandidateWorkerService.kt',
+    final largeWorkerSource = File(
+      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfCandidateWorkerService.kt',
     ).readAsStringSync();
     final pluginManifest = File(
       'packages/flutter_pdf_text/android/src/main/AndroidManifest.xml',
@@ -34,7 +34,7 @@ void main() {
       candidateSource,
       contains('crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024'),
     );
-    expect(candidateSource, contains("'startPdfiumCandidateWorker'"));
+    expect(candidateSource, contains("'startPlatformCandidateWorker'"));
     expect(
       candidateSource,
       isNot(contains('CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_')),
@@ -45,7 +45,7 @@ void main() {
     );
     expect(
       candidateSource,
-      contains("'getPdfiumCandidateWorkerLiveness'"),
+      contains("'getPlatformCandidateWorkerLiveness'"),
     );
     expect(
       candidateSource,
@@ -75,7 +75,7 @@ void main() {
     );
     expect(
       foregroundSource,
-      contains('背景服務正在開啟大型 PDF'),
+      contains('背景服務正在以 Android 系統 PDF 引擎開啟大型 PDF'),
     );
     expect(
       foregroundSource,
@@ -135,29 +135,54 @@ void main() {
       foregroundSource,
       contains('Preserve already promoted earlier-tier authority'),
     );
-    expect(pluginSource, contains('"startPdfiumCandidateWorker"'));
-    expect(pluginSource, contains('"getPdfiumCandidateWorkerLiveness"'));
+    expect(pluginSource, contains('"startPlatformCandidateWorker"'));
+    expect(pluginSource, contains('"getPlatformCandidateWorkerLiveness"'));
     expect(pluginSource, contains('ActivityManager'));
-    expect(pluginSource, contains('PdfiumCandidateWorkerService::class.java'));
-    expect(pluginSource, contains('startForegroundService(intent)'));
-    expect(workerSource, contains('PdfiumCore(applicationContext)'));
-    expect(workerSource, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
-    expect(workerSource, contains('pdfiumCore.newDocument(descriptor)'));
-    expect(workerSource, contains('document.openPage(pageNumber - 1)'));
-    expect(workerSource, contains('page.openTextPage()'));
-    expect(workerSource, contains('pdfium-random-access-candidate-search'));
-    expect(workerSource, contains('"PDFIUM_OPEN_BEGIN"'));
-    expect(workerSource, contains('"PDFIUM_OPEN_WAIT"'));
-    expect(workerSource, contains('OPEN_HEARTBEAT_INTERVAL_MS = 5_000L'));
-    expect(workerSource, contains('startForeground('));
-    expect(workerSource, contains('NotificationChannel('));
-    expect(workerSource, contains('"PDFIUM_CANDIDATE_SEARCH"'));
     expect(
-      RegExp(r'PDDocument\.load\s*\(').hasMatch(workerSource),
+      pluginSource,
+      contains('PlatformPdfCandidateWorkerService::class.java'),
+    );
+    expect(pluginSource, contains('startForegroundService(intent)'));
+    expect(largeWorkerSource, contains('android.graphics.pdf.PdfRenderer'));
+    expect(largeWorkerSource, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(largeWorkerSource, contains('renderer = PdfRenderer(descriptor)'));
+    expect(
+      largeWorkerSource,
+      contains('renderer.openPage(pageNumber - 1)'),
+    );
+    expect(largeWorkerSource, contains('it.textContents'));
+    expect(
+      largeWorkerSource,
+      contains('android-platform-pdfrenderer-candidate-search'),
+    );
+    expect(
+      largeWorkerSource,
+      contains('"PLATFORM_RENDERER_OPEN_BEGIN"'),
+    );
+    expect(
+      largeWorkerSource,
+      contains('"PLATFORM_RENDERER_OPEN_WAIT"'),
+    );
+    expect(
+      largeWorkerSource,
+      contains('OPEN_HEARTBEAT_INTERVAL_MS = 2_000L'),
+    );
+    expect(largeWorkerSource, contains('startForeground('));
+    expect(largeWorkerSource, contains('NotificationChannel('));
+    expect(
+      largeWorkerSource,
+      contains('"PLATFORM_RENDERER_CANDIDATE_SEARCH"'),
+    );
+    expect(
+      RegExp(r'PDDocument\.load\s*\(').hasMatch(largeWorkerSource),
       isFalse,
     );
-    expect(workerSource, isNot(contains('PDFTextStripper()')));
-    expect(pluginManifest, contains('android:process=":pdfium_candidate_worker"'));
+    expect(largeWorkerSource, isNot(contains('PdfiumCore')));
+    expect(largeWorkerSource, isNot(contains('PDFTextStripper()')));
+    expect(
+      pluginManifest,
+      contains('android:process=":platform_candidate_worker"'),
+    );
     expect(pluginManifest, contains('android:exported="false"'));
     expect(pluginManifest, contains('android:foregroundServiceType="dataSync"'));
     expect(pluginManifest, contains('android:stopWithTask="false"'));
@@ -165,6 +190,9 @@ void main() {
       pluginManifest,
       contains('android.permission.FOREGROUND_SERVICE_DATA_SYNC'),
     );
+    // <=120 MiB retains the previously proven PDFium path; >120 MiB is
+    // guarded above to use platform PdfRenderer exclusively.
     expect(pluginGradle, contains('io.legere:pdfiumandroid:1.0.35'));
+    expect(pluginGradle, contains('compileSdkVersion 36'));
   });
 }
