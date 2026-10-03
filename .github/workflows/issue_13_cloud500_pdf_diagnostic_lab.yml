@@ -194,7 +194,7 @@ jobs:
             echo "TARGET_PERIOD=115-07-08"
             echo "EXPECTED_PDF_BYTES=135200798"
             echo "EXPECTED_PDF_SHA256=f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571"
-            echo "PDFIUMANDROID_VERSION=2.0.3"
+            echo "PDFIUMANDROID_VERSION=2.0.2"
             echo "OPEN_PROBE_PROCESS=:pdfium_open_probe"
           } | tee issue13-cloud500-diag-authority.txt
 
