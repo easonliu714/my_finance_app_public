@@ -9,6 +9,7 @@ import android.os.SystemClock
 import io.legere.pdfiumandroid.PdfiumCore
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -189,20 +190,24 @@ class PdfiumOpenProbeService : Service() {
     try {
       val runtime = Runtime.getRuntime()
       val used = runtime.totalMemory() - runtime.freeMemory()
-      File(applicationContext.filesDir, LOG_FILE).appendText(
-        buildString {
-          append(System.currentTimeMillis())
-          append(" event=").append(event)
-          append(" pid=").append(Process.myPid())
-          append(" thread=").append(Thread.currentThread().name)
-          append(" file_bytes=").append(if (file.isFile) file.length() else 0L)
-          append(" heap_used=").append(used)
-          append(" heap_total=").append(runtime.totalMemory())
-          append(" heap_max=").append(runtime.maxMemory())
-          if (detail.isNotBlank()) append(" detail=").append(detail)
-          append("\n")
-        }
-      )
+      val line = buildString {
+        append(System.currentTimeMillis())
+        append(" event=").append(event)
+        append(" pid=").append(Process.myPid())
+        append(" thread=").append(Thread.currentThread().name)
+        append(" file_bytes=").append(if (file.isFile) file.length() else 0L)
+        append(" heap_used=").append(used)
+        append(" heap_total=").append(runtime.totalMemory())
+        append(" heap_max=").append(runtime.maxMemory())
+        if (detail.isNotBlank()) append(" detail=").append(detail)
+        append("\n")
+      }
+      val logFile = File(applicationContext.filesDir, LOG_FILE)
+      FileOutputStream(logFile, true).use { output ->
+        output.write(line.toByteArray(Charsets.UTF_8))
+        output.flush()
+        output.fd.sync()
+      }
     } catch (_: Throwable) {
     }
   }

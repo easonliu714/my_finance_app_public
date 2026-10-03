@@ -325,6 +325,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     await _log('SYSTEM_VIEWER_DISPATCHED');
   }
 
+  // ignore: unused_element
   Future<Map<String, Object?>> _openPdfium(File file) async {
     final timer = Stopwatch()..start();
     await _log('PDFIUM_DIRECT_OPEN_BEGIN path=${file.path}');
@@ -339,25 +340,29 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     return opened;
   }
 
-  Future<void> _testPdfiumOpenOnly() async {
+  Future<Map<String, dynamic>> _runPlatformProbe({
+    required String candidate,
+  }) async {
     final file = await _ensureExactPdf();
     final lab = _labDirectory;
     if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
     final requestId = DateTime.now().microsecondsSinceEpoch.toString();
     final resultFile = File(
-      '${lab.path}${Platform.pathSeparator}open_probe_$requestId.json',
+      '${lab.path}${Platform.pathSeparator}platform_probe_$requestId.json',
     );
     if (await resultFile.exists()) await resultFile.delete();
 
     await _log(
-      'OPEN_PROBE_DISPATCH request=$requestId backend=pdfiumandroid-2.0.3',
+      'PLATFORM_PROBE_DISPATCH request=$requestId candidate=$candidate '
+      'backend=android.graphics.pdf.PdfRenderer',
     );
     await _channel.invokeMethod<void>(
-      'startPdfiumOpenProbe',
+      'startPlatformPdfProbe',
       <String, Object?>{
         'path': file.path,
         'resultPath': resultFile.path,
         'requestId': requestId,
+        'candidate': candidate,
       },
     );
 
@@ -388,24 +393,20 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         lastUpdatedAt = updatedAt;
         lastReportAt = DateTime.now();
         await _log(
-          'OPEN_PROBE_PROGRESS status=$status stage=$stage pid=$pid '
-          'elapsed_ms=$elapsed page_count=${decoded['page_count'] ?? 0}',
+          'PLATFORM_PROBE_PROGRESS status=$status stage=$stage pid=$pid '
+          'elapsed_ms=$elapsed page=${decoded['current_page'] ?? 0} '
+          'pages_read=${decoded['pages_read'] ?? 0} '
+          'page_count=${decoded['page_count'] ?? 0}',
         );
       }
 
       if (status == 'complete') {
-        await _log(
-          'OPEN_PROBE_PASS backend=pdfiumandroid-2.0.3 '
-          'page_count=${decoded['page_count']} elapsed_ms=$elapsed',
-        );
-        return;
+        await _log('PLATFORM_PROBE_COMPLETE result=$decoded');
+        return decoded;
       }
       if (status == 'failure') {
-        await _log(
-          'OPEN_PROBE_CAUGHT_FAILURE stage=$stage '
-          'error=${decoded['error']} message=${decoded['message']}',
-        );
-        return;
+        await _log('PLATFORM_PROBE_FAILURE result=$decoded');
+        return decoded;
       }
 
       if (DateTime.now().difference(lastReportAt) >
@@ -415,22 +416,49 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
           <String, Object?>{'pid': lastPid},
         );
         await _log(
-          'OPEN_PROBE_STALE_HEARTBEAT stage=$lastStage pid=$lastPid '
+          'PLATFORM_PROBE_STALE_HEARTBEAT stage=$lastStage pid=$lastPid '
           'process_info=$info',
         );
-        final running = info?['running'] == true;
-        if (!running) {
+        if (info?['running'] != true) {
           await _log(
-            'OPEN_PROBE_NATIVE_PROCESS_EXIT_CONFIRMED '
+            'PLATFORM_PROBE_PROCESS_EXIT_CONFIRMED '
             'reason=${info?['reason']} status=${info?['status']} '
             'pss=${info?['pss']} rss=${info?['rss']} '
             'description=${info?['description']}',
           );
-          return;
+          return <String, dynamic>{
+            'status': 'process_exit',
+            'stage': lastStage,
+            'pid': lastPid,
+            'process_info': info,
+          };
         }
         lastReportAt = DateTime.now();
       }
     }
+  }
+
+  Future<void> _testPlatformOpenOnly() async {
+    final result = await _runPlatformProbe(candidate: '');
+    if (result['status'] != 'complete') {
+      throw StateError('PLATFORM_PDF_OPEN_FAILED result=$result');
+    }
+    await _log(
+      'PLATFORM_OPEN_ONLY_PASS page_count=${result['page_count']}',
+    );
+  }
+
+  Future<void> _platformBinarySearch() async {
+    final candidate = _candidate();
+    final result = await _runPlatformProbe(candidate: candidate);
+    if (result['status'] != 'complete') {
+      throw StateError('PLATFORM_SEARCH_FAILED result=$result');
+    }
+    await _log(
+      'PLATFORM_SEARCH_RESULT candidate=$candidate '
+      'matched=${result['matched']} matched_page=${result['matched_page']} '
+      'pages_read=${result['pages_read']} page_count=${result['page_count']}',
+    );
   }
 
   List<String> _invoiceTokens(String text) {
@@ -464,6 +492,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     return value;
   }
 
+  // ignore: unused_element
   Future<void> _directBinarySearch() async {
     final candidate = _candidate();
     final file = await _ensureExactPdf();
@@ -562,6 +591,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     }
   }
 
+  // ignore: unused_element
   Future<void> _productionWorkerSearch() async {
     final candidate = _candidate();
     final file = await _ensureExactPdf();
@@ -672,9 +702,13 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         child: const Text('2. 用系統 PDF Viewer 開啟'),
       ),
       FilledButton.tonal(
-        onPressed:
-            _busy ? null : () => _run('PDFium Open Only', _testPdfiumOpenOnly),
-        child: const Text('3. 隔離測試 PDFium 2.0.3 Open + PageCount'),
+        onPressed: _busy
+            ? null
+            : () => _run(
+                  'Android PdfRenderer Open Only',
+                  _testPlatformOpenOnly,
+                ),
+        child: const Text('3. Android PdfRenderer Open + PageCount'),
       ),
       TextField(
         controller: _candidateController,
@@ -686,15 +720,21 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         ),
       ),
       FilledButton(
-        onPressed:
-            _busy ? null : () => _run('Direct Binary Search', _directBinarySearch),
-        child: const Text('4A. Direct PDFium 二分搜尋'),
-      ),
-      FilledButton(
         onPressed: _busy
             ? null
-            : () => _run('Production Isolated Worker', _productionWorkerSearch),
-        child: const Text('4B. Production 隔離 Worker 對獎'),
+            : () => _run(
+                  'Android PdfRenderer Binary Search',
+                  _platformBinarySearch,
+                ),
+        child: const Text('4. Android PdfRenderer 指定號碼二分搜尋'),
+      ),
+      const ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text('第三方 PDFium 2.0.1：已證實 native crash'),
+        subtitle: Text(
+          '已由實機 ApplicationExitInfo reason=5 / crash 證實。'
+          '直接 PDFium 與 Production worker 測試已停用，避免重複觸發已知 native crash。',
+        ),
       ),
       const Divider(),
       OutlinedButton(

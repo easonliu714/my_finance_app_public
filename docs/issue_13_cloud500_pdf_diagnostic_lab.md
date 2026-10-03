@@ -64,3 +64,28 @@ the downloaded official PDF, cache and debug logs.
 
 Stable Lab signer SHA-256:
 `51c7fc93ef3d2a04bcd993e6e716b37949efdb74be9af7f48689cfc7ff5c3c53`
+
+
+## v4 owner-driven platform renderer experiment
+
+Owner v3 evidence is now CLOSED for third-party pdfiumandroid: the isolated
+`:pdfium_open_probe` process reported Android ApplicationExitInfo
+`reason=5`, `description=crash`, after two successful heartbeats inside
+`PdfiumCore.newDocument()`. Direct Gate 4A reproduced the same process death
+when the call was made in the Lab UI process.
+
+v4 therefore prevents the owner from re-running the known crashing third-party
+path and adds an isolated Android platform
+`android.graphics.pdf.PdfRenderer` probe. On API 35+ it uses
+`PdfRenderer.Page.getTextContents()` to extract visible text and perform the
+same sorted-PDF binary search for an owner-entered invoice number.
+
+The top authority card reads the installed APK versionName/versionCode/package
+at runtime via package_info_plus. Exact branch/head/backend are injected by CI
+through dart-define. The Lab applicationId and fixed diagnostic signer remain
+unchanged, so v4 must overwrite-install on v3 and preserve the 135 MB PDF and
+persistent logs.
+
+Critical native log checkpoints use append + flush + fsync before returning,
+maximizing survival of the last BEGIN/heartbeat record if a native process
+terminates.

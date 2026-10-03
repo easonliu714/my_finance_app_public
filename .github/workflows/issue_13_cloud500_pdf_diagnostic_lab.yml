@@ -150,6 +150,20 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Lab v4 source authority gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'PackageInfo.fromPlatform()' lib/issue13_cloud500_diag_main.dart
+          grep -Fq 'Cloud500 PDF Lab $_runtimeVersion' lib/issue13_cloud500_diag_main.dart
+          grep -Fq 'startPlatformPdfProbe' lib/issue13_cloud500_diag_main.dart
+          grep -Fq 'android.graphics.pdf.PdfRenderer' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
+          grep -Fq 'android:process=":platform_pdf_probe"' packages/flutter_pdf_text/android/src/main/AndroidManifest.xml
+          grep -Fq 'output.fd.sync()' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
+          echo 'LAB_RUNTIME_VERSION_UI_GATE=PASS'
+          echo 'LAB_PLATFORM_PDF_RENDERER_SOURCE_GATE=PASS'
+          echo 'LAB_NATIVE_LOG_FSYNC_GATE=PASS'
+
       - name: Analyze diagnostic entry point
         run: flutter analyze lib/issue13_cloud500_diag_main.dart
 
@@ -159,10 +173,14 @@ jobs:
           set -euo pipefail
           LAB_BUILD_NUMBER=$((900000 + GITHUB_RUN_NUMBER))
           echo "LAB_BUILD_NUMBER=$LAB_BUILD_NUMBER" >> "$GITHUB_ENV"
+          LAB_HEAD="$(git rev-parse HEAD)"
           flutter build apk --debug \
             -t lib/issue13_cloud500_diag_main.dart \
-            --build-name "0.3.${GITHUB_RUN_NUMBER}" \
-            --build-number "$LAB_BUILD_NUMBER"
+            --build-name "0.4.${GITHUB_RUN_NUMBER}" \
+            --build-number "$LAB_BUILD_NUMBER" \
+            --dart-define="LAB_BRANCH=issue-13-cloud500-pdf-diagnostic-lab" \
+            --dart-define="LAB_HEAD=$LAB_HEAD" \
+            --dart-define="LAB_BACKEND=Android PdfRenderer API35+; PDFium 2.0.1 native crash isolated"
 
       - name: Verify stable Lab signer
         shell: bash
@@ -187,7 +205,7 @@ jobs:
             echo "DIAGNOSTIC_BRANCH=issue-13-cloud500-pdf-diagnostic-lab"
             echo "DIAGNOSTIC_HEAD=$(git rev-parse HEAD)"
             echo "APPLICATION_ID=com.easonliu.cloud500diag"
-            echo "LAB_VERSION_NAME=0.3.${GITHUB_RUN_NUMBER}"
+            echo "LAB_VERSION_NAME=0.4.${GITHUB_RUN_NUMBER}"
             echo "LAB_VERSION_CODE=${LAB_BUILD_NUMBER}"
             echo "LAB_SIGNER_SHA256=51c7fc93ef3d2a04bcd993e6e716b37949efdb74be9af7f48689cfc7ff5c3c53"
             echo "LAB_OVERWRITE_UPDATE_READY=TRUE"
@@ -195,7 +213,11 @@ jobs:
             echo "EXPECTED_PDF_BYTES=135200798"
             echo "EXPECTED_PDF_SHA256=f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571"
             echo "PDFIUMANDROID_VERSION=2.0.1"
-            echo "OPEN_PROBE_PROCESS=:pdfium_open_probe"
+            echo "PDFIUMANDROID_OWNER_RESULT=NATIVE_CRASH_REASON_5"
+            echo "PLATFORM_PDF_RENDERER_GATE=ENABLED_API35_PLUS"
+            echo "PLATFORM_PROBE_PROCESS=:platform_pdf_probe"
+            echo "LAB_RUNTIME_VERSION_UI=PACKAGE_INFO_PLUS"
+            echo "LAB_HEAD_UI=DART_DEFINE_EXACT_HEAD"
           } | tee issue13-cloud500-diag-authority.txt
 
       - name: Upload standalone diagnostic APK

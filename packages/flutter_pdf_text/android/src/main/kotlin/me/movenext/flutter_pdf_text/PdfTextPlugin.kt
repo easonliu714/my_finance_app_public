@@ -20,6 +20,7 @@ import io.flutter.plugin.common.MethodChannel.Result
 import io.legere.pdfiumandroid.PdfDocument as PdfiumDocument
 import io.legere.pdfiumandroid.PdfiumCore
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
@@ -96,6 +97,14 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val args = call.arguments as Map<*, *>
             val workerPid = (args["workerPid"] as Number).toInt()
             getPdfiumCandidateWorkerLiveness(result, workerPid)
+          }
+          "startPlatformPdfProbe" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            val resultPath = args["resultPath"] as String
+            val requestId = args["requestId"] as String
+            val candidate = (args["candidate"] as String?) ?: ""
+            startPlatformPdfProbe(result, path, resultPath, requestId, candidate)
           }
           "startPdfiumOpenProbe" -> {
             val args = call.arguments as Map<*, *>
@@ -539,6 +548,42 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     Handler(Looper.getMainLooper()).post { result.success(true) }
   }
 
+  private fun startPlatformPdfProbe(
+    result: Result,
+    path: String,
+    resultPath: String,
+    requestId: String,
+    candidate: String
+  ) {
+    try {
+      val intent = Intent(applicationContext, PlatformPdfProbeService::class.java)
+        .putExtra(PlatformPdfProbeService.EXTRA_PDF_PATH, path)
+        .putExtra(PlatformPdfProbeService.EXTRA_RESULT_PATH, resultPath)
+        .putExtra(PlatformPdfProbeService.EXTRA_REQUEST_ID, requestId)
+        .putExtra(PlatformPdfProbeService.EXTRA_CANDIDATE, candidate)
+      applicationContext.startService(intent)
+      appendCloud500LabLog(
+        "PLATFORM_PDF_PROBE_DISPATCHED",
+        path,
+        "request=$requestId candidate=$candidate result=$resultPath"
+      )
+      Handler(Looper.getMainLooper()).post { result.success(true) }
+    } catch (error: Throwable) {
+      appendCloud500LabLog(
+        "PLATFORM_PDF_PROBE_DISPATCH_FAILED",
+        path,
+        android.util.Log.getStackTraceString(error)
+      )
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "LAB_PLATFORM_PDF_PROBE_DISPATCH_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
+  }
+
   private fun startPdfiumOpenProbe(
     result: Result,
     path: String,
@@ -648,8 +693,12 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
         }
         append("\n")
       }
-      File(applicationContext.filesDir, cloud500LabLogFileName)
-        .appendText(line)
+      val logFile = File(applicationContext.filesDir, cloud500LabLogFileName)
+      FileOutputStream(logFile, true).use { output ->
+        output.write(line.toByteArray(Charsets.UTF_8))
+        output.flush()
+        output.fd.sync()
+      }
     } catch (_: Throwable) {
       // Lab diagnostics are best effort and must not hide the primary result.
     }
