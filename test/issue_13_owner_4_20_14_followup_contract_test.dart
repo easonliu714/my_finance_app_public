@@ -11,7 +11,7 @@ void main() {
       'lib/features/invoice/existing_invoice_award_candidate_repository.dart',
     ).readAsStringSync();
     final worker = File(
-      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PdfiumCandidateWorkerService.kt',
+      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfCandidateWorkerService.kt',
     ).readAsStringSync();
     final scope = File(
       'lib/features/invoice/invoice_award_cloud_candidate_scope.dart',
@@ -31,28 +31,36 @@ void main() {
     expect(page, contains('_formatCandidateDate(candidate.invoiceDate)'));
     expect(candidateRepo, contains('transaction.currency.code'));
 
-    // The >120 MiB cloud-500 path uses a fresh process plus native PDFium
-    // random-access candidate-only page search rather than PDFBox whole-
-    // document object-graph loading or full indexing.
-    expect(worker, contains('PdfiumCore(applicationContext)'));
+    // The >120 MiB cloud-500 path uses a fresh process plus Android platform
+    // PdfRenderer random-access candidate-only page search. Owner v4 evidence
+    // proved third-party PDFium crashes natively on the exact 87,000-page PDF.
+    expect(worker, contains('android.graphics.pdf.PdfRenderer'));
     expect(worker, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
-    expect(worker, contains('pdfiumCore.newDocument(descriptor)'));
-    expect(worker, contains('document.openPage(pageNumber - 1)'));
-    expect(worker, contains('page.openTextPage()'));
-    expect(worker, contains('pdfium-random-access-candidate-search'));
+    expect(worker, contains('renderer = PdfRenderer(descriptor)'));
+    expect(worker, contains('renderer.openPage(pageNumber - 1)'));
+    expect(worker, contains('it.textContents'));
+    expect(
+      worker,
+      contains('android-platform-pdfrenderer-candidate-search'),
+    );
     expect(
       RegExp(r'PDDocument\.load\s*\(').hasMatch(worker),
       isFalse,
     );
+    expect(worker, isNot(contains('PdfiumCore')));
     expect(worker, isNot(contains('PDFTextStripper()')));
     expect(scope, contains("status == 'running'"));
     expect(
       scope,
-      contains('CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_'),
+      contains('workerHeartbeatProbeAfter = Duration(seconds: 15)'),
     );
     expect(
       scope,
-      contains('workerHeartbeatStaleAfter = Duration(seconds: 45)'),
+      contains('CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_'),
+    );
+    expect(
+      scope,
+      isNot(contains('CLOUD_AWARD_CANDIDATE_WORKER_STALE_HEARTBEAT_')),
     );
     expect(
       scope,
