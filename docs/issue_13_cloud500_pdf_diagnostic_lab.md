@@ -40,7 +40,7 @@ Android system viewer, while pdfiumandroid 1.0.35 terminates the app process
 inside `PdfiumCore.newDocument()` before any Java/Kotlin exception is returned.
 
 v3 therefore:
-- upgrades only the Lab to stable `io.legere:pdfiumandroid:2.0.3`;
+- upgrades only the Lab to stable `io.legere:pdfiumandroid:2.0.2`;
 - runs Gate 3 in `:pdfium_open_probe`, never in the Lab UI process;
 - emits a 2-second heartbeat while native document-open is in progress;
 - if heartbeat stops, the UI queries Android `ApplicationExitInfo` and records
