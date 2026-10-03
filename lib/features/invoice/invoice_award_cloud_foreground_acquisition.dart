@@ -444,17 +444,17 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                   ? ''
                   : ' · 已耗時 $elapsed · 預估剩餘 $eta';
               final message = switch (progress.stage) {
-                'PDFIUM_SOURCE_SHA256' =>
+                'PLATFORM_SOURCE_SHA256' =>
                   '驗證官方 PDF 完整性 '
                       '${_formatCloudWorkerBytes(progress.sourceBytesRead)}'
                       '/${_formatCloudWorkerBytes(progress.sourceBytesTotal)} · '
                       '已耗時 $elapsed · 預估剩餘 $eta',
-                'PDFIUM_OPEN_BEGIN' =>
-                  '背景服務正在啟動大型 PDF · 已耗時 $elapsed · '
-                      '預估剩餘：尚無法可靠估算（此原生階段沒有可量測百分比）',
-                'PDFIUM_OPEN_WAIT' =>
-                  '背景服務程序仍存活，正在開啟大型 PDF · 已耗時 $elapsed · '
-                      '預估剩餘：尚無法可靠估算（此原生階段沒有可量測百分比）',
+                'PLATFORM_RENDERER_OPEN_BEGIN' =>
+                  '背景服務正在以 Android 系統 PDF 引擎開啟大型 PDF · '
+                      '已耗時 $elapsed · 預估剩餘：尚無法可靠估算',
+                'PLATFORM_RENDERER_OPEN_WAIT' =>
+                  '背景服務程序仍存活，Android 系統 PDF 引擎正在開啟大型 PDF · '
+                      '已耗時 $elapsed · 預估剩餘：尚無法可靠估算',
                 _ =>
                   '候選號碼 ${progress.candidateIndex}/'
                       '${progress.candidateCount} · '

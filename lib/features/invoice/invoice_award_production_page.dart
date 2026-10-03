@@ -762,7 +762,7 @@ String _terminalCloudTierSummary(
 String _safeCloudFailureCode(Object error) {
   if (error is PlatformException) return error.code;
   final text = error.toString().toUpperCase();
-  final match = RegExp(r'(?:CLOUD|PDFIUM|PDF)_[A-Z0-9_]+').firstMatch(text);
+  final match = RegExp(r'(?:CLOUD|PLATFORM|PDFIUM|PDF)_[A-Z0-9_]+').firstMatch(text);
   return match?.group(0) ?? error.runtimeType.toString();
 }
 

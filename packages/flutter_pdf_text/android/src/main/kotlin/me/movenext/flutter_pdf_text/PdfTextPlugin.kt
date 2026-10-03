@@ -74,6 +74,27 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
           "clearLastDiagnostic" -> {
             clearLastDiagnostic(result)
           }
+          "startPlatformCandidateWorker" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            val candidatesJson = args["candidatesJson"] as String
+            val sourceSha256 = args["sourceSha256"] as String
+            val sourceBytes = (args["sourceBytes"] as Number).toLong()
+            val candidateUniverseSha256 = args["candidateUniverseSha256"] as String
+            startPlatformCandidateWorker(
+              result,
+              path,
+              candidatesJson,
+              sourceSha256,
+              sourceBytes,
+              candidateUniverseSha256
+            )
+          }
+          "getPlatformCandidateWorkerLiveness" -> {
+            val args = call.arguments as Map<*, *>
+            val workerPid = (args["workerPid"] as Number).toInt()
+            getPlatformCandidateWorkerLiveness(result, workerPid)
+          }
           "startPdfiumCandidateWorker" -> {
             val args = call.arguments as Map<*, *>
             val path = args["path"] as String
@@ -258,6 +279,123 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       // Best effort only.
     }
     Handler(Looper.getMainLooper()).post { result.success(true) }
+  }
+
+  /**
+   * Starts the Android platform PdfRenderer candidate worker for very large
+   * sorted cloud-award PDFs. Owner evidence requires API 35+ text extraction.
+   */
+  private fun startPlatformCandidateWorker(
+    result: Result,
+    path: String,
+    candidatesJson: String,
+    sourceSha256: String,
+    sourceBytes: Long,
+    candidateUniverseSha256: String
+  ) {
+    try {
+      val source = File(path)
+      if (!source.isFile) {
+        Handler(Looper.getMainLooper()).post {
+          result.error(
+            "PLATFORM_WORKER_SOURCE_MISSING",
+            "Candidate PDF is missing",
+            null
+          )
+        }
+        return
+      }
+      val requestId = UUID.randomUUID().toString()
+      val resultDir = File(applicationContext.cacheDir, "platform_candidate_worker")
+      resultDir.mkdirs()
+      val resultFile = File(resultDir, "$requestId.json")
+      if (resultFile.exists()) resultFile.delete()
+      val intent =
+        Intent(applicationContext, PlatformPdfCandidateWorkerService::class.java)
+          .putExtra(
+            PlatformPdfCandidateWorkerService.EXTRA_PDF_PATH,
+            source.absolutePath
+          )
+          .putExtra(
+            PlatformPdfCandidateWorkerService.EXTRA_CANDIDATES_JSON,
+            candidatesJson
+          )
+          .putExtra(
+            PlatformPdfCandidateWorkerService.EXTRA_EXPECTED_SOURCE_SHA256,
+            sourceSha256
+          )
+          .putExtra(
+            PlatformPdfCandidateWorkerService.EXTRA_EXPECTED_SOURCE_BYTES,
+            sourceBytes
+          )
+          .putExtra(
+            PlatformPdfCandidateWorkerService
+              .EXTRA_EXPECTED_CANDIDATE_UNIVERSE_SHA256,
+            candidateUniverseSha256
+          )
+          .putExtra(
+            PlatformPdfCandidateWorkerService.EXTRA_RESULT_PATH,
+            resultFile.absolutePath
+          )
+          .putExtra(
+            PlatformPdfCandidateWorkerService.EXTRA_REQUEST_ID,
+            requestId
+          )
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        applicationContext.startForegroundService(intent)
+      } else {
+        applicationContext.startService(intent)
+      }
+      Handler(Looper.getMainLooper()).post {
+        result.success(
+          hashMapOf(
+            "requestId" to requestId,
+            "resultPath" to resultFile.absolutePath
+          )
+        )
+      }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "PLATFORM_WORKER_START_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
+  }
+
+  private fun getPlatformCandidateWorkerLiveness(
+    result: Result,
+    workerPid: Int
+  ) {
+    try {
+      val manager =
+        applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      val expectedProcess =
+        applicationContext.packageName + ":platform_candidate_worker"
+      val running = manager.runningAppProcesses.orEmpty().firstOrNull {
+        it.pid == workerPid && it.processName == expectedProcess
+      }
+      Handler(Looper.getMainLooper()).post {
+        result.success(
+          hashMapOf(
+            "alive" to (running != null),
+            "pid" to (running?.pid ?: workerPid),
+            "processName" to (running?.processName ?: expectedProcess),
+            "importance" to (running?.importance ?: -1)
+          )
+        )
+      }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "PLATFORM_WORKER_LIVENESS_QUERY_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
   }
 
   /**

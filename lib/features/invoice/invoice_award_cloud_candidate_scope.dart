@@ -158,9 +158,12 @@ abstract class CloudAwardSortedPdfCandidateLookup {
 ///
 /// The official 500-dollar list contains millions of numbers. Building a full
 /// local index would require tens of thousands of page text extractions.
-/// Instead, this implementation opens the validated PDF with native PDFium and
-/// binary-searches its globally sorted pages for the exact local candidate
-/// universe. Authority is therefore valid only for that exact candidate set.
+/// Instead, this implementation binary-searches globally sorted pages for the
+/// exact local candidate universe. <=120 MiB keeps the proven in-process PDFium
+/// path; >120 MiB uses Android platform PdfRenderer in a dedicated process on
+/// API 35+, because owner evidence proved third-party PDFium crashes natively
+/// on the exact 115-07-08 87,000-page source.
+/// Authority is therefore valid only for that exact candidate set.
 class PdfiumCloudAwardSortedPdfCandidateLookup
     extends CloudAwardSortedPdfCandidateLookup {
   const PdfiumCloudAwardSortedPdfCandidateLookup();
@@ -389,7 +392,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     final expectedCandidateUniverseSha256 =
         await cloudCandidateUniverseSha256(candidates);
     final started = await _channel.invokeMapMethod<String, Object?>(
-      'startPdfiumCandidateWorker',
+      'startPlatformCandidateWorker',
       <String, Object?>{
         'path': artifact.file.path,
         'candidatesJson': jsonEncode(candidates),
@@ -417,9 +420,24 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     while (true) {
       cancellation?.throwIfCancelled();
       if (await resultFile.exists()) {
-        final decoded = jsonDecode(await resultFile.readAsString());
-        if (decoded is! Map<String, dynamic> ||
-            decoded['request_id']?.toString() != requestId) {
+        Map<String, dynamic>? decoded;
+        try {
+          final rawResult = await resultFile.readAsString();
+          final parsed = jsonDecode(rawResult);
+          if (parsed is Map<String, dynamic>) {
+            decoded = parsed;
+          }
+        } on FileSystemException {
+          // Producer-side atomic replacement can create a sub-millisecond
+          // exists/read race. Treat it as transient, never as authority failure.
+        } on FormatException {
+          // A fallback write can briefly expose partial JSON. Retry safely.
+        }
+        if (decoded == null) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          continue;
+        }
+        if (decoded['request_id']?.toString() != requestId) {
           throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID');
         }
 
@@ -431,6 +449,10 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           final candidateCount =
               (decoded['candidate_count'] as num?)?.toInt() ?? candidates.length;
           final pageNumber = (decoded['page_number'] as num?)?.toInt() ?? 0;
+          final engine = decoded['engine']?.toString() ?? '';
+          if (engine != 'android-platform-pdfrenderer-candidate-search') {
+            throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_ENGINE_MISMATCH');
+          }
           final pageCount = (decoded['page_count'] as num?)?.toInt() ?? 0;
           final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;
           final sourceBytesRead =
@@ -456,7 +478,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             final elapsed = now.difference(workerStartedAt);
             Duration? eta;
 
-            if (stage == 'PDFIUM_SOURCE_SHA256' &&
+            if (stage == 'PLATFORM_SOURCE_SHA256' &&
                 sourceBytesRead > 0 &&
                 sourceBytesTotal > sourceBytesRead &&
                 elapsed.inMilliseconds > 0) {
@@ -466,8 +488,8 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                 milliseconds:
                     (elapsed.inMilliseconds * remainingRatio).round(),
               );
-            } else if ((stage == 'PDFIUM_PAGE_BEGIN' ||
-                    stage == 'PDFIUM_CANDIDATE_SEARCH') &&
+            } else if ((stage == 'PLATFORM_RENDERER_PAGE_BEGIN' ||
+                    stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') &&
                 candidateIndex > 0 &&
                 candidateCount > 0) {
               candidateSearchStartedAt ??= now;
@@ -514,7 +536,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               lastLivenessProbeAt = now;
               final liveness =
                   await _channel.invokeMapMethod<String, Object?>(
-                'getPdfiumCandidateWorkerLiveness',
+                'getPlatformCandidateWorkerLiveness',
                 <String, Object?>{'workerPid': lastWorkerPid},
               );
               if (liveness?['alive'] != true) {
@@ -535,8 +557,8 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                   pageNumber: pageNumber,
                   pageCount: pageCount,
                   pagesRead: pagesRead,
-                  stage: stage == 'PDFIUM_OPEN_BEGIN'
-                      ? 'PDFIUM_OPEN_WAIT'
+                  stage: stage == 'PLATFORM_RENDERER_OPEN_BEGIN'
+                      ? 'PLATFORM_RENDERER_OPEN_WAIT'
                       : stage,
                   elapsed: now.difference(workerStartedAt),
                   estimatedRemaining: null,
@@ -636,7 +658,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           now.difference(lastLivenessProbeAt) >= workerLivenessProbeEvery) {
         lastLivenessProbeAt = now;
         final liveness = await _channel.invokeMapMethod<String, Object?>(
-          'getPdfiumCandidateWorkerLiveness',
+          'getPlatformCandidateWorkerLiveness',
           <String, Object?>{'workerPid': lastWorkerPid},
         );
         if (liveness?['alive'] != true) {

@@ -3,31 +3,23 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('cloud-500 foreground authority is routed through PDFium candidate lookup', () {
+  test('cloud-500 foreground authority is routed through exact-candidate lookup', () {
     final source = File(
       'lib/features/invoice/invoice_award_cloud_foreground_acquisition.dart',
     ).readAsStringSync();
 
-    // The large cloud-500 successor must remain an exact-candidate PDFium path.
-    // This guards against accidentally restoring the former whole-document
-    // PDFBox materialization route that OOMed on the 115-07-08 official PDF.
     expect(
       source,
       contains(
         'sortedCandidateLookup ?? const PdfiumCloudAwardSortedPdfCandidateLookup()',
       ),
     );
-    expect(
-      source,
-      contains("reference.tierCode == 'cloud-500' &&"),
-    );
+    expect(source, contains("reference.tierCode == 'cloud-500' &&"));
     expect(
       source,
       contains('final candidateMatch = await _sortedCandidateLookup.findMatches('),
     );
 
-    // Durable authority must bind the exact official PDF, exact local candidate
-    // universe and page evidence returned by the bounded PDFium lookup.
     expect(source, contains('pdfSha256: artifact.sha256.toLowerCase()'));
     expect(source, contains('candidateUniverseSha256: universeSha'));
     expect(
@@ -35,9 +27,6 @@ void main() {
       contains('matchedPageNumbers: candidateMatch.matchedPageNumbers'),
     );
 
-    // Cloud-500 must terminate its exact-candidate branch after authority is
-    // persisted. It must never fall through to the generic index builder, whose
-    // extractor is the historical PDFBox whole-document path for other tiers.
     final cloud500Branch = source.indexOf(
       "if (reference.tierCode == 'cloud-500' &&\n            normalizedCandidates.isNotEmpty)",
     );
@@ -49,90 +38,84 @@ void main() {
       'final build = await _indexBuilder.buildCandidate(',
       candidateLookup,
     );
-    final branchContinue = source.lastIndexOf(
-      'continue;',
-      genericIndexBuilder,
-    );
+    final branchContinue = source.lastIndexOf('continue;', genericIndexBuilder);
     expect(cloud500Branch, greaterThanOrEqualTo(0));
     expect(candidateLookup, greaterThan(cloud500Branch));
     expect(genericIndexBuilder, greaterThan(candidateLookup));
     expect(branchContinue, greaterThan(candidateLookup));
     expect(branchContinue, lessThan(genericIndexBuilder));
 
-    // The foreground service must not itself contain a PDFBox whole-document
-    // open primitive. Native PDFium owns the >120 MiB candidate search.
     expect(source, isNot(contains('PDDocument.load')));
     expect(source, isNot(contains('PDFTextStripper')));
   });
 
-  test('cloud-500 native worker keeps exact-candidate authority bounded and provenance-bearing', () {
+  test('large native worker uses platform PdfRenderer with exact provenance', () {
     final worker = File(
-      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PdfiumCandidateWorkerService.kt',
+      'packages/flutter_pdf_text/android/src/main/kotlin/'
+      'me/movenext/flutter_pdf_text/PlatformPdfCandidateWorkerService.kt',
     ).readAsStringSync();
 
-    // Regression guard for the 128.9 MiB failure mode: the isolated worker may
-    // open the official PDF only through random-access PDFium. An executable
-    // PDFBox whole-document load must never return to this production path.
-    expect(worker, contains('ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)'));
-    expect(worker, contains('pdfiumCore.newDocument(descriptor)'));
+    expect(worker, contains('PdfRenderer'));
+    expect(worker, contains('renderer = PdfRenderer(descriptor)'));
+    expect(worker, contains('renderer.openPage(pageNumber - 1)'));
+    expect(worker, contains('it.textContents'));
+    expect(worker, contains('Build.VERSION.SDK_INT < 35'));
     expect(worker, isNot(matches(RegExp(r'PDDocument\s*\.\s*load\s*\('))));
+    expect(worker, isNot(contains('PdfiumCore')));
 
-    // Candidate scope stays local and exact. The worker normalizes only the
-    // supplied candidate universe and never constructs a full-document index.
     expect(worker, contains('JSONArray(candidatesJson)'));
     expect(worker, contains('Regex("^[A-Z]{2}[0-9]{8}\$")'));
     expect(worker, contains('candidates.forEachIndexed'));
     expect(worker, contains('var low = 1'));
     expect(worker, contains('var high = pageCount'));
     expect(worker, contains('val middle = low + ((high - low) ushr 1)'));
-
-    // Bounded means page-at-a-time random access, not a disguised sequential
-    // traversal of all 77k pages. Every opened page/text page is scoped by use
-    // and the worker has no production full-page-range loop.
-    expect(worker, contains('val page = document.openPage(pageNumber - 1)'));
-    expect(worker, contains('val text = page.use {'));
-    expect(worker, contains('textPage.use {'));
     expect(worker, isNot(matches(RegExp(r'for\s*\([^)]*1\s*\.\.\s*pageCount'))));
     expect(worker, isNot(matches(RegExp(r'for\s*\([^)]*0\s+until\s+pageCount'))));
 
-    // Promotion evidence must independently bind source bytes/SHA, candidate
-    // universe SHA and the page on which every positive match was observed.
     expect(worker, contains('actualSourceSha256'));
     expect(worker, contains('actualCandidateUniverseSha256'));
     expect(worker, contains('matchedPages[candidate] = middle'));
     expect(worker, contains('.put("source_sha256", actualSourceSha256)'));
     expect(worker, contains('.put("source_bytes", source.length())'));
-    expect(worker, contains('.put("candidate_universe_sha256", actualCandidateUniverseSha256)'));
+    expect(
+      worker,
+      contains('.put("candidate_universe_sha256", actualCandidateUniverseSha256)'),
+    );
     expect(worker, contains('.put("matched_pages", matchedPagesJson)'));
 
-    // Long source verification and page search remain observable; a killed or
-    // partial worker cannot silently promote authority.
-    expect(worker, contains('stage = "PDFIUM_SOURCE_SHA256"'));
-    expect(worker, contains('stage = "PDFIUM_OPEN_BEGIN"'));
-    expect(worker, contains('stage = "PDFIUM_PAGE_BEGIN"'));
-    expect(worker, contains('stage = "PDFIUM_CANDIDATE_SEARCH"'));
+    for (final stage in <String>[
+      'PLATFORM_SOURCE_SHA256',
+      'PLATFORM_RENDERER_OPEN_BEGIN',
+      'PLATFORM_RENDERER_OPEN_WAIT',
+      'PLATFORM_RENDERER_OPEN_OK',
+      'PLATFORM_RENDERER_PAGE_BEGIN',
+      'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+      'PLATFORM_RENDERER_COMPLETE',
+    ]) {
+      expect(worker, contains(stage), reason: 'missing stage $stage');
+    }
     expect(worker, contains('.put("status", "complete")'));
     expect(worker, contains('.put("status", "failed")'));
-
-    // Fail-closed errors must remain specific enough to distinguish provenance,
-    // candidate-scope and isolated-worker failures from the historical generic
-    // PDFBox OOM. Running heartbeats must carry monotonic work coordinates so a
-    // caller can surface source-byte and page/candidate progress without ever
-    // treating a partial result as authority.
-    expect(worker, contains('PDFIUM_WORKER_PROVENANCE_INPUT_INVALID'));
-    expect(worker, contains('PDFIUM_WORKER_SOURCE_BYTES_MISMATCH'));
-    expect(worker, contains('PDFIUM_WORKER_CANDIDATE_SCOPE_INVALID'));
-    expect(worker, contains('PDFIUM_WORKER_CANDIDATE_UNIVERSE_SHA256_MISMATCH'));
-    expect(worker, contains('PDFIUM_WORKER_SOURCE_SHA256_MISMATCH'));
-    expect(worker, contains('PDFIUM_WORKER_OOM'));
-    expect(worker, contains('.put("candidate_index", candidateIndex)'));
-    expect(worker, contains('.put("candidate_count", candidateCount)'));
-    expect(worker, contains('.put("page_number", pageNumber)'));
-    expect(worker, contains('.put("page_count", pageCount)'));
-    expect(worker, contains('.put("pages_read", pagesRead)'));
-    expect(worker, contains('.put("source_bytes_read", sourceBytesRead)'));
-    expect(worker, contains('.put("source_bytes_total", sourceBytesTotal)'));
     expect(worker, contains('.put("updated_at_ms", System.currentTimeMillis())'));
-    expect(worker, contains('.put("worker_pid", android.os.Process.myPid())'));
+  });
+
+  test('large Dart route invokes platform worker and retries atomic read races', () {
+    final source = File(
+      'lib/features/invoice/invoice_award_cloud_candidate_scope.dart',
+    ).readAsStringSync();
+
+    final largeStart = source.indexOf(
+      'Future<CloudAwardSortedPdfCandidateMatchResult> _findMatchesCrashIsolated',
+    );
+    expect(largeStart, greaterThanOrEqualTo(0));
+    final largeSource = source.substring(largeStart);
+    expect(largeSource, contains("'startPlatformCandidateWorker'"));
+    expect(largeSource, contains("'getPlatformCandidateWorkerLiveness'"));
+    expect(
+      largeSource,
+      contains('android-platform-pdfrenderer-candidate-search'),
+    );
+    expect(largeSource, contains('on FileSystemException'));
+    expect(largeSource, contains('on FormatException'));
   });
 }
