@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'features/invoice/invoice_award_cloud_artifact_downloader.dart';
@@ -49,6 +50,18 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   static const _expectedSha256 =
       'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571';
   static const _expectedBytes = 135200798;
+  static const _labBranch = String.fromEnvironment(
+    'LAB_BRANCH',
+    defaultValue: 'unknown-branch',
+  );
+  static const _labHead = String.fromEnvironment(
+    'LAB_HEAD',
+    defaultValue: 'unknown-head',
+  );
+  static const _labBackend = String.fromEnvironment(
+    'LAB_BACKEND',
+    defaultValue: 'unknown-backend',
+  );
 
   final _candidateController = TextEditingController();
   final _scrollController = ScrollController();
@@ -60,6 +73,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   OfficialCloudAwardArtifactReference? _reference;
   bool _busy = false;
   String _status = '初始化中…';
+  String _runtimeVersion = '讀取中…';
+  String _runtimePackage = '讀取中…';
 
   @override
   void initState() {
@@ -75,6 +90,9 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   }
 
   Future<void> _initialize() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    _runtimeVersion = '${packageInfo.version}+${packageInfo.buildNumber}';
+    _runtimePackage = packageInfo.packageName;
     final support = await getApplicationSupportDirectory();
     final lab = Directory(
       '${support.path}${Platform.pathSeparator}issue13_cloud500_diag',
@@ -89,7 +107,10 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     _labDirectory = lab;
     _dartLogFile = log;
     _pdfFile = pdf;
-    await _log('LAB_START version=1 period=$_periodId');
+    await _log(
+      'LAB_START runtime_version=$_runtimeVersion package=$_runtimePackage '
+      'branch=$_labBranch head=$_labHead backend=$_labBackend period=$_periodId',
+    );
     await _log('LAB_DIR=${lab.path}');
     await _log('EXPECTED_SHA256=$_expectedSha256');
     await _log('EXPECTED_BYTES=$_expectedBytes');
@@ -696,6 +717,20 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: <Widget>[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: SelectableText(
+                  'Cloud500 PDF Lab $_runtimeVersion\n'
+                  'package: $_runtimePackage\n'
+                  'head: ${_labHead.length > 12 ? _labHead.substring(0, 12) : _labHead}\n'
+                  'branch: $_labBranch\n'
+                  'backend: $_labBackend',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
               _status,
               style: Theme.of(context).textTheme.titleMedium,
