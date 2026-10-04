@@ -58,6 +58,28 @@ void main() {
     );
   });
 
+  test('partial promotion keeps bounded policy retry scheduled', () async {
+    await scheduler.setConsent(true);
+    await scheduler.recordAttemptStarted(
+      nowLocal: DateTime(2026, 9, 25, 14, 10),
+      periodId: '115-07-08',
+    );
+    await scheduler.recordAttemptFinished(
+      periodId: '115-07-08',
+      generalDatasetPromoted: true,
+      cloudExclusiveDatasetPromoted: false,
+    );
+
+    final result = await scheduler.reconcile(
+      nowLocal: DateTime(2026, 9, 25, 14, 10),
+      periodId: '115-07-08',
+    );
+
+    expect(result.currentPeriodComplete, isFalse);
+    expect(result.nextTargetLocal, DateTime(2026, 9, 25, 14, 30));
+    expect(platform.scheduled.single, DateTime(2026, 9, 25, 14, 30));
+  });
+
   test('both promoted domains cancel future wake', () async {
     await scheduler.setConsent(true);
     await scheduler.recordAttemptStarted(
