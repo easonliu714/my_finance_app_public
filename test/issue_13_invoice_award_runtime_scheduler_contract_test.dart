@@ -28,6 +28,12 @@ void main() {
     expect(source, contains('InvoiceAwardRuntimeScheduler'));
     expect(source, contains('_runAutomaticCatchUpIfDue'));
     expect(source, contains('_refresh(automatic: true)'));
+
+    final scheduler = File(
+      'lib/features/invoice/invoice_award_runtime_scheduler.dart',
+    ).readAsStringSync();
+    expect(scheduler, contains('state.hasPendingForegroundCatchUp'));
+    expect(scheduler, contains('if (!state.automaticRefreshConsented) return false;'));
     expect(source, contains('automaticRefreshConsented'));
     expect(source, contains('自動更新官方獎號'));
   });

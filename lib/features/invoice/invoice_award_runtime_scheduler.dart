@@ -250,9 +250,11 @@ class InvoiceAwardRuntimeScheduler {
     required String periodId,
   }) async {
     final state = repository.load();
+    if (!state.automaticRefreshConsented) return false;
+    if (state.hasPendingForegroundCatchUp) return true;
     final samePeriod = state.periodId == periodId;
     return InvoiceAwardRefreshPolicy(
-      automaticRefreshConsented: state.automaticRefreshConsented,
+      automaticRefreshConsented: true,
     ).foregroundCatchUpDue(
       nowLocal: nowLocal,
       lastAttemptLocal: samePeriod ? state.lastAttemptLocal : null,

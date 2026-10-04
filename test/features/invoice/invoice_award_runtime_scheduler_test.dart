@@ -103,6 +103,26 @@ void main() {
     );
   });
 
+  test('persisted app-wide wake forces canonical foreground catch-up', () async {
+    await scheduler.setConsent(true);
+    platform.wake = InvoiceAwardNativeWake(
+      targetLocal: DateTime(2026, 9, 25, 14),
+      receivedAtLocal: DateTime(2026, 9, 25, 14, 1),
+    );
+    expect(await scheduler.captureNativeWakeForForeground(), isTrue);
+
+    // The persisted marker is authoritative even before a period attempt has
+    // been recorded. The production page consumes this boolean by calling its
+    // existing _refresh(automatic: true) canonical pipeline.
+    expect(
+      await scheduler.foregroundCatchUpDue(
+        nowLocal: DateTime(2026, 9, 25, 14, 2),
+        periodId: '115-07-08',
+      ),
+      isTrue,
+    );
+  });
+
   test('opt-out discards native wake without persisting catch-up', () async {
     await scheduler.setConsent(false);
     platform.wake = InvoiceAwardNativeWake(
