@@ -4,15 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'invoice_award_period_catalog.dart';
 import 'invoice_award_runtime_scheduler.dart';
+import 'invoice_award_automatic_refresh_runner.dart';
 
 /// App-wide lifecycle bridge for Issue #13 automatic official-number refresh.
 ///
 /// Native AlarmManager delivery is captured whenever the app process starts or
 /// returns to foreground, regardless of the visible route. This widget performs
-/// no network request and does not navigate. It only persists the due marker so
-/// the canonical award refresh surface can execute the existing validated
-/// refresh pipeline when appropriate.
+/// no navigation and owns no MOF parsing logic. After persisting a due marker
+/// it may invoke the shared headless runner, which composes the existing
+/// production general/cloud acquisition authorities in foreground.
 class InvoiceAwardAppLifecycleCoordinator extends StatefulWidget {
   const InvoiceAwardAppLifecycleCoordinator({
     super.key,
@@ -60,6 +62,19 @@ class _InvoiceAwardAppLifecycleCoordinatorState
         repository: InvoiceAwardRuntimeStateRepository(preferences),
       );
       await scheduler.captureNativeWakeForForeground();
+
+      final now = DateTime.now();
+      final selectedPeriod = InvoiceAwardRecentPeriodCatalog.defaultAt(now);
+      final due = await scheduler.foregroundCatchUpDue(
+        nowLocal: now,
+        periodId: selectedPeriod.period.id,
+      );
+      if (!due) return;
+
+      final runner = InvoiceAwardCanonicalAutomaticRefreshRunner(
+        scheduler: scheduler,
+      );
+      await runner.refresh(selectedPeriod: selectedPeriod);
     } on MissingPluginException {
       // Widget/unit test hosts have no Android MethodChannel implementation.
     } on PlatformException {
