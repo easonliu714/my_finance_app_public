@@ -18,6 +18,27 @@ void main() {
     expect(source, isNot(contains('URL(')));
     expect(source, isNot(contains('startActivity')));
     expect(source, isNot(contains('startService')));
+    expect(source, isNot(contains('startForegroundService')));
+    expect(source, isNot(contains('WorkManager')));
+    expect(source, isNot(contains('CoroutineWorker')));
+  });
+
+  test('automatic runner stays canonical and outside accounting authority', () {
+    final source = File(
+      'lib/features/invoice/invoice_award_automatic_refresh_runner.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('InvoiceAwardProductionRefreshController'));
+    expect(
+      source,
+      contains('MinistryOfFinanceCloudAwardForegroundAcquisitionService'),
+    );
+    expect(source, contains('InvoiceAwardRefreshProcessGate.tryAcquire()'));
+    expect(source, isNot(contains('TransactionEntrySeed')));
+    expect(source, isNot(contains('FORMAL_ACCOUNTING_WRITE')));
+    expect(source, isNot(contains('saveTransaction')));
+    expect(source, isNot(contains('uploadInvoice')));
+    expect(source, isNot(contains('Navigator.')));
   });
 
   test('production page reuses canonical refresh for foreground catch-up', () {
