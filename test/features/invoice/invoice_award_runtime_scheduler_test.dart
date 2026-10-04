@@ -123,6 +123,40 @@ void main() {
     );
   });
 
+  test('process restart restores consent and pending canonical catch-up', () async {
+    await scheduler.setConsent(true);
+    platform.wake = InvoiceAwardNativeWake(
+      targetLocal: DateTime(2026, 9, 25, 14),
+      receivedAtLocal: DateTime(2026, 9, 25, 14, 3),
+    );
+    expect(await scheduler.captureNativeWakeForForeground(), isTrue);
+
+    // Recreate the repository and scheduler to model a Dart/Android process
+    // restart. Durable consent and the marker must survive without granting
+    // the native wake receiver any network authority.
+    final restartedPreferences = await SharedPreferences.getInstance();
+    final restartedScheduler = InvoiceAwardRuntimeScheduler(
+      repository: InvoiceAwardRuntimeStateRepository(restartedPreferences),
+      platform: _FakePlatform(),
+    );
+
+    expect(
+      restartedScheduler.repository.load().automaticRefreshConsented,
+      isTrue,
+    );
+    expect(
+      restartedScheduler.repository.load().hasPendingForegroundCatchUp,
+      isTrue,
+    );
+    expect(
+      await restartedScheduler.foregroundCatchUpDue(
+        nowLocal: DateTime(2026, 9, 25, 14, 4),
+        periodId: '115-07-08',
+      ),
+      isTrue,
+    );
+  });
+
   test('opt-out discards native wake without persisting catch-up', () async {
     await scheduler.setConsent(false);
     platform.wake = InvoiceAwardNativeWake(
