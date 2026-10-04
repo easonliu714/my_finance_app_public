@@ -253,7 +253,7 @@ class InvoiceAwardRuntimeScheduler {
     if (!state.automaticRefreshConsented) return false;
     if (state.hasPendingForegroundCatchUp) return true;
     final samePeriod = state.periodId == periodId;
-    return InvoiceAwardRefreshPolicy(
+    return const InvoiceAwardRefreshPolicy(
       automaticRefreshConsented: true,
     ).foregroundCatchUpDue(
       nowLocal: nowLocal,
