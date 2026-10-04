@@ -11,6 +11,7 @@ import 'invoice_award_official_html_parser.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_refresh_policy.dart';
+import 'invoice_award_refresh_process_lease.dart';
 import 'invoice_award_shared_preferences_lkg_repository.dart';
 
 enum InvoiceAwardAutomaticRefreshStatus {
@@ -283,8 +284,6 @@ class InvoiceAwardAutomaticRefreshCoordinator {
   final InvoiceAwardAutomaticRefreshExecutor executor;
   final InvoiceAwardRefreshPolicy Function(bool consent) policyFactory;
 
-  static bool _processActive = false;
-
   Future<InvoiceAwardAutomaticRefreshResult> runForegroundCatchUp({
     required DateTime nowLocal,
   }) async {
@@ -315,7 +314,7 @@ class InvoiceAwardAutomaticRefreshCoordinator {
       generalDatasetPromoted: currentComplete,
       cloudExclusiveDatasetPromoted: currentComplete,
     );
-    if (!due || _processActive) {
+    if (!due || !InvoiceAwardRefreshProcessLease.tryAcquire()) {
       return InvoiceAwardAutomaticRefreshResult(
         status: InvoiceAwardAutomaticRefreshStatus.skippedNotDue,
         state: state,
@@ -323,7 +322,6 @@ class InvoiceAwardAutomaticRefreshCoordinator {
       );
     }
 
-    _processActive = true;
     state = state.copyWith(
       lastAttemptUtc: nowLocal.toUtc(),
       clearLastFailureCode: true,
@@ -384,10 +382,29 @@ class InvoiceAwardAutomaticRefreshCoordinator {
         failureCode: failed.lastFailureCode,
       );
     } finally {
-      _processActive = false;
+      InvoiceAwardRefreshProcessLease.release();
     }
   }
 
   static InvoiceAwardRefreshPolicy _defaultPolicyFactory(bool consent) =>
       InvoiceAwardRefreshPolicy(automaticRefreshConsented: consent);
+}
+
+
+Future<InvoiceAwardAutomaticRefreshResult>
+    runProductionInvoiceAwardForegroundCatchUp({
+  DateTime? nowLocal,
+}) async {
+  final preferences = await SharedPreferences.getInstance();
+  final repository =
+      SharedPreferencesInvoiceAwardAutomaticRefreshStateRepository(
+    preferences,
+  );
+  final coordinator = InvoiceAwardAutomaticRefreshCoordinator(
+    stateRepository: repository,
+    executor: const ProductionInvoiceAwardAutomaticRefreshExecutor(),
+  );
+  return coordinator.runForegroundCatchUp(
+    nowLocal: nowLocal ?? DateTime.now(),
+  );
 }
