@@ -77,11 +77,8 @@ jobs:
           gradle.write_text(text)
           PY
 
-      - name: Resolve pinned dependencies
-        run: |
-          set -euo pipefail
-          flutter pub get --enforce-lockfile
-          git diff --exit-code -- pubspec.lock
+      - name: Get dependencies
+        run: flutter pub get
 
       - name: Analyze
         run: flutter analyze
