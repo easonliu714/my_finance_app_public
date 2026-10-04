@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -15,6 +17,7 @@ import 'invoice_award_official_dataset.dart';
 import 'invoice_award_official_html_parser.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
+import 'invoice_award_runtime_scheduler.dart';
 import 'invoice_award_shared_preferences_lkg_repository.dart';
 
 /// Production foreground award-check surface for recent still-actionable periods.
@@ -47,6 +50,10 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
   bool _refreshing = false;
   bool _cloudCurrentAuthorityComplete = false;
+  InvoiceAwardRuntimeScheduler? _automaticScheduler;
+  bool _automaticRefreshConsented = false;
+  String _automaticScheduleStatus = '自動更新排程初始化中…';
+  bool _automaticCatchUpRunning = false;
   String _status = '';
   String _cloudStatus = '';
   String _cloudDiagnosticStatus = '';
@@ -68,6 +75,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     _selectedPeriod = InvoiceAwardRecentPeriodCatalog.defaultAt(now);
     _resetSelectedPeriodState(now);
     _loadLastPdfDiagnostic();
+    unawaited(_initializeAutomaticRefreshRuntime());
   }
 
   @override
@@ -83,6 +91,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_handleAutomaticForegroundResume());
+    }
     if (!_ownsProcessRefresh || !mounted) return;
 
     if (state == AppLifecycleState.hidden ||
@@ -101,6 +112,105 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   }
 
   DateTime _now() => widget.clock?.call() ?? DateTime.now();
+
+  Future<void> _initializeAutomaticRefreshRuntime() async {
+    final preferences = await SharedPreferences.getInstance();
+    final scheduler = InvoiceAwardRuntimeScheduler(
+      repository: InvoiceAwardRuntimeStateRepository(preferences),
+    );
+    final state = scheduler.repository.load();
+    final wake = await scheduler.consumeNativeWake();
+    _automaticScheduler = scheduler;
+    if (!mounted) return;
+    setState(() {
+      _automaticRefreshConsented = state.automaticRefreshConsented;
+      _automaticScheduleStatus = wake == null
+          ? '自動更新尚未觸發'
+          : '系統排程已觸發；回到前景後會沿用同一條官方更新流程補抓。';
+    });
+    await _reconcileAutomaticSchedule();
+    await _runAutomaticCatchUpIfDue();
+  }
+
+  Future<void> _handleAutomaticForegroundResume() async {
+    final scheduler = _automaticScheduler;
+    if (scheduler == null || !mounted) return;
+    final wake = await scheduler.consumeNativeWake();
+    if (wake != null && mounted) {
+      setState(() {
+        _automaticScheduleStatus =
+            '系統排程已於背景觸發；正在檢查是否需要前景補抓。';
+      });
+    }
+    await _runAutomaticCatchUpIfDue();
+  }
+
+  Future<void> _setAutomaticRefreshConsent(bool value) async {
+    final scheduler = _automaticScheduler;
+    if (scheduler == null || _refreshing) return;
+    await scheduler.setConsent(value);
+    if (!mounted) return;
+    setState(() {
+      _automaticRefreshConsented = value;
+      _automaticScheduleStatus = value
+          ? '已允許自動更新；正在安排下一次官方獎號檢查。'
+          : '自動更新已關閉；背景不會觸發官方獎號網路更新。';
+    });
+    await _reconcileAutomaticSchedule();
+    if (value) await _runAutomaticCatchUpIfDue();
+  }
+
+  Future<void> _reconcileAutomaticSchedule() async {
+    final scheduler = _automaticScheduler;
+    if (scheduler == null) return;
+    final result = await scheduler.reconcile(
+      nowLocal: _now(),
+      periodId: _selectedPeriod.period.id,
+    );
+    if (!mounted) return;
+    setState(() {
+      _automaticRefreshConsented = result.consent;
+      if (!result.consent) {
+        _automaticScheduleStatus =
+            '自動更新已關閉；背景不會觸發官方獎號網路更新。';
+      } else if (result.currentPeriodComplete) {
+        _automaticScheduleStatus = '本期一般獎與雲端專屬獎皆已驗證；不需再排程。';
+      } else if (result.nextTargetLocal != null) {
+        final target = result.nextTargetLocal!;
+        String two(int value) => value.toString().padLeft(2, '0');
+        _automaticScheduleStatus =
+            '下一次 best-effort 檢查：${target.year}-${two(target.month)}-'
+            '${two(target.day)} ${two(target.hour)}:${two(target.minute)}；'
+            '若 Android 延後執行，回到 App 會自動補抓。';
+      }
+    });
+  }
+
+  Future<void> _runAutomaticCatchUpIfDue() async {
+    final scheduler = _automaticScheduler;
+    if (scheduler == null ||
+        !_automaticRefreshConsented ||
+        _automaticCatchUpRunning ||
+        _refreshing ||
+        !mounted) {
+      return;
+    }
+    final due = await scheduler.foregroundCatchUpDue(
+      nowLocal: _now(),
+      periodId: _selectedPeriod.period.id,
+    );
+    if (!due || !mounted) return;
+    _automaticCatchUpRunning = true;
+    setState(() {
+      _automaticScheduleStatus =
+          '偵測到錯過的自動更新時點；正在沿用手動更新相同的官方驗證流程補抓。';
+    });
+    try {
+      await _refresh(automatic: true);
+    } finally {
+      _automaticCatchUpRunning = false;
+    }
+  }
 
   Future<void> _loadLastPdfDiagnostic() async {
     const extractor = FlutterPdfTextCloudAwardExtractor();
@@ -139,9 +249,10 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       _selectedPeriod = selected;
       _resetSelectedPeriodState(_now());
     });
+    unawaited(_reconcileAutomaticSchedule());
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool automatic = false}) async {
     if (_refreshing) return;
     final now = _now();
     final selectedPeriod = _selectedPeriod;
@@ -157,6 +268,15 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     }
     _processRefreshActive = true;
     _ownsProcessRefresh = true;
+    var schedulerGeneralPromoted = false;
+    var schedulerCloudPromoted = false;
+    final scheduler = _automaticScheduler;
+    if (_automaticRefreshConsented && scheduler != null) {
+      await scheduler.recordAttemptStarted(
+        nowLocal: now,
+        periodId: selectedPeriod.period.id,
+      );
+    }
     final cancellation = CloudAwardCandidateLookupCancellation();
 
     final usePreviousPublication =
@@ -250,6 +370,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         }
       });
       generalStageCompleted = true;
+      schedulerGeneralPromoted = generalResult.isSuccess && dataset != null;
 
       final currentCloudCandidateNumbers =
           cloudCandidateNumbersForAwardPeriod(
@@ -298,6 +419,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       );
 
       final cloudComplete = cloudRefresh?.isComplete ?? false;
+      schedulerCloudPromoted = cloudComplete;
       final cloudNumberMatches = cloudEvaluations
           .where((item) =>
               currentKeys.contains(_candidateKey(item.candidate)) && item.hasCloudNumberMatch)
@@ -354,6 +476,14 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     } finally {
       _ownsProcessRefresh = false;
       _processRefreshActive = false;
+      if (_automaticRefreshConsented && scheduler != null) {
+        await scheduler.recordAttemptFinished(
+          periodId: selectedPeriod.period.id,
+          generalDatasetPromoted: schedulerGeneralPromoted,
+          cloudExclusiveDatasetPromoted: schedulerCloudPromoted,
+        );
+        await _reconcileAutomaticSchedule();
+      }
       if (mounted && _refreshing) {
         setState(() => _refreshing = false);
       }
@@ -452,6 +582,35 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                 child: Text('雲端專屬獎官方資料包含大型 PDF。首次更新可能需要較多網路流量與處理時間；'
                     '大型 500 元獎候選比對會交由系統背景服務執行，可暫時切換到其他 App；'
                     '四個獎別會依序驗證，已驗證且來源相同的資料會直接重用。'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    key: const Key('invoice_award_automatic_refresh_switch'),
+                    title: const Text('自動更新官方獎號'),
+                    subtitle: const Text(
+                      '開啟後於開獎日 14:00 起以 Android best-effort 排程檢查；'
+                      '系統若延後執行，回到 App 會自動補抓。關閉時不允許背景獎號網路更新。',
+                    ),
+                    value: _automaticRefreshConsented,
+                    onChanged: _automaticScheduler == null || _refreshing
+                        ? null
+                        : _setAutomaticRefreshConsent,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _automaticScheduleStatus,
+                        key: const Key('invoice_award_automatic_refresh_status'),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),

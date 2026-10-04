@@ -3,6 +3,10 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
   <application>
+    <receiver
+      android:name=".InvoiceAwardRefreshWakeReceiver"
+      android:enabled="true"
+      android:exported="false" />
     <service
       android:name=".PlatformPdfCandidateWorkerService"
       android:exported="false"

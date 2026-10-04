@@ -74,6 +74,17 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
           "clearLastDiagnostic" -> {
             clearLastDiagnostic(result)
           }
+          "scheduleInvoiceAwardRefreshWakeup" -> {
+            val args = call.arguments as Map<*, *>
+            val triggerAtMillis = (args["triggerAtMillis"] as Number).toLong()
+            scheduleInvoiceAwardRefreshWakeup(result, triggerAtMillis)
+          }
+          "cancelInvoiceAwardRefreshWakeup" -> {
+            cancelInvoiceAwardRefreshWakeup(result)
+          }
+          "consumeInvoiceAwardRefreshWakeup" -> {
+            consumeInvoiceAwardRefreshWakeup(result)
+          }
           "startPlatformCandidateWorker" -> {
             val args = call.arguments as Map<*, *>
             val path = args["path"] as String
@@ -279,6 +290,66 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       // Best effort only.
     }
     Handler(Looper.getMainLooper()).post { result.success(true) }
+  }
+
+  /**
+   * Best-effort Android wake-up for Issue #13 automatic official-number refresh.
+   *
+   * The receiver itself performs no network I/O. It persists a due marker; the
+   * canonical Dart production refresh pipeline consumes that marker and catches
+   * up when the app next has a foreground Flutter engine. Opt-out cancels the
+   * native alarm and remains a hard zero-network boundary.
+   */
+  private fun scheduleInvoiceAwardRefreshWakeup(
+    result: Result,
+    triggerAtMillis: Long
+  ) {
+    try {
+      require(triggerAtMillis > System.currentTimeMillis())
+      InvoiceAwardRefreshWakeReceiver.schedule(
+        applicationContext,
+        triggerAtMillis
+      )
+      Handler(Looper.getMainLooper()).post { result.success(true) }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "INVOICE_AWARD_SCHEDULER_SCHEDULE_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
+  }
+
+  private fun cancelInvoiceAwardRefreshWakeup(result: Result) {
+    try {
+      InvoiceAwardRefreshWakeReceiver.cancel(applicationContext)
+      Handler(Looper.getMainLooper()).post { result.success(true) }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "INVOICE_AWARD_SCHEDULER_CANCEL_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
+  }
+
+  private fun consumeInvoiceAwardRefreshWakeup(result: Result) {
+    try {
+      val wake = InvoiceAwardRefreshWakeReceiver.consume(applicationContext)
+      Handler(Looper.getMainLooper()).post { result.success(wake) }
+    } catch (error: Throwable) {
+      Handler(Looper.getMainLooper()).post {
+        result.error(
+          "INVOICE_AWARD_SCHEDULER_READ_FAILED",
+          error.message ?: error.javaClass.simpleName,
+          null
+        )
+      }
+    }
   }
 
   /**
