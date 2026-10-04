@@ -15,6 +15,7 @@ import 'invoice_award_official_dataset.dart';
 import 'invoice_award_official_html_parser.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
+import 'invoice_award_refresh_process_lease.dart';
 import 'invoice_award_shared_preferences_lkg_repository.dart';
 
 /// Production foreground award-check surface for recent still-actionable periods.
@@ -35,8 +36,6 @@ class InvoiceAwardProductionPage extends StatefulWidget {
 
 class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     with WidgetsBindingObserver {
-  static bool _processRefreshActive = false;
-
   final http.Client _httpClient = http.Client();
   final CloudAwardIndexLkgRepository _cloudRepository = CloudAwardIndexLkgRepository();
   bool _ownsProcessRefresh = false;
@@ -149,13 +148,12 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       setState(() => _resetSelectedPeriodState(now));
       return;
     }
-    if (_processRefreshActive) {
+    if (!InvoiceAwardRefreshProcessLease.tryAcquire()) {
       setState(() {
         _cloudStatus = '前一次中獎資料更新仍在安全收尾，請稍候再重試。';
       });
       return;
     }
-    _processRefreshActive = true;
     _ownsProcessRefresh = true;
     final cancellation = CloudAwardCandidateLookupCancellation();
 
@@ -353,7 +351,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       });
     } finally {
       _ownsProcessRefresh = false;
-      _processRefreshActive = false;
+      InvoiceAwardRefreshProcessLease.release();
       if (mounted && _refreshing) {
         setState(() => _refreshing = false);
       }

@@ -1,0 +1,107 @@
+name: Issue13 Award Auto Refresh Runtime CI
+
+on:
+  push:
+    branches:
+      - issue-13-award-auto-refresh-runtime
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue13-award-auto-refresh-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Analyze Test Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Ensure Android platform files exist
+        run: flutter create --platforms=android .
+
+      - name: Patch Android permissions and desugaring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          for node in [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+          ]:
+              if node not in text:
+                  text = text.replace(marker, marker + '\n    ' + node, 1)
+          manifest.write_text(text)
+
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          if 'isCoreLibraryDesugaringEnabled = true' not in text:
+              text = text.replace(
+                  'compileOptions {',
+                  'compileOptions {\n        isCoreLibraryDesugaringEnabled = true',
+                  1,
+              )
+          dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          if dependency not in text:
+              if 'dependencies {' in text:
+                  text = text.replace(
+                      'dependencies {',
+                      'dependencies {\n    ' + dependency,
+                      1,
+                  )
+              else:
+                  text += '\n\ndependencies {\n    ' + dependency + '\n}\n'
+          gradle.write_text(text)
+          PY
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Automatic refresh focused regressions
+        run: |
+          set -euo pipefail
+          flutter test test/features/invoice/invoice_award_automatic_refresh_runtime_test.dart
+          flutter test test/invoice_award_refresh_policy_test.dart
+          flutter test test/features/invoice/invoice_award_production_refresh_controller_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_foreground_acquisition_test.dart
+          flutter test test/features/invoice/invoice_award_cloud_candidate_scope_test.dart
+
+      - name: Full Flutter regression suite
+        run: flutter test
+
+      - name: Build debug APK
+        run: flutter build apk --debug --no-pub
+
+      - name: Exact head summary
+        run: |
+          set -euo pipefail
+          printf 'ISSUE13_AUTO_REFRESH_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
+          printf 'BASE_OWNER_VALIDATED_HEAD=6662772034d66d3de8249f937ac259cec2e5876c\n'
+          printf 'FORMAL_ACCOUNTING_WRITE=ZERO\n'
+          printf 'BACKGROUND_SCHEDULER_ADAPTER_READY=NO\n'
