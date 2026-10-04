@@ -45,7 +45,7 @@ void main() {
     // No navigation side effect and no duplicate transport implementation.
     expect(source, isNot(contains('Navigator.')));
     expect(source, isNot(contains('context.push')));
-    expect(source, isNot(contains("package:http/http.dart")));
+    expect(source, isNot(contains('package:http/http.dart')));
   });
 
   test('manual page and automatic runner share one process gate', () {
