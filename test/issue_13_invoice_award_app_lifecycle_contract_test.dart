@@ -17,7 +17,7 @@ void main() {
 
     // App-wide lifecycle capture is marker-only. It must not create a second
     // official acquisition/network stack.
-    expect(coordinator, isNot(contains("package:http/http.dart")));
+    expect(coordinator, isNot(contains('package:http/http.dart')));
     expect(coordinator, isNot(contains('HttpClient')));
     expect(coordinator, isNot(contains('MinistryOfFinance')));
     expect(coordinator, isNot(contains('Navigator.')));
