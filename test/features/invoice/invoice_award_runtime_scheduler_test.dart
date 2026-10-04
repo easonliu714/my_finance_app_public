@@ -78,6 +78,46 @@ void main() {
     expect(platform.cancelCount, greaterThanOrEqualTo(1));
   });
 
+  test('app-wide wake capture persists a foreground catch-up marker', () async {
+    await scheduler.setConsent(true);
+    platform.wake = InvoiceAwardNativeWake(
+      targetLocal: DateTime(2026, 9, 25, 14),
+      receivedAtLocal: DateTime(2026, 9, 25, 14, 7),
+    );
+
+    expect(await scheduler.captureNativeWakeForForeground(), isTrue);
+    final state = scheduler.repository.load();
+    expect(state.hasPendingForegroundCatchUp, isTrue);
+    expect(
+      state.pendingForegroundCatchUpAtLocal,
+      DateTime(2026, 9, 25, 14, 7),
+    );
+
+    await scheduler.recordAttemptStarted(
+      nowLocal: DateTime(2026, 9, 25, 14, 8),
+      periodId: '115-07-08',
+    );
+    expect(
+      scheduler.repository.load().hasPendingForegroundCatchUp,
+      isFalse,
+    );
+  });
+
+  test('opt-out discards native wake without persisting catch-up', () async {
+    await scheduler.setConsent(false);
+    platform.wake = InvoiceAwardNativeWake(
+      targetLocal: DateTime(2026, 9, 25, 14),
+      receivedAtLocal: DateTime(2026, 9, 25, 14, 7),
+    );
+
+    expect(await scheduler.captureNativeWakeForForeground(), isFalse);
+    expect(
+      scheduler.repository.load().hasPendingForegroundCatchUp,
+      isFalse,
+    );
+    expect(platform.cancelCount, greaterThanOrEqualTo(1));
+  });
+
   test('native due marker is consumable without granting network authority', () async {
     platform.wake = InvoiceAwardNativeWake(
       targetLocal: DateTime(2026, 9, 25, 14),

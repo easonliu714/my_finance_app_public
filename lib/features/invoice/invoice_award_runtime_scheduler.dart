@@ -12,6 +12,7 @@ class InvoiceAwardRuntimeState {
     required this.generalDatasetPromoted,
     required this.cloudExclusiveDatasetPromoted,
     required this.scheduledTargetLocal,
+    required this.pendingForegroundCatchUpAtLocal,
   });
 
   final bool automaticRefreshConsented;
@@ -21,6 +22,10 @@ class InvoiceAwardRuntimeState {
   final bool generalDatasetPromoted;
   final bool cloudExclusiveDatasetPromoted;
   final DateTime? scheduledTargetLocal;
+  final DateTime? pendingForegroundCatchUpAtLocal;
+
+  bool get hasPendingForegroundCatchUp =>
+      pendingForegroundCatchUpAtLocal != null;
 }
 
 class InvoiceAwardRuntimeStateRepository {
@@ -38,6 +43,8 @@ class InvoiceAwardRuntimeStateRepository {
       'issue13_award_auto_refresh_cloud_promoted_v1';
   static const _scheduledTargetKey =
       'issue13_award_auto_refresh_scheduled_target_v1';
+  static const _pendingForegroundCatchUpKey =
+      'issue13_award_auto_refresh_pending_foreground_catch_up_v1';
 
   InvoiceAwardRuntimeState load() {
     DateTime? readTime(String key) {
@@ -55,13 +62,30 @@ class InvoiceAwardRuntimeStateRepository {
       cloudExclusiveDatasetPromoted:
           preferences.getBool(_cloudPromotedKey) ?? false,
       scheduledTargetLocal: readTime(_scheduledTargetKey),
+      pendingForegroundCatchUpAtLocal:
+          readTime(_pendingForegroundCatchUpKey),
     );
   }
 
   Future<void> setConsent(bool value) async {
     await preferences.setBool(_consentKey, value);
-    if (!value) await setScheduledTarget(null);
+    if (!value) {
+      await setScheduledTarget(null);
+      await clearPendingForegroundCatchUp();
+    }
   }
+
+  Future<void> markPendingForegroundCatchUp(
+    InvoiceAwardNativeWake wake,
+  ) async {
+    await preferences.setInt(
+      _pendingForegroundCatchUpKey,
+      wake.receivedAtLocal.millisecondsSinceEpoch,
+    );
+  }
+
+  Future<void> clearPendingForegroundCatchUp() =>
+      preferences.remove(_pendingForegroundCatchUpKey);
 
   Future<void> recordAttemptStarted({
     required DateTime nowLocal,
@@ -78,6 +102,7 @@ class InvoiceAwardRuntimeStateRepository {
       nowLocal.millisecondsSinceEpoch,
     );
     await preferences.setString(_lastOutcomeKey, 'running');
+    await clearPendingForegroundCatchUp();
   }
 
   Future<void> recordAttemptFinished({
@@ -201,6 +226,24 @@ class InvoiceAwardRuntimeScheduler {
   }
 
   Future<InvoiceAwardNativeWake?> consumeNativeWake() => platform.consumeDue();
+
+  /// Captures a native best-effort wake at app scope without performing I/O.
+  ///
+  /// This deliberately persists only a local pending marker. Network authority
+  /// remains with the canonical production refresh pipeline after consent is
+  /// re-checked by the foreground consumer.
+  Future<bool> captureNativeWakeForForeground() async {
+    final wake = await platform.consumeDue();
+    if (wake == null) return false;
+    final state = repository.load();
+    if (!state.automaticRefreshConsented) {
+      await repository.clearPendingForegroundCatchUp();
+      await platform.cancel();
+      return false;
+    }
+    await repository.markPendingForegroundCatchUp(wake);
+    return true;
+  }
 
   Future<bool> foregroundCatchUpDue({
     required DateTime nowLocal,
