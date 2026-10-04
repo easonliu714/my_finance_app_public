@@ -61,6 +61,15 @@ void main() {
 
     expect(find.text('官方明細內容審查'), findsOneWidget);
     expect(find.text('成功：1'), findsOneWidget);
+
+    final invoiceCard = find.byKey(
+      const Key('official_detail_review_AN90000009'),
+      skipOffstage: false,
+    );
+    expect(invoiceCard, findsOneWidget);
+    await tester.ensureVisible(invoiceCard);
+    await tester.pumpAndSettle();
+
     expect(find.text('AN90000009'), findsWidgets);
     expect(find.text('2026-06-18 08:05:03'), findsOneWidget);
     expect(find.text('測試商店'), findsOneWidget);
