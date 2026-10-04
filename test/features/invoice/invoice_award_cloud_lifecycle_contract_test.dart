@@ -86,7 +86,7 @@ void main() {
       contains('本期沒有可比對的雲端候選，略過大型 500 元獎 PDF'),
     );
     expect(pageSource, contains('with WidgetsBindingObserver'));
-    expect(pageSource, contains('_processRefreshActive'));
+    expect(pageSource, contains('_ownsProcessRefresh'));
     final lifecycleStart =
         pageSource.indexOf('void didChangeAppLifecycleState(');
     final lifecycleEnd = pageSource.indexOf('DateTime _now()', lifecycleStart);
