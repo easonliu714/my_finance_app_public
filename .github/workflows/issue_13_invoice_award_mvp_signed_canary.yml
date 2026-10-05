@@ -267,6 +267,13 @@ jobs:
           permissions="$("$apkanalyzer_bin" manifest permissions "$apk")"
           version_name="$("$apkanalyzer_bin" manifest version-name "$apk")"
           version_code="$("$apkanalyzer_bin" manifest version-code "$apk")"
+          release_version="$(sed -n 's/^version: //p' pubspec.yaml | head -n 1)"
+          expected_version_name="${release_version%%+*}"
+          expected_version_code="${release_version##*+}"
+          test -n "$expected_version_name"
+          test -n "$expected_version_code"
+          test "$version_name" = "$expected_version_name"
+          test "$version_code" = "$expected_version_code"
           signer_output="$("$apksigner_bin" verify --print-certs "$apk")"
           pinned='9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
           normalized="$(printf '%s\n' "$signer_output" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
@@ -324,8 +331,8 @@ jobs:
           } > issue_13_award_mvp_canary_metadata.txt
           for required in \
             "ISSUE_13_EXACT_HEAD=$(git rev-parse HEAD)" \
-            'VERSION_NAME=4.20.19' \
-            'VERSION_CODE=477' \
+            "VERSION_NAME=$expected_version_name" \
+            "VERSION_CODE=$expected_version_code" \
             'GENERAL_OFFICIAL_ACQUISITION=PASS' \
             'EXISTING_FORMAL_TRANSACTION_SCAN=PASS' \
             'CLOUD_PUBLICATION_AND_INDEX=PASS' \
