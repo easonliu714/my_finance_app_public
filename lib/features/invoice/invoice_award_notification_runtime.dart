@@ -231,14 +231,7 @@ class InvoiceAwardWinningNotificationService {
       return amount != 0 ? amount : a.tier.compareTo(b.tier);
     });
     final selected = options.first;
-    final dedupeKey = 'invoice-award-notify:' +
-        periodId +
-        ':' +
-        candidateKey +
-        ':' +
-        selected.tier +
-        ':' +
-        selected.amount.toString();
+    final dedupeKey = 'invoice-award-notify:$periodId:$candidateKey:${selected.tier}:${selected.amount}';
     return InvoiceAwardWinnerNotification(
       dedupeKey: dedupeKey,
       periodLabel: periodLabel,

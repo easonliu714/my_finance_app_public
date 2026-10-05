@@ -25,7 +25,7 @@ void main() {
 
   ExistingInvoiceAwardCandidate candidate(String number) =>
       ExistingInvoiceAwardCandidate(
-        transactionId: 'txn-' + number,
+        transactionId: 'txn-$number',
         invoiceNumber: number,
         invoiceDate: DateTime(2026, 8, 31, 19, 26),
         awardPeriod: '115/08',
