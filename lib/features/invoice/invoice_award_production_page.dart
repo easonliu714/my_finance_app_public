@@ -15,6 +15,7 @@ import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_official_acquisition.dart';
 import 'invoice_award_official_dataset.dart';
 import 'invoice_award_official_html_parser.dart';
+import 'invoice_award_notification_runtime.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_runtime_scheduler.dart';
@@ -422,6 +423,18 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           .where((item) =>
               currentKeys.contains(_candidateKey(item.candidate)) && item.hasCloudNumberMatch)
           .length;
+
+      await InvoiceAwardWinningNotificationService(
+        repository: InvoiceAwardNotificationSettingsRepository(preferences),
+        port: FlutterInvoiceAwardNotificationPort(),
+      ).deliverConfirmedWinners(
+        periodId: selectedPeriod.period.id,
+        periodLabel: selectedPeriod.periodLabel,
+        generalDatasetValidated: schedulerGeneralPromoted,
+        cloudDatasetValidated: cloudComplete,
+        generalEvaluations: generalEvaluations,
+        cloudEvaluations: cloudEvaluations,
+      );
 
       if (!mounted) return;
       setState(() {
