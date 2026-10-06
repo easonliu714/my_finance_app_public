@@ -54,6 +54,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   bool _automaticRefreshConsented = false;
   String _automaticScheduleStatus = '自動更新排程初始化中…';
   bool _automaticCatchUpRunning = false;
+  bool _winningNotificationsEnabled = false;
+  String _winningNotificationStatus = '中獎通知初始化中…';
   String _status = '';
   String _cloudStatus = '';
   String _cloudDiagnosticStatus = '';
@@ -76,6 +78,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     _resetSelectedPeriodState(now);
     _loadLastPdfDiagnostic();
     unawaited(_initializeAutomaticRefreshRuntime());
+    unawaited(_initializeWinningNotifications());
   }
 
   @override
@@ -112,6 +115,55 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   }
 
   DateTime _now() => widget.clock?.call() ?? DateTime.now();
+
+  Future<void> _initializeWinningNotifications() async {
+    final preferences = await SharedPreferences.getInstance();
+    final repository = InvoiceAwardNotificationSettingsRepository(preferences);
+    final enabled = repository.load().winningNotificationsEnabled;
+    if (!mounted) return;
+    setState(() {
+      _winningNotificationsEnabled = enabled;
+      _winningNotificationStatus = enabled
+          ? '中獎通知已開啟；只有官方一般獎與雲端獎 authority 都完成後才會通知。'
+          : '中獎通知已關閉。';
+    });
+  }
+
+  Future<void> _setWinningNotificationsEnabled(bool value) async {
+    if (_refreshing) return;
+    final preferences = await SharedPreferences.getInstance();
+    final repository = InvoiceAwardNotificationSettingsRepository(preferences);
+
+    if (!value) {
+      await repository.setWinningNotificationsEnabled(false);
+      if (!mounted) return;
+      setState(() {
+        _winningNotificationsEnabled = false;
+        _winningNotificationStatus = '中獎通知已關閉。';
+      });
+      return;
+    }
+
+    final granted = await FlutterInvoiceAwardNotificationPort().requestPermission();
+    if (!granted) {
+      await repository.setWinningNotificationsEnabled(false);
+      if (!mounted) return;
+      setState(() {
+        _winningNotificationsEnabled = false;
+        _winningNotificationStatus =
+            '系統未授予通知權限；未啟用中獎通知。可從 Android 設定重新允許後再開啟。';
+      });
+      return;
+    }
+
+    await repository.setWinningNotificationsEnabled(true);
+    if (!mounted) return;
+    setState(() {
+      _winningNotificationsEnabled = true;
+      _winningNotificationStatus =
+          '中獎通知已開啟；通知只顯示期別、獎別與金額，不顯示發票號碼或商家。';
+    });
+  }
 
   Future<void> _initializeAutomaticRefreshRuntime() async {
     final preferences = await SharedPreferences.getInstance();
@@ -618,6 +670,34 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                       child: Text(
                         _automaticScheduleStatus,
                         key: const Key('invoice_award_automatic_refresh_status'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    key: const Key('invoice_award_winning_notification_switch'),
+                    title: const Text('中獎結果通知'),
+                    subtitle: const Text(
+                      '開啟後，只有一般獎與雲端獎官方資料都完成驗證、且本機確認中獎時才通知。'
+                      '鎖定畫面只顯示期別、獎別與金額，不顯示發票號碼、商家或記帳內容。',
+                    ),
+                    value: _winningNotificationsEnabled,
+                    onChanged:
+                        _refreshing ? null : _setWinningNotificationsEnabled,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _winningNotificationStatus,
+                        key: const Key('invoice_award_winning_notification_status'),
                       ),
                     ),
                   ),

@@ -2,12 +2,15 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'existing_invoice_award_candidate_repository.dart';
+import 'existing_invoice_award_cloud_batch_matcher.dart';
+import 'existing_invoice_award_general_batch_matcher.dart';
 import 'invoice_award_cloud_candidate_scope.dart';
 import 'invoice_award_cloud_foreground_acquisition.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_official_acquisition.dart';
 import 'invoice_award_official_dataset.dart';
 import 'invoice_award_official_html_parser.dart';
+import 'invoice_award_notification_runtime.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_runtime_scheduler.dart';
@@ -127,6 +130,12 @@ class InvoiceAwardCanonicalAutomaticRefreshRunner {
 
       final candidates =
           await ExistingInvoiceAwardCandidateRepository().listCandidates();
+      final generalEvaluations = generalResult.dataset == null
+          ? const <ExistingInvoiceAwardGeneralEvaluation>[]
+          : const ExistingInvoiceAwardGeneralBatchMatcher().evaluate(
+              dataset: generalResult.dataset!,
+              candidates: candidates,
+            );
       final candidateNumbers = cloudCandidateNumbersForAwardPeriod(
         candidates: candidates,
         awardPeriod: selectedPeriod.candidateAwardPeriodLabel,
@@ -147,6 +156,25 @@ class InvoiceAwardCanonicalAutomaticRefreshRunner {
         candidateInvoiceNumbers: candidateNumbers,
       );
       cloudPromoted = cloudResult.isComplete;
+      final cloudEvaluations = await ExistingInvoiceAwardCloudBatchMatcher(
+        readLatest: ({required String periodId, required String tierCode}) =>
+            cloudRepository.readLatest(periodId: periodId, tierCode: tierCode),
+      ).evaluate(
+        candidates: candidates,
+        candidateScopedAuthorities: cloudResult.candidateScopedAuthorities,
+      );
+
+      await InvoiceAwardWinningNotificationService(
+        repository: InvoiceAwardNotificationSettingsRepository(preferences),
+        port: FlutterInvoiceAwardNotificationPort(),
+      ).deliverConfirmedWinners(
+        periodId: selectedPeriod.period.id,
+        periodLabel: selectedPeriod.periodLabel,
+        generalDatasetValidated: generalPromoted,
+        cloudDatasetValidated: cloudPromoted,
+        generalEvaluations: generalEvaluations,
+        cloudEvaluations: cloudEvaluations,
+      );
 
       return InvoiceAwardAutomaticRefreshOutcome(
         started: true,
