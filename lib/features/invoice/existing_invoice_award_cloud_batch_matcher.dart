@@ -134,6 +134,7 @@ class ExistingInvoiceAwardCloudBatchMatcher {
 
       final missingTiers = <String>{};
       final matchesByTier = <String, Set<String>>{};
+      final scopedPdfShaByTier = <String, String>{};
       final snapshots = <String, CloudAwardValidatedIndexSnapshot>{};
 
       for (final tier in tierPriority) {
@@ -152,6 +153,7 @@ class ExistingInvoiceAwardCloudBatchMatcher {
         }
         if (scopedAuthority != null) {
           matchesByTier[tier] = scopedAuthority.matchedInvoiceNumbers;
+          scopedPdfShaByTier[tier] = scopedAuthority.pdfSha256;
           continue;
         }
 
@@ -209,7 +211,8 @@ class ExistingInvoiceAwardCloudBatchMatcher {
           grossAmount:
               selectedTier == null ? 0 : (tierAmounts[selectedTier] ?? 0),
           indexSha256: selectedSnapshot?.manifest.indexSha256,
-          pdfSha256: selectedSnapshot?.manifest.pdfSha256,
+          pdfSha256: selectedSnapshot?.manifest.pdfSha256 ??
+              (selectedTier == null ? null : scopedPdfShaByTier[selectedTier]),
         );
       }
     }
