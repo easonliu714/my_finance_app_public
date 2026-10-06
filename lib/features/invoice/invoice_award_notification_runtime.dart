@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'existing_invoice_award_cloud_batch_matcher.dart';
 import 'existing_invoice_award_general_batch_matcher.dart';
+import 'invoice_award_cloud_eligibility_confirmation.dart';
 
 class InvoiceAwardNotificationSettings {
   const InvoiceAwardNotificationSettings({
@@ -40,31 +41,41 @@ class InvoiceAwardNotificationSettingsRepository {
   }
 }
 
-class InvoiceAwardWinnerNotification {
-  const InvoiceAwardWinnerNotification({
+enum InvoiceAwardNotificationKind { confirmedWinner, eligibilityReviewRequired }
+
+class InvoiceAwardNotificationMessage {
+  const InvoiceAwardNotificationMessage({
     required this.dedupeKey,
     required this.periodLabel,
     required this.tierLabel,
     required this.amount,
+    required this.kind,
   });
 
   final String dedupeKey;
   final String periodLabel;
   final String tierLabel;
   final int amount;
+  final InvoiceAwardNotificationKind kind;
 
-  String get title => '統一發票中獎通知';
+  String get title => kind == InvoiceAwardNotificationKind.confirmedWinner
+      ? '統一發票中獎通知'
+      : '統一發票雲端獎資格待確認';
 
   /// Privacy-minimal lock-screen copy. Invoice number, merchant, transaction ID
   /// and accounting data are intentionally excluded.
-  String get body => '$periodLabel · $tierLabel · NT\$$amount';
+  String get body => kind == InvoiceAwardNotificationKind.confirmedWinner
+      ? '$periodLabel · $tierLabel · NT\$amount'
+      : '$periodLabel · $tierLabel · NT\$amount · 可能中獎，請確認資格';
 
-  String get payload => 'invoice-award-result';
+  String get payload => kind == InvoiceAwardNotificationKind.confirmedWinner
+      ? 'invoice-award-result'
+      : 'invoice-award-eligibility-review';
 }
 
 abstract class InvoiceAwardNotificationPort {
   Future<bool> requestPermission();
-  Future<void> show(InvoiceAwardWinnerNotification notification);
+  Future<void> show(InvoiceAwardNotificationMessage notification);
 }
 
 class FlutterInvoiceAwardNotificationPort
@@ -90,7 +101,7 @@ class FlutterInvoiceAwardNotificationPort
   }
 
   @override
-  Future<void> show(InvoiceAwardWinnerNotification notification) async {
+  Future<void> show(InvoiceAwardNotificationMessage notification) async {
     await _ensureInitialized();
     await _plugin.show(
       _stableNotificationId(notification.dedupeKey),
@@ -136,12 +147,15 @@ class InvoiceAwardWinningNotificationService {
   InvoiceAwardWinningNotificationService({
     required this.repository,
     required this.port,
+    this.eligibilityConfirmationRepository,
   });
 
   final InvoiceAwardNotificationSettingsRepository repository;
   final InvoiceAwardNotificationPort port;
+  final InvoiceAwardCloudEligibilityConfirmationRepository?
+      eligibilityConfirmationRepository;
 
-  Future<InvoiceAwardWinningNotificationResult> deliverConfirmedWinners({
+  Future<InvoiceAwardWinningNotificationResult> deliverAwardNotifications({
     required String periodId,
     required String periodLabel,
     required bool generalDatasetValidated,
@@ -180,21 +194,39 @@ class InvoiceAwardWinningNotificationService {
     var delivered = 0;
     var duplicates = 0;
     for (final candidateKey in candidateKeys) {
-      final selected = _selectConfirmedWinner(
+      final confirmed = _selectConfirmedWinner(
         periodId: periodId,
         periodLabel: periodLabel,
         candidateKey: candidateKey,
         general: generalByCandidate[candidateKey],
         cloud: cloudByCandidate[candidateKey],
       );
-      if (selected == null) continue;
-      if (sent.contains(selected.dedupeKey)) {
-        duplicates += 1;
-        continue;
+      if (confirmed != null) {
+        if (sent.contains(confirmed.dedupeKey)) {
+          duplicates += 1;
+        } else {
+          await port.show(confirmed);
+          await repository.markSent(confirmed.dedupeKey);
+          sent.add(confirmed.dedupeKey);
+          delivered += 1;
+        }
       }
-      await port.show(selected);
-      await repository.markSent(selected.dedupeKey);
-      sent.add(selected.dedupeKey);
+
+      final cloud = cloudByCandidate[candidateKey];
+      if (cloud == null) continue;
+      final review = _selectEligibilityReview(
+        periodId: periodId,
+        periodLabel: periodLabel,
+        candidateKey: candidateKey,
+        cloud: cloud,
+      );
+      if (review == null) continue;
+      if (eligibilityConfirmationRepository?.readForEvaluation(
+            periodId: periodId, evaluation: cloud) != null) continue;
+      if (sent.contains(review.dedupeKey)) { duplicates += 1; continue; }
+      await port.show(review);
+      await repository.markSent(review.dedupeKey);
+      sent.add(review.dedupeKey);
       delivered += 1;
     }
 
@@ -205,7 +237,7 @@ class InvoiceAwardWinningNotificationService {
     );
   }
 
-  InvoiceAwardWinnerNotification? _selectConfirmedWinner({
+  InvoiceAwardNotificationMessage? _selectConfirmedWinner({
     required String periodId,
     required String periodLabel,
     required String candidateKey,
@@ -232,11 +264,49 @@ class InvoiceAwardWinningNotificationService {
     });
     final selected = options.first;
     final dedupeKey = 'invoice-award-notify:$periodId:$candidateKey:${selected.tier}:${selected.amount}';
-    return InvoiceAwardWinnerNotification(
+    return InvoiceAwardNotificationMessage(
       dedupeKey: dedupeKey,
       periodLabel: periodLabel,
       tierLabel: selected.tier,
       amount: selected.amount,
+      kind: InvoiceAwardNotificationKind.confirmedWinner,
+    );
+  }
+
+  InvoiceAwardNotificationMessage? _selectEligibilityReview({
+    required String periodId,
+    required String periodLabel,
+    required String candidateKey,
+    required ExistingInvoiceAwardCloudEvaluation cloud,
+  }) {
+    if (cloud.status !=
+            ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired ||
+        cloud.selectedTierCode == null || cloud.grossAmount <= 0 ||
+        cloud.pdfSha256 == null ||
+        !RegExp(r'^[0-9a-fA-F]{64}(String? tierCode) => switch (tierCode) {
+      'cloud-1000000' => '雲端專屬獎 100萬元獎',
+      'cloud-2000' => '雲端專屬獎 2,000元獎',
+      'cloud-800' => '雲端專屬獎 800元獎',
+      'cloud-500' => '雲端專屬獎 500元獎',
+      _ => '雲端專屬獎',
+    };
+
+int _stableNotificationId(String value) {
+  var hash = 0x811c9dc5;
+  for (final unit in value.codeUnits) {
+    hash ^= unit;
+    hash = (hash * 0x01000193) & 0x7fffffff;
+  }
+  return 410000 + (hash % 1000000000);
+}
+).hasMatch(cloud.pdfSha256!)) return null;
+    final tier = _cloudTierLabel(cloud.selectedTierCode);
+    final dedupeKey =
+        'invoice-award-review:$periodId:$candidateKey:$tier:${cloud.grossAmount}:${cloud.pdfSha256!.toLowerCase()}';
+    return InvoiceAwardNotificationMessage(
+      dedupeKey: dedupeKey, periodLabel: periodLabel, tierLabel: tier,
+      amount: cloud.grossAmount,
+      kind: InvoiceAwardNotificationKind.eligibilityReviewRequired,
     );
   }
 }
