@@ -65,8 +65,8 @@ class InvoiceAwardNotificationMessage {
   /// Privacy-minimal lock-screen copy. Invoice number, merchant, transaction ID
   /// and accounting data are intentionally excluded.
   String get body => kind == InvoiceAwardNotificationKind.confirmedWinner
-      ? '$periodLabel · $tierLabel · NT\$amount'
-      : '$periodLabel · $tierLabel · NT\$amount · 可能中獎，請確認資格';
+      ? '$periodLabel · $tierLabel · NT\$$amount'
+      : '$periodLabel · $tierLabel · NT\$$amount · 可能中獎，請確認資格';
 
   String get payload => kind == InvoiceAwardNotificationKind.confirmedWinner
       ? 'invoice-award-result'
@@ -213,17 +213,27 @@ class InvoiceAwardWinningNotificationService {
       }
 
       final cloud = cloudByCandidate[candidateKey];
-      if (cloud == null) continue;
+      if (cloud == null) {
+        continue;
+      }
       final review = _selectEligibilityReview(
         periodId: periodId,
         periodLabel: periodLabel,
         candidateKey: candidateKey,
         cloud: cloud,
       );
-      if (review == null) continue;
-      if (eligibilityConfirmationRepository?.readForEvaluation(
-            periodId: periodId, evaluation: cloud) != null) continue;
-      if (sent.contains(review.dedupeKey)) { duplicates += 1; continue; }
+      if (review == null) {
+        continue;
+      }
+      final existingConfirmation = eligibilityConfirmationRepository
+          ?.readForEvaluation(periodId: periodId, evaluation: cloud);
+      if (existingConfirmation != null) {
+        continue;
+      }
+      if (sent.contains(review.dedupeKey)) {
+        duplicates += 1;
+        continue;
+      }
       await port.show(review);
       await repository.markSent(review.dedupeKey);
       sent.add(review.dedupeKey);
@@ -281,30 +291,19 @@ class InvoiceAwardWinningNotificationService {
   }) {
     if (cloud.status !=
             ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired ||
-        cloud.selectedTierCode == null || cloud.grossAmount <= 0 ||
+        cloud.selectedTierCode == null ||
+        cloud.grossAmount <= 0 ||
         cloud.pdfSha256 == null ||
-        !RegExp(r'^[0-9a-fA-F]{64}(String? tierCode) => switch (tierCode) {
-      'cloud-1000000' => '雲端專屬獎 100萬元獎',
-      'cloud-2000' => '雲端專屬獎 2,000元獎',
-      'cloud-800' => '雲端專屬獎 800元獎',
-      'cloud-500' => '雲端專屬獎 500元獎',
-      _ => '雲端專屬獎',
-    };
-
-int _stableNotificationId(String value) {
-  var hash = 0x811c9dc5;
-  for (final unit in value.codeUnits) {
-    hash ^= unit;
-    hash = (hash * 0x01000193) & 0x7fffffff;
-  }
-  return 410000 + (hash % 1000000000);
-}
-).hasMatch(cloud.pdfSha256!)) return null;
+        !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(cloud.pdfSha256!)) {
+      return null;
+    }
     final tier = _cloudTierLabel(cloud.selectedTierCode);
     final dedupeKey =
         'invoice-award-review:$periodId:$candidateKey:$tier:${cloud.grossAmount}:${cloud.pdfSha256!.toLowerCase()}';
     return InvoiceAwardNotificationMessage(
-      dedupeKey: dedupeKey, periodLabel: periodLabel, tierLabel: tier,
+      dedupeKey: dedupeKey,
+      periodLabel: periodLabel,
+      tierLabel: tier,
       amount: cloud.grossAmount,
       kind: InvoiceAwardNotificationKind.eligibilityReviewRequired,
     );
