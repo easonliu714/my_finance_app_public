@@ -10,6 +10,9 @@ void main() {
 
     expect(source, contains('NotificationVisibility.private'));
     expect(source, contains('isConfirmedCloudNumberMatch'));
+    expect(source, contains('matchedReviewRequired'));
+    expect(source, contains('eligibilityReviewRequired'));
+    expect(source, contains('可能中獎，請確認資格'));
     expect(source, contains('skippedBecauseAuthorityIncomplete'));
     expect(source, isNot(contains('ProductionDatabaseCoordinator')));
     expect(source, isNot(contains('INSERT INTO transactions')));
