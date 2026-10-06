@@ -9,6 +9,7 @@ import 'existing_invoice_award_candidate_repository.dart';
 import 'existing_invoice_award_cloud_batch_matcher.dart';
 import 'existing_invoice_award_general_batch_matcher.dart';
 import 'invoice_award_cloud_candidate_scope.dart';
+import 'invoice_award_cloud_eligibility_confirmation.dart';
 import 'invoice_award_cloud_foreground_acquisition.dart';
 import 'invoice_award_cloud_pdf_index.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
@@ -66,6 +67,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   List<ExistingInvoiceAwardCandidate> _candidates = const [];
   List<ExistingInvoiceAwardGeneralEvaluation> _generalEvaluations = const [];
   List<ExistingInvoiceAwardCloudEvaluation> _cloudEvaluations = const [];
+  Map<String, InvoiceAwardCloudEligibilityConfirmation>
+      _cloudEligibilityConfirmations =
+      const <String, InvoiceAwardCloudEligibilityConfirmation>{};
   final Map<String, GlobalKey> _candidateTileKeys = <String, GlobalKey>{};
 
   @override
@@ -124,7 +128,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     setState(() {
       _winningNotificationsEnabled = enabled;
       _winningNotificationStatus = enabled
-          ? '中獎通知已開啟；只有官方一般獎與雲端獎 authority 都完成後才會通知。'
+          ? '中獎通知已開啟；已確認中獎會通知，雲端獎資格待確認時會提醒你回 App 核對。'
           : '中獎通知已關閉。';
     });
   }
@@ -161,7 +165,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     setState(() {
       _winningNotificationsEnabled = true;
       _winningNotificationStatus =
-          '中獎通知已開啟；通知只顯示期別、獎別與金額，不顯示發票號碼或商家。';
+          '中獎通知已開啟；已確認中獎與雲端獎資格待確認提醒都只顯示期別、獎別與金額。';
     });
   }
 
@@ -283,6 +287,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     _candidates = const [];
     _generalEvaluations = const [];
     _cloudEvaluations = const [];
+    _cloudEligibilityConfirmations =
+        const <String, InvoiceAwardCloudEligibilityConfirmation>{};
     if (_selectedPeriod.canCheckAt(now)) {
       _status = '尚未更新官方 ${_selectedPeriod.periodLabel} 中獎資料';
       _cloudStatus = '雲端專屬獎尚未更新';
@@ -470,6 +476,20 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       );
 
       final cloudComplete = cloudRefresh?.isComplete ?? false;
+      final eligibilityConfirmationRepository =
+          InvoiceAwardCloudEligibilityConfirmationRepository(preferences);
+      final cloudEligibilityConfirmations =
+          <String, InvoiceAwardCloudEligibilityConfirmation>{};
+      for (final evaluation in cloudEvaluations) {
+        final confirmation = eligibilityConfirmationRepository.readForEvaluation(
+          periodId: selectedPeriod.period.id,
+          evaluation: evaluation,
+        );
+        if (confirmation != null) {
+          cloudEligibilityConfirmations[
+              _cloudEligibilityConfirmationKey(evaluation)] = confirmation;
+        }
+      }
       schedulerCloudPromoted = cloudComplete;
       final cloudNumberMatches = cloudEvaluations
           .where((item) =>
@@ -479,7 +499,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       await InvoiceAwardWinningNotificationService(
         repository: InvoiceAwardNotificationSettingsRepository(preferences),
         port: FlutterInvoiceAwardNotificationPort(),
-      ).deliverConfirmedWinners(
+        eligibilityConfirmationRepository:
+            eligibilityConfirmationRepository,
+      ).deliverAwardNotifications(
         periodId: selectedPeriod.period.id,
         periodLabel: selectedPeriod.periodLabel,
         generalDatasetValidated: schedulerGeneralPromoted,
@@ -495,6 +517,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         _candidates = candidates;
         _generalEvaluations = generalEvaluations;
         _cloudEvaluations = cloudEvaluations;
+        _cloudEligibilityConfirmations = cloudEligibilityConfirmations;
         _scanStatus = '本期既有交易候選 ${currentCandidates.length} 筆；'
             '一般獎中獎 $generalWinners 筆；雲端專屬獎號碼吻合 $cloudNumberMatches 筆。';
         if (cloudRefresh != null) {
@@ -586,6 +609,57 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       curve: Curves.easeInOut,
       alignment: 0.08,
     );
+  }
+
+  Future<void> _setCloudEligibilityDecision(
+    ExistingInvoiceAwardCloudEvaluation evaluation,
+    InvoiceAwardCloudEligibilityUserDecision decision,
+  ) async {
+    if (_refreshing ||
+        evaluation.status !=
+            ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired ||
+        !_cloudCurrentAuthorityComplete) return;
+    final isEligible =
+        decision == InvoiceAwardCloudEligibilityUserDecision.eligible;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(isEligible ? '確認符合雲端獎資格' : '確認不符合雲端獎資格'),
+        content: Text(isEligible
+            ? '請確認你已依財政部兌獎規則核對這張發票，包含開獎前未列印電子發票證明聯等資格條件。'
+                '這項確認只會記錄在本機，供後續兌獎／記帳流程判斷；本版不會建立交易或代為兌獎。'
+            : '請確認你已核對這張發票不符合本次雲端專屬獎兌獎資格。'
+                '這項決定只會記錄在本機，不會更改官方獎號資料或既有交易。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(isEligible ? '確認符合資格' : '確認不符合資格'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final preferences = await SharedPreferences.getInstance();
+    final repository =
+        InvoiceAwardCloudEligibilityConfirmationRepository(preferences);
+    final record = await repository.saveDecision(
+      periodId: _selectedPeriod.period.id,
+      evaluation: evaluation,
+      decision: decision,
+      confirmedAtUtc: _now().toUtc(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _cloudEligibilityConfirmations =
+          <String, InvoiceAwardCloudEligibilityConfirmation>{
+        ..._cloudEligibilityConfirmations,
+        _cloudEligibilityConfirmationKey(evaluation): record,
+      };
+    });
   }
 
   @override
@@ -684,7 +758,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                     key: const Key('invoice_award_winning_notification_switch'),
                     title: const Text('中獎結果通知'),
                     subtitle: const Text(
-                      '開啟後，只有一般獎與雲端獎官方資料都完成驗證、且本機確認中獎時才通知。'
+                      '開啟後，已確認中獎會通知；雲端獎若號碼吻合但資格仍待確認，也會提醒你回 App 核對。'
                       '鎖定畫面只顯示期別、獎別與金額，不顯示發票號碼、商家或記帳內容。',
                     ),
                     value: _winningNotificationsEnabled,
@@ -790,6 +864,15 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                                 cloudByKey[_candidateKey(candidate)],
                                 currentCloudAuthorityComplete:
                                     _cloudCurrentAuthorityComplete,
+                                eligibilityConfirmation: cloudByKey[
+                                            _candidateKey(candidate)] ==
+                                        null
+                                    ? null
+                                    : _cloudEligibilityConfirmations[
+                                        _cloudEligibilityConfirmationKey(
+                                          cloudByKey[
+                                              _candidateKey(candidate)]!,
+                                        )],
                               )}',
                             ),
                           ),
@@ -829,6 +912,23 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                     generalEvaluation: generalByKey[_candidateKey(candidate)],
                     cloudEvaluation: cloudByKey[_candidateKey(candidate)],
                     cloudCurrentAuthorityComplete: _cloudCurrentAuthorityComplete,
+                    cloudEligibilityConfirmation:
+                        cloudByKey[_candidateKey(candidate)] == null
+                            ? null
+                            : _cloudEligibilityConfirmations[
+                                _cloudEligibilityConfirmationKey(
+                                  cloudByKey[_candidateKey(candidate)]!,
+                                )],
+                    onCloudEligibilityDecision:
+                        cloudByKey[_candidateKey(candidate)]?.status ==
+                                    ExistingInvoiceAwardCloudEvaluationStatus
+                                        .matchedReviewRequired &&
+                                _cloudCurrentAuthorityComplete
+                            ? (decision) => _setCloudEligibilityDecision(
+                                  cloudByKey[_candidateKey(candidate)]!,
+                                  decision,
+                                )
+                            : null,
                   ),
                 ),
             ],
@@ -851,12 +951,17 @@ class _ExistingTransactionAwardTile extends StatelessWidget {
     required this.generalEvaluation,
     required this.cloudEvaluation,
     required this.cloudCurrentAuthorityComplete,
+    required this.cloudEligibilityConfirmation,
+    required this.onCloudEligibilityDecision,
   });
 
   final ExistingInvoiceAwardCandidate candidate;
   final ExistingInvoiceAwardGeneralEvaluation? generalEvaluation;
   final ExistingInvoiceAwardCloudEvaluation? cloudEvaluation;
   final bool cloudCurrentAuthorityComplete;
+  final InvoiceAwardCloudEligibilityConfirmation? cloudEligibilityConfirmation;
+  final ValueChanged<InvoiceAwardCloudEligibilityUserDecision>?
+      onCloudEligibilityDecision;
 
   @override
   Widget build(BuildContext context) {
@@ -866,7 +971,36 @@ class _ExistingTransactionAwardTile extends StatelessWidget {
       lines.add(Text(_cloudResultText(
         cloudEvaluation,
         currentAuthorityComplete: cloudCurrentAuthorityComplete,
+        eligibilityConfirmation: cloudEligibilityConfirmation,
       )));
+      if (cloudEvaluation?.status ==
+              ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired &&
+          cloudCurrentAuthorityComplete) {
+        lines.add(const SizedBox(height: 8));
+        lines.add(Text(
+          _cloudEligibilityConfirmationText(cloudEligibilityConfirmation),
+          key: Key(
+            'invoice_award_cloud_eligibility_status_${candidate.invoiceNumber}',
+          ),
+        ));
+        lines.add(const SizedBox(height: 6));
+        lines.add(Wrap(spacing: 8, runSpacing: 4, children: [
+          OutlinedButton(
+            key: Key('invoice_award_cloud_eligibility_confirm_${candidate.invoiceNumber}'),
+            onPressed: onCloudEligibilityDecision == null ? null : () =>
+                onCloudEligibilityDecision!(
+                  InvoiceAwardCloudEligibilityUserDecision.eligible),
+            child: const Text('確認符合資格'),
+          ),
+          TextButton(
+            key: Key('invoice_award_cloud_eligibility_reject_${candidate.invoiceNumber}'),
+            onPressed: onCloudEligibilityDecision == null ? null : () =>
+                onCloudEligibilityDecision!(
+                  InvoiceAwardCloudEligibilityUserDecision.ineligible),
+            child: const Text('確認不符合資格'),
+          ),
+        ]));
+      }
       final fingerprint = cloudEvaluation?.indexSha256;
       if (fingerprint != null && fingerprint.length >= 12) {
         lines.add(const SizedBox(height: 2));
@@ -914,6 +1048,7 @@ String _winnerSummaryText(
   ExistingInvoiceAwardGeneralEvaluation? general,
   ExistingInvoiceAwardCloudEvaluation? cloud, {
   required bool currentCloudAuthorityComplete,
+  InvoiceAwardCloudEligibilityConfirmation? eligibilityConfirmation,
 }) {
   final parts = <String>[];
   if (general?.isWinner ?? false) {
@@ -923,7 +1058,11 @@ String _winnerSummaryText(
   }
   if (cloud?.hasCloudNumberMatch ?? false) {
     final suffix = cloud!.requiresReview || !currentCloudAuthorityComplete
-        ? '（資格待確認）'
+        ? eligibilityConfirmation?.confirmsEligibility == true
+            ? '（已由你確認資格）'
+            : eligibilityConfirmation?.confirmsIneligibility == true
+                ? '（你已確認不符合資格）'
+                : '（資格待確認）'
         : '';
     parts.add(
       '雲端專屬獎 NT\$${_formatAmount(cloud.grossAmount)}$suffix',
@@ -935,6 +1074,7 @@ String _winnerSummaryText(
 String _cloudResultText(
   ExistingInvoiceAwardCloudEvaluation? evaluation, {
   required bool currentAuthorityComplete,
+  InvoiceAwardCloudEligibilityConfirmation? eligibilityConfirmation,
 }) {
   if (evaluation == null) return '雲端專屬獎：尚未可判定';
   if (!currentAuthorityComplete &&
@@ -955,11 +1095,34 @@ String _cloudResultText(
     ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible =>
       '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；仍請依官方兌獎規則確認',
     ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired =>
-      '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；'
-      '資格待確認（請核對開獎前是否曾列印證明聯）',
+      eligibilityConfirmation?.confirmsEligibility == true
+          ? '雲端專屬獎：號碼吻合 · NT\${_formatAmount(evaluation.grossAmount)}；'
+              '你已確認符合兌獎資格'
+          : eligibilityConfirmation?.confirmsIneligibility == true
+              ? '雲端專屬獎：號碼吻合 · NT\${_formatAmount(evaluation.grossAmount)}；'
+                  '你已確認不符合兌獎資格'
+              : '雲端專屬獎：號碼吻合 · NT\${_formatAmount(evaluation.grossAmount)}；'
+                  '資格待確認（請核對開獎前是否曾列印證明聯）',
     ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired =>
       '雲端專屬獎：號碼出現在多個獎別資料；暫列最高 NT\$${_formatAmount(evaluation.grossAmount)}，需人工確認',
   };
+}
+
+String _cloudEligibilityConfirmationKey(
+  ExistingInvoiceAwardCloudEvaluation evaluation,
+) =>
+    '${evaluation.candidate.dedupeKey}|${evaluation.selectedTierCode ?? ''}';
+
+String _cloudEligibilityConfirmationText(
+  InvoiceAwardCloudEligibilityConfirmation? confirmation,
+) {
+  if (confirmation?.confirmsEligibility == true) {
+    return '兌獎資格：你已確認符合。此紀錄可供後續兌獎／記帳流程判斷；本版不會自動建立交易。';
+  }
+  if (confirmation?.confirmsIneligibility == true) {
+    return '兌獎資格：你已確認不符合。後續自動入帳不得使用這筆雲端獎。';
+  }
+  return '兌獎資格：待你確認。號碼吻合不等於已確認可兌獎。';
 }
 
 String _cloudTierProgressSummary(CloudAwardForegroundProgress progress) {
