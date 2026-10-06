@@ -37,7 +37,7 @@ void main() {
       );
 
   test('notifications are opt-in', () async {
-    final result = await service.deliverConfirmedWinners(
+    final result = await service.deliverAwardNotifications(
       periodId: '115-07-08',
       periodLabel: '115年07-08月',
       generalDatasetValidated: true,
@@ -58,7 +58,7 @@ void main() {
       matchKind: OfficialInvoiceAwardMatchKind.sixth,
     );
 
-    final result = await service.deliverConfirmedWinners(
+    final result = await service.deliverAwardNotifications(
       periodId: '115-07-08',
       periodLabel: '115年07-08月',
       generalDatasetValidated: true,
@@ -81,7 +81,7 @@ void main() {
     );
 
     for (var i = 0; i < 2; i++) {
-      await service.deliverConfirmedWinners(
+      await service.deliverAwardNotifications(
         periodId: '115-07-08',
         periodLabel: '115年07-08月',
         generalDatasetValidated: true,
@@ -101,7 +101,7 @@ void main() {
     expect(notification.body, isNot(contains('txn-')));
   });
 
-  test('review-required cloud number match is not announced as winner', () async {
+  test('review-required cloud number match emits review notification', () async {
     await repository.setWinningNotificationsEnabled(true);
     final value = candidate('BM23888900');
     final cloud = ExistingInvoiceAwardCloudEvaluation(
@@ -111,9 +111,10 @@ void main() {
       matchedTierCodes: const <String>{'cloud-500'},
       selectedTierCode: 'cloud-500',
       grossAmount: 500,
+      pdfSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
 
-    await service.deliverConfirmedWinners(
+    await service.deliverAwardNotifications(
       periodId: '115-05-06',
       periodLabel: '115年05-06月',
       generalDatasetValidated: true,
@@ -122,19 +123,26 @@ void main() {
       cloudEvaluations: <ExistingInvoiceAwardCloudEvaluation>[cloud],
     );
 
-    expect(port.notifications, isEmpty);
+    expect(port.notifications, hasLength(1));
+    final notification = port.notifications.single;
+    expect(notification.kind,
+        InvoiceAwardNotificationKind.eligibilityReviewRequired);
+    expect(notification.body, contains('可能中獎，請確認資格'));
+    expect(notification.body, contains('NT\$500'));
+    expect(notification.body, isNot(contains('BM23888900')));
+    expect(notification.body, isNot(contains('不應出現在通知')));
   });
 }
 
 class _InMemoryPort implements InvoiceAwardNotificationPort {
-  final List<InvoiceAwardWinnerNotification> notifications =
-      <InvoiceAwardWinnerNotification>[];
+  final List<InvoiceAwardNotificationMessage> notifications =
+      <InvoiceAwardNotificationMessage>[];
 
   @override
   Future<bool> requestPermission() async => true;
 
   @override
-  Future<void> show(InvoiceAwardWinnerNotification notification) async {
+  Future<void> show(InvoiceAwardNotificationMessage notification) async {
     notifications.add(notification);
   }
 }
