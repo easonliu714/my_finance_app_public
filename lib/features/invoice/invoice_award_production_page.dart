@@ -618,7 +618,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     if (_refreshing ||
         evaluation.status !=
             ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired ||
-        !_cloudCurrentAuthorityComplete) return;
+        !_cloudCurrentAuthorityComplete) {
+      return;
+    }
     final isEligible =
         decision == InvoiceAwardCloudEligibilityUserDecision.eligible;
     final accepted = await showDialog<bool>(
