@@ -33,6 +33,7 @@ void main() {
       source,
       contains('issue13_award_winning_notification_sent_keys_v1'),
     );
-    expect(source, contains('markSent(selected.dedupeKey)'));
+    expect(source, contains('repository.markSent(confirmed.dedupeKey)'));
+    expect(source, contains('repository.markSent(review.dedupeKey)'));
   });
 }
