@@ -5,6 +5,7 @@ import 'existing_invoice_award_candidate_repository.dart';
 import 'existing_invoice_award_cloud_batch_matcher.dart';
 import 'existing_invoice_award_general_batch_matcher.dart';
 import 'invoice_award_cloud_candidate_scope.dart';
+import 'invoice_award_cloud_eligibility_confirmation.dart';
 import 'invoice_award_cloud_foreground_acquisition.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_official_acquisition.dart';
@@ -167,7 +168,9 @@ class InvoiceAwardCanonicalAutomaticRefreshRunner {
       await InvoiceAwardWinningNotificationService(
         repository: InvoiceAwardNotificationSettingsRepository(preferences),
         port: FlutterInvoiceAwardNotificationPort(),
-      ).deliverConfirmedWinners(
+        eligibilityConfirmationRepository:
+            InvoiceAwardCloudEligibilityConfirmationRepository(preferences),
+      ).deliverAwardNotifications(
         periodId: selectedPeriod.period.id,
         periodLabel: selectedPeriod.periodLabel,
         generalDatasetValidated: generalPromoted,
