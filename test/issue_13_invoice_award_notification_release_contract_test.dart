@@ -15,6 +15,7 @@ void main() {
     expect(source, contains('setWinningNotificationsEnabled(true)'));
     expect(source, contains('setWinningNotificationsEnabled(false)'));
     expect(source, contains('不顯示發票號碼、商家或記帳內容'));
+    expect(source, contains('資格仍待確認，也會提醒你回 App 核對'));
   });
 
   test('automatic canonical refresh also delivers confirmed winners', () {
@@ -25,7 +26,7 @@ void main() {
     expect(source, contains('ExistingInvoiceAwardGeneralBatchMatcher'));
     expect(source, contains('ExistingInvoiceAwardCloudBatchMatcher'));
     expect(source, contains('InvoiceAwardWinningNotificationService'));
-    expect(source, contains('deliverConfirmedWinners('));
+    expect(source, contains('deliverAwardNotifications('));
     expect(source, contains('generalDatasetValidated: generalPromoted'));
     expect(source, contains('cloudDatasetValidated: cloudPromoted'));
 
@@ -34,12 +35,12 @@ void main() {
     expect(source, isNot(contains('response.bodyBytes')));
   });
 
-  test('release authority advances for notification slice', () {
+  test('release authority advances for cloud eligibility confirmation slice', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final metadata = File('lib/app_build_metadata.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.20.21+479'));
-    expect(metadata, contains("appVersion = '4.20.21+479'"));
-    expect(metadata, contains("phase = 'issue-13-winning-notification-runtime-479'"));
+    expect(pubspec, contains('version: 4.20.22+480'));
+    expect(metadata, contains("appVersion = '4.20.22+480'"));
+    expect(metadata, contains("phase = 'issue-13-cloud-review-eligibility-confirmation-480'"));
   });
 }
