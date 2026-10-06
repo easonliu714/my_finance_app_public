@@ -61,14 +61,21 @@ class InvoiceAwardCloudEligibilityConfirmation {
 
   static InvoiceAwardCloudEligibilityConfirmation? fromJson(Object? raw) {
     if (raw is! Map<String, dynamic> ||
-        raw['contract_version'] != reviewContractVersion) return null;
+        raw['contract_version'] != reviewContractVersion) {
+      return null;
+    }
     InvoiceAwardCloudEligibilityUserDecision? decision;
     for (final value in InvoiceAwardCloudEligibilityUserDecision.values) {
-      if (value.name == raw['decision']?.toString()) { decision = value; break; }
+      if (value.name == raw['decision']?.toString()) {
+        decision = value;
+        break;
+      }
     }
     final at = DateTime.tryParse(raw['confirmed_at_utc']?.toString() ?? '');
     final amount = raw['gross_amount'];
-    if (decision == null || at == null || amount is! num) return null;
+    if (decision == null || at == null || amount is! num) {
+      return null;
+    }
     final record = InvoiceAwardCloudEligibilityConfirmation(
       periodId: raw['period_id']?.toString() ?? '',
       candidateKey: raw['candidate_key']?.toString() ?? '',
@@ -91,10 +98,14 @@ class InvoiceAwardCloudEligibilityConfirmationRepository {
 
   List<InvoiceAwardCloudEligibilityConfirmation> loadAll() {
     final raw=preferences.getString(_recordsKey);
-    if(raw==null||raw.trim().isEmpty)return const [];
+    if (raw == null || raw.trim().isEmpty) {
+      return const [];
+    }
     try {
       final decoded=jsonDecode(raw);
-      if(decoded is! List<dynamic>)return const [];
+      if (decoded is! List<dynamic>) {
+        return const [];
+      }
       return List<InvoiceAwardCloudEligibilityConfirmation>.unmodifiable(
         decoded.map(InvoiceAwardCloudEligibilityConfirmation.fromJson)
           .whereType<InvoiceAwardCloudEligibilityConfirmation>());
@@ -107,13 +118,19 @@ class InvoiceAwardCloudEligibilityConfirmationRepository {
   }) {
     final tier=evaluation.selectedTierCode;
     final sha=evaluation.pdfSha256;
-    if(tier==null||sha==null||evaluation.status!=
-      ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired)return null;
+    if (tier == null ||
+        sha == null ||
+        evaluation.status !=
+            ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired) {
+      return null;
+    }
     for(final record in loadAll()){
       if(record.periodId==periodId &&
          record.candidateKey==evaluation.candidate.dedupeKey &&
-         record.tierCode==tier &&
-         record.officialPdfSha256.toLowerCase()==sha.toLowerCase()) return record;
+          record.tierCode == tier &&
+          record.officialPdfSha256.toLowerCase() == sha.toLowerCase()) {
+        return record;
+      }
     }
     return null;
   }
