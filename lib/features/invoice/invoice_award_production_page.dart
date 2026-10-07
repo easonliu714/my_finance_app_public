@@ -1098,12 +1098,12 @@ String _cloudResultText(
       '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；仍請依官方兌獎規則確認',
     ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired =>
       eligibilityConfirmation?.confirmsEligibility == true
-          ? '雲端專屬獎：號碼吻合 · NT\${_formatAmount(evaluation.grossAmount)}；'
+          ? '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；'
               '你已確認符合兌獎資格'
           : eligibilityConfirmation?.confirmsIneligibility == true
-              ? '雲端專屬獎：號碼吻合 · NT\${_formatAmount(evaluation.grossAmount)}；'
+              ? '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；'
                   '你已確認不符合兌獎資格'
-              : '雲端專屬獎：號碼吻合 · NT\${_formatAmount(evaluation.grossAmount)}；'
+              : '雲端專屬獎：號碼吻合 · NT\$${_formatAmount(evaluation.grossAmount)}；'
                   '資格待確認（請核對開獎前是否曾列印證明聯）',
     ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired =>
       '雲端專屬獎：號碼出現在多個獎別資料；暫列最高 NT\$${_formatAmount(evaluation.grossAmount)}，需人工確認',
