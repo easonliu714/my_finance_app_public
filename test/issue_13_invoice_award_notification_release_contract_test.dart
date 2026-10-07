@@ -35,12 +35,12 @@ void main() {
     expect(source, isNot(contains('response.bodyBytes')));
   });
 
-  test('release authority advances for cloud eligibility confirmation slice', () {
+  test('release authority tracks payout bookkeeping readiness slice', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final metadata = File('lib/app_build_metadata.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.20.22+480'));
-    expect(metadata, contains("appVersion = '4.20.22+480'"));
-    expect(metadata, contains("phase = 'issue-13-cloud-review-eligibility-confirmation-480'"));
+    expect(pubspec, contains('version: 4.20.23+481'));
+    expect(metadata, contains("appVersion = '4.20.23+481'"));
+    expect(metadata, contains("phase = 'issue-13-payout-bookkeeping-readiness-481'"));
   });
 }
