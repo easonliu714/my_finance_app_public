@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../account/account_record.dart';
+import '../account/account_repository.dart';
 import 'existing_invoice_award_candidate_repository.dart';
 import 'existing_invoice_award_cloud_batch_matcher.dart';
 import 'existing_invoice_award_general_batch_matcher.dart';
@@ -17,6 +19,7 @@ import 'invoice_award_official_acquisition.dart';
 import 'invoice_award_official_dataset.dart';
 import 'invoice_award_official_html_parser.dart';
 import 'invoice_award_notification_runtime.dart';
+import 'invoice_award_payout_bookkeeping_runtime.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_runtime_scheduler.dart';
@@ -57,6 +60,17 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   bool _automaticCatchUpRunning = false;
   bool _winningNotificationsEnabled = false;
   String _winningNotificationStatus = '中獎通知初始化中…';
+  InvoiceAwardPayoutBookkeepingSettings _payoutBookkeepingSettings =
+      const InvoiceAwardPayoutBookkeepingSettings(
+    automaticBookkeepingEnabled: false,
+    externalMofRemittanceConfigured: false,
+    localAccountId: '',
+  );
+  List<AccountRecord> _payoutDestinationAccounts = const <AccountRecord>[];
+  List<InvoiceAwardPayoutBookkeepingReadiness> _payoutReadiness =
+      const <InvoiceAwardPayoutBookkeepingReadiness>[];
+  String _payoutBookkeepingStatus = '獎金入帳準備初始化中…';
+  OfficialInvoiceAwardDataset? _generalDataset;
   String _status = '';
   String _cloudStatus = '';
   String _cloudDiagnosticStatus = '';
@@ -83,6 +97,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     _loadLastPdfDiagnostic();
     unawaited(_initializeAutomaticRefreshRuntime());
     unawaited(_initializeWinningNotifications());
+    unawaited(_initializePayoutBookkeepingReadiness());
   }
 
   @override
@@ -167,6 +182,75 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       _winningNotificationStatus =
           '中獎通知已開啟；已確認中獎與雲端獎資格待確認提醒都只顯示期別、獎別與金額。';
     });
+  }
+
+  Future<void> _initializePayoutBookkeepingReadiness() async {
+    final preferences = await SharedPreferences.getInstance();
+    final repository =
+        InvoiceAwardPayoutBookkeepingSettingsRepository(preferences);
+    final accounts = await AccountRepository.instance.listAccounts();
+    final eligibleAccounts = accounts
+        .where(_isEligiblePayoutDestinationAccount)
+        .toList(growable: false)
+      ..sort((left, right) {
+        final order = left.sortOrder.compareTo(right.sortOrder);
+        return order != 0 ? order : left.displayName.compareTo(right.displayName);
+      });
+    final settings = repository.load();
+    if (!mounted) return;
+    setState(() {
+      _payoutDestinationAccounts =
+          List<AccountRecord>.unmodifiable(eligibleAccounts);
+      _payoutBookkeepingSettings = settings;
+      _recomputePayoutReadiness();
+    });
+  }
+
+  Future<void> _savePayoutBookkeepingSettings({
+    bool? automaticBookkeepingEnabled,
+    bool? externalMofRemittanceConfigured,
+    String? localAccountId,
+  }) async {
+    if (_refreshing) return;
+    final next = InvoiceAwardPayoutBookkeepingSettings(
+      automaticBookkeepingEnabled: automaticBookkeepingEnabled ??
+          _payoutBookkeepingSettings.automaticBookkeepingEnabled,
+      externalMofRemittanceConfigured: externalMofRemittanceConfigured ??
+          _payoutBookkeepingSettings.externalMofRemittanceConfigured,
+      localAccountId:
+          localAccountId ?? _payoutBookkeepingSettings.localAccountId,
+    );
+    final preferences = await SharedPreferences.getInstance();
+    await InvoiceAwardPayoutBookkeepingSettingsRepository(preferences)
+        .save(next);
+    if (!mounted) return;
+    setState(() {
+      _payoutBookkeepingSettings = next;
+      _recomputePayoutReadiness();
+    });
+  }
+
+  void _recomputePayoutReadiness() {
+    final generalDataset = _generalDataset;
+    _payoutReadiness = const InvoiceAwardPayoutBookkeepingPlanner().evaluate(
+      period: _selectedPeriod,
+      nowUtc: _now().toUtc(),
+      settings: _payoutBookkeepingSettings,
+      generalAuthorityComplete: generalDataset != null &&
+          const OfficialInvoiceAwardDatasetValidator()
+              .validate(generalDataset)
+              .isValid,
+      cloudAuthorityComplete: _cloudCurrentAuthorityComplete,
+      generalDataset: generalDataset,
+      generalEvaluations: _generalEvaluations,
+      cloudEvaluations: _cloudEvaluations,
+      cloudEligibilityConfirmations: _cloudEligibilityConfirmations,
+    );
+    _payoutBookkeepingStatus = _payoutReadinessStatusText(
+      _payoutReadiness,
+      settings: _payoutBookkeepingSettings,
+      hasEligibleAccounts: _payoutDestinationAccounts.isNotEmpty,
+    );
   }
 
   Future<void> _initializeAutomaticRefreshRuntime() async {
@@ -281,6 +365,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
   void _resetSelectedPeriodState(DateTime now) {
     _cloudCurrentAuthorityComplete = false;
+    _generalDataset = null;
+    _payoutReadiness = const <InvoiceAwardPayoutBookkeepingReadiness>[];
+    _payoutBookkeepingStatus = '完成官方對獎後會計算獎金入帳候選。';
     _cloudDiagnosticStatus = '';
     _cloudTierSummaries.clear();
     _activeCloudTierCode = null;
@@ -406,6 +493,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       if (!mounted) return;
       setState(() {
         _candidates = candidates;
+        _generalDataset = dataset;
         _generalEvaluations = generalEvaluations;
         _cloudEvaluations = const <ExistingInvoiceAwardCloudEvaluation>[];
         _scanStatus = '一般獎對獎已完成：本期候選 '
@@ -518,6 +606,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         _generalEvaluations = generalEvaluations;
         _cloudEvaluations = cloudEvaluations;
         _cloudEligibilityConfirmations = cloudEligibilityConfirmations;
+        _recomputePayoutReadiness();
         _scanStatus = '本期既有交易候選 ${currentCandidates.length} 筆；'
             '一般獎中獎 $generalWinners 筆；雲端專屬獎號碼吻合 $cloudNumberMatches 筆。';
         if (cloudRefresh != null) {
@@ -661,6 +750,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         ..._cloudEligibilityConfirmations,
         _cloudEligibilityConfirmationKey(evaluation): record,
       };
+      _recomputePayoutReadiness();
     });
   }
 
@@ -778,6 +868,112 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                     ),
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              key: const Key('invoice_award_payout_bookkeeping_preflight_card'),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('中獎獎金自動記帳準備'),
+                      subtitle: Text(
+                        '本版只建立可稽核的待入帳候選，不會新增正式交易。'
+                        '財政部自動匯款仍需由你在官方端另外設定。',
+                      ),
+                    ),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey<String>(
+                        'invoice_award_payout_account_${_payoutBookkeepingSettings.localAccountId}',
+                      ),
+                      initialValue: _payoutDestinationAccounts.any(
+                        (account) =>
+                            account.id ==
+                            _payoutBookkeepingSettings.localAccountId,
+                      )
+                          ? _payoutBookkeepingSettings.localAccountId
+                          : null,
+                      decoration: const InputDecoration(
+                        labelText: '獎金入帳帳戶（本機記帳用途）',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (final account in _payoutDestinationAccounts)
+                          DropdownMenuItem<String>(
+                            value: account.id,
+                            child: Text(account.displayName),
+                          ),
+                      ],
+                      onChanged: _refreshing ||
+                              _payoutDestinationAccounts.isEmpty
+                          ? null
+                          : (value) => _savePayoutBookkeepingSettings(
+                                localAccountId: value ?? '',
+                              ),
+                    ),
+                    if (_payoutDestinationAccounts.isEmpty) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        '目前沒有可用的 TWD 銀行／簽帳金融卡帳戶；請先在「帳戶」建立。',
+                      ),
+                    ],
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      key: const Key(
+                        'invoice_award_external_mof_remittance_switch',
+                      ),
+                      title: const Text('我已在財政部端設定自動匯款'),
+                      subtitle: const Text(
+                        '這是本機條件確認，不會替你新增、修改或驗證財政部的匯款帳戶。',
+                      ),
+                      value: _payoutBookkeepingSettings
+                          .externalMofRemittanceConfigured,
+                      onChanged: _refreshing
+                          ? null
+                          : (value) => _savePayoutBookkeepingSettings(
+                                externalMofRemittanceConfigured: value,
+                              ),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      key: const Key(
+                        'invoice_award_automatic_bookkeeping_preflight_switch',
+                      ),
+                      title: const Text('自動建立獎金待入帳候選'),
+                      subtitle: const Text(
+                        '到達官方兌獎起始日且所有 authority Gate 通過後，'
+                        '建立 idempotent 入帳候選；本版仍不寫入正式交易。',
+                      ),
+                      value: _payoutBookkeepingSettings
+                          .automaticBookkeepingEnabled,
+                      onChanged: _refreshing
+                          ? null
+                          : (value) => _savePayoutBookkeepingSettings(
+                                automaticBookkeepingEnabled: value,
+                              ),
+                    ),
+                    Text(
+                      _payoutBookkeepingStatus,
+                      key: const Key(
+                        'invoice_award_payout_bookkeeping_preflight_status',
+                      ),
+                    ),
+                    if (_payoutReadiness.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      for (final readiness in _payoutReadiness)
+                        Text(
+                          _payoutReadinessLine(readiness),
+                          key: ValueKey<String>(
+                            'invoice_award_payout_readiness_${readiness.invoiceIdentity}_${readiness.prizeTier}',
+                          ),
+                        ),
+                    ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -1107,6 +1303,94 @@ String _cloudResultText(
                   '資格待確認（請核對開獎前是否曾列印證明聯）',
     ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired =>
       '雲端專屬獎：號碼出現在多個獎別資料；暫列最高 NT\$${_formatAmount(evaluation.grossAmount)}，需人工確認',
+  };
+}
+
+bool _isEligiblePayoutDestinationAccount(AccountRecord account) =>
+    !account.isArchived &&
+    account.currency == CurrencyCode.twd &&
+    (account.type == AccountType.bank || account.type == AccountType.debitCard);
+
+String _payoutReadinessStatusText(
+  List<InvoiceAwardPayoutBookkeepingReadiness> readiness, {
+  required InvoiceAwardPayoutBookkeepingSettings settings,
+  required bool hasEligibleAccounts,
+}) {
+  if (!settings.automaticBookkeepingEnabled) {
+    return '自動建立待入帳候選目前關閉；不會產生任何帳務寫入。';
+  }
+  if (!hasEligibleAccounts || !settings.hasDestinationAccount) {
+    return '請先選擇一個 TWD 銀行／簽帳金融卡帳戶。';
+  }
+  if (!settings.externalMofRemittanceConfigured) {
+    return '尚未確認財政部端自動匯款設定；入帳候選維持 HOLD。';
+  }
+  if (readiness.isEmpty) {
+    return '尚無可建立的中獎入帳候選；完成官方對獎後會重新評估。';
+  }
+  final ready = readiness.where((item) => item.isReady).length;
+  if (ready > 0) {
+    return '已有 $ready 筆符合待入帳候選條件；本版僅預覽，FORMAL_ACCOUNTING_WRITE=ZERO。';
+  }
+  if (readiness.any((item) =>
+      item.status ==
+      InvoiceAwardPayoutBookkeepingReadinessStatus
+          .cloudEligibilityConfirmationRequired)) {
+    return '雲端獎號碼已吻合，但仍需先完成兌獎資格確認。';
+  }
+  if (readiness.any((item) =>
+      item.status ==
+      InvoiceAwardPayoutBookkeepingReadinessStatus.beforeRedemptionStart)) {
+    return '中獎已確認；尚未到官方兌獎起始日，入帳候選維持等待。';
+  }
+  if (readiness.any((item) =>
+      item.status ==
+      InvoiceAwardPayoutBookkeepingReadinessStatus
+          .officialAuthorityIncomplete)) {
+    return '官方獎號 authority 尚未完整，入帳候選維持 HOLD。';
+  }
+  return '目前條件尚未完整，不建立待入帳候選。';
+}
+
+String _payoutReadinessLine(
+  InvoiceAwardPayoutBookkeepingReadiness readiness,
+) {
+  final eligibleLocal = readiness.externalRemittanceEligibleAt.toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  final date =
+      '${eligibleLocal.year}-${two(eligibleLocal.month)}-${two(eligibleLocal.day)}';
+  final status = switch (readiness.status) {
+    InvoiceAwardPayoutBookkeepingReadinessStatus.readyProposal =>
+      'READY（僅預覽）',
+    InvoiceAwardPayoutBookkeepingReadinessStatus.beforeRedemptionStart =>
+      '等待兌獎起始日 $date',
+    InvoiceAwardPayoutBookkeepingReadinessStatus
+        .cloudEligibilityConfirmationRequired =>
+      '等待雲端獎資格確認',
+    InvoiceAwardPayoutBookkeepingReadinessStatus
+        .externalRemittanceNotConfigured =>
+      '等待財政部端自動匯款設定確認',
+    InvoiceAwardPayoutBookkeepingReadinessStatus.destinationAccountMissing =>
+      '等待選擇入帳帳戶',
+    InvoiceAwardPayoutBookkeepingReadinessStatus.officialAuthorityIncomplete =>
+      '等待官方 authority 完整',
+    InvoiceAwardPayoutBookkeepingReadinessStatus.disabled =>
+      '自動待入帳候選已關閉',
+  };
+  return '${_payoutPrizeTierLabel(readiness.prizeTier)} · '
+      'NT\$${_formatAmount(readiness.grossAmount)} · $status';
+}
+
+String _payoutPrizeTierLabel(String tier) {
+  if (tier.startsWith('general-')) {
+    return '一般獎 ${tier.substring('general-'.length)}';
+  }
+  return switch (tier) {
+    'cloud-500' => '雲端專屬獎 500元獎',
+    'cloud-800' => '雲端專屬獎 800元獎',
+    'cloud-2000' => '雲端專屬獎 2,000元獎',
+    'cloud-1000000' => '雲端專屬獎 100萬元獎',
+    _ => tier,
   };
 }
 
