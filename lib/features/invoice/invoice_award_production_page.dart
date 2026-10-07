@@ -1367,6 +1367,8 @@ String _payoutReadinessLine(
     InvoiceAwardPayoutBookkeepingReadinessStatus
         .cloudEligibilityConfirmationRequired =>
       '等待雲端獎資格確認',
+    InvoiceAwardPayoutBookkeepingReadinessStatus.cloudEligibilityRejected =>
+      '你已確認不符合雲端獎資格',
     InvoiceAwardPayoutBookkeepingReadinessStatus
         .externalRemittanceNotConfigured =>
       '等待財政部端自動匯款設定確認',
