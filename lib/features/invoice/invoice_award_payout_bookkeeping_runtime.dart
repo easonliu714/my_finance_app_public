@@ -61,6 +61,7 @@ enum InvoiceAwardPayoutBookkeepingReadinessStatus {
   externalRemittanceNotConfigured,
   officialAuthorityIncomplete,
   cloudEligibilityConfirmationRequired,
+  cloudEligibilityRejected,
   beforeRedemptionStart,
   readyProposal,
 }
@@ -143,13 +144,18 @@ class InvoiceAwardPayoutBookkeepingPlanner {
       if (selected == null) {
         if (cloud?.status ==
             ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired) {
+          final confirmation = cloudEligibilityConfirmations[
+              _cloudEligibilityConfirmationKey(cloud!)];
           results.add(
             InvoiceAwardPayoutBookkeepingReadiness(
               invoiceIdentity: candidateKey,
-              prizeTier: cloud!.selectedTierCode ?? 'cloud-review',
+              prizeTier: cloud.selectedTierCode ?? 'cloud-review',
               grossAmount: cloud.grossAmount,
-              status: InvoiceAwardPayoutBookkeepingReadinessStatus
-                  .cloudEligibilityConfirmationRequired,
+              status: confirmation?.confirmsIneligibility == true
+                  ? InvoiceAwardPayoutBookkeepingReadinessStatus
+                      .cloudEligibilityRejected
+                  : InvoiceAwardPayoutBookkeepingReadinessStatus
+                      .cloudEligibilityConfirmationRequired,
               externalRemittanceEligibleAt: eligibleAt,
             ),
           );
