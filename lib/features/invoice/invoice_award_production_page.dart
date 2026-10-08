@@ -20,6 +20,7 @@ import 'invoice_award_official_dataset.dart';
 import 'invoice_award_official_html_parser.dart';
 import 'invoice_award_notification_runtime.dart';
 import 'invoice_award_payout_bookkeeping_runtime.dart';
+import 'invoice_award_remittance_receipt_evidence.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_runtime_scheduler.dart';
@@ -71,6 +72,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       const <InvoiceAwardPayoutBookkeepingReadiness>[];
   String _payoutBookkeepingStatus = '獎金入帳準備初始化中…';
   OfficialInvoiceAwardDataset? _generalDataset;
+  List<InvoiceAwardRemittanceReceiptEvidence> _remittanceEvidence =
+      const <InvoiceAwardRemittanceReceiptEvidence>[];
+  bool _savingReceiptEvidence = false;
   String _status = '';
   String _cloudStatus = '';
   String _cloudDiagnosticStatus = '';
@@ -197,11 +201,14 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         return order != 0 ? order : left.displayName.compareTo(right.displayName);
       });
     final settings = repository.load();
+    final evidence =
+        InvoiceAwardRemittanceReceiptRepository(preferences).loadAll();
     if (!mounted) return;
     setState(() {
       _payoutDestinationAccounts =
           List<AccountRecord>.unmodifiable(eligibleAccounts);
       _payoutBookkeepingSettings = settings;
+      _remittanceEvidence = evidence;
       _recomputePayoutReadiness();
     });
   }
@@ -754,6 +761,104 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     });
   }
 
+  InvoiceAwardRemittanceReceiptEvidence? _receiptFor(
+      InvoiceAwardPayoutBookkeepingReadiness readiness) {
+    final proposal = readiness.proposal;
+    if (!readiness.isReady || proposal == null) return null;
+    for (final item in _remittanceEvidence) {
+      if (item.matches(proposal)) return item;
+    }
+    return null;
+  }
+
+  Future<void> _confirmBankCredit(
+      InvoiceAwardPayoutBookkeepingReadiness readiness) async {
+    final proposal = readiness.proposal;
+    if (_savingReceiptEvidence || _refreshing ||
+        !readiness.isReady || proposal == null) return;
+    final now = _now();
+    final start = proposal.externalRemittanceEligibleAt.toLocal();
+    final chosen = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: DateTime(start.year, start.month, start.day),
+      lastDate: now,
+      helpText: '選擇銀行實際收到獎金的日期',
+    );
+    if (chosen == null || !mounted) return;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('確認銀行已實際收到獎金'),
+        content: Text(
+          '請核對指定帳戶確實收到此筆 NT\$${proposal.grossAmount} 獎金。'
+          '本紀錄只代表你的確認，並非銀行或財政部驗證；'
+          '本版不會建立交易或修改帳戶餘額。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('已收到，記錄日期'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted) return;
+    setState(() => _savingReceiptEvidence = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final repository = InvoiceAwardRemittanceReceiptRepository(prefs);
+      await repository.confirmObservedCredit(
+        proposal: proposal,
+        receivedAtUtc: DateTime(chosen.year, chosen.month, chosen.day).toUtc(),
+        confirmedAtUtc: _now().toUtc(),
+      );
+      if (!mounted) return;
+      setState(() => _remittanceEvidence = repository.loadAll());
+    } finally {
+      if (mounted) setState(() => _savingReceiptEvidence = false);
+    }
+  }
+
+  Future<void> _revokeBankCredit(
+      InvoiceAwardPayoutBookkeepingReadiness readiness) async {
+    final proposal = readiness.proposal;
+    if (_savingReceiptEvidence || _refreshing ||
+        !readiness.isReady || proposal == null) return;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('撤銷銀行入帳確認'),
+        content: const Text('僅撤銷本機確認，不更動官方獎號或正式帳務。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('撤銷確認'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted) return;
+    setState(() => _savingReceiptEvidence = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final repository = InvoiceAwardRemittanceReceiptRepository(prefs);
+      await repository.revokeForProposal(proposal);
+      if (!mounted) return;
+      setState(() => _remittanceEvidence = repository.loadAll());
+    } finally {
+      if (mounted) setState(() => _savingReceiptEvidence = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final generalByKey = <String, ExistingInvoiceAwardGeneralEvaluation>{
@@ -964,13 +1069,45 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                     ),
                     if (_payoutReadiness.isNotEmpty) ...[
                       const SizedBox(height: 6),
-                      for (final readiness in _payoutReadiness)
+                      for (final readiness in _payoutReadiness) ...[
                         Text(
                           _payoutReadinessLine(readiness),
                           key: ValueKey<String>(
                             'invoice_award_payout_readiness_${readiness.invoiceIdentity}_${readiness.prizeTier}',
                           ),
                         ),
+                        if (readiness.isReady && readiness.proposal != null) ...[
+                          Text(
+                            _receiptFor(readiness) == null
+                                ? '銀行實際入帳：尚未由你確認。獎金 READY 不代表款項已收到。'
+                                : '銀行實際入帳：已由你確認（不是銀行官方驗證）。'
+                                  '本版不會自動新增收入交易。',
+                            key: ValueKey<String>(
+                              'invoice_award_receipt_status_${readiness.invoiceIdentity}',
+                            ),
+                          ),
+                          if (_receiptFor(readiness) == null)
+                            OutlinedButton(
+                              key: ValueKey<String>(
+                                'invoice_award_receipt_confirm_${readiness.invoiceIdentity}',
+                              ),
+                              onPressed: _refreshing || _savingReceiptEvidence
+                                  ? null
+                                  : () => _confirmBankCredit(readiness),
+                              child: const Text('確認銀行獎金已實際入帳'),
+                            )
+                          else
+                            TextButton(
+                              key: ValueKey<String>(
+                                'invoice_award_receipt_revoke_${readiness.invoiceIdentity}',
+                              ),
+                              onPressed: _refreshing || _savingReceiptEvidence
+                                  ? null
+                                  : () => _revokeBankCredit(readiness),
+                              child: const Text('撤銷銀行入帳確認'),
+                            ),
+                        ],
+                      ],
                     ],
                   ],
                 ),
