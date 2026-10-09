@@ -775,7 +775,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       InvoiceAwardPayoutBookkeepingReadiness readiness) async {
     final proposal = readiness.proposal;
     if (_savingReceiptEvidence || _refreshing ||
-        !readiness.isReady || proposal == null) return;
+        !readiness.isReady || proposal == null) {
+      return;
+    }
     final now = _now();
     final start = proposal.externalRemittanceEligibleAt.toLocal();
     final chosen = await showDatePicker(
@@ -828,7 +830,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       InvoiceAwardPayoutBookkeepingReadiness readiness) async {
     final proposal = readiness.proposal;
     if (_savingReceiptEvidence || _refreshing ||
-        !readiness.isReady || proposal == null) return;
+        !readiness.isReady || proposal == null) {
+      return;
+    }
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
