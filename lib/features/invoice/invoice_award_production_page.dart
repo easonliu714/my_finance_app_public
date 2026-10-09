@@ -21,6 +21,8 @@ import 'invoice_award_official_html_parser.dart';
 import 'invoice_award_notification_runtime.dart';
 import 'invoice_award_payout_bookkeeping_runtime.dart';
 import 'invoice_award_remittance_receipt_evidence.dart';
+import 'invoice_award_formal_income_posting_service.dart';
+import '../transaction/transaction_providers.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_runtime_scheduler.dart';
@@ -826,6 +828,62 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     }
   }
 
+  Future<void> _postConfirmedBankCredit(
+      InvoiceAwardPayoutBookkeepingReadiness readiness) async {
+    final proposal = readiness.proposal;
+    final receipt = _receiptFor(readiness);
+    if (_savingReceiptEvidence || _refreshing ||
+        !readiness.isReady || proposal == null || receipt == null) {
+      return;
+    }
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('確認新增正式發票兌獎收入'),
+        content: Text(
+          '你已確認指定銀行帳戶實際收到 NT\$${proposal.grossAmount}。'
+          '按下新增後，將在日常帳本建立正式收入並影響該帳戶餘額。'
+          '這是新的、明確的記帳授權；歷史版本的收款測試紀錄'
+          '不會自動補登。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('確認新增正式收入'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted) return;
+    setState(() => _savingReceiptEvidence = true);
+    try {
+      final wasInserted = await const InvoiceAwardFormalIncomePostingService()
+          .post(
+            proposal: proposal,
+            receipt: receipt,
+            authorizedAtUtc: _now().toUtc(),
+          );
+      await ref.read(transactionLedgerProvider.notifier).load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(wasInserted
+            ? '已新增發票兌獎收入 NT\$${proposal.grossAmount}'
+            : '這筆發票兌獎收入已存在，沒有重複入帳'),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('獎金記帳失敗，未確認新增：$error'),
+      ));
+    } finally {
+      if (mounted) setState(() => _savingReceiptEvidence = false);
+    }
+  }
+
   Future<void> _revokeBankCredit(
       InvoiceAwardPayoutBookkeepingReadiness readiness) async {
     final proposal = readiness.proposal;
@@ -1085,7 +1143,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                             _receiptFor(readiness) == null
                                 ? '銀行實際入帳：尚未由你確認。獎金 READY 不代表款項已收到。'
                                 : '銀行實際入帳：已由你確認（不是銀行官方驗證）。'
-                                  '本版不會自動新增收入交易。',
+                                  '既有確認不會自動補登；請明確點選新增正式收入。',
                             key: ValueKey<String>(
                               'invoice_award_receipt_status_${readiness.invoiceIdentity}',
                             ),
@@ -1109,6 +1167,16 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                                   ? null
                                   : () => _revokeBankCredit(readiness),
                               child: const Text('撤銷銀行入帳確認'),
+                            ),
+                          if (_receiptFor(readiness) != null)
+                            FilledButton(
+                              key: ValueKey<String>(
+                                'invoice_award_formal_post_${readiness.invoiceIdentity}',
+                              ),
+                              onPressed: _refreshing || _savingReceiptEvidence
+                                  ? null
+                                  : () => _postConfirmedBankCredit(readiness),
+                              child: const Text('確認新增正式發票兌獎收入'),
                             ),
                         ],
                       ],
