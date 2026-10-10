@@ -635,6 +635,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                   '保留既有 LKG，無法宣稱完整未中獎。';
         }
       });
+      await _reloadPostedLedgerState();
     } on CloudAwardCandidateLookupCancelled {
       if (mounted) {
         setState(() {
