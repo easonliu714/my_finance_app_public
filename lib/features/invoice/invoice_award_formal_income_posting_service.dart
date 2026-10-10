@@ -16,6 +16,30 @@ class InvoiceAwardFormalIncomePostingService {
   static String stableRecordId(InvoiceAwardPayoutBookkeepingProposal p) =>
       'invoice-award-income:${p.idempotencyKey}';
 
+  /// The canonical formal ledger is the only POSTED authority.
+  /// Never infer POSTED from SharedPreferences receipt observations.
+  Future<Set<String>> readPostedIds(
+      Iterable<InvoiceAwardPayoutBookkeepingProposal> proposals) async {
+    final ids = proposals
+        .where((proposal) => proposal.hasValidProvenance)
+        .map(stableRecordId)
+        .toSet();
+    if (ids.isEmpty) return <String>{};
+    final db = await ProductionDatabaseCoordinator.instance.database;
+    final posted = <String>{};
+    for (final id in ids) {
+      final rows = await db.query(
+        'transactions',
+        columns: const <String>['id'],
+        where: 'id = ?',
+        whereArgs: <Object?>[id],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) posted.add(id);
+    }
+    return posted;
+  }
+
   Future<bool> post({
     required InvoiceAwardPayoutBookkeepingProposal proposal,
     required InvoiceAwardRemittanceReceiptEvidence receipt,
