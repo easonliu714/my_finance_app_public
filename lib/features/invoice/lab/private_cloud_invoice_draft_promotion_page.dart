@@ -505,6 +505,32 @@ class _State extends State<PrivateCloudInvoiceDraftPromotionPage> {
               '待指定帳戶：${result.accountRequiredCount}\n'
               '拒絕／失敗：${result.rejectedCount}',
             ),
+            if (result.results.any(
+              (item) =>
+                  item.status == PrivateCloudInvoiceDraftPromotionStatus.rejected ||
+                  item.status ==
+                      PrivateCloudInvoiceDraftPromotionStatus.accountRequired,
+            )) ...[
+              const SizedBox(height: 10),
+              const Text(
+                '未完成原因',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              ...result.results
+                  .where(
+                    (item) =>
+                        item.status ==
+                            PrivateCloudInvoiceDraftPromotionStatus.rejected ||
+                        item.status ==
+                            PrivateCloudInvoiceDraftPromotionStatus.accountRequired,
+                  )
+                  .map(
+                    (item) => Text(
+                      '• ${_invoiceNumberForDraft(item.draftId)}｜'
+                      '${_promotionReasonLabel(item.message)}',
+                    ),
+                  ),
+            ],
             if (hasPendingReview) ...[
               const SizedBox(height: 12),
               Text(
@@ -555,6 +581,28 @@ class _State extends State<PrivateCloudInvoiceDraftPromotionPage> {
         ),
       ),
     );
+  }
+
+  String _invoiceNumberForDraft(String draftId) {
+    for (final draft in drafts) {
+      if (draft.id == draftId) return draft.invoiceNumber;
+    }
+    return draftId;
+  }
+
+  String _promotionReasonLabel(String code) {
+    return switch (code) {
+      'REVIEW_FIELDS_REQUIRED' => '分類、成員或標籤尚未完整',
+      'DRAFT_NOT_FOUND' => '待覆核草稿已不存在',
+      'INVOICE_ALREADY_LINKED_TO_TRANSACTION' => '此發票已連結其他正式交易',
+      'ACCOUNT_REQUIRED_FOR_NEW_TRANSACTION' => '建立新交易前需要指定付款帳戶',
+      'ACCOUNT_NOT_AVAILABLE_FOR_NEW_TRANSACTION' => '原付款帳戶目前不可用，請重新指定',
+      'FOREIGN_EXCHANGE_RATE_REQUIRED' => '缺少可驗證的換匯匯率',
+      'FX_REVIEWED_ACCOUNT_AMOUNT_INVALID' => '實際扣帳金額無效',
+      'FX_REVIEWED_ACCOUNT_AMOUNT_MISMATCH' => '實際扣帳金額與換算結果不一致',
+      'FX_ACCOUNT_CURRENCY_CHANGED_REVIEW_REQUIRED' => '付款帳戶幣別已變更，需重新覆核',
+      _ => code,
+    };
   }
 
   Widget _bulkControls() => Card(

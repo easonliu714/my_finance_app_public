@@ -339,6 +339,13 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_pdf_text:
+    dependency: "direct main"
+    description:
+      path: "packages/flutter_pdf_text"
+      relative: true
+    source: path
+    version: "0.9.0"
   flutter_plugin_android_lifecycle:
     dependency: transitive
     description:
@@ -749,7 +756,7 @@ packages:
     source: hosted
     version: "2.2.0"
   package_info_plus:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: package_info_plus
       sha256: "16eee997588c60225bda0488b6dcfac69280a6b7a3cf02c741895dd370a02968"

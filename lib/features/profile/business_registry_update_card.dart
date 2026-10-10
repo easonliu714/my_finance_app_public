@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../app_build_metadata.dart';
-
 import '../merchant/business_registry_pack.dart';
 import '../merchant/business_registry_repository.dart';
 import '../merchant/business_registry_update_service.dart';
@@ -10,6 +8,7 @@ import 'business_registry_update_presentation.dart';
 class BusinessRegistryUpdateCard extends StatelessWidget {
   const BusinessRegistryUpdateCard({
     super.key,
+    this.appVersion = '讀取中…',
     required this.snapshot,
     required this.loading,
     required this.updating,
@@ -28,6 +27,7 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
   static const Key liveProgressKey = Key('business_registry_update_live_progress');
   static const Key liveProgressBarKey = Key('business_registry_update_live_progress_bar');
 
+  final String appVersion;
   final BusinessRegistrySnapshotInfo? snapshot;
   final bool loading;
   final bool updating;
@@ -78,9 +78,9 @@ class BusinessRegistryUpdateCard extends StatelessWidget {
             if (loading)
               const LinearProgressIndicator()
             else ...<Widget>[
-              const _InfoRow(
+              _InfoRow(
                 label: 'App 版本',
-                value: AppBuildMetadata.appVersion,
+                value: appVersion,
                 valueKey: appVersionKey,
               ),
               _InfoRow(
