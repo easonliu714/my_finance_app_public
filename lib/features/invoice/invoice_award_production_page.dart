@@ -77,6 +77,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   List<InvoiceAwardRemittanceReceiptEvidence> _remittanceEvidence =
       const <InvoiceAwardRemittanceReceiptEvidence>[];
   bool _savingReceiptEvidence = false;
+  Set<String> _postedLedgerIds = <String>{};
   String _status = '';
   String _cloudStatus = '';
   String _cloudDiagnosticStatus = '';
@@ -213,6 +214,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       _remittanceEvidence = evidence;
       _recomputePayoutReadiness();
     });
+    await _reloadPostedLedgerState();
   }
 
   Future<void> _savePayoutBookkeepingSettings({
@@ -763,6 +765,24 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     });
   }
 
+  bool _isPosted(InvoiceAwardPayoutBookkeepingReadiness row) {
+    final proposal = row.proposal;
+    return proposal != null && _postedLedgerIds.contains(
+      InvoiceAwardFormalIncomePostingService.stableRecordId(proposal),
+    );
+  }
+
+  Future<void> _reloadPostedLedgerState() async {
+    final proposals = _payoutReadiness
+        .where((row) => row.proposal != null)
+        .map((row) => row.proposal!)
+        .toList(growable: false);
+    final posted = await const InvoiceAwardFormalIncomePostingService()
+        .readPostedIds(proposals);
+    if (!mounted) return;
+    setState(() => _postedLedgerIds = posted);
+  }
+
   InvoiceAwardRemittanceReceiptEvidence? _receiptFor(
       InvoiceAwardPayoutBookkeepingReadiness readiness) {
     final proposal = readiness.proposal;
@@ -832,7 +852,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       InvoiceAwardPayoutBookkeepingReadiness readiness) async {
     final proposal = readiness.proposal;
     final receipt = _receiptFor(readiness);
-    if (_savingReceiptEvidence || _refreshing ||
+    if (_savingReceiptEvidence || _refreshing || _isPosted(readiness) ||
         !readiness.isReady || proposal == null || receipt == null) {
       return;
     }
@@ -869,6 +889,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           );
       // The page is a StatefulWidget; notify the ledger's subscribed provider.
       TransactionLedgerRefreshSignal.instance.emit();
+      await _reloadPostedLedgerState();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(wasInserted
@@ -888,7 +909,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   Future<void> _revokeBankCredit(
       InvoiceAwardPayoutBookkeepingReadiness readiness) async {
     final proposal = readiness.proposal;
-    if (_savingReceiptEvidence || _refreshing ||
+    if (_savingReceiptEvidence || _refreshing || _isPosted(readiness) ||
         !readiness.isReady || proposal == null) {
       return;
     }
@@ -1134,14 +1155,18 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                       const SizedBox(height: 6),
                       for (final readiness in _payoutReadiness) ...[
                         Text(
-                          _payoutReadinessLine(readiness),
+                          _isPosted(readiness)
+                              ? 'POSTED（已記帳）'
+                              : _payoutReadinessLine(readiness),
                           key: ValueKey<String>(
                             'invoice_award_payout_readiness_${readiness.invoiceIdentity}_${readiness.prizeTier}',
                           ),
                         ),
                         if (readiness.isReady && readiness.proposal != null) ...[
                           Text(
-                            _receiptFor(readiness) == null
+                            _isPosted(readiness)
+                                ? '此筆獎金已存在正式帳本；不可再次新增或撤銷收款依據。'
+                                : _receiptFor(readiness) == null
                                 ? '銀行實際入帳：尚未由你確認。獎金 READY 不代表款項已收到。'
                                 : '銀行實際入帳：已由你確認（不是銀行官方驗證）。'
                                   '既有確認不會自動補登；請明確點選新增正式收入。',
@@ -1149,7 +1174,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                               'invoice_award_receipt_status_${readiness.invoiceIdentity}',
                             ),
                           ),
-                          if (_receiptFor(readiness) == null)
+                          if (!_isPosted(readiness) && _receiptFor(readiness) == null)
                             OutlinedButton(
                               key: ValueKey<String>(
                                 'invoice_award_receipt_confirm_${readiness.invoiceIdentity}',
@@ -1159,7 +1184,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                                   : () => _confirmBankCredit(readiness),
                               child: const Text('確認銀行獎金已實際入帳'),
                             )
-                          else
+                          else if (!_isPosted(readiness))
                             TextButton(
                               key: ValueKey<String>(
                                 'invoice_award_receipt_revoke_${readiness.invoiceIdentity}',
@@ -1169,7 +1194,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                                   : () => _revokeBankCredit(readiness),
                               child: const Text('撤銷銀行入帳確認'),
                             ),
-                          if (_receiptFor(readiness) != null)
+                          if (!_isPosted(readiness) && _receiptFor(readiness) != null)
                             FilledButton(
                               key: ValueKey<String>(
                                 'invoice_award_formal_post_${readiness.invoiceIdentity}',
@@ -1540,7 +1565,7 @@ String _payoutReadinessStatusText(
   }
   final ready = readiness.where((item) => item.isReady).length;
   if (ready > 0) {
-    return '已有 $ready 筆符合待入帳候選條件；本版僅預覽，FORMAL_ACCOUNTING_WRITE=ZERO。';
+    return '已有 $ready 筆符合兌獎條件；正式收入僅於確認銀行收款後另行明確授權新增。';
   }
   if (readiness.any((item) =>
       item.status ==
