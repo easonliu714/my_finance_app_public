@@ -730,7 +730,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         title: Text(isEligible ? '確認符合雲端獎資格' : '確認不符合雲端獎資格'),
         content: Text(isEligible
             ? '請確認你已依財政部兌獎規則核對這張發票，包含開獎前未列印電子發票證明聯等資格條件。'
-                '這項確認只會記錄在本機，供後續兌獎／記帳流程判斷；本版不會建立交易或代為兌獎。'
+                '這項資格確認只會記錄在本機，不會直接建立正式交易或代為兌獎。'
             : '請確認你已核對這張發票不符合本次雲端專屬獎兌獎資格。'
                 '這項決定只會記錄在本機，不會更改官方獎號資料或既有交易。'),
         actions: [
@@ -818,7 +818,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         content: Text(
           '請核對指定帳戶確實收到此筆 NT\$${proposal.grossAmount} 獎金。'
           '本紀錄只代表你的確認，並非銀行或財政部驗證；'
-          '本版不會建立交易或修改帳戶餘額。',
+          '此次僅記錄收款確認，不會新增交易或修改餘額；正式入帳需要再次明確授權。',
         ),
         actions: [
           TextButton(
@@ -1072,7 +1072,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                       contentPadding: EdgeInsets.zero,
                       title: Text('中獎獎金自動記帳準備'),
                       subtitle: Text(
-                        '本版只建立可稽核的待入帳候選，不會新增正式交易。'
+                        '自動準備僅產生待入帳候選；確認實際收款並再次明確授權後，才會新增正式收入。'
                         '財政部自動匯款仍需由你在官方端另外設定。',
                       ),
                     ),
@@ -1136,7 +1136,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                       title: const Text('自動建立獎金待入帳候選'),
                       subtitle: const Text(
                         '到達官方兌獎起始日且所有 authority Gate 通過後，'
-                        '建立 idempotent 入帳候選；本版仍不寫入正式交易。',
+                        '建立防重複入帳候選；不會自動建立收入，正式記帳仍須另行確認。',
                       ),
                       value: _payoutBookkeepingSettings
                           .automaticBookkeepingEnabled,
