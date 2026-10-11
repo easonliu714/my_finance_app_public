@@ -15,7 +15,7 @@ void main() {
     expect(page, contains('獎金入帳帳戶（本機記帳用途）'));
     expect(page, contains('我已在財政部端設定自動匯款'));
     expect(page, contains('自動建立獎金待入帳候選'));
-    expect(page, contains('本版仍不寫入正式交易'));
+    expect(page, contains('自動準備僅產生待入帳候選；確認實際收款並再次明確授權後，才會新增正式收入。'));
     expect(runtime, contains('externalRemittanceEligibleAt'));
     expect(runtime, contains('readyProposal'));
     expect(runtime, contains('cloudEligibilityRejected'));
@@ -24,15 +24,15 @@ void main() {
     expect(runtime, isNot(contains('upsertTransaction')));
   });
 
-  test('4.20.23 release identity is exact', () {
+  test('current Issue #13 release identity is exact', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final metadata = File('lib/app_build_metadata.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.20.26+484'));
-    expect(metadata, contains("appVersion = '4.20.26+484'"));
+    expect(pubspec, contains('version: 4.20.27+485'));
+    expect(metadata, contains("appVersion = '4.20.27+485'"));
     expect(
       metadata,
-      contains("phase = 'issue-13-posted-ledger-parity-484'"),
+      contains("phase = 'issue-13-posted-ledger-reconciliation-audit-485'"),
     );
   });
 }

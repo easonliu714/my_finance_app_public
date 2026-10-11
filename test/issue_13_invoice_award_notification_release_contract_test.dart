@@ -35,12 +35,12 @@ void main() {
     expect(source, isNot(contains('response.bodyBytes')));
   });
 
-  test('release authority tracks payout bookkeeping readiness slice', () {
+  test('release authority tracks current Issue #13 audit slice', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final metadata = File('lib/app_build_metadata.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.20.26+484'));
-    expect(metadata, contains("appVersion = '4.20.26+484'"));
-    expect(metadata, contains("phase = 'issue-13-posted-ledger-parity-484'"));
+    expect(pubspec, contains('version: 4.20.27+485'));
+    expect(metadata, contains("appVersion = '4.20.27+485'"));
+    expect(metadata, contains("phase = 'issue-13-posted-ledger-reconciliation-audit-485'"));
   });
 }

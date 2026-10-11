@@ -18,7 +18,7 @@ void main() {
     expect(confirmation, isNot(contains('INSERT INTO transactions')));
     expect(page, contains('確認符合資格'));
     expect(page, contains('確認不符合資格'));
-    expect(page, contains('本版不會建立交易'));
+    expect(page, contains('這項資格確認只會記錄在本機，不會直接建立正式交易或代為兌獎。'));
   });
 
   test('review notification is distinct from confirmed winner authority', () {
