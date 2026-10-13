@@ -944,6 +944,41 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     }
   }
 
+  void _showAwardHelp(String title, String body) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(title, style: Theme.of(sheetContext).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              SelectableText(body),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _awardHelpButton(String title, String body) => IconButton(
+    tooltip: '$title說明',
+    icon: const Icon(Icons.help_outline),
+    onPressed: () => _showAwardHelp(title, body),
+  );
+
+  Widget _helpTitle(String title, String body) => Row(
+    children: [
+      Expanded(child: Text(title)),
+      _awardHelpButton(title, body),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) {
     final generalByKey = <String, ExistingInvoiceAwardGeneralEvaluation>{
@@ -976,12 +1011,18 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-            const Text('只向財政部官方來源取得中獎資料，不上傳發票或記帳內容。'),
-            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               key: const Key('invoice_award_period_selector'),
               initialValue: _selectedPeriod.period.id,
-              decoration: const InputDecoration(labelText: '開獎期別', border: OutlineInputBorder()),
+              decoration: InputDecoration(
+                labelText: '開獎期別',
+                border: const OutlineInputBorder(),
+                suffixIcon: _awardHelpButton('開獎期別與官方來源',
+                    '只向財政部官方來源取得中獎資料，不上傳發票或記帳內容。'
+                    '雲端專屬獎官方資料包含大型 PDF。首次更新可能需要較多網路流量與處理時間；'
+                    '大型 500 元獎候選比對會交由系統背景服務執行，可暫時切換到其他 App；'
+                    '四個獎別會依序驗證，已驗證且來源相同的資料會直接重用。'),
+              ),
               items: [
                 for (final option in _periodOptions)
                   DropdownMenuItem<String>(
@@ -995,29 +1036,21 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             const SizedBox(height: 8),
             Text('${_selectedPeriod.periodLabel} · ${_selectedPeriod.statusLabel(now)}'),
             const SizedBox(height: 12),
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('雲端專屬獎官方資料包含大型 PDF。首次更新可能需要較多網路流量與處理時間；'
-                    '大型 500 元獎候選比對會交由系統背景服務執行，可暫時切換到其他 App；'
-                    '四個獎別會依序驗證，已驗證且來源相同的資料會直接重用。'),
-              ),
-            ),
-            const SizedBox(height: 12),
             Card(
               child: Column(
                 children: [
-                  SwitchListTile(
+                  Row(
+                    children: [
+                      Expanded(child: SwitchListTile(
                     key: const Key('invoice_award_automatic_refresh_switch'),
                     title: const Text('自動更新官方獎號'),
-                    subtitle: const Text(
-                      '開啟後於開獎日 14:00 起以 Android best-effort 排程檢查；'
-                      '系統若延後執行，回到 App 會自動補抓。關閉時不允許背景獎號網路更新。',
-                    ),
                     value: _automaticRefreshConsented,
                     onChanged: _automaticScheduler == null || _refreshing
                         ? null
                         : _setAutomaticRefreshConsent,
+                      )),
+                      _awardHelpButton('自動更新官方獎號', '開啟後於開獎日 14:00 起以 Android best-effort 排程檢查；' '系統若延後執行，回到 App 會自動補抓。關閉時不允許背景獎號網路更新。'),
+                    ],
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -1036,16 +1069,17 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             Card(
               child: Column(
                 children: [
-                  SwitchListTile(
+                  Row(
+                    children: [
+                      Expanded(child: SwitchListTile(
                     key: const Key('invoice_award_winning_notification_switch'),
                     title: const Text('中獎結果通知'),
-                    subtitle: const Text(
-                      '開啟後，已確認中獎會通知；雲端獎若號碼吻合但資格仍待確認，也會提醒你回 App 核對。'
-                      '鎖定畫面只顯示期別、獎別與金額，不顯示發票號碼、商家或記帳內容。',
-                    ),
                     value: _winningNotificationsEnabled,
                     onChanged:
                         _refreshing ? null : _setWinningNotificationsEnabled,
+                      )),
+                      _awardHelpButton('中獎結果通知', '開啟後，已確認中獎會通知；雲端獎若號碼吻合但資格仍待確認，也會提醒你回 App 核對。' '鎖定畫面只顯示期別、獎別與金額，不顯示發票號碼、商家或記帳內容。'),
+                    ],
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -1068,10 +1102,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const ListTile(
+                    ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: Text('中獎獎金自動記帳準備'),
-                      subtitle: Text(
+                      title: _helpTitle('中獎獎金自動記帳準備',
                         '自動準備僅產生待入帳候選；確認實際收款並再次明確授權後，才會新增正式收入。'
                         '財政部自動匯款仍需由你在官方端另外設定。',
                       ),
@@ -1111,15 +1144,14 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                         '目前沒有可用的 TWD 銀行／簽帳金融卡帳戶；請先在「帳戶」建立。',
                       ),
                     ],
-                    SwitchListTile(
+                    Row(
+                      children: [
+                        Expanded(child: SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       key: const Key(
                         'invoice_award_external_mof_remittance_switch',
                       ),
                       title: const Text('我已在財政部端設定自動匯款'),
-                      subtitle: const Text(
-                        '這是本機條件確認，不會替你新增、修改或驗證財政部的匯款帳戶。',
-                      ),
                       value: _payoutBookkeepingSettings
                           .externalMofRemittanceConfigured,
                       onChanged: _refreshing
@@ -1127,17 +1159,18 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                           : (value) => _savePayoutBookkeepingSettings(
                                 externalMofRemittanceConfigured: value,
                               ),
+                        )),
+                        _awardHelpButton('我已在財政部端設定自動匯款', '這是本機條件確認，不會替你新增、修改或驗證財政部的匯款帳戶。'),
+                      ],
                     ),
-                    SwitchListTile(
+                    Row(
+                      children: [
+                        Expanded(child: SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       key: const Key(
                         'invoice_award_automatic_bookkeeping_preflight_switch',
                       ),
                       title: const Text('自動建立獎金待入帳候選'),
-                      subtitle: const Text(
-                        '到達官方兌獎起始日且所有 authority Gate 通過後，'
-                        '建立防重複入帳候選；不會自動建立收入，正式記帳仍須另行確認。',
-                      ),
                       value: _payoutBookkeepingSettings
                           .automaticBookkeepingEnabled,
                       onChanged: _refreshing
@@ -1145,6 +1178,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                           : (value) => _savePayoutBookkeepingSettings(
                                 automaticBookkeepingEnabled: value,
                               ),
+                        )),
+                        _awardHelpButton('自動建立獎金待入帳候選', '到達官方兌獎起始日且所有 authority Gate 通過後，' '建立防重複入帳候選；不會自動建立收入，正式記帳仍須另行確認。'),
+                      ],
                     ),
                     Text(
                       _payoutBookkeepingStatus,
@@ -1213,15 +1249,24 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
               ),
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _refreshing || !canCheckSelectedPeriod ? null : _refresh,
-              icon: _refreshing
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              label: Text(_refreshing ? '更新中…' : '授權更新並檢查既有交易'),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _refreshing || !canCheckSelectedPeriod ? null : _refresh,
+                    icon: _refreshing
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                    label: Text(_refreshing ? '更新中…' : '授權更新並檢查既有交易'),
+                  ),
+                ),
+                _awardHelpButton('授權更新並檢查既有交易',
+                  '從財政部官方來源更新資料後，比對本機既有發票紀錄。'
+                  '此動作不會自動建立正式收入；收款確認與新增正式交易仍須分別授權。'),
+              ],
             ),
             const SizedBox(height: 16),
             Semantics(liveRegion: true, child: Text(_status)),
