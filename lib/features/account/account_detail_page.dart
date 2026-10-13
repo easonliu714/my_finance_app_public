@@ -191,8 +191,10 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
                 SliverPersistentHeader(
                   pinned: true,
                   delegate: _AccountSummaryHeaderDelegate(
-                    minExtentValue: 148,
-                    maxExtentValue: 148,
+                    // Two distinct summary heading lines need real layout space,
+                    // including when Android users enlarge their display text.
+                    minExtentValue: MediaQuery.textScalerOf(context).scale(172.0),
+                    maxExtentValue: MediaQuery.textScalerOf(context).scale(172.0),
                     child: ColoredBox(
                       color: Theme.of(context).scaffoldBackgroundColor,
                       child: Padding(
@@ -859,27 +861,39 @@ class _CompactPeriodSummaryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    summary.label,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+            // Keep the full period title separate from the amount: a long
+            // e-wallet currency/negative balance must not turn '2026年' into
+            // an uninformative '20...' on narrow phones.
+            SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  summary.label,
+                  maxLines: 1,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
-                Text(
+              ),
+            ),
+            const SizedBox(height: 2),
+            SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
                   _compactMoney(summary.net, currency),
+                  maxLines: 1,
                   style: Theme.of(context)
                       .textTheme
                       .titleMedium
                       ?.copyWith(fontWeight: FontWeight.w900),
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
+              ),
             ),
             const SizedBox(height: 6),
             Text(
