@@ -171,3 +171,21 @@ EXTERNAL ONLY WHEN AUTHORIZED
 3. 版本契約待修：`lib/features/invoice/lab/private_cloud_invoice_lab_config.dart` 仍宣告 `4.20.27+485`；多個測試仍 pin 舊版/phase。另一 UI 測試需要先點按「開獎期別與官方來源說明」後才驗證『大型 PDF』的長篇說明。不應退回常駐顯示長文。
 4. 正式外部銀行入帳和本機 `POSTED` 不可等價；NT$500+NT$200=NT$700 既有已記帳交易不得 background backfill、重複寫入或為修測試而移除。
 5. 任何新功能必先填「五分頁入口 → UI Widget/Route → active Service/Repository → SQLite v24/SharedPreferences 實體 → 外部 authority → Owner Issue → CODE/TEST/DEVICE/RELEASE Gate」，找不到才新增新模組/Issue。不得因 SQLite DDL 声明等於手機真實 PRAGMA 已驗。
+
+## 4.20.28 操作介面一致性／測試關係更新（2026-10-13）
+
+```text
+[Issue #13] 統一發票中獎檢查頁 / InvoiceAwardProductionPage
+  ├─ 開獎期別 DropdownButtonFormField
+  │   ├─ UI: isExpanded=true (6.4 px overflow root cause fix, commit cf7a7067)
+  │   └─ [？] 開獎期別與官方來源：財政部限定、不上傳發票或記帳內容、大型 PDF、更新限制
+  ├─ 自動更新官方獎號 Switch + [？] → RuntimeScheduler / native wake (原契約不變)
+  ├─ 中獎結果通知 Switch + [？] → NotificationRuntime (原契約不變)
+  ├─ 中獎獎金自動記帳準備 / Account + [？] → Readiness + Explicit Receipt + Explicit Post
+  └─ 授權更新並檢查既有交易 Button + [？] → MOF official acquisition / local candidate matching
+[Issue #4] 所有帳戶共用明細卡片 → 來源稽核可展開 / render geometry 可見交易錨點
+[DB] SQLite formal transactions + local Preferences / cached official candidates
+  └─ 本輪沒有 schema 變更，沒有新增/更動正式交易，POSTED NT$500+200=700 凍結
+```
+
+**完成標記不得越級：** 上述 Dropdown/UI 本輪 CODE=PASS（實際 GitHub commit），分析/全測試 TEST=PENDING、Signed Canary/簽章 RELEASE=PENDING、Owner DEVICE=PENDING。功能樹新修正以 4.20.28+486 為對象，測試 `invoice_award_check_route_test.dart` 改用「預設隱藏，點『？』後顯示」並保留官方來源／不外傳資訊檢查；不要改回主畫面長篇說明。主帳本正式收入使用者逐次明確授權、歷史無自動補登、正式交易冪等未被此次修補觸碰。
