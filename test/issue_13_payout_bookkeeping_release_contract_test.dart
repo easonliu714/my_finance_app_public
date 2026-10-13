@@ -28,11 +28,11 @@ void main() {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final metadata = File('lib/app_build_metadata.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.20.29+487'));
-    expect(metadata, contains("appVersion = '4.20.29+487'"));
+    expect(pubspec, contains('version: 4.20.30+488'));
+    expect(metadata, contains("appVersion = '4.20.30+488'"));
     expect(
       metadata,
-      contains("phase = 'issue-13-award-period-selector-487'"),
+      contains("phase = 'issue-13-accepted-issue-4-summary-title-488'"),
     );
   });
 }
