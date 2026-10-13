@@ -24,8 +24,17 @@ void main() {
       find.byKey(const Key('invoice_award_period_selector')),
       findsOneWidget,
     );
-    expect(find.textContaining('115年05-06月'), findsWidgets);
-    expect(find.textContaining('兌獎期間內'), findsWidgets);
+    // The picker contains only award periods; redemption detail lives below.
+    final periodSelector = tester.widget<DropdownButtonFormField<String>>(
+      find.byKey(const Key('invoice_award_period_selector')),
+    );
+    final labels = periodSelector.items!
+        .map((item) => (item.child as Text).data!)
+        .toList();
+    expect(labels, containsAll(<String>['115年07-08月', '115年05-06月']));
+    expect(labels.every((label) => !label.contains('兌獎')), isTrue);
+    expect(find.text('115年05-06月'), findsWidgets);
+    expect(find.textContaining('兌獎資訊：兌獎期間內'), findsOneWidget);
     expect(find.text('授權更新並檢查既有交易'), findsOneWidget);
     expect(
       find.textContaining('尚未更新官方 115年05-06月 中獎資料'),
