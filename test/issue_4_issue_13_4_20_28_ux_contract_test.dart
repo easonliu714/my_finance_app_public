@@ -27,7 +27,14 @@ void main() {
     // Separate lines must not force the full '2026年' label to become '20...'.
     expect(card, isNot(contains('Row(')));
     expect(card, contains('BoxFit.scaleDown'));
-    expect(card, isNot(contains('overflow: TextOverflow.ellipsis')));
+    // Income/outflow rows may truncate at narrow widths; the period title
+    // itself must remain whole and must not use ellipsis.
+    final periodTitleStart = card.indexOf('summary.label');
+    final periodTitleEnd = card.indexOf('const SizedBox(height: 2)', periodTitleStart);
+    expect(periodTitleStart, greaterThanOrEqualTo(0));
+    expect(periodTitleEnd, greaterThan(periodTitleStart));
+    final periodTitle = card.substring(periodTitleStart, periodTitleEnd);
+    expect(periodTitle, isNot(contains('TextOverflow.ellipsis')));
     // The pinned summary adapts its height to device text scaling.
     expect(source, contains('MediaQuery.textScalerOf(context).scale(172.0)'));
   });
