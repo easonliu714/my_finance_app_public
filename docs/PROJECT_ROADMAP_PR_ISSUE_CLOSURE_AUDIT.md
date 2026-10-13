@@ -129,3 +129,11 @@ my_finance_app_public — 台灣個人記帳（五分頁：帳戶／計畫／首
 - 最新 4.20.28+486 exact HEAD `43dfc02f5b78fa1900c7d83ba7b57d0b8888f5b2` 的 Flutter CI run `38356246784`：**1892 PASS / 12 FAIL**。其中 11 個失敗為 `4.20.27+485` 與 Lab validationVersion 未同步 `4.20.28+486` 的版本契約；另 1 個是 `invoice_award_check_route_test.dart` 仍要求「大型 PDF」說明預設顯示，但新 UX 需透過「？」開啟。真正 Signed Canary run `38356252713` 因 exact-head CI 未過而失敗，build/inspect SKIPPED；**不是簽章本身已驗證失敗**。
 - 目前下一個唯一 P0 工程 Gate：最小修補 Lab 版本宣告、四處 release identity contract test，以及 Award Check Help 視窗操作測試。不得放寬正式收款、POSTED 交易冪等或背景授權限制。新 HEAD 必須重新 Flutter analyze/full test/APK + 真 signed canary，再可進實機。
 - 本文件及 `docs/PROJECT_UI_API_DB_FEATURE_TREE.md` 是開發前的**重工預防與跨對話必讀**；任何新功能先確認五分頁入口、active service/SQLite schema、Owner Issue、目前 TEST/DEVICE 範圍，不得以文件存在等同實機已完成。
+
+## 2026-10-13 4.20.28 第二輪 CI 根因與後繼修補
+
+- Owner 的 6 檔第一輪手動熱修已由 GitHub 真實提交，最終第一輪 HEAD `3cf31619b688843c2057a40c572466ddcc9ab2e1`：原定 6 個檔案 6 commits / 無其他異動，來源 Blob 與交付修補一致；先前「需要上傳六檔」工作已 CLOSED，禁止重問。
+- 第一輪後繼 Flutter CI [run 38381413843](https://github.com/easonliu714/my_finance_app_public/actions/runs/38381413843)：**1903 PASS / 1 FAIL**。真 Signed Canary [run 38381422288](https://github.com/easonliu714/my_finance_app_public/actions/runs/38381422288) 因 exact-head CI FAIL 而停止，Build/Inspect SKIPPED。失敗檔唯一為 `test/invoice_award_check_route_test.dart`，其一為 `DropdownButtonFormField` 在 800px 測試視窗有 **6.4px RenderFlex horizontal overflow**；其二測試要求「不上傳發票或記帳內容」常駐，但現行 UX 只在「開獎期別與官方來源」之「？」視窗呈現。
+- 2026-10-13 已最小修補正式提交：production `lib/features/invoice/invoice_award_production_page.dart` `isExpanded: true`，commit `cf7a70678a41347ad415b0474e3efbea6f7b68ef`；Widget 測試改驗「主畫面無長文、開啟『？』才有來源隱私說明及大型 PDF」，commit `00e62a3e5fc51cba363b42bd7b7818d61aea3b53`。其他 4.20.28 功能與既有 transaction/POSTED 安全行為不變。
+- 當前 Gate：`SOURCE_HOTFIX_COMMITTED`，但 **Flutter full-test、Signed Canary、APK SHA/簽章/權限與 4.20.28 owner 實機仍 PENDING**。任何修補 commit 或治理文件 commit 均廢除舊 HEAD 的 CI authority；最新 exact PR HEAD fresh-read 才可宣告驗證。
+- Close-first 決議保持：PR #46 已 `CLOSED_NOT_MERGED`，PR #45 Draft/OPEN/Merge HOLD；18 張 Open 純 Issues 無可直接整張 Close；#4、#13 等待實機及原 DoD，勿重開已 PASS 發票獎金 POSTED NT$500+200=700 Gate。
