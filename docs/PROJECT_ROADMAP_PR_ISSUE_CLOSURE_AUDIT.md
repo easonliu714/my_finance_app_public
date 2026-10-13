@@ -150,3 +150,9 @@ my_finance_app_public — 台灣個人記帳（五分頁：帳戶／計畫／首
 - Owner 新增 UI 改善：**期別 Dropdown 只顯示 `115年07-08月`，兌獎資訊 `兌獎資訊：兌獎期間內（至 2027-01-05）` 獨立顯示於下方**。切換期別需同步更新下方 status；長篇官方來源、隱私、PDF 額外操作說明仍由「？」 Bottom Sheet 展開。
 - 為保護已驗收的 4.20.28 證據，將新增 UI 收斂在 `4.20.29+487`、release phase `issue-13-award-period-selector-487`。實際程式已將 `InvoiceAwardProductionPage` 選項從 `option.menuLabel(now)` 改為 `option.periodLabel`，下方文字保留 `_selectedPeriod.statusLabel(now)`；`test/invoice_award_check_route_test.dart` 明確檢查 DropdownMenuItem 無『兌獎』字樣與下方期限狀態。其餘 release identity / LAB validationVersion / canonical test contracts 同步進版。無 DB schema、正式帳務/入帳服務或背景權限改動。
 - **4.20.29 狀態：SOURCE COMMITTED；Flutter CI / True Signed Canary / APK SHA+Signer / OWNER DEVICE 仍 PENDING，絕不可用 4.20.28 的成功當成 4.20.29 的成功。** 對新 HEAD 提交完治理文件後，以最終 exact-head Run 為準。保留 POSTED NT$500 + NT$200=700 的既有稽核成果，禁止重複入帳或自動補登。
+
+## 2026-10-13 4.20.29 Flutter Analyzer Regression 修補
+
+- 4.20.29+487 首次完整 Flutter CI [38400071955](https://github.com/easonliu714/my_finance_app_public/actions/runs/38400071955) 為 **FAIL / Analyze Dart code**，其 first/only analyzer error：`test/invoice_award_check_route_test.dart:31:35` 使用 `DropdownButtonFormField<String>.items`，但此欄位沒有可供 Widget 測試存取的公開 getter。該 CI 停在 Analyze，不能宣稱 production UI FAIL 或 1904 套件測試已執行。Signed Canary [38400082235](https://github.com/easonliu714/my_finance_app_public/actions/runs/38400082235) 因 exact-head CI authority FAIL，Build/Inspect SKIPPED。
+- 已完成**唯一測試檔最小修補** commit `e009331a420cceccb5a3286394974aa3b4e20a44`：原主測試僅核對選定期別+獨立兌獎資訊；新增第二個 Widget test 使用 `tester.tap` 真實開啟 Dropdown，核對 `115年07-08月` / `115年05-06月` 期別選項，禁止存取不存在的 Flutter API。正式 UI、Domain、API、SQLite/ledger 未改動。
+- 此次 **4.20.29 CODE=PASS; fresh exact-head Flutter Analyze/Full tests/Debug Build/Signed Canary/Owner Device=WAIT**，不可繼承先前 4.20.28 綠燈。4.20.28 原 Owner Award UI PASS 仍保留，不回退。PR #45 仍 OPEN/DRAFT/MERGE HOLD，並保持 POSTED NT$500+200=700 防重複、不自動回填、明確正式記帳授權。
