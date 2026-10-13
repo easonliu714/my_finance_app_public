@@ -230,3 +230,33 @@ EXTERNAL ONLY WHEN AUTHORIZED
 - Award Check period dropdown 選項（production）：`DropdownMenuItem(child: Text(option.periodLabel))`，下方 `Text('兌獎資訊：${_selectedPeriod.statusLabel(now)}')`，選擇期別與官方來源/API/DB/POSTED 全不變。
 - Regression 測試（`test/invoice_award_check_route_test.dart`）：不得在 `DropdownButtonFormField<String>` widget 上直接讀不存在的 `.items` getter；改為 `tester.tap(find.byKey(Key('invoice_award_period_selector')))` 後實測 popup 內短期別文字，且主視窗維持「兌獎資訊」獨立顯示。新增 Widget test 與原「？」內容 test 獨立。CI 38400071955 的 first analyzer error 已用正式 commit e009331a420cceccb5a3286394974aa3b4e20a44 修補，下一個 CODE≠TEST Gate 以 latest HEAD 為準。
 - No changes to MOF acquisition endpoint, active Award Domain catalog, SharedPreferences persistence, SQLite transaction schema, current Posted ledger credit idempotence, background scheduling or separate consent. 4.20.28 Award UI=OWNER PASS；4.20.29 CODE=COMMITTED/TEST=PENDING/DEVICE=PENDING，PR #45 MERGE HOLD。
+
+## 2026-10-13 4.20.29 並排問號／下一個 Issue #4 實機 Gate 功能樹
+
+來源分層與對應狀態：
+
+    五分頁中的「我的」→ 統一發票中獎檢查（Issue #13）
+      └─ InvoiceAwardProductionPage（UI CODE=COMMITTED / 4.20.29 TEST=WAIT）
+          ├─ period_row / invoice_award_period_selector_row
+          │   ├─ Expanded/DropdownButtonFormField（isExpanded=true；選單文字只有 periodLabel）
+          │   ├─ SizedBox(width=8)
+          │   └─ 問號 IconButton（OUTSIDE InputDecoration，不佔 dropdown suffixIcon）
+          │       └─ onPressed → _showAwardHelp → 官方來源／隱私／PDF Bottom Sheet
+          ├─ 兌獎資訊：沿用 selectedPeriod.statusLabel(now)，獨立下方顯示
+          ├─ period.id / canCheckAt(now) / onChanged：不改
+          ├─ API：Official MOF acquisition + PDF index / LKG → 不改
+          └─ Storage：SQLite 正式交易 + SharedPreferences 批次快取 → 不改 schema / 不寫正式交易
+
+    五分頁中的「帳戶」→ 全帳戶共用 AccountDetailPage（Issue #4）
+      ├─ Transaction card compact 摘要（已存在於 4.20.28 CODE）
+      ├─ 展開「來源／稽核資訊」保留 ET/FX/SHA/來源 ID
+      ├─ RenderSliverList 真實可見交易錨點 → period YYYY-MM
+      ├─ Paired summary 左 2026年、右 09月 → 相同 period 原子更新
+      └─ Release 4.20.29 不新增帳戶 service、DB、資料讀寫
+          └─ 綁定本輪 Owner real-device Gate（BANK + iPASS Money，same-month scroll、month/year rollover、reverse scroll、expand long card）
+
+Testing／版次：
+- test/invoice_award_check_route_test.dart 新增 360px 手機寬度布局與 tooltip 開啟回歸：幾何不重疊、按鈕在 InputDecorator/Dropdown 外、可開 Help Bottom Sheet。
+- 4.20.29+487 release phase 仍為 issue-13-award-period-selector-487，source/test/docs 已實際提交，完整 Flutter Analyze/full tests/debug APK、true Signed Canary Validate/BuildInspect 和 Owner device Gate 未過前標 PENDING。
+- Issue #4 現行 code 已有 UI；本輪只將其原本未完成的 Owner Gate 併入 .29，未擴張到帳戶分類、負債／多幣別計算；不能從本次截圖推斷全部帳戶原 DoD 通過。
+- Frozen：原 POSTED NT$500+NT$200=700；不得背景補登、重複收入、取消人工獨立確認。PR #45 保持 OPEN/DRAFT，Merge HOLD。
