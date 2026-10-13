@@ -218,3 +218,12 @@ my_finance_app_public — 台灣個人記帳（五分頁：帳戶／計畫／首
 - **下個原定 Gate 一併實機驗收但不重寫功能**：Issue #4 全球共用帳戶明細的長卡片精簡、來源／稽核資訊展開，以及依第一筆真實可見交易的日期同步年／月摘要。4.20.28 已有相關 production code，因此在 4.20.29 併入同一份 Owner UAT 而非新增重複邏輯。未完成的帳戶群組、信用／貸款細節、跨幣別總表、新的首頁快捷鍵不得為追求同一版硬塞入範圍。
 - Combined Owner Gate A／發票：在 115-07-08 與 115-05-06 切換，選單只見期別、下方兌獎期限同步、問號在框外右側、不截斷不覆蓋，Bottom Sheet 正常，保護舊 POSTED NT$500+NT$200=700、不補登。Gate B／Issue #4：至少銀行與一卡通 Money 電子錢包各一組手機截圖，09/11→09/21→09/24 同月份長列表捲動後 2026年/09月 年月和統計數值不因卡片高度無故跳動，展開稽核資訊／反向捲動定位穩定，跨月與 2026/12→2027/01 時兩摘要同步（若欠缺真實跨年資料，保持待驗或用不改正式資料的可控 fixture）。其他帳戶類型與原 Issue #4 DoD 繼續追蹤，不能用兩帳戶樣本直接全數 Close。
 - 現行 PR #45 仍 OPEN/DRAFT/MERGE HOLD；舊 PR #46 CLOSED_NOT_MERGED。原 Issue #4/#13 保持 OPEN 直到完整 DoD，不可混用 UI Pass 與銀行 API / DB 正式帳務 Pass。每個版本／Gate 更新需同步本 Roadmap 與 PROJECT_UI_API_DB_FEATURE_TREE.md。
+
+## 2026-10-13 22:32 Owner 4.20.29 聯合 Gate PASS、4.20.30 年度標題下一 Gate
+
+- Owner 提供 5 張 Android 實機截圖並明確回報 **4.20.29+487 聯合實機 Gate PASS**。Issue #13：開獎期別下拉選單只顯示 `115年07-08月`、問號說明圖示在框外右側無重疊、兌獎資訊在選單下方（至 2027-01-05）；自動更新、通知及記帳準備開關 UI 保留。Issue #4：一卡通 Money 2026/05 與 2026/08 的明細已精簡且月份摘要跟隨畫面交易；中國信託 5445 顯示 2026 年本地正式帳戶餘額 700 TWD、兩筆既有發票獎金 200+500 TWD，日期 2026/10/06 及 2026/08/06。上述屬於手機 UI/本地記帳畫面證據，不代表銀行 API 回傳或完整 DB 檢查。
+- **仍有重要可見殘餘：** 一卡通 Money 左側年度摘要在窄螢幕顯示 `20...` 而不是 `2026年`。不得把 4.20.29 Owner PASS 誤解成完整 Issue #4 年份標題／所有帳戶種類／跨年／可存取字級的 DoD PASS。
+- 下一原定實作 Gate 已由分支開始為 **4.20.30+488 / phase issue-13-accepted-issue-4-summary-title-488**：`_CompactPeriodSummaryCard` 將標題和淨額改為各自獨立列、`FittedBox(fit: BoxFit.scaleDown)` 避免 `2026年` 因金額過長被截斷；保留 inflow/outflow 的合理省略號、原聚合運算及 Ledger。這是排版修正而非資料修正。
+- 首個 4.20.30 exact-head PR `9a7c3a7a79db515549023d99265b47fb836f9161` Flutter CI [38412520575](https://github.com/easonliu714/my_finance_app_public/actions/runs/38412520575)：**1906 PASS / 1 FAIL**。第一且唯一失敗在 `test/issue_4_issue_13_4_20_28_ux_contract_test.dart` 的靜態契約誤把整張摘要卡的支出／收入明細 `TextOverflow.ellipsis` 視為年份標題被截斷。Signed Canary [38412534273](https://github.com/easonliu714/my_finance_app_public/actions/runs/38412534273) 因 exact-head CI 未通過而 FAIL，Build/Inspect SKIPPED。此失敗與實際帳本值無關。
+- 最小修補已提交：`test/issue_4_issue_13_4_20_28_ux_contract_test.dart` 將禁用省略號的檢查限定在 `summary.label` 至下一個 SizedBox 間的年份標題 Widget；保留完整標題不可 ellipsis、獨立排版和 BoxFit.scaleDown 的契約，不放寬收入支出明細正常截斷。**新版 exact HEAD CI/Signed Canary 待驗證；4.20.30 尚不可實機。**
+- 主體策略：PR #45 OPEN/DRAFT/MERGE HOLD，#46 CLOSED_UNMERGED；Issue #4/#13 保留未完成全 DoD；不重新登記 NT$500+200 舊收入、不改正式資料或 SQLite。後繼 Gate 以 Issue #4 全帳戶年份/月份分離顯示之手機驗證為優先（一卡通 Money 長幣別＋負值、銀行 700 TWD、橫向不截字、跨年及動態大字體仍需證據）。重要變更應同步更新本文件與 `PROJECT_UI_API_DB_FEATURE_TREE.md`。
