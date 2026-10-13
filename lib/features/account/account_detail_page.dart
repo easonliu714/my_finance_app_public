@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -30,21 +31,23 @@ class AccountDetailPage extends ConsumerStatefulWidget {
 }
 
 class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
-  static const double _ledgerTileApproxHeight = 94;
-
+  // Track the real rendered SliverList children, not a nominal fixed row height.
+  final GlobalKey _ledgerSliverKey = GlobalKey();
+  final GlobalKey _pinnedSummaryKey = GlobalKey();
   final ScrollController _scrollController = ScrollController();
+  bool _anchorCheckQueued = false;
   List<AccountLedgerItem> _visibleOrderItems = const [];
   DateTime? _anchorDate;
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_syncAnchorFromScroll);
+    _scrollController.addListener(_scheduleAnchorSync);
   }
 
   @override
   void dispose() {
-    _scrollController.removeListener(_syncAnchorFromScroll);
+    _scrollController.removeListener(_scheduleAnchorSync);
     _scrollController.dispose();
     super.dispose();
   }
@@ -148,19 +151,21 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
         data: (state) {
           final ledgerItems = state.items.reversed.toList(growable: false);
           _visibleOrderItems = ledgerItems;
+          // A refresh or filter change may change the first visible row even
+          // without a scroll event. Re-anchor after that layout completes.
+          _scheduleAnchorSync();
           final defaultAnchor = ledgerItems.isEmpty
               ? DateTime.now()
               : ledgerItems.first.occurredAt;
           final anchor = _anchorDate ?? defaultAnchor;
           final yearSummary = state.summaryFor(
             year: anchor.year,
-            label: '${anchor.year}',
+            label: '${anchor.year}年',
           );
           final monthSummary = state.summaryFor(
             year: anchor.year,
             month: anchor.month,
-            label:
-                '${anchor.year}/${anchor.month.toString().padLeft(2, '0')}',
+            label: '${anchor.month.toString().padLeft(2, '0')}月',
           );
           return RefreshIndicator(
             onRefresh: () => _refreshAccount(account),
@@ -191,6 +196,7 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
                     child: ColoredBox(
                       color: Theme.of(context).scaffoldBackgroundColor,
                       child: Padding(
+                        key: _pinnedSummaryKey,
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                         child: Row(
                           children: [
@@ -254,10 +260,12 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
                     sliver: SliverList(
+                      key: _ledgerSliverKey,
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
                           final item = ledgerItems[index];
                           return _AccountLedgerTile(
+                            key: ValueKey<String>(item.id),
                             item: item,
                             currency: account.currency,
                             onEdit: () => _handleEdit(context, ref, item),
@@ -485,17 +493,49 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
     ref.invalidate(transactionLedgerProvider);
   }
 
+  // Scroll listeners run before sliver layout. Schedule a single geometry
+  // inspection after layout to track the correct first visible transaction.
+  void _scheduleAnchorSync() {
+    if (_anchorCheckQueued || !mounted) return;
+    _anchorCheckQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _anchorCheckQueued = false;
+      if (mounted) _syncAnchorFromScroll();
+    });
+  }
+
   void _syncAnchorFromScroll() {
-    if (_visibleOrderItems.isEmpty) return;
-    final offset =
-        _scrollController.hasClients ? _scrollController.offset : 0;
-    final rawIndex = (offset / _ledgerTileApproxHeight).floor();
-    final index = rawIndex.clamp(0, _visibleOrderItems.length - 1);
-    final next = _visibleOrderItems[index].occurredAt;
+    if (!mounted || _visibleOrderItems.isEmpty || !_scrollController.hasClients) {
+      return;
+    }
+    // Only the mounted sliver's actual child geometry is authoritative.
+    // This works for variable-height, expanded and text-scaled rows.
+    final sliver = _ledgerSliverKey.currentContext?.findRenderObject();
+    if (sliver is! RenderSliverList || sliver.geometry == null) return;
+    final summary = _pinnedSummaryKey.currentContext?.findRenderObject();
+    if (summary is! RenderBox || !summary.hasSize) return;
+    final visibleTop = summary.localToGlobal(
+      Offset(0, summary.size.height),
+    ).dy;
+    final visibleBottom = MediaQuery.sizeOf(context).height;
+    RenderBox? row = sliver.firstChild;
+    DateTime? next;
+    while (row != null) {
+      final bottom = row.localToGlobal(Offset(0, row.size.height)).dy;
+      final top = row.localToGlobal(Offset.zero).dy;
+      if (bottom > visibleTop + 1 && top < visibleBottom) {
+        final index = sliver.indexOf(row);
+        if (index >= 0 && index < _visibleOrderItems.length) {
+          next = _visibleOrderItems[index].occurredAt;
+        }
+        break;
+      }
+      row = sliver.childAfter(row);
+    }
+    if (next == null) return;
     final current = _anchorDate;
     if (current != null &&
-        current.year == next.year &&
-        current.month == next.month) {
+        current.year == next.year && current.month == next.month) {
       return;
     }
     setState(() => _anchorDate = next);
@@ -869,6 +909,7 @@ class _CompactPeriodSummaryCard extends StatelessWidget {
 
 class _AccountLedgerTile extends StatefulWidget {
   const _AccountLedgerTile({
+    super.key,
     required this.item,
     required this.currency,
     required this.onEdit,
@@ -974,15 +1015,28 @@ class _LedgerContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sign = item.amountForAccount >= 0 ? '+' : '';
-    return ListTile(
-      title: Text(item.title),
-      subtitle: Text(
-        '${DateFormat('yyyy/MM/dd HH:mm').format(item.occurredAt)}・'
-        '${item.subtitle}\n餘額 ${_money(item.runningBalance, currency)}',
-      ),
-      isThreeLine: true,
+    // Preserve the entire source/provenance and per-row balance, but avoid
+    // making unbounded SHA/UUID text the default transaction-list surface.
+    return ExpansionTile(
+      key: PageStorageKey<String>('account-ledger-${item.id}'),
+      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+      title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(DateFormat('yyyy/MM/dd HH:mm').format(item.occurredAt)),
+      leading: Icon(item.amountForAccount >= 0
+          ? Icons.arrow_downward : Icons.arrow_upward),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      expandedAlignment: Alignment.centerLeft,
+      children: [
+        const Text('來源／稽核資訊', style: TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        SelectableText(item.subtitle),
+        const SizedBox(height: 6),
+        Text('該筆後餘額：${_money(item.runningBalance, currency)}'),
+      ],
       trailing: Text(
         '$sign${_money(item.amountForAccount, currency)}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
             ),
