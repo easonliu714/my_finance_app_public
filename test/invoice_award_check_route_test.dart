@@ -46,6 +46,44 @@ void main() {
     expect(find.textContaining('大型 PDF'), findsOneWidget);
   });
 
+
+  testWidgets('Award period help remains outside selector at phone width',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final router = GoRouter(
+      initialLocation: InvoiceAwardCheckPage.routePath,
+      routes: buildAppRoutes(
+        privateCloudInvoiceLabEnabled: false,
+        invoiceAwardClock: () => DateTime(2026, 9, 23, 12),
+      ),
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    final periodRow =
+        find.byKey(const Key('invoice_award_period_selector_row'));
+    final selector = find.byKey(const Key('invoice_award_period_selector'));
+    final help = find.byTooltip('開獎期別與官方來源說明');
+    expect(periodRow, findsOneWidget);
+    expect(find.descendant(of: periodRow, matching: selector), findsOneWidget);
+    expect(find.descendant(of: periodRow, matching: help), findsOneWidget);
+    expect(find.descendant(of: selector, matching: help), findsNothing);
+
+    final selectorRect = tester.getRect(selector);
+    final helpRect = tester.getRect(help);
+    expect(selectorRect.right + 4, lessThanOrEqualTo(helpRect.left));
+    expect(helpRect.right, lessThanOrEqualTo(360));
+
+    await tester.tap(help);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('大型 PDF'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Award period dropdown shows period-only option labels',
       (tester) async {
     final router = GoRouter(
