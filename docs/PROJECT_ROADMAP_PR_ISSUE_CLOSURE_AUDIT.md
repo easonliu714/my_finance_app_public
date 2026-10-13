@@ -1,5 +1,50 @@
 # 記帳軟體 Roadmap／PR／Issues 結案稽核與防重工治理
 
+## CURRENT AUTHORITY — 4.20.29 OWNER PASS（2026-10-13 22:08 Asia/Taipei）
+
+> **本節優先於下方的歷史 Gate 快照。** Code/head 的 immutability authority 是 4.20.29+487 `375ef1078dd6c21f8d1683260d8c497498362011`，不是文件後續 commit SHA。任一新的 source/doc commit 均需重新查該新 HEAD 的 CI；不能將舊執行結果假裝成新 HEAD 成果。
+
+### 正式驗收證據與限制
+
+| Gate | Status | authority |
+|---|---|---|
+| 4.20.29 Flutter Analyze / Full tests / Debug APK | PASS | [CI run 38402561190](https://github.com/easonliu714/my_finance_app_public/actions/runs/38402561190) on `375ef1078dd6c21f8d1683260d8c497498362011` |
+| True workflow_dispatch Signed Canary Validate + BuildInspect | PASS | [run 38402572785](https://github.com/easonliu714/my_finance_app_public/actions/runs/38402572785), artifact 11816709394, GitHub digest `sha256:8b986df3b780add48effda86d38a5b5537f8aaeb805634dd7873f46daa0c7860` |
+| Owner Issue #13 期別短標籤/期限下置/問號外置 | DEVICE=PASS | 2026-10-13 22:03 owner screenshot, [Issue #13 acceptance](https://github.com/easonliu714/my_finance_app_public/issues/13#issuecomment-6147521076) |
+| Owner Issue #4 銀行、一卡通 Money 明細精簡及定位 | DEVICE=PASS (observed slice) | 2026-10-13 22:03~22:04 owner screenshot, [Issue #4 acceptance](https://github.com/easonliu714/my_finance_app_public/issues/4#issuecomment-6147519708) |
+| GitHub PR | OPEN/DRAFT/Merge HOLD | PR #45 only; #46 already CLOSED_NOT_MERGED |
+| Pure Open Issues | 18 | None automatically CLOSED without complete per-issue DoD |
+
+**畫面核對：** iPASS Money 在 2026/05、08 月的月卡分別顯示 -1.87K 與 -2.37K TWD，年度合計 -6.42K TWD；銀行帳戶 balance 700 TWD，year 2026 700，month 10 200，兩筆已 POSTED +500/+200 仍為總 700。不能由截圖推定 live bank API 回傳、全 SQLite readback、所有帳戶類型／跨年極端案例通過。Owner 宣告本輪合併 Gate PASS 予以記錄，未獨立取證的原 Issue 細項仍 OPEN。
+
+**尚存小 UI 缺口（下一版處理，不否定 4.20.29 Owner PASS）：** iPASS Money 年度標題截成 `20...`，與指定 `2026年` 不符。原始碼 `_CompactPeriodSummaryCard` 將年標籤與 `-6.42K TWD` 金額塞在同一水平 Row；下一個最小 UI successor 需使年度標籤完整顯示、金額保持可讀，並新增狹窄裝置/較大字型回歸測試，不能篡改帳務數字。
+
+### 下一階段 Roadmap（優先順序／範圍控制）
+
+```text
+P0 [ACCEPTED_FROZEN] 4.20.29+487 owner combined Gate + exact-head signed artifact
+    ├── Issue #13 period-only dropdown + help icon exterior + deadline below
+    └── Issue #4 compact ledger + month-following account summary (observed bank/e-wallet)
+P1 [NEXT] Issue #4 shared yearly tile full-title layout (2026年, no 20...)
+    ├── SOURCE: lib/features/account/account_detail_page.dart / _CompactPeriodSummaryCard
+    ├── TEST: narrow 360px, longer amounts, large accessibility text, no overflow
+    ├── Invariant: account balance/period net/POSTED untouched
+    └── Gate: new exact-head analyze/full suite/signing and owner-focused device
+P2 [PLANNED] Issue #4 account list type-group collapse and group summary semantics
+    ├── Read existing account list/selector widgets before any new component
+    ├── Credit/loan/investment liabilities, currency separation; no invented netting
+    └── Define and verify no-mutating grouping contract before app UI implementation
+P3 [HOLD_ORIGINAL_DOD] Issue #13 external timing/reconciliation + Issue #4 remaining gaps
+    ├── Issue #13 describes approx 16:00 odd-month 25th, UI current scheduler shows 14:00
+    │   → explicit owner/authority reconciliation, do not silently change schedule
+    ├── External settlement/official remittance/manual confirmed credit proof distinct
+    └── Multi-account/year rollover tests, physical schema checks as separately scoped
+```
+
+**防重複實作**：PR #46 已 CLOSED_UNMERGED；Issue #4 摘要/渲染使用同一 `AccountDetailPage`，不得做第二套 period/balance 計算；Issue #13 保留獎號同步唯一 runtime，正式記帳只能獨立用戶同意，既有 NT$500+NT$200=700 POSTED 不重複、不背景補登。**兩份 docs 每個實際進度節點一起更新；不可把文件提交等同 main 已 MERGED。**
+
+---
+
 > 更新：2026-10-13 16:55 Asia/Taipei。Repo `easonliu714/my_finance_app_public`，PR #45 active HEAD `43dfc02f5b78fa1900c7d83ba7b57d0b8888f5b2`。本次原始碼全文基準為使用者上傳的 **舊 HEAD `dec1c2d994143fe358058f11a38206e47bcac454` ZIP**；最新 4.20.28 五檔差異以 GitHub readback 為據，未將舊 ZIP 誤寫成最新 checkout。
 > 狀態：`CODE` 原始碼存在，`TEST` 自動測試通過，`DEVICE` 實機通過，`HOLD` 未達 Gate，`CANDIDATE` 已 commit 但未驗證，`PLANNED` 缺實作。CODE != TEST != DEVICE != MERGED。
 
