@@ -1029,13 +1029,13 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                   DropdownMenuItem<String>(
                     value: option.period.id,
                     enabled: option.canCheckAt(now),
-                    child: Text(option.menuLabel(now)),
+                    child: Text(option.periodLabel),
                   ),
               ],
               onChanged: _refreshing ? null : _selectPeriod,
             ),
             const SizedBox(height: 8),
-            Text('${_selectedPeriod.periodLabel} · ${_selectedPeriod.statusLabel(now)}'),
+            Text('兌獎資訊：${_selectedPeriod.statusLabel(now)}'),
             const SizedBox(height: 12),
             Card(
               child: Column(
