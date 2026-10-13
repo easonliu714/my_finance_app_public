@@ -27,7 +27,6 @@ void main() {
     expect(find.textContaining('115年05-06月'), findsWidgets);
     expect(find.textContaining('兌獎期間內'), findsWidgets);
     expect(find.text('授權更新並檢查既有交易'), findsOneWidget);
-    expect(find.textContaining('大型 PDF'), findsOneWidget);
     expect(
       find.textContaining('尚未更新官方 115年05-06月 中獎資料'),
       findsOneWidget,
@@ -36,5 +35,11 @@ void main() {
     expect(find.textContaining('不上傳發票或記帳內容'), findsOneWidget);
     expect(find.textContaining('不是兌獎、領獎或自動匯款平台'), findsOneWidget);
     expect(find.byType(ElevatedButton), findsNothing);
+    // Long instructions moved under the explicit '?' disclosure.
+    final officialSourceHelp = find.byTooltip('開獎期別與官方來源說明');
+    expect(officialSourceHelp, findsOneWidget);
+    await tester.tap(officialSourceHelp);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('大型 PDF'), findsOneWidget);
   });
 }
