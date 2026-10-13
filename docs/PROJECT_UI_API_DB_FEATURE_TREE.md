@@ -360,3 +360,36 @@ Testing／版次：
 
 - 4.20.30 第一輪 Flutter CI 38412520575 跑 1906 PASS/1 FAIL，單一 static-test 範圍錯誤已修復並提交，不代表新版最新 HEAD Flutter CI/Signed Canary 已 PASS；完整 signed APK 和新的 Owner device Gate 仍待驗。
 - 既有正式收入 NT$500 + NT$200 = NT$700 不改、不回填；Issue #4 帳戶語意與 #13 發票授權保持原先邊界。PR #45 DRAFT／OPEN／MERGE HOLD，#46 CLOSED_UNMERGED。
+
+## 2026-10-14 00:37 完整備份 P0 回歸與 Scope V9 架構對照
+
+    我的 → 完整備份／完整還原
+      ├─ 「建立完整備份」 / BackupMigrationActionService.createAndShareFullBackup
+      │   └─ FullBackupService.writeFullBackupFile
+      │       ├─ FullBackupScope.inspect(sqlite_master) fail-closed
+      │       │   ├─ Scope V8 受管使用者商家身分資料
+      │       │   └─ Scope V9 新增 expense_categories (使用者自訂/封存分類)
+      │       ├─ FullBackupService.buildFullBackupEnvelope
+      │       │   ├─ metadata.backup_scope_version = 9
+      │       │   ├─ data.expense_categories (row IDs, name, sort, archived)
+      │       │   └─ 其餘使用者帳戶/交易/商家資料保持原受管集合
+      │       └─ SharePlus 系統分享面板（前提：完整性 PASS）
+      ├─ 「完整還原來源」 → FullRestorePreviewService
+      │   └─ Scope V2–V8 各舊清單驗證；V9 缺分類陣列要 FAIL
+      └─ 「完整還原」 → FullRestoreServiceV8（保留歷史入口）
+          ├─ Scope < V8 legacy normalization ONLY
+          ├─ 明確 RESTORE 確認與來源驗證
+          ├─ 建立預還原完整備份快照
+          └─ SQLite transaction 中 ensureExpenseCategorySchema(txn)
+              ├─ 可安全 materialize 原本 lazy expense_categories
+              ├─ 受管表刪除／重建／列數校驗／參照稽核
+              └─ 任一失敗 Rollback，不得漏掉資料欄位
+
+    分類 / ExpenseCategoryRepository（既有）
+      └─ ensureExpenseCategorySchema(db)
+          ├─ CREATE TABLE expense_categories（既有動態建表）
+          └─ 自訂分類/封存設定/排序由使用者管理，必須可被完整備份
+
+- 2026-10-14 Owner 4.20.30 帳戶年度摘要 Android UI Gate 局部 PASS：一卡通 Money 2026年及 08月/09月欄位完整顯示，中國信託 +500、+200 本地記帳仍在；不替代跨年、所有類型或完整帳戶 DoD。
+- P0 實機回歸錯誤原文「檔案操作失敗：未知資料表：expense_categories」，源於完整備份 Scope V8 漏列已建立的使用者資料表，**不是可忽略的快取**。本次 Scope V9 及測試已提交，SQLite production schemaVersion=24 不變；沒有清空使用者資料、沒有改記帳紀錄，也沒有解除 fail-closed。
+- 4.20.31+489 新 CODE=COMMITTED，TEST=NEW EXACT HEAD PENDING，SIGNED= PENDING，DEVICE= PENDING。真實實機還原具有覆寫性，必須使用隔離測試資料庫模擬，禁止把生產手機資料當測試還原目標。Issue #18 備份稽核 Roadmap/ Issue #4 UI / Issue #13 發票權限各獨立追蹤，不因同一 PR 內容混合而假定全完成。
