@@ -196,3 +196,31 @@ EXTERNAL ONLY WHEN AUTHORIZED
 - Production UI functionality and API/storage path remain unchanged by the phase fix. `InvoiceAwardProductionPage` retains compact '?' help and explicit bank receipt/formal income consent; `AccountDetailPage` retains expandable provenance and real visible month/year anchoring. Data authority remains local SQLite formal transactions, official MOF candidate evidence, bounded SharedPreferences states; none of these records were modified by release metadata patch.
 - Tests bound to exact phase updated: `test/p4_20_5_release_authority_test.dart`, `test/issue_13_payout_bookkeeping_release_contract_test.dart`, `test/issue_13_invoice_award_notification_release_contract_test.dart`. The signed workflow itself remains unchanged and enforces its original `issue-13-` check.
 - State tracking: CODE=committed; TEST=await new exact-head full suite; SIGNED_ARTIFACT=await new true canary; DEVICE=not yet authorized. Old code HEAD `36310c24445d440ecfdd93538660ae821c046199` Flutter CI [38384304123](https://github.com/easonliu714/my_finance_app_public/actions/runs/38384304123) SUCCESS, but its Signed Canary [38384311754](https://github.com/easonliu714/my_finance_app_public/actions/runs/38384311754) FAIL release identity; future HEAD cannot reuse either result as final release authority.
+
+## Owner 實機 PASS 後的 4.20.29 UI 功能樹（2026-10-13）
+
+```text
+[原已驗收 4.20.28] Issue #13 統一發票中獎檢查
+  ├─ 開獎期別與官方來源「？」底部說明 → DEVICE=OWNER PASS
+  ├─ 自動更新官方獎號 Switch + 「？」 → DEVICE=OWNER PASS (UI)
+  ├─ 中獎結果通知 Switch + 「？」 → DEVICE=OWNER PASS (UI)
+  ├─ 自動記帳準備 / 銀行選擇 / 匯款確認 / 候選開關 + 「？」 → DEVICE=OWNER PASS (UI)
+  ├─ 官方資料更新與既有交易比對 → 115-05-06、115-07-08 兩期 UI 顯示證據
+  └─ 重要限制：這些 screenshots 不能取代銀行收款/正式 SQLite transaction 實機稽核
+[後繼 4.20.29] Issue #13 期別選擇器微調
+  ├─ UI DropdownButtonFormField<String> / lib/features/invoice/invoice_award_production_page.dart
+  │   ├─ DropdownMenuItem.child = Text(option.periodLabel) — 只顯示「115年07-08月」
+  │   ├─ 下方 Text('兌獎資訊：${_selectedPeriod.statusLabel(now)}')
+  │   ├─ [？] 原官方來源、PDF、隱私保護底部說明維持
+  │   └─ isExpanded:true 繼續防止狹窄手機 RenderFlex overflow
+  ├─ Domain: lib/features/invoice/invoice_award_period_catalog.dart
+  │   ├─ periodLabel / statusLabel(now) 沿用原邏輯，不改開獎/兌獎判斷
+  │   └─ 期別選定仍只依原 period.id 與 canCheckAt(now) 控制
+  ├─ Widget Regression: test/invoice_award_check_route_test.dart
+  │   └─ Dropdown 只包含期別；期限只在下方 status；點開 ? 長文仍可見
+  ├─ API/External MOF: UNCHANGED
+  ├─ Storage SQLite / SharedPreferences: SCHEMA and business data UNCHANGED
+  └─ Release: 4.20.29+487 / issue-13-award-period-selector-487
+```
+
+**驗證分層**：4.20.28 的 Issue #13 介面 DEVICE=OWNER PASS；4.20.29 CODE=COMMITTED、TEST=NEW EXACT HEAD PENDING、SIGNED APK=PENDING、DEVICE=PENDING。其他 Issue #4 帳戶明細 Gate 在此次截圖沒有獨立實機證據，不能隨發票 Gate 自動關閉。原 POSTED NT$500+200=700 一律凍結，無新交易或背景補登。PR #45 Draft/Merge HOLD。
