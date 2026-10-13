@@ -1,5 +1,52 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+## CURRENT AUTHORITY — 4.20.29 Owner Device PASS / Next Issue #4
+
+> 2026-10-13 22:08 Asia/Taipei。This supersedes outdated status snippets below. Accepted **CODE HEAD** `375ef1078dd6c21f8d1683260d8c497498362011`; Flutter CI [38402561190](https://github.com/easonliu714/my_finance_app_public/actions/runs/38402561190) SUCCESS and genuine Signed Canary [38402572785](https://github.com/easonliu714/my_finance_app_public/actions/runs/38402572785) SUCCESS, signed workflow artifact 11816709394. The current docs branch head can differ due to governance-only commits; don't misrepresent acceptance CI as applying to a modified later head. Owner supplied 4.20.29+487 Android evidence 22:03–22:04: award period help exterior & short selector/deadline, compact bank/e-wallet account transaction cards and on-scroll month summary. `DEVICE=OWNER PASS (stated combined gate)`; not evidence for other untouched issue DoD.
+
+```text
+[已驗收 4.20.29+487] Flutter Local-first App
+ ├── [Issue #13]「我的」→ 統一發票中獎檢查
+ │   ├── InvoiceAwardProductionPage → period selector Row:
+ │   │   ├── Expanded Dropdown(periodLabel only, isExpanded)
+ │   │   ├── 8 px spacer → independent '?' icon outside InputDecoration
+ │   │   └── under Row: 兌獎資訊 statusLabel(now), updates with period
+ │   ├── '?' → _showAwardHelp official source / privacy / PDF bottom sheet
+ │   ├── Service: MOF official award acquisition, local matching, LKG,
+ │   │   Android scheduler and optional notification (NO new service this release)
+ │   └── Storage: local period source / SharedPreferences and governed
+ │       transaction SQLite; no automatic formal income / no DB change
+ └── [Issue #4]「帳戶」→ shared AccountDetailPage
+     ├── bank CTBC 5445: 700 TWD balance; Year 2026 700;
+     │   10月 200; existing +500 Aug / +200 Oct ledger items
+     ├── iPASS Money: compact everyday purchases; month 05月 -1.87K;
+     │   month 08月 -2.37K, annual -6.42K TWD; visible anchor updates
+     ├── shared _CompactPeriodSummaryCard → observed yearly label '20...'
+     │   → OUTSTANDING DISPLAY issue (requires full '2026年')
+     ├── source-audit expansion in cards persists original identifiers
+     └── no changes to financial transactions/current balances
+[Next Gate] Issue #4 year title full visibility without ellipsis
+ ├── existing UI: _CompactPeriodSummaryCard layout and pinned summary
+ ├── no new service/API/store, preserve original summaryFor/year-month scope
+ ├── Widget contract: 360px, large amount, scaled fonts, full 2026年
+ ├── Flutter analyze/full tests, true Signed Canary, signed artifact
+ └── Owner focused acceptance
+[Subsequent] Issue #4 account-type collapsible grouping
+ ├── first inspect current account list renderer and account.type taxonomy
+ ├── bank/wallet vs credit/loan/investment currency and sign semantics
+ ├── never combine mismatched currency and liability in fake net total
+ └── DoD for group toggle/restart and grouping counts before implementation
+[Still OPEN] Issue #13 external award/payout reconciliations and timing
+ ├── Issue #13 origin describes 25th approx 16:00 but UI schedule 14:00
+ │   → authority/owner decision required before scheduling behavior change
+ ├── local POSTED is not proof of bank credit API receipt
+ └── Do not duplicate income or retroactively backfill
+```
+
+Status distinctions: `CODE` / `CI` / `SIGNED` / `OWNER_DEVICE` / `MERGED_MAIN` are independent; 4.20.29 Owner device slice passed, PR #45 remains OPEN/DRAFT/MERGE HOLD, PR #46 CLOSED_NOT_MERGED, 18 pure issues OPEN. Screenshots here do **not** separately prove Sept 11→21→24 within-month scroll, Dec→Jan rollover, every account type, physical DB introspection or bank credit. Issue #4 and #13 parents remain OPEN while residual DoD is tracked. Sources: [PR #45 acceptance](https://github.com/easonliu714/my_finance_app_public/pull/45#issuecomment-6147506025), [Issue #4](https://github.com/easonliu714/my_finance_app_public/issues/4#issuecomment-6147519708), [Issue #13](https://github.com/easonliu714/my_finance_app_public/issues/13#issuecomment-6147521076).
+
+---
+
 > 更新：2026-10-13 16:55 Asia/Taipei。Repo `easonliu714/my_finance_app_public`，PR #45 active HEAD `43dfc02f5b78fa1900c7d83ba7b57d0b8888f5b2`。本次原始碼全文基準為使用者上傳的 **舊 HEAD `dec1c2d994143fe358058f11a38206e47bcac454` ZIP**；最新 4.20.28 五檔差異以 GitHub readback 為據，未將舊 ZIP 誤寫成最新 checkout。
 > 狀態：`CODE` 原始碼存在，`TEST` 自動測試通過，`DEVICE` 實機通過，`HOLD` 未達 Gate，`CANDIDATE` 已 commit 但未驗證，`PLANNED` 缺實作。CODE != TEST != DEVICE != MERGED。
 
