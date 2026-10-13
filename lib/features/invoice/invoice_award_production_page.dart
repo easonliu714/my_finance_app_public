@@ -1016,22 +1016,22 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-              isExpanded: true,
-              key: const Key('invoice_award_period_selector'),
-              initialValue: _selectedPeriod.period.id,
-              decoration: InputDecoration(
-                labelText: '開獎期別',
-                border: const OutlineInputBorder(),
-              ),
-              items: [
-                for (final option in _periodOptions)
-                  DropdownMenuItem<String>(
-                    value: option.period.id,
-                    enabled: option.canCheckAt(now),
-                    child: Text(option.periodLabel),
-                  ),
-              ],
-              onChanged: _refreshing ? null : _selectPeriod,
+                    isExpanded: true,
+                    key: const Key('invoice_award_period_selector'),
+                    initialValue: _selectedPeriod.period.id,
+                    decoration: InputDecoration(
+                      labelText: '開獎期別',
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: [
+                      for (final option in _periodOptions)
+                        DropdownMenuItem<String>(
+                          value: option.period.id,
+                          enabled: option.canCheckAt(now),
+                          child: Text(option.periodLabel),
+                        ),
+                    ],
+                    onChanged: _refreshing ? null : _selectPeriod,
                   ),
                 ),
                 const SizedBox(width: 8),
