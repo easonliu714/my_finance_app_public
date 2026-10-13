@@ -1,5 +1,13 @@
 # 記帳軟體 Roadmap／PR／Issues 結案稽核與防重工治理
 
+## NEXT CANDIDATE AUTHORITY — 4.20.30+488 Issue #4 年度摘要可讀性（2026-10-13）
+
+- Following frozen `4.20.29+487` (accepted code HEAD `375ef1078dd6c21f8d1683260d8c497498362011`, Flutter CI `38402561190` SUCCESS, Signed Canary `38402572785` SUCCESS, Owner 2026-10-13 22:03–22:04 device PASS), a new **separately versioned** 4.20.30+488 branch candidate is now CODE COMMITTED; that .29 owner acceptance does not transfer automatically.
+- `lib/features/account/account_detail_page.dart` / `_CompactPeriodSummaryCard`: split period label from numeric net onto independent lines with `FittedBox(BoxFit.scaleDown)`, replacing same-line `Row` that caused iPASS Money year's title `20...`; pinned summary header extends to `MediaQuery.textScalerOf(context).scale(172.0)` to retain full title at text scaling. No change to `summaryFor`, account/transaction balances, ledger, SQLite, currency conversions, or official award process.
+- Version contracts rotated to `4.20.30+488`, AppBuildMetadata phase `issue-13-accepted-issue-4-summary-title-488` (retains required `issue-13-` Signed Canary policy prefix), with 4 release exact identity tests and LAB validationVersion matching. `test/issue_4_issue_13_4_20_28_ux_contract_test.dart` adds layout-source regression asserting that full period label does not share a constrained same-line Row with a large numeric balance; source contract complements but does **not replace** actual Flutter Widget/device geometry proof.
+- New successor gates: Flutter Analyze FULL SUITE + Debug APK, true workflow_dispatch Signed Canary Validated BuildInspect, independent artifact SHA/signer/version and owner 360px e-wallet full `2026年` label screenshot. Only these fresh exact-head results can mark `4.20.30` READY. PR #45 remains OPEN/DRAFT/MERGE HOLD, Issue #4 still OPEN because type-group collapsible UX & liability/multi-currency semantics remain unfinished.
+- Next *following* step after title's real-device PASS is Issue #4 account list grouping type fold/semantic audit; source inspection/DoD first, no secondary balance calculation, no destructive schema. Issue #13 official draw scheduling baseline discrepancy (`16:00` issue text vs `14:00` current UI) requires owner/authority reconciliation, not silent runtime modification.
+
 ## CURRENT AUTHORITY — 4.20.29 OWNER PASS（2026-10-13 22:08 Asia/Taipei）
 
 > **本節優先於下方的歷史 Gate 快照。** Code/head 的 immutability authority 是 4.20.29+487 `375ef1078dd6c21f8d1683260d8c497498362011`，不是文件後續 commit SHA。任一新的 source/doc commit 均需重新查該新 HEAD 的 CI；不能將舊執行結果假裝成新 HEAD 成果。
