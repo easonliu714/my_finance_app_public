@@ -1019,9 +1019,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                     isExpanded: true,
                     key: const Key('invoice_award_period_selector'),
                     initialValue: _selectedPeriod.period.id,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: '開獎期別',
-                      border: const OutlineInputBorder(),
+                      border: OutlineInputBorder(),
                     ),
                     items: [
                       for (final option in _periodOptions)
