@@ -189,3 +189,10 @@ EXTERNAL ONLY WHEN AUTHORIZED
 ```
 
 **完成標記不得越級：** 上述 Dropdown/UI 本輪 CODE=PASS（實際 GitHub commit），分析/全測試 TEST=PENDING、Signed Canary/簽章 RELEASE=PENDING、Owner DEVICE=PENDING。功能樹新修正以 4.20.28+486 為對象，測試 `invoice_award_check_route_test.dart` 改用「預設隱藏，點『？』後顯示」並保留官方來源／不外傳資訊檢查；不要改回主畫面長篇說明。主帳本正式收入使用者逐次明確授權、歷史無自動補登、正式交易冪等未被此次修補觸碰。
+
+## 4.20.28 Signed release phase vs UI／Service／DB authority (2026-10-13)
+
+- `lib/app_build_metadata.dart` release `phase` is `issue-13-award-help-issue-4-account-geometry-486`. This is a combined owner-authorized 4.20.28 slice with Issue #13 Signed Canary as the release authority: `issue-13-` prefix mandatory, suffix names the Issue #4 cross-account list/scroll Geometry work.
+- Production UI functionality and API/storage path remain unchanged by the phase fix. `InvoiceAwardProductionPage` retains compact '?' help and explicit bank receipt/formal income consent; `AccountDetailPage` retains expandable provenance and real visible month/year anchoring. Data authority remains local SQLite formal transactions, official MOF candidate evidence, bounded SharedPreferences states; none of these records were modified by release metadata patch.
+- Tests bound to exact phase updated: `test/p4_20_5_release_authority_test.dart`, `test/issue_13_payout_bookkeeping_release_contract_test.dart`, `test/issue_13_invoice_award_notification_release_contract_test.dart`. The signed workflow itself remains unchanged and enforces its original `issue-13-` check.
+- State tracking: CODE=committed; TEST=await new exact-head full suite; SIGNED_ARTIFACT=await new true canary; DEVICE=not yet authorized. Old code HEAD `36310c24445d440ecfdd93538660ae821c046199` Flutter CI [38384304123](https://github.com/easonliu714/my_finance_app_public/actions/runs/38384304123) SUCCESS, but its Signed Canary [38384311754](https://github.com/easonliu714/my_finance_app_public/actions/runs/38384311754) FAIL release identity; future HEAD cannot reuse either result as final release authority.
