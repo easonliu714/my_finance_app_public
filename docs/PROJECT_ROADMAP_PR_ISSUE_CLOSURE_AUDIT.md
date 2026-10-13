@@ -1,5 +1,7 @@
 # 記帳軟體 Roadmap／PR／Issues 結案稽核與防重工治理
 
+> **CURRENT GATE 2026-10-14:** 4.20.31+489 backup/restore OWNER PASS and exact CI/Signed PASS; 4.20.32+490 Issue #4 existing group balance caption semantics CODE only. See latest appendix at document end; old NEXT CANDIDATE/CI labels below are historical.
+
 ## NEXT CANDIDATE AUTHORITY — 4.20.30+488 Issue #4 年度摘要可讀性（2026-10-13）
 
 - Following frozen `4.20.29+487` (accepted code HEAD `375ef1078dd6c21f8d1683260d8c497498362011`, Flutter CI `38402561190` SUCCESS, Signed Canary `38402572785` SUCCESS, Owner 2026-10-13 22:03–22:04 device PASS), a new **separately versioned** 4.20.30+488 branch candidate is now CODE COMMITTED; that .29 owner acceptance does not transfer automatically.
@@ -236,3 +238,20 @@ my_finance_app_public — 台灣個人記帳（五分頁：帳戶／計畫／首
 - 還原一致性：`FullRestoreService` 在明確輸入 RESTORE 且來源驗證後、正式 transaction 內執行 `ensureExpenseCategorySchema(txn)`，確保新裝置還原分類行不會因缺表被默默跳過，失敗會 transaction rollback；`FullRestoreServiceV8` 只把 pre-V8 轉為 V8，不會將原 V8 merchant identity/history 重算覆寫。備份預覽及還原 manifest 按 Scope V2–V8 各自舊表清單驗證，Scope V9 要求包含分類陣列，未知自有資料表仍 fail-closed。
 - 新增 `test/expense_category_full_backup_scope_v9_test.dart`，涵蓋 V9 自訂分類完整匯出、新裝置還原、舊 V8 商家資料保留、未知表阻斷、V9 缺分類陣列拒絕還原。既有 Scope V8 fixture 版本斷言與 App 4.20.31 release identity/Lab 契約同步。
 - **本階段只有 SOURCE/TEST CODE COMMITTED；最新 exact-HEAD Flutter Analyze/full tests/debug APK／true Signed Canary／Signed APK SHA+簽章／Owner 新機建立備份／測試還原預覽仍 PENDING**。未確立匯出及還原驗證前不得標記 P0 CLOSED，也不得合併主線；禁止在真實手機執行完整覆寫還原以測試功能。首先驗證生成備份 JSON metadata Scope V9 及 expense_categories 不為空（若裝置原有分類），再以隔離空白測試 DB 預覽、受控還原與 count/parity 證據；最後 Owner 在實機僅點「建立完整備份」確認成功，保存並核對 ZIP/JSON。
+
+## 2026-10-14 01:47 — 4.20.31 Owner PASS／4.20.32 Issue #4 分組語意
+
+### 已接受的前繼 Gate — 4.20.31+489 備份／還原
+
+- **2026-10-14 01:47 +08 Owner 明確回報 4.20.31「帳戶備份與還原成功」，允許推進下一階段。** 可將先前因 expense_categories 不在備份 Scope V8 的 P0 回歸標為 OWNER_DEVICE=PASS（本次回報之備份/還原流程），禁止重做已實現 Scope V9。
+- 正式驗證依據：HEAD `e9a62d549cf37dcfa01e70c909fd942a58d6e66c`，Flutter Android CI [38433579674](https://github.com/easonliu714/my_finance_app_public/actions/runs/38433579674) **SUCCESS**、真正 workflow_dispatch Signed Canary [38433592413](https://github.com/easonliu714/my_finance_app_public/actions/runs/38433592413) **SUCCESS**。Scope V9 應保留 expense_categories、舊 Scope V8 合法讀取、嚴格未知表 fail-closed 及 transaction rollback；無新手機資料破壞。本次 Owner 回報不能外推成 Issue #18 的 schema freeze、所有跨版／冷開機災難復原或 SQLCipher encryption PASS；Issue #18 仍 OPEN，延後到原 Roadmap 所訂最終 Gate。
+- 原 4.20.30 年度摘要標題 Owner PASS（歷史 snapshot）；既有 POSTED 獎金 NT$500 + NT$200 = NT$700 不重複寫入、不 background backfill。#45 Draft/OPEN/Merge HOLD，#46 CLOSED_UNMERGED。
+
+### 下一個原定 Gate — Issue #4 帳戶群組餘額語意（4.20.32+490）
+
+- 對照 Issue #4 [原 DoD](https://github.com/easonliu714/my_finance_app_public/issues/4) 與 CODE：`AccountPage` 既有 `_groupAccounts()`、`_AccountTypeSection` 和 `_collapsedTypes`，類型分組和展開/收合已有實作，**禁止再建第二套分組 UI**。
+- 實際缺口：原群組摘要文字用「TWD 換算淨額」，但程式只是把各帳戶的 `currentBalance * CurrencyCode.defaultRateToTwd` 直接相加；信用卡帳面餘額不等同待繳款／可用額度，借貸不等同未償本金，投資不等同市值，非 TWD 匯率為內建參考值、非即時。不得偷偷把此數字當淨資產或修改正負號補帳。
+- 新版 `4.20.32+490`（phase `issue-13-accepted-issue-4-group-semantics-490`）只修改 UI 解說：`AccountGroupBalanceSemantics` 依 type 提供 creditCard／loan／investment／一般帳戶的簡短語意與非即時外幣提示；`AccountPage` 只更新總覽／群組小標題，**保留既有 sum、帳戶順序、收合控制、Reference FX 與 SQLite 完整未變**。新 `test/account_group_balance_semantics_test.dart` 測正向／負債／外幣展示契約；版本、Lab validationVersion、release tests 同步進版。
+- **當前僅 SOURCE COMMITTED / Flutter CI=NEW EXACT HEAD PENDING / 真 Signed Canary=PENDING / 新 APK SHA signer=PENDING / OWNER DEVICE=PENDING。** 無新版本 CI 證據前不可宣稱 4.20.32 READY。
+- Owner 實機 Gate：帳戶首頁按類型展開／收合、銀行＋一卡通 Money、信用卡／借貸（若現存可驗）、非 TWD 群組文字；核對數字不變／Reference FX 標籤／沒有將負債寫成淨資產。沒有必要的帳戶類型時保留待驗，用隔離 fixture 測試，不新建真實金流。
+- Issue #4 的實機文字語意 Gate 過後仍需依原 DoD 稽核信用卡、貸款、投資及混合幣別的真實餘額定義；不因標籤補強就整張 CLOSE。Issue #13 保留原未完成項目；Issue #18 Encryption 保留最終階段。
