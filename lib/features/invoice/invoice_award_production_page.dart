@@ -1012,6 +1012,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
             DropdownButtonFormField<String>(
+              isExpanded: true,
               key: const Key('invoice_award_period_selector'),
               initialValue: _selectedPeriod.period.id,
               decoration: InputDecoration(
