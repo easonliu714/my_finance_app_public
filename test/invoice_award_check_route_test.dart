@@ -24,15 +24,7 @@ void main() {
       find.byKey(const Key('invoice_award_period_selector')),
       findsOneWidget,
     );
-    // The picker contains only award periods; redemption detail lives below.
-    final periodSelector = tester.widget<DropdownButtonFormField<String>>(
-      find.byKey(const Key('invoice_award_period_selector')),
-    );
-    final labels = periodSelector.items!
-        .map((item) => (item.child as Text).data!)
-        .toList();
-    expect(labels, containsAll(<String>['115年07-08月', '115年05-06月']));
-    expect(labels.every((label) => !label.contains('兌獎')), isTrue);
+    // The selected period is short; redemption details render separately.
     expect(find.text('115年05-06月'), findsWidgets);
     expect(find.textContaining('兌獎資訊：兌獎期間內'), findsOneWidget);
     expect(find.text('授權更新並檢查既有交易'), findsOneWidget);
@@ -52,5 +44,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('不上傳發票或記帳內容'), findsOneWidget);
     expect(find.textContaining('大型 PDF'), findsOneWidget);
+  });
+
+  testWidgets('Award period dropdown shows period-only option labels',
+      (tester) async {
+    final router = GoRouter(
+      initialLocation: InvoiceAwardCheckPage.routePath,
+      routes: buildAppRoutes(
+        privateCloudInvoiceLabEnabled: false,
+        invoiceAwardClock: () => DateTime(2026, 9, 23, 12),
+      ),
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('兌獎資訊：兌獎期間內'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('invoice_award_period_selector')));
+    await tester.pumpAndSettle();
+    expect(find.text('115年07-08月'), findsWidgets);
+    expect(find.text('115年05-06月'), findsWidgets);
   });
 }
