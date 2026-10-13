@@ -331,3 +331,32 @@ Testing／版次：
 - 4.20.29+487 release phase 仍為 issue-13-award-period-selector-487，source/test/docs 已實際提交，完整 Flutter Analyze/full tests/debug APK、true Signed Canary Validate/BuildInspect 和 Owner device Gate 未過前標 PENDING。
 - Issue #4 現行 code 已有 UI；本輪只將其原本未完成的 Owner Gate 併入 .29，未擴張到帳戶分類、負債／多幣別計算；不能從本次截圖推斷全部帳戶原 DoD 通過。
 - Frozen：原 POSTED NT$500+NT$200=700；不得背景補登、重複收入、取消人工獨立確認。PR #45 保持 OPEN/DRAFT，Merge HOLD。
+
+## 2026-10-13 22:32 Owner 4.20.29 PASS 與 4.20.30 共用帳戶摘要下一 Gate
+
+    Owner 4.20.29+487 DEVICE=PASS (limited evidence)
+      ├─ 我的 → InvoiceAwardProductionPage
+      │   ├─ 開獎期別僅 115年07-08月 → UI DEVICE PASS
+      │   ├─ 期別框外右側獨立 [？] → UI DEVICE PASS
+      │   └─ 下方兌獎資訊（至 2027-01-05）→ UI DEVICE PASS
+      └─ 帳戶 → AccountDetailPage
+          ├─ 一卡通 Money 2026/05、2026/08 精簡卡片 → DEVICE PASS
+          ├─ 真正月份跟隨可見明細 → DEVICE PASS (這兩月份樣本)
+          ├─ 中國信託 5445 本機餘額 700 TWD/既有獎金 +200、+500 → UI observed
+          └─ 左側年份標題顯示 20... → RESIDUAL FAIL / Next P0
+
+    4.20.30+488 CODE IMPLEMENTED / new exact-head TEST=PENDING
+      ├─ UI lib/features/account/account_detail_page.dart
+      │   └─ _CompactPeriodSummaryCard: 年／月 label 與 net 分行
+      │       ├─ summary.label → FittedBox(BoxFit.scaleDown)，不得 ellipsis
+      │       ├─ summary.net → 分開 FittedBox，顯示較長負值
+      │       └─ inflow / outflow → 保留正常單行省略號
+      ├─ Service / Repository / Date Anchor / API → NO CHANGE
+      ├─ DB / SQLite Formal Ledger / SharedPreferences → NO CHANGE
+      ├─ Test test/issue_4_issue_13_4_20_28_ux_contract_test.dart
+      │   └─ 只檢查年份標題本身不可 ellipsis，不錯把 inflow/outflow 當標題
+      └─ OWNER Gate pending: 一卡通 Money 年 2026年 完整、負值 TWD、銀行、
+          05月/08月切換不漂移、跨月跨年與大字級（本輪未提供充分證據）
+
+- 4.20.30 第一輪 Flutter CI 38412520575 跑 1906 PASS/1 FAIL，單一 static-test 範圍錯誤已修復並提交，不代表新版最新 HEAD Flutter CI/Signed Canary 已 PASS；完整 signed APK 和新的 Owner device Gate 仍待驗。
+- 既有正式收入 NT$500 + NT$200 = NT$700 不改、不回填；Issue #4 帳戶語意與 #13 發票授權保持原先邊界。PR #45 DRAFT／OPEN／MERGE HOLD，#46 CLOSED_UNMERGED。
