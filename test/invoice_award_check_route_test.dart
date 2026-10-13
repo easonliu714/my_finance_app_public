@@ -32,7 +32,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('雲端專屬獎尚未更新'), findsOneWidget);
-    expect(find.textContaining('不上傳發票或記帳內容'), findsOneWidget);
+    // Policy text must remain hidden until its explicitly labeled help opens.
+    expect(find.textContaining('不上傳發票或記帳內容'), findsNothing);
     expect(find.textContaining('不是兌獎、領獎或自動匯款平台'), findsOneWidget);
     expect(find.byType(ElevatedButton), findsNothing);
     // Long instructions moved under the explicit '?' disclosure.
@@ -40,6 +41,7 @@ void main() {
     expect(officialSourceHelp, findsOneWidget);
     await tester.tap(officialSourceHelp);
     await tester.pumpAndSettle();
+    expect(find.textContaining('不上傳發票或記帳內容'), findsOneWidget);
     expect(find.textContaining('大型 PDF'), findsOneWidget);
   });
 }
