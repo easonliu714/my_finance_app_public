@@ -14,6 +14,24 @@ void main() {
     expect(source, contains('ValueKey<String>(item.id)'));
   });
 
+  test('4.20.30 keeps full year title independent from long net amount', () {
+    final source =
+        File('lib/features/account/account_detail_page.dart').readAsStringSync();
+    final start = source.indexOf('class _CompactPeriodSummaryCard');
+    final end = source.indexOf('class _AccountLedgerTile');
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+    final card = source.substring(start, end);
+    expect(card, contains('summary.label'));
+    expect(card, contains('_compactMoney(summary.net, currency)'));
+    // Separate lines must not force the full '2026年' label to become '20...'.
+    expect(card, isNot(contains('Row(')));
+    expect(card, contains('BoxFit.scaleDown'));
+    expect(card, isNot(contains('overflow: TextOverflow.ellipsis')));
+    // The pinned summary adapts its height to device text scaling.
+    expect(source, contains('MediaQuery.textScalerOf(context).scale(172.0)'));
+  });
+
   test('4.20.28 award policies hidden behind accessible on-demand help', () {
     final source = File('lib/features/invoice/invoice_award_production_page.dart').readAsStringSync();
     expect(source, contains('Icons.help_outline'));
