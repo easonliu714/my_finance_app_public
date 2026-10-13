@@ -7,7 +7,7 @@ void main() {
     expect(AppBuildMetadata.appVersion, '4.20.28+486');
     expect(
       AppBuildMetadata.phase,
-      'issue-4-account-geometry-issue-13-award-help-486',
+      'issue-13-award-help-issue-4-account-geometry-486',
     );
     expect(PrivateCloudInvoiceLabConfig.validationVersion, '4.20.28+486');
   });
