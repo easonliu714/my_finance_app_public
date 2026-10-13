@@ -1,5 +1,29 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+## NEXT CANDIDATE 4.20.30+488 — Issue #4 年度標題不截斷（2026-10-13）
+
+```text
+帳戶 / AccountDetailPage
+ └─ SliverPersistentHeader(_AccountSummaryHeaderDelegate)
+     ├─ min/max extent = MediaQuery.textScalerOf(context).scale(172)
+     ├─ _CompactPeriodSummaryCard (YEAR)
+     │   ├─ Line 1: full anchor.year + 年 label, fitted if needed
+     │   ├─ Line 2: annual net monetary amount, independent from label
+     │   └─ Line 3-4: yearly inflow/outflow as before
+     └─ _CompactPeriodSummaryCard (MONTH) — same common rendering path
+         ├─ Line 1: 05月/08月/10月; no duplicate year
+         ├─ Line 2: monthly net
+         └─ Line 3-4: monthly inflow/outflow
+App services: existing accountDetailProvider -> summaryFor(year,month)
+Storage: existing SQLite read-only accounting aggregator, NO ALTER TABLE,
+         no new write, no migrated balance, no forced rounding or FX conversion.
+Legacy issue4 month geometry remains exact RenderSliverList first-visible row.
+Tests: static layout source regression + full Flutter analyze/tests,
+       pending signed APK and owner narrow mobile/year label proof.
+```
+
+**Source Gate CODE=COMMITTED.** New release 4.20.30+488 / `issue-13-accepted-issue-4-summary-title-488`. `CI`, `SIGNED`, `OWNER_DEVICE` for 4.20.30 remain **PENDING** until separately verified on newest exact HEAD. 4.20.29 exact code HEAD `375ef1078dd6c21f8d1683260d8c497498362011` remains immutable DEVICE=OWNER PASS, and Issue #13 award page is unchanged by .30. Next Issue #4 group folding/liability/multicurrency still PLANNED, NOT automatically completed. PR #45 remains Draft/OPEN/Merge HOLD.
+
 ## CURRENT AUTHORITY — 4.20.29 Owner Device PASS / Next Issue #4
 
 > 2026-10-13 22:08 Asia/Taipei。This supersedes outdated status snippets below. Accepted **CODE HEAD** `375ef1078dd6c21f8d1683260d8c497498362011`; Flutter CI [38402561190](https://github.com/easonliu714/my_finance_app_public/actions/runs/38402561190) SUCCESS and genuine Signed Canary [38402572785](https://github.com/easonliu714/my_finance_app_public/actions/runs/38402572785) SUCCESS, signed workflow artifact 11816709394. The current docs branch head can differ due to governance-only commits; don't misrepresent acceptance CI as applying to a modified later head. Owner supplied 4.20.29+487 Android evidence 22:03–22:04: award period help exterior & short selector/deadline, compact bank/e-wallet account transaction cards and on-scroll month summary. `DEVICE=OWNER PASS (stated combined gate)`; not evidence for other untouched issue DoD.
