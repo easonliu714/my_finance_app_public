@@ -41,6 +41,6 @@ void main() {
 
     expect(pubspec, contains('version: 4.20.28+486'));
     expect(metadata, contains("appVersion = '4.20.28+486'"));
-    expect(metadata, contains("phase = 'issue-4-account-geometry-issue-13-award-help-486'"));
+    expect(metadata, contains("phase = 'issue-13-award-help-issue-4-account-geometry-486'"));
   });
 }
