@@ -1,5 +1,7 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+> **CURRENT 2026-10-14:** Backup Scope V9 4.20.31 OWNER PASS; 4.20.32 Account Group Balance Semantics CODE-only. Details in latest appendix; prior CURRENT/NEXT labels are historical checkpoints.
+
 ## NEXT CANDIDATE 4.20.30+488 — Issue #4 年度標題不截斷（2026-10-13）
 
 ```text
@@ -393,3 +395,49 @@ Testing／版次：
 - 2026-10-14 Owner 4.20.30 帳戶年度摘要 Android UI Gate 局部 PASS：一卡通 Money 2026年及 08月/09月欄位完整顯示，中國信託 +500、+200 本地記帳仍在；不替代跨年、所有類型或完整帳戶 DoD。
 - P0 實機回歸錯誤原文「檔案操作失敗：未知資料表：expense_categories」，源於完整備份 Scope V8 漏列已建立的使用者資料表，**不是可忽略的快取**。本次 Scope V9 及測試已提交，SQLite production schemaVersion=24 不變；沒有清空使用者資料、沒有改記帳紀錄，也沒有解除 fail-closed。
 - 4.20.31+489 新 CODE=COMMITTED，TEST=NEW EXACT HEAD PENDING，SIGNED= PENDING，DEVICE= PENDING。真實實機還原具有覆寫性，必須使用隔離測試資料庫模擬，禁止把生產手機資料當測試還原目標。Issue #18 備份稽核 Roadmap/ Issue #4 UI / Issue #13 發票權限各獨立追蹤，不因同一 PR 內容混合而假定全完成。
+
+## 2026-10-14 4.20.31 Owner Backup PASS → 4.20.32 分組語意架構樹
+
+```text
+[4.20.31+489 OWNER DEVICE PASS（本次回報）]
+  我的 → 完整備份／完整還原
+    ├─ FullBackupScope V9 / FullBackupService
+    │   └─ expense_categories user-owned rows + original managed tables
+    └─ FullRestoreServiceV8 / FullRestoreService
+        ├─ Scope V8 historical manifest retained
+        ├─ Scope V9 schema materialize within SQLite transaction
+        └─ Fail-closed unknown tables and rollback remain mandatory
+  CI 38433579674 = SUCCESS / TRUE Signed Canary 38433592413 = SUCCESS
+  ※ 完整加密、所有歷史跨版災難復原 ≠ 本次實機 PASS；Issue #18 remains OPEN
+
+[4.20.32+490 OWNER UI Gate — NEW CODE COMMITTED / CI PENDING]
+  帳戶（AccountPage / Issue #4）
+    ├─ AccountListProvider / AccountDetailProvider（既有，不修改）
+    ├─ _groupAccounts(items) by AccountType.values（既有）
+    ├─ _collapsedTypes、全部展開／點類型收合（既有）
+    ├─ _AccountSummaryCard
+    │   └─ reference amount heading + explanatory caption（NEW）
+    ├─ _AccountTypeSection
+    │   ├─ original groupTotalTwd = sum(currentBalance * defaultRateToTwd)
+    │   │   └─ COMPUTATION UNCHANGED；非淨資產／非真實 FX
+    │   └─ NEW AccountGroupBalanceSemantics
+    │       ├─ cash/bank/debit/stored/eWallet/other → 帳面餘額合計非淨資產
+    │       ├─ creditCard → 帳面餘額非待繳款／可用額度
+    │       ├─ loan → 帳面餘額非未償本金
+    │       ├─ investment → 帳面餘額非即時市值／報酬
+    │       └─ non-TWD → 內建參考匯率（非即時）文字提示
+    ├─ Individual Account Record / Account Detail → UNCHANGED
+    ├─ API / external → NONE NEW
+    ├─ SQLite canonical production schema v24 / Backup Scope V9 → UNCHANGED
+    └─ test/account_group_balance_semantics_test.dart → pure text-semantics tests
+
+Other modules and statuses:
+  Issue #13 invoice award official sync, receipt authority, POSTED NT$500 + NT$200
+      → no implementation change; must stay explicit-only income write, no backfill
+  Issue #18 SQLite encryption/schema freeze → FINAL ROADMAP / NOT STARTED
+  4.20.32 Flutter Analyze/full tests/Debug APK/true Signed Canary
+      → PENDING (exact HEAD only)
+  PR #45 OPEN/DRAFT/MERGE HOLD; PR #46 CLOSED_UNMERGED
+```
+
+驗收限制：分類名稱、外幣參考匯率及信用/貸款/投資帳戶只是 read-only UI 文字澄清；**並未重新計算資產負債、匯率或帳戶餘額**。Owner 4.20.31 備份/還原成功是該流程的實機證據，不足以封閉 Issue #18 所要求的加密與全部 cross-version Gates。最終狀態需以最新 GitHub HEAD／測試／實機紀錄為準。
