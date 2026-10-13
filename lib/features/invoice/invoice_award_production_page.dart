@@ -1011,18 +1011,17 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-            DropdownButtonFormField<String>(
+            Row(
+              key: const Key('invoice_award_period_selector_row'),
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
               isExpanded: true,
               key: const Key('invoice_award_period_selector'),
               initialValue: _selectedPeriod.period.id,
               decoration: InputDecoration(
                 labelText: '開獎期別',
                 border: const OutlineInputBorder(),
-                suffixIcon: _awardHelpButton('開獎期別與官方來源',
-                    '只向財政部官方來源取得中獎資料，不上傳發票或記帳內容。'
-                    '雲端專屬獎官方資料包含大型 PDF。首次更新可能需要較多網路流量與處理時間；'
-                    '大型 500 元獎候選比對會交由系統背景服務執行，可暫時切換到其他 App；'
-                    '四個獎別會依序驗證，已驗證且來源相同的資料會直接重用。'),
               ),
               items: [
                 for (final option in _periodOptions)
@@ -1033,6 +1032,15 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                   ),
               ],
               onChanged: _refreshing ? null : _selectPeriod,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _awardHelpButton('開獎期別與官方來源',
+                    '只向財政部官方來源取得中獎資料，不上傳發票或記帳內容。'
+                    '雲端專屬獎官方資料包含大型 PDF。首次更新可能需要較多網路流量與處理時間；'
+                    '大型 500 元獎候選比對會交由系統背景服務執行，可暫時切換到其他 App；'
+                    '四個獎別會依序驗證，已驗證且來源相同的資料會直接重用。'),
+              ],
             ),
             const SizedBox(height: 8),
             Text('兌獎資訊：${_selectedPeriod.statusLabel(now)}'),
