@@ -28,11 +28,11 @@ void main() {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final metadata = File('lib/app_build_metadata.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.20.31+489'));
-    expect(metadata, contains("appVersion = '4.20.31+489'"));
+    expect(pubspec, contains('version: 4.20.32+490'));
+    expect(metadata, contains("appVersion = '4.20.32+490'"));
     expect(
       metadata,
-      contains("phase = 'issue-13-accepted-issue-4-backup-scope-v9-489'"),
+      contains("phase = 'issue-13-accepted-issue-4-group-semantics-490'"),
     );
   });
 }
