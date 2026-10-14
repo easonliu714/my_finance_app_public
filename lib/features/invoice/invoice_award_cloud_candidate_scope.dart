@@ -542,8 +542,14 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               if (liveness?['alive'] != true) {
                 final safeStage =
                     lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
+                final exitReasonCode =
+                    (liveness?['exitReasonCode'] as num?)?.toInt() ?? -1;
+                final exitReasonSuffix = exitReasonCode < 0
+                    ? ''
+                    : '_OS_EXIT_$exitReasonCode';
                 throw StateError(
-                  'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_$safeStage',
+                  'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_'
+                  '$safeStage$exitReasonSuffix',
                 );
               }
             }
@@ -664,8 +670,13 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
         if (liveness?['alive'] != true) {
           final safeStage =
               lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
+          final exitReasonCode =
+              (liveness?['exitReasonCode'] as num?)?.toInt() ?? -1;
+          final exitReasonSuffix =
+              exitReasonCode < 0 ? '' : '_OS_EXIT_$exitReasonCode';
           throw StateError(
-            'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_$safeStage',
+            'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_'
+            '$safeStage$exitReasonSuffix',
           );
         }
       }
