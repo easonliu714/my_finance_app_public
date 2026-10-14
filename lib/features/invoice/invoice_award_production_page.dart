@@ -26,6 +26,7 @@ import '../transaction/transaction_ledger_refresh_signal.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_runtime_scheduler.dart';
+import 'invoice_award_running_task_bridge.dart';
 import 'invoice_award_automatic_refresh_runner.dart';
 import 'invoice_award_shared_preferences_lkg_repository.dart';
 
@@ -52,6 +53,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   // Navigation is UI-only; the controller never owns a cloud lookup.
   final ScrollController _pageScrollController = ScrollController();
   bool _showBackToTop = false;
+  final InvoiceAwardRunningTaskBridge _taskBridge = InvoiceAwardRunningTaskBridge.shared;
+  int? _runningGeneration;
   bool _ownsProcessRefresh = false;
   bool _disposed = false;
 
@@ -105,10 +108,87 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     _periodOptions = InvoiceAwardRecentPeriodCatalog.visibleAt(now);
     _selectedPeriod = InvoiceAwardRecentPeriodCatalog.defaultAt(now);
     _resetSelectedPeriodState(now);
+    _taskBridge.addListener(_reattachRunningTask);
+    _restoreRunningTask();
     _loadLastPdfDiagnostic();
     unawaited(_initializeAutomaticRefreshRuntime());
     unawaited(_initializeWinningNotifications());
     unawaited(_initializePayoutBookkeepingReadiness());
+  }
+
+  // Detaching a Navigator route only detaches its UI subscription.
+  // The original authorized refresh keeps ownership of network/native work.
+  void _restoreRunningTask() {
+    final periodId = _selectedPeriod.period.id;
+    if (_taskBridge.periodId != periodId) return;
+    final last = _taskBridge.snapshotFor(periodId);
+    _refreshing = _taskBridge.activeFor(periodId);
+    if (last == null) {
+      if (_refreshing) {
+        _cloudStatus = '已重新連接同一期別的更新工作；'
+            '等待背景服務提供真實階段；尚未完成雲端獎驗證。';
+      }
+      return;
+    }
+    _status = last.status;
+    _cloudStatus = last.cloudStatus;
+    _scanStatus = last.scanStatus;
+    _cloudDiagnosticStatus = last.cloudDiagnosticStatus;
+    _cloudTierSummaries
+      ..clear()
+      ..addAll(last.tierSummaries);
+    _activeCloudTierCode = last.activeTierCode;
+    _cloudCurrentAuthorityComplete = last.cloudComplete;
+    _generalDataset = last.generalDataset;
+    _candidates = last.candidates;
+    _generalEvaluations = last.generalEvaluations;
+    _cloudEvaluations = last.cloudEvaluations;
+    _cloudEligibilityConfirmations = last.confirmations;
+    _recomputePayoutReadiness();
+  }
+
+  void _reattachRunningTask() {
+    if (!mounted || _taskBridge.periodId != _selectedPeriod.period.id) return;
+    setState(_restoreRunningTask);
+  }
+
+  void _publishRunningTask() {
+    final generation = _runningGeneration;
+    if (generation == null) return;
+    _taskBridge.publish(
+      generation,
+      InvoiceAwardRunningTaskSnapshot(
+        periodId: _selectedPeriod.period.id,
+        status: _status,
+        cloudStatus: _cloudStatus,
+        scanStatus: _scanStatus,
+        cloudDiagnosticStatus: _cloudDiagnosticStatus,
+        tierSummaries: Map<String, String>.unmodifiable(_cloudTierSummaries),
+        activeTierCode: _activeCloudTierCode,
+        cloudComplete: _cloudCurrentAuthorityComplete,
+        generalDataset: _generalDataset,
+        candidates: List<ExistingInvoiceAwardCandidate>.unmodifiable(_candidates),
+        generalEvaluations: List<ExistingInvoiceAwardGeneralEvaluation>.unmodifiable(
+          _generalEvaluations,
+        ),
+        cloudEvaluations: List<ExistingInvoiceAwardCloudEvaluation>.unmodifiable(
+          _cloudEvaluations,
+        ),
+        confirmations: Map<String, InvoiceAwardCloudEligibilityConfirmation>.unmodifiable(
+          _cloudEligibilityConfirmations,
+        ),
+      ),
+    );
+  }
+
+  void _applyRunningTaskUpdate(VoidCallback action) {
+    if (mounted) {
+      setState(action);
+    } else {
+      // The authorized async operation continues after route disposal.
+      action();
+    }
+    _publishRunningTask();
   }
 
   void _handlePageScroll() {
@@ -132,6 +212,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   void dispose() {
     _disposed = true;
     _pageScrollController.dispose();
+    _taskBridge.removeListener(_reattachRunningTask);
     // Large cloud-500 verification is owned by a native foreground service.
     // Navigating away or backgrounding the Activity must not revoke an
     // already-authorized local lookup.
@@ -452,6 +533,16 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       });
       return;
     }
+    if (!_taskBridge.begin(selectedPeriod.period.id)) {
+      InvoiceAwardRefreshProcessGate.release();
+      if (mounted) {
+        setState(() {
+          _cloudStatus = '已存在另一項尚未完成的對獎工作；禁止重複啟動。';
+        });
+      }
+      return;
+    }
+    _runningGeneration = _taskBridge.generation;
     _ownsProcessRefresh = true;
     var schedulerGeneralPromoted = false;
     var schedulerCloudPromoted = false;
@@ -466,7 +557,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
     final usePreviousPublication =
         InvoiceAwardRecentPeriodCatalog.usesPreviousPublication(selectedPeriod, now);
-    setState(() {
+    _applyRunningTaskUpdate(() {
       _refreshing = true;
       _cloudCurrentAuthorityComplete = false;
       _cloudDiagnosticStatus = '';
@@ -531,8 +622,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       // General awards and cloud-exclusive awards are independent authority
       // domains. Publish the validated general result before any large native
       // cloud-PDF work so a cloud failure cannot suppress a general match.
-      if (!mounted) return;
-      setState(() {
+      _applyRunningTaskUpdate(() {
         _candidates = candidates;
         _generalDataset = dataset;
         _generalEvaluations = generalEvaluations;
@@ -582,16 +672,14 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         );
       } catch (error) {
         final failureCode = _safeCloudFailureCode(error);
-        if (mounted) {
-          setState(() {
+        _applyRunningTaskUpdate(() {
             final activeTier = _activeCloudTierCode;
             if (activeTier != null) {
               _cloudTierSummaries[activeTier] = '失敗：$failureCode';
             }
             _cloudStatus = '雲端專屬獎本次更新失敗：$failureCode；'
                 '保留既有已驗證資料，結果不會宣稱完整未中獎。';
-          });
-        }
+        });
       }
 
       final cloudEvaluations = await ExistingInvoiceAwardCloudBatchMatcher(
@@ -639,8 +727,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         cloudEvaluations: cloudEvaluations,
       );
 
-      if (!mounted) return;
-      setState(() {
+      _applyRunningTaskUpdate(() {
         _refreshing = false;
         _cloudCurrentAuthorityComplete = cloudComplete;
         _candidates = candidates;
@@ -667,19 +754,16 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       });
       await _reloadPostedLedgerState();
     } on CloudAwardCandidateLookupCancelled {
-      if (mounted) {
-        setState(() {
+      _applyRunningTaskUpdate(() {
           _refreshing = false;
           _cloudCurrentAuthorityComplete = false;
           _cloudStatus = '本次雲端獎查找因 App 已離開前景而安全中止；未保存部分結果，可直接重新執行。';
           _scanStatus = generalStageCompleted
               ? '一般獎對獎結果已保留；雲端專屬獎查找因 App 已離開前景而中止，可直接重試雲端更新。'
               : '既有交易掃描未完成；重新執行時會從一般獎 authority Gate 重新確認。';
-        });
-      }
+      });
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
+      _applyRunningTaskUpdate(() {
         _refreshing = false;
         _cloudCurrentAuthorityComplete = false;
         if (!generalStageCompleted) {
@@ -691,6 +775,14 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         _cloudStatus = '雲端專屬獎結果未完成；不會宣稱完整未中獎。';
       });
     } finally {
+      if (_refreshing) {
+        _applyRunningTaskUpdate(() => _refreshing = false);
+      }
+      final generation = _runningGeneration;
+      if (generation != null) {
+        _taskBridge.finish(generation, selectedPeriod.period.id);
+      }
+      _runningGeneration = null;
       _ownsProcessRefresh = false;
       InvoiceAwardRefreshProcessGate.release();
       if (_automaticRefreshConsented && scheduler != null) {
@@ -701,16 +793,12 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         );
         await _reconcileAutomaticSchedule();
       }
-      if (mounted && _refreshing) {
-        setState(() => _refreshing = false);
-      }
       if (_disposed) _httpClient.close();
     }
   }
 
   void _handleCloudProgress(CloudAwardForegroundProgress progress) {
-    if (!mounted) return;
-    setState(() {
+    _applyRunningTaskUpdate(() {
       final tierCode = progress.tierCode;
       if (tierCode != null) {
         _activeCloudTierCode = tierCode;

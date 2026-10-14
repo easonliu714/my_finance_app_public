@@ -1,5 +1,7 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+> **CURRENT 2026-10-14 22:42:** 4.20.35 Back-to-Top OWNER PASS; new 4.20.36 P0 UI reattach Gate A code only / native Gate B HOLD. See latest appendix.
+
 > **CURRENT 2026-10-14 20:11:** 4.20.35 CI failed two tests; focused widget viewport and strict version pin repair; cloud500 P0 still HOLD. Latest appendix controls.
 
 > **CURRENT 2026-10-14 15:32:** 4.20.34 Flutter CI/Signed PASS, Owner cloud500 FAIL; 4.20.35+493 Back-to-Top UI CODE-only; P0 native reattach remains HOLD. Latest appendix controls.
@@ -562,3 +564,11 @@ App / DB / Native / Source authority:
 - Failed HEAD `9c446c87abf21c815ecdb0398eba4f7d04c4e62b`: Flutter Android CI [38529830787](https://github.com/easonliu714/my_finance_app_public/actions/runs/38529830787) FAILURE at 15:44 Asia/Taipei; first red step `Run tests`, **two known deterministic failures**: `test/invoice_award_check_route_test.dart:134` empty-state 360x800 page maximum offset only 322, unable to reach intentional >560px FAB threshold; `test/p4_20_5_release_authority_test.dart:7` still expected 4.20.34+492 rather than actual 4.20.35+493. True Signed [38529838357](https://github.com/easonliu714/my_finance_app_public/actions/runs/38529838357) FAILURE because exact-head CI authority wait correctly refused; signing itself was never reached.
 - Smallest repair: use 360x300 widget-test viewport for deep-scroll fixture (no fake invoice/backend/ledger entries), assert maxScrollExtent >560 then scroll/tap/hide unchanged. Align historical release-authority test to strict 4.20.35+493 and exact `issue-13-award-scroll-back-to-top-493` phase. **No production changes, no weakened assertions**, no PDF/worker/SQLite mutation. Update both canonical docs in same PR commit. New head needs new full CI and true Signed before Owner READY; old CI must never be carried forward.
 - P0 still mandatory `ISSUE13_CLOUD500_NATIVE_TASK_REATTACH_AND_STAGE_PROOF`; route reentry bug from 4.20.34 owner FAIL and cloud500 latency remain HOLD. Preserve PDF source SHA, candidate universe, LKG and POSTED 500+200=700, PR Draft/Open/Merge HOLD.
+
+
+## 2026-10-14 22:42 Asia/Taipei — UI/API/DB Cloud500 in-process route reattachment Gate A (4.20.36)
+Architecture: InvoiceAwardProductionPage.initState -> subscribe InvoiceAwardRunningTaskBridge.shared -> restore same-period typed snapshot; disposal -> unsubscribe only; original authorization still owned by InvoiceAwardRefreshProcessGate + async refresh and native worker.
+Bridge keys: one active periodId, monotonically increasing task generation lease, read-only lastStatus/scanStatus/cloudStatus/tiers/diagnostics/general candidates and winner evaluations/confirmations; any new page sees same scope and terminal snapshot without starting a duplicate fetch.
+Process restart or wrong period has no trusted running authority (UNKNOWN/HOLD). Kotlin worker requestId/native PDF SHA/candidate universe SHA/PID/updatedAt evidence are not yet bridged and remain follow-up P0 Gate B; do not conflate UI reentry with authenticated native completion or PDF performance resolution.
+Owner 4.20.35+493 back-to-top real device 22:38 PASS; exact Flutter CI 38562431249 SUCCESS and genuine Signed 38562441477 SUCCESS. Long-result floating 回頁首 UI CLOSED. Screenshot still reports cloud500 cached PDF awaiting parsing; full cloud500 result HOLD.
+Gate A new 4.20.36+494 code + unit tests SOURCE CANDIDATE only until new exact-head CI/Signed + owner. No new API, SQLite migration, user data write, formal posting or PDF source replacement. Existing POSTED 500+200=700 untouched; PR45 DRAFT/OPEN/MERGE HOLD.
