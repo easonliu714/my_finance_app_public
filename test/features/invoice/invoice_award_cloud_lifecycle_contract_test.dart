@@ -168,6 +168,17 @@ void main() {
       contains('OPEN_HEARTBEAT_INTERVAL_MS = 2_000L'),
     );
     expect(largeWorkerSource, contains('startForeground('));
+    // Screen-off mitigation retains native CPU progress but is bounded.
+    // The worker must still fail closed if Android kills its process.
+    expect(pluginManifest, contains('android.permission.WAKE_LOCK'));
+    expect(largeWorkerSource, contains('PowerManager.PARTIAL_WAKE_LOCK'));
+    expect(largeWorkerSource, contains('CANDIDATE_WAKE_LOCK_MAX_MS'));
+    expect(largeWorkerSource, contains('wakeLock.acquire('));
+    expect(largeWorkerSource, contains('wakeLock.release()'));
+    expect(pluginSource, contains('getHistoricalProcessExitReasons'));
+    expect(pluginSource, contains('"exitReasonCode" to exitReasonCode'));
+    expect(candidateSource, contains("'_OS_EXIT_"));
+
     expect(largeWorkerSource, contains('NotificationChannel('));
     expect(
       largeWorkerSource,
