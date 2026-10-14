@@ -448,13 +448,29 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       val running = manager.runningAppProcesses.orEmpty().firstOrNull {
         it.pid == workerPid && it.processName == expectedProcess
       }
+      // Diagnostic only: missing historical exit data never authenticates
+      // source bytes or a candidate result.
+      val exitReasonCode = if (
+        running == null && android.os.Build.VERSION.SDK_INT >= 30
+      ) {
+        runCatching {
+          manager.getHistoricalProcessExitReasons(
+            applicationContext.packageName, workerPid, 4
+          ).firstOrNull {
+            it.pid == workerPid && it.processName == expectedProcess
+          }?.reason ?: -1
+        }.getOrDefault(-1)
+      } else {
+        -1
+      }
       Handler(Looper.getMainLooper()).post {
         result.success(
           hashMapOf(
             "alive" to (running != null),
             "pid" to (running?.pid ?: workerPid),
             "processName" to (running?.processName ?: expectedProcess),
-            "importance" to (running?.importance ?: -1)
+            "importance" to (running?.importance ?: -1),
+            "exitReasonCode" to exitReasonCode
           )
         )
       }
