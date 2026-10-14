@@ -39,8 +39,8 @@ void main() {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final metadata = File('lib/app_build_metadata.dart').readAsStringSync();
 
-    expect(pubspec, contains('version: 4.20.34+492'));
-    expect(metadata, contains("appVersion = '4.20.34+492'"));
-    expect(metadata, contains("phase = 'issue-13-cloud-worker-stage-telemetry-492'"));
+    expect(pubspec, contains('version: 4.20.35+493'));
+    expect(metadata, contains("appVersion = '4.20.35+493'"));
+    expect(metadata, contains("phase = 'issue-13-award-scroll-back-to-top-493'"));
   });
 }

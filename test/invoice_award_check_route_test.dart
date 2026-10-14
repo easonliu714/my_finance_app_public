@@ -104,4 +104,46 @@ void main() {
     expect(find.text('115年07-08月'), findsWidgets);
     expect(find.text('115年05-06月'), findsWidgets);
   });
+
+  testWidgets('award page floating back-to-top returns without changing data',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final router = GoRouter(
+      initialLocation: InvoiceAwardCheckPage.routePath,
+      routes: buildAppRoutes(
+        privateCloudInvoiceLabEnabled: false,
+        invoiceAwardClock: () => DateTime(2026, 9, 23, 12),
+      ),
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    final scrollFinder = find.byKey(
+      const Key('invoice_award_page_scroll_view'),
+    );
+    final scroll = tester.widget<SingleChildScrollView>(scrollFinder);
+    final backToTop = find.byKey(const Key('invoice_award_back_to_top'));
+    expect(scroll.controller, isNotNull);
+    expect(backToTop, findsNothing);
+
+    await tester.drag(scrollFinder, const Offset(0, -1100));
+    await tester.pumpAndSettle();
+    expect(scroll.controller!.offset, greaterThan(560));
+    expect(backToTop, findsOneWidget);
+    expect(find.byTooltip('回頁首'), findsOneWidget);
+
+    await tester.tap(backToTop);
+    await tester.pumpAndSettle();
+    expect(scroll.controller!.offset, closeTo(0, 1));
+    expect(backToTop, findsNothing);
+    expect(
+      find.textContaining('尚未更新官方 115年05-06月 中獎資料'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
 }

@@ -49,6 +49,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     with WidgetsBindingObserver {
   final http.Client _httpClient = http.Client();
   final CloudAwardIndexLkgRepository _cloudRepository = CloudAwardIndexLkgRepository();
+  // Navigation is UI-only; the controller never owns a cloud lookup.
+  final ScrollController _pageScrollController = ScrollController();
+  bool _showBackToTop = false;
   bool _ownsProcessRefresh = false;
   bool _disposed = false;
 
@@ -97,6 +100,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _pageScrollController.addListener(_handlePageScroll);
     final now = _now();
     _periodOptions = InvoiceAwardRecentPeriodCatalog.visibleAt(now);
     _selectedPeriod = InvoiceAwardRecentPeriodCatalog.defaultAt(now);
@@ -107,9 +111,27 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     unawaited(_initializePayoutBookkeepingReadiness());
   }
 
+  void _handlePageScroll() {
+    if (!_pageScrollController.hasClients || !mounted) return;
+    final show = _pageScrollController.offset >= 560;
+    if (_showBackToTop != show) {
+      setState(() => _showBackToTop = show);
+    }
+  }
+
+  Future<void> _scrollToPageTop() async {
+    if (!_pageScrollController.hasClients) return;
+    await _pageScrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    _pageScrollController.dispose();
     // Large cloud-500 verification is owned by a native foreground service.
     // Navigating away or backgrounding the Activity must not revoke an
     // already-authorized local lookup.
@@ -1013,8 +1035,19 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
 
     return Scaffold(
       appBar: AppBar(title: const Text('統一發票中獎檢查')),
+      floatingActionButton: _showBackToTop
+          ? FloatingActionButton.extended(
+              key: const Key('invoice_award_back_to_top'),
+              tooltip: '回頁首',
+              onPressed: _scrollToPageTop,
+              icon: const Icon(Icons.vertical_align_top),
+              label: const Text('回頁首'),
+            )
+          : null,
       body: SafeArea(
         child: SingleChildScrollView(
+          key: const Key('invoice_award_page_scroll_view'),
+          controller: _pageScrollController,
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1433,6 +1466,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                 '號碼吻合不等於已確認可領獎；資格證據不足時會標示待確認。'),
             const SizedBox(height: 12),
             const Text('本 App 僅提供本機中獎比對與記帳輔助，不是兌獎、領獎或自動匯款平台。'),
+            // Reserve space so the floating button cannot cover final content.
+            const SizedBox(height: 80),
             ],
           ),
         ),

@@ -1,6 +1,7 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
-> **CURRENT 2026-10-14:** 4.20.33 native background survives lock in Owner observation, completion >5min HOLD. 4.20.34 native stage visible after lifecycle resume SOURCE only; CI/Owner device pending. Latest appendix prevails over historical status lines.
+> **CURRENT 2026-10-14 15:32:** 4.20.34 Flutter CI/Signed PASS, Owner cloud500 FAIL; 4.20.35+493 Back-to-Top UI CODE-only; P0 native reattach remains HOLD. Latest appendix controls.
+\n> **CURRENT 2026-10-14:** 4.20.33 native background survives lock in Owner observation, completion >5min HOLD. 4.20.34 native stage visible after lifecycle resume SOURCE only; CI/Owner device pending. Latest appendix prevails over historical status lines.
 
 > **CURRENT 2026-10-14:** Group UX 4.20.32 Owner PASS; cloud500 4.20.33 screen-off Worker mitigation CODE only and exact-head CI/DEVICE PENDING. Other cloud tiers targeted search next governed gate; earlier NEXT labels historical.
 
@@ -527,3 +528,27 @@ Follow-up:
 ```
 
 這一版只補實際進度的可觀測性（不是速度或完成的驗證）。實際下載／SHA、PDF 開啟與候選搜尋的瓶頸未由 Owner 截圖直接判明；不得把畫面的「更新中」當成功，不得自行把長時間等待改成完整陰性對獎。
+
+
+## 2026-10-14 15:32 — Issue #13 Award Check Back-to-Top navigation (4.20.35)
+
+```text
+lib/features/invoice/invoice_award_production_page.dart
+  InvoiceAwardProductionPage
+    ├─ Scaffold.floatingActionButton
+    │    └─ FloatingActionButton.extended Key(invoice_award_back_to_top)
+    │       icon vertical_align_top, label/tooltip 「回頁首」
+    │       scroll >= 560 logical pixels -> visible, top -> hidden
+    ├─ SingleChildScrollView Key(invoice_award_page_scroll_view)
+    │    └─ ScrollController _pageScrollController
+    │         listener -> _handlePageScroll
+    │         click -> _scrollToPageTop -> animateTo(0, 420ms, easeOutCubic)
+    ├─ 80px bottom scroll clearance
+    └─ Existing _scrollToCandidate winner-detail navigation UNCHANGED
+test/invoice_award_check_route_test.dart
+    └─ real widget drag -> FAB visible -> tap -> offset zero -> hidden
+App / DB / Native / Source authority:
+    └─ no change; no extra user data, network request, cache mutation or POSTED
+```
+
+4.20.34 had Flutter exact CI #38504361693 SUCCESS & Signed Canary #38504368496 SUCCESS but Owner Android pop/push worker UI state lost and cloud500 had >2min without measurable native stage; **Owner 4.20.34 FAIL**, full cloud500 HOLD. New 4.20.35+493 navigation is CODE-only until new exact-head tests, signed SHA/cert and Owner test; not a fix for background task reattachment. P0 next remains lifecycle route reentry/native identity/heartbeat observation before performance tuning. PR #45 stays OPEN/DRAFT/MERGE HOLD; original ledger POSTED500+200=700 frozen.
