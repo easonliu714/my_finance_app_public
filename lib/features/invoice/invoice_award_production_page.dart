@@ -134,8 +134,16 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       return;
     }
     if (state == AppLifecycleState.resumed && _refreshing) {
+      // A lifecycle notification is not native-worker progress. Restore the
+      // latest actually observed stage rather than replacing it with a
+      // generic "syncing" message that can mask a prolonged PDF open.
+      final tier = _activeCloudTierCode;
+      final lastStage = tier == null ? null : _cloudTierSummaries[tier];
       setState(() {
-        _cloudStatus = '已回到 App；正在同步背景雲端獎比對進度與結果。';
+        _cloudStatus = lastStage != null && lastStage.isNotEmpty
+            ? '已回到 App；最後收到的背景進度（尚未完成驗證）：'
+                '${_tierLabel(tier!)} · $lastStage'
+            : '已回到 App；等待背景服務回報實際階段與結果。';
       });
     }
   }
