@@ -1,5 +1,7 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+> **CURRENT 2026-10-14:** Group UX 4.20.32 Owner PASS; cloud500 4.20.33 screen-off Worker mitigation CODE only and exact-head CI/DEVICE PENDING. Other cloud tiers targeted search next governed gate; earlier NEXT labels historical.
+
 > **CURRENT 2026-10-14:** Backup Scope V9 4.20.31 OWNER PASS; 4.20.32 Account Group Balance Semantics CODE-only. Details in latest appendix; prior CURRENT/NEXT labels are historical checkpoints.
 
 ## NEXT CANDIDATE 4.20.30+488 — Issue #4 年度標題不截斷（2026-10-13）
@@ -441,3 +443,45 @@ Other modules and statuses:
 ```
 
 驗收限制：分類名稱、外幣參考匯率及信用/貸款/投資帳戶只是 read-only UI 文字澄清；**並未重新計算資產負債、匯率或帳戶餘額**。Owner 4.20.31 備份/還原成功是該流程的實機證據，不足以封閉 Issue #18 所要求的加密與全部 cross-version Gates。最終狀態需以最新 GitHub HEAD／測試／實機紀錄為準。
+
+## 2026-10-14 4.20.32 DEVICE PASS → 4.20.33 雲端 500 原生 SHA 中斷 Gate
+
+```text
+4.20.32+490 OWNER DEVICE PASS / CI+SIGN SUCCESS
+  帳戶管理 → AccountPage
+    ├─ 現金群組已顯示 -148 TWD；可開合
+    ├─ 銀行群組已顯示 700 TWD / 2 帳戶；可開合
+    ├─ 信用卡群組已顯示 -75 TWD / 語意「非待繳款或可用額度」
+    ├─ 對應 ref-based static FX / borrowed-equity warning → CODE
+    └─ 一般 account/ledger/backup Scope V9 → 原架構保持；未重新算金額
+  Exact PR 2c90c14eccbd43771db795420aa9774389854090
+  Flutter CI 38442351717 SUCCESS / True Signed Canary 38442361870 SUCCESS
+
+4.20.33+491 CODE COMMITTED / EXACT-HEAD CI & SIGNED & DEVICE PENDING
+  我的 → 統一發票中獎檢查 → CloudAwardForegroundAcquisition
+    ├─ 官方 publication 4 條 _sorted_ PDF links → unchanged
+    ├─ official CloudAwardArtifactDownloader (streamed + full SHA) → unchanged
+    ├─ CloudAwardPdfCache / LKG → unchanged and fail closed
+    ├─ cloud-500 exact 47 candidate universe → already EXISTING
+    │   ├─ >=120 MiB (owner 128.9MB): PDF structure probe + source SHA
+    │   ├─ PlatformPdfCandidateWorkerService Android API 35+ :platform_candidate_worker
+    │   │   ├─ Android FGS dataSync + new bounded CPU PARTIAL_WAKE_LOCK (max 30min)
+    │   │   ├─ SHA256 FULL_SOURCE on already persisted official PDF (MUST PASS)
+    │   │   ├─ PdfRenderer sorted page binary search (AFTER hash) no full 87000 page parse
+    │   │   ├─ per-candidate matched page proof / candidate universe SHA
+    │   │   └─ finally release wake lock / stop foreground service
+    │   ├─ PdfTextPlugin PID liveness + new diagnostic ApplicationExitInfo reason
+    │   └─ died worker => FAIL (no candidate authority promotion), preserve old LKG
+    ├─ cloud-800  : current complete-index builder (100000 row PDF)
+    ├─ cloud-2000 : current complete-index builder (16000 row PDF)
+    └─ cloud-1000000 : current complete-index builder (30 row PDF)
+         └─ NEXT P1 candidate-scoped sorted-page search, NOT YET ENABLED
+
+  Related Dart: invoice_award_cloud_candidate_scope.dart
+  Android Java/Kotlin: PlatformPdfCandidateWorkerService.kt, PdfTextPlugin.kt
+  AndroidManifest: WAKE_LOCK normal permission / FGS dataSync
+  Tests: invoice_award_cloud_lifecycle_contract_test.dart; original candidate/official parity
+  Data: SQLite / formal transaction / POSTED 500+200 / direct bank API → NO CHANGE
+```
+
+Owner 2026-10-14 approximately 08:08–08:17 +08 screenshot reports `CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_PLATFORM_SOURCE_SHA256` at existing platform SOURCE SHA gate, **before actual PDF candidate search**. Screen lock correlates but reason unknown until reliable OS exit evidence. PDF raw structure diagnostic `raw_candidate_hits=0/47` is only compressed raw bytes visibility and cannot determine true PDF award membership. Three other award tiers show old LKG full index; P1 direct lookup must preserve official SHA, completeness and negative-proof semantics, parallel to comprehensive fixture parity before production activation. Issue #13 OPEN / PR #45 Draft Merge HOLD / no financial writes.
