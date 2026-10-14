@@ -9,6 +9,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
@@ -42,6 +43,9 @@ class PlatformPdfCandidateWorkerService : Service() {
     private const val NOTIFICATION_CHANNEL_ID = "cloud_award_pdf_worker"
     private const val NOTIFICATION_ID = 1320476
     private const val OPEN_HEARTBEAT_INTERVAL_MS = 2_000L
+    // Prevent a sleeping screen from suspending SHA-256 + candidate lookup.
+    // This is time-bounded; Android may still reclaim an isolated process.
+    private const val CANDIDATE_WAKE_LOCK_MAX_MS = 30 * 60 * 1000L
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -68,7 +72,14 @@ class PlatformPdfCandidateWorkerService : Service() {
     val requestId = intent.getStringExtra(EXTRA_REQUEST_ID).orEmpty()
 
     thread(start = true, name = "issue13-platform-cloud500-worker") {
+      var wakeLock: PowerManager.WakeLock? = null
       try {
+        val manager = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = manager.newWakeLock(
+          PowerManager.PARTIAL_WAKE_LOCK,
+          "$packageName:cloud_award_candidate_verification"
+        ).apply { setReferenceCounted(false) }
+        wakeLock.acquire(CANDIDATE_WAKE_LOCK_MAX_MS)
         runLookup(
           pdfPath,
           candidatesJson,
@@ -87,6 +98,11 @@ class PlatformPdfCandidateWorkerService : Service() {
           "PLATFORM_WORKER_FAILED:${error.javaClass.simpleName}"
         )
       } finally {
+        try {
+          if (wakeLock?.isHeld == true) wakeLock.release()
+        } catch (_: RuntimeException) {
+          // A timed-out wake lock is already released by Android.
+        }
         stopForeground(true)
         stopSelf(startId)
       }
