@@ -455,6 +455,19 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                 'PLATFORM_RENDERER_OPEN_WAIT' =>
                   '背景服務程序仍存活，Android 系統 PDF 引擎正在開啟大型 PDF · '
                       '已耗時 $elapsed · 預估剩餘：尚無法可靠估算',
+                'PLATFORM_RENDERER_OPEN_OK' =>
+                  'Android PDF 已開啟 · 共 ${progress.pageCount} 頁 · '
+                      '候選 ${progress.candidateCount} 筆 · '
+                      '開始排序搜尋$timedSuffix',
+                'PLATFORM_RENDERER_PAGE_BEGIN' =>
+                  '正在讀取官方 PDF 第 ${progress.pageNumber}/'
+                      '${progress.pageCount} 頁（尚未完成此頁） · '
+                      '候選 ${progress.candidateIndex}/'
+                      '${progress.candidateCount}$timedSuffix',
+                'PLATFORM_RENDERER_CANDIDATE_SEARCH' =>
+                  '排序搜尋候選 ${progress.candidateIndex}/'
+                      '${progress.candidateCount} · '
+                      '實際讀取 ${progress.pagesRead} 頁$timedSuffix',
                 _ =>
                   '候選號碼 ${progress.candidateIndex}/'
                       '${progress.candidateCount} · '
