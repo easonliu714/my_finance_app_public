@@ -77,13 +77,17 @@ class InvoiceAwardRunningTaskBridge extends ChangeNotifier {
   void publish(int generation, InvoiceAwardRunningTaskSnapshot snapshot) {
     if (!_active ||
         generation != _generation ||
-        snapshot.periodId != _periodId) return;
+        snapshot.periodId != _periodId) {
+      return;
+    }
     _snapshot = snapshot;
     notifyListeners();
   }
 
   void finish(int generation, String periodId) {
-    if (!_active || generation != _generation || periodId != _periodId) return;
+    if (!_active || generation != _generation || periodId != _periodId) {
+      return;
+    }
     _active = false;
     notifyListeners();
   }

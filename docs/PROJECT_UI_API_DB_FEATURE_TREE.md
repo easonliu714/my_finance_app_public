@@ -572,3 +572,10 @@ Bridge keys: one active periodId, monotonically increasing task generation lease
 Process restart or wrong period has no trusted running authority (UNKNOWN/HOLD). Kotlin worker requestId/native PDF SHA/candidate universe SHA/PID/updatedAt evidence are not yet bridged and remain follow-up P0 Gate B; do not conflate UI reentry with authenticated native completion or PDF performance resolution.
 Owner 4.20.35+493 back-to-top real device 22:38 PASS; exact Flutter CI 38562431249 SUCCESS and genuine Signed 38562441477 SUCCESS. Long-result floating 回頁首 UI CLOSED. Screenshot still reports cloud500 cached PDF awaiting parsing; full cloud500 result HOLD.
 Gate A new 4.20.36+494 code + unit tests SOURCE CANDIDATE only until new exact-head CI/Signed + owner. No new API, SQLite migration, user data write, formal posting or PDF source replacement. Existing POSTED 500+200=700 untouched; PR45 DRAFT/OPEN/MERGE HOLD.
+
+
+
+## 2026-10-14 22:56 — 4.20.36 first exact-head CI analyzer hotfix
+
+- Candidate HEAD bd5b0db103176a04926632546d3ad3a1eeb9774e: Flutter CI [38584739463](https://github.com/easonliu714/my_finance_app_public/actions/runs/38584739463) FAIL at first step Analyze Dart code; exact log `curly_braces_in_flow_control_structures` on running_task_bridge.dart:80, 1 issue. True Signed [38584754253](https://github.com/easonliu714/my_finance_app_public/actions/runs/38584754253) fails at waiting for CI authority, signing not attempted.
+- Strict smallest-safe repair: wrap BOTH generation/identity fail-closed early-return branches in explicit braces. No predicate/value/API/DB/worker change, version remains 4.20.36+494, previous CI evidence INVALID after new HEAD. Run full fresh exact-head Flutter CI and true Signed, do not blind rerun previous failed run. Gate A code only, P0 native Gate B still HOLD.
