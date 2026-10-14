@@ -174,7 +174,7 @@ void main() {
     expect(largeWorkerSource, contains('PowerManager.PARTIAL_WAKE_LOCK'));
     expect(largeWorkerSource, contains('CANDIDATE_WAKE_LOCK_MAX_MS'));
     expect(largeWorkerSource, contains('wakeLock.acquire('));
-    expect(largeWorkerSource, contains('wakeLock.release()'));
+    expect(largeWorkerSource, contains('if (it.isHeld) it.release()'));
     expect(pluginSource, contains('getHistoricalProcessExitReasons'));
     expect(pluginSource, contains('"exitReasonCode" to exitReasonCode'));
     expect(candidateSource, contains("'_OS_EXIT_"));
