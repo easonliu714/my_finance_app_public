@@ -1,7 +1,10 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+> **CURRENT 2026-10-14 20:11:** 4.20.35 CI failed two tests; focused widget viewport and strict version pin repair; cloud500 P0 still HOLD. Latest appendix controls.
+
 > **CURRENT 2026-10-14 15:32:** 4.20.34 Flutter CI/Signed PASS, Owner cloud500 FAIL; 4.20.35+493 Back-to-Top UI CODE-only; P0 native reattach remains HOLD. Latest appendix controls.
-\n> **CURRENT 2026-10-14:** 4.20.33 native background survives lock in Owner observation, completion >5min HOLD. 4.20.34 native stage visible after lifecycle resume SOURCE only; CI/Owner device pending. Latest appendix prevails over historical status lines.
+
+> **CURRENT 2026-10-14:** 4.20.33 native background survives lock in Owner observation, completion >5min HOLD. 4.20.34 native stage visible after lifecycle resume SOURCE only; CI/Owner device pending. Latest appendix prevails over historical status lines.
 
 > **CURRENT 2026-10-14:** Group UX 4.20.32 Owner PASS; cloud500 4.20.33 screen-off Worker mitigation CODE only and exact-head CI/DEVICE PENDING. Other cloud tiers targeted search next governed gate; earlier NEXT labels historical.
 
@@ -552,3 +555,10 @@ App / DB / Native / Source authority:
 ```
 
 4.20.34 had Flutter exact CI #38504361693 SUCCESS & Signed Canary #38504368496 SUCCESS but Owner Android pop/push worker UI state lost and cloud500 had >2min without measurable native stage; **Owner 4.20.34 FAIL**, full cloud500 HOLD. New 4.20.35+493 navigation is CODE-only until new exact-head tests, signed SHA/cert and Owner test; not a fix for background task reattachment. P0 next remains lifecycle route reentry/native identity/heartbeat observation before performance tuning. PR #45 stays OPEN/DRAFT/MERGE HOLD; original ledger POSTED500+200=700 frozen.
+
+## 2026-10-14 20:11 Asia/Taipei — 4.20.35 CI exact-first-failure repair + missed hourly progression
+
+- **Owner escalation**: no PR #45 code commit/CI progression after 15:40 failure through 20:11; an enabled hourly task does not prove execution. Monitor actual last-run + GitHub delta; if a cycle fails to perform work, record HOLD, do not claim progress.
+- Failed HEAD `9c446c87abf21c815ecdb0398eba4f7d04c4e62b`: Flutter Android CI [38529830787](https://github.com/easonliu714/my_finance_app_public/actions/runs/38529830787) FAILURE at 15:44 Asia/Taipei; first red step `Run tests`, **two known deterministic failures**: `test/invoice_award_check_route_test.dart:134` empty-state 360x800 page maximum offset only 322, unable to reach intentional >560px FAB threshold; `test/p4_20_5_release_authority_test.dart:7` still expected 4.20.34+492 rather than actual 4.20.35+493. True Signed [38529838357](https://github.com/easonliu714/my_finance_app_public/actions/runs/38529838357) FAILURE because exact-head CI authority wait correctly refused; signing itself was never reached.
+- Smallest repair: use 360x300 widget-test viewport for deep-scroll fixture (no fake invoice/backend/ledger entries), assert maxScrollExtent >560 then scroll/tap/hide unchanged. Align historical release-authority test to strict 4.20.35+493 and exact `issue-13-award-scroll-back-to-top-493` phase. **No production changes, no weakened assertions**, no PDF/worker/SQLite mutation. Update both canonical docs in same PR commit. New head needs new full CI and true Signed before Owner READY; old CI must never be carried forward.
+- P0 still mandatory `ISSUE13_CLOUD500_NATIVE_TASK_REATTACH_AND_STAGE_PROOF`; route reentry bug from 4.20.34 owner FAIL and cloud500 latency remain HOLD. Preserve PDF source SHA, candidate universe, LKG and POSTED 500+200=700, PR Draft/Open/Merge HOLD.

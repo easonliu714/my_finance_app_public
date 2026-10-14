@@ -107,7 +107,9 @@ void main() {
 
   testWidgets('award page floating back-to-top returns without changing data',
       (tester) async {
-    await tester.binding.setSurfaceSize(const Size(360, 800));
+    // Simulate deep scrolling with a short viewport, without fabricating
+    // official invoice candidates or changing production source.
+    await tester.binding.setSurfaceSize(const Size(360, 300));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final router = GoRouter(
       initialLocation: InvoiceAwardCheckPage.routePath,
@@ -131,6 +133,7 @@ void main() {
 
     await tester.drag(scrollFinder, const Offset(0, -1100));
     await tester.pumpAndSettle();
+    expect(scroll.controller!.position.maxScrollExtent, greaterThan(560));
     expect(scroll.controller!.offset, greaterThan(560));
     expect(backToTop, findsOneWidget);
     expect(find.byTooltip('回頁首'), findsOneWidget);
