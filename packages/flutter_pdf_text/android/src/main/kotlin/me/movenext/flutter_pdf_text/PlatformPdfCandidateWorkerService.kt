@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.graphics.pdf.PdfRenderer
 import android.os.Build
@@ -74,7 +75,7 @@ class PlatformPdfCandidateWorkerService : Service() {
     thread(start = true, name = "issue13-platform-cloud500-worker") {
       var wakeLock: PowerManager.WakeLock? = null
       try {
-        val manager = getSystemService(POWER_SERVICE) as PowerManager
+        val manager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = manager.newWakeLock(
           PowerManager.PARTIAL_WAKE_LOCK,
           "$packageName:cloud_award_candidate_verification"
@@ -99,7 +100,7 @@ class PlatformPdfCandidateWorkerService : Service() {
         )
       } finally {
         try {
-          if (wakeLock?.isHeld == true) wakeLock.release()
+          wakeLock?.let { if (it.isHeld) it.release() }
         } catch (_: RuntimeException) {
           // A timed-out wake lock is already released by Android.
         }
