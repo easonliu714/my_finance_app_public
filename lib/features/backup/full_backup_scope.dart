@@ -6,7 +6,7 @@ class FullBackupScope {
   const FullBackupScope._();
 
   static const int exportFormatVersion = 2;
-  static const int backupScopeVersion = 8;
+  static const int backupScopeVersion = 9;
   static const int databaseSchemaVersion = canonicalProductionSchemaVersion;
 
   static const Set<int> supportedExportFormatVersions = <int>{1, 2};
@@ -18,6 +18,7 @@ class FullBackupScope {
     6,
     7,
     8,
+    9,
   };
 
   static const List<String> requiredTableNames = <String>[
@@ -84,9 +85,21 @@ class FullBackupScope {
     'merchant_identity_observations',
   ];
 
-  static const List<String> backupTableNames = <String>[
+  static const List<String> legacyScopeV8TableNames = <String>[
     ...legacyScopeV7TableNames,
     ...merchantIdentityUserTableNames,
+  ];
+
+  /// Expense categories are user-owned choices, not disposable cache.
+  /// Scope V9 includes them so complete backup can round-trip custom names,
+  /// archived flags and their stable identifiers.
+  static const List<String> scopeV9UserTableNames = <String>[
+    'expense_categories',
+  ];
+
+  static const List<String> backupTableNames = <String>[
+    ...legacyScopeV8TableNames,
+    ...scopeV9UserTableNames,
   ];
 
   static const Set<String> scopeV3OptionalForLegacyRestore = <String>{
@@ -114,6 +127,10 @@ class FullBackupScope {
 
   static const Set<String> scopeV8OptionalForLegacyRestore = <String>{
     ...merchantIdentityUserTableNames,
+  };
+
+  static const Set<String> scopeV9OptionalForLegacyRestore = <String>{
+    ...scopeV9UserTableNames,
   };
 
   static const Set<String> explicitlyExcludedTableNames = <String>{

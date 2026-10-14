@@ -3,6 +3,7 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - poc/sqlcipher_android/**
+    - packages/flutter_pdf_text/**
   errors:
     use_build_context_synchronously: ignore
 
