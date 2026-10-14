@@ -1,5 +1,7 @@
 # 記帳軟體 Roadmap／PR／Issues 結案稽核與防重工治理
 
+> **CURRENT 2026-10-14 09:07:** 4.20.32 Group UX Owner PASS & exact CI/Signed PASS. New cloud-500 worker screen-off regression OWNER FAIL; 4.20.33 worker mitigation CODE ONLY/CI PENDING. Other cloud tiers candidate direct lookup gated next. See latest appendix; older NEXT/CURRENT headers are historical.
+
 > **CURRENT GATE 2026-10-14:** 4.20.31+489 backup/restore OWNER PASS and exact CI/Signed PASS; 4.20.32+490 Issue #4 existing group balance caption semantics CODE only. See latest appendix at document end; old NEXT CANDIDATE/CI labels below are historical.
 
 ## NEXT CANDIDATE AUTHORITY — 4.20.30+488 Issue #4 年度摘要可讀性（2026-10-13）
@@ -255,3 +257,21 @@ my_finance_app_public — 台灣個人記帳（五分頁：帳戶／計畫／首
 - **當前僅 SOURCE COMMITTED / Flutter CI=NEW EXACT HEAD PENDING / 真 Signed Canary=PENDING / 新 APK SHA signer=PENDING / OWNER DEVICE=PENDING。** 無新版本 CI 證據前不可宣稱 4.20.32 READY。
 - Owner 實機 Gate：帳戶首頁按類型展開／收合、銀行＋一卡通 Money、信用卡／借貸（若現存可驗）、非 TWD 群組文字；核對數字不變／Reference FX 標籤／沒有將負債寫成淨資產。沒有必要的帳戶類型時保留待驗，用隔離 fixture 測試，不新建真實金流。
 - Issue #4 的實機文字語意 Gate 過後仍需依原 DoD 稽核信用卡、貸款、投資及混合幣別的真實餘額定義；不因標籤補強就整張 CLOSE。Issue #13 保留原未完成項目；Issue #18 Encryption 保留最終階段。
+
+## 2026-10-14 09:07 Owner 4.20.32 PASS／雲端 500 Worker 鎖屏回歸與其他獎別搜尋
+
+### 4.20.32 已接受的實機分組 Gate
+
+- Owner 七張 Android 實機截圖明確表示 4.20.32+490 **帳戶群組顯示／展開收合 PASS**。現金 -148 TWD；銀行 2 帳戶彙總 700 TWD（舊 0、新中國信託 5445 700）；信用卡 -75 TWD，仍顯示帳面餘額非待繳款或額度。原 POSTED 500+200=700 維持，不得重新補登。**僅受截圖支持的 UI Gate PASS**；其他帳戶/外幣及完整 Issue #4 DoD 仍 OPEN。
+- GitHub exact 4.20.32 HEAD `2c90c14eccbd43771db795420aa9774389854090` Flutter Android CI [38442351717](https://github.com/easonliu714/my_finance_app_public/actions/runs/38442351717) **SUCCESS**、真正 workflow_dispatch Signed Canary [38442361870](https://github.com/easonliu714/my_finance_app_public/actions/runs/38442361870) **SUCCESS**。此舊 HEAD 不能替代後繼修補的 CI。
+
+### 新 P0 Owner 回歸：115-07-08 雲端專屬 500 元獎 Worker 在來源 SHA 階段終止
+
+- 新手機重新下載發票／比對後，於 2026-10-14 約 08:08–08:17 +08，Owner 截圖表明 cloud-500 `CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_PLATFORM_SOURCE_SHA256`，App 回報「本次雲端專屬獎更新不完整，保留既有 LKG」。這是一個**真實 OWNER FAIL**，先前 4.20.32 已完成的帳戶分組 Gate 不應因此翻為 FAIL。
+- 客觀階段：官方 500 PDF 128.9 MiB（135,200,798 B）已下載/緩存、診斷結構顯示 PDF 1.5、`xrefStream`、`raw_candidate_hits=0/47`（只表示壓縮 raw window 看不到候選號碼，非查無中獎）、之後 Android platform PdfRenderer **獨立前景 Service** 在 **重新串流確認 PDF SHA-256** 階段進程死亡，**尚未完成候選二分搜尋**。Owner 觀察鎖屏時間相近，但 OS 的 low-memory、ANR 或背景政策等 **具體死因尚無證據**；不可宣稱已證明鎖屏是唯一根因。
+- 既有 500 最佳化並非缺失：`PdfiumCloudAwardSortedPdfCandidateLookup` 已對官方 sorted 500 PDF 用 exact on-device candidates + binary page search，且 120 MiB 以上使用 `PlatformPdfCandidateWorkerService` 隔離（Android API 35+）；**500 元並非逐頁全量索引**。其他三獎 `cloud-800` (100,000 rows)、`cloud-2000` (16,000)、`cloud-1000000` (30) 目前走 `CloudAwardPdfIndexBuilder.buildCandidate` 完整逐頁建立索引；三者也取得 `_sorted_` 官方 PDF，技術上可導入直接候選搜尋，但不得以 PDF raw byte 字串檢索或單次命中推出完整「未中獎」權威。
+- Current successor **4.20.33+491** `issue-13-cloud-worker-screenoff-491` 已 CODE COMMITTED，對 platform worker 的前景 Service 任務加入 **30 分鐘上限 PARTIAL_WAKE_LOCK**（Manifest 顯式 `android.permission.WAKE_LOCK`，完成或失敗 finally release）；Android 30+ 原始 PID 的 ApplicationExitInfo exitReasonCode 只作死亡診斷，失敗字串可加 `_OS_EXIT_<code>`。醒著不代表不會因 LMK/系統限制被終止，絕不得改成「Lock screen 不會中斷保證」。保留完整官方 PDF SHA／候選 universe SHA、LKG fail-closed、分階段的原生檔案證據與獎金人工授權流程，不改 DB/正式 POSTED。
+- 新增 `test/features/invoice/invoice_award_cloud_lifecycle_contract_test.dart` 防退化斷言，Lab / pubspec / build metadata / 四份 release 契約對齊 4.20.33。**最新 exact HEAD Flutter Analyze/full tests/debug APK=待新 CI；Signed Canary/簽章/Owner 鎖屏實機=待驗，不可把 4.20.32 GREEN 外推為 4.20.33 成功。**
+- 4.20.33 UAT：同批 115-07-08、47 候選、官方 500 PDF 128.9MB，螢幕亮著對照一次、鎖屏 1–3 分鐘後回 App 一次；需 native worker 仍進度且 source SHA pass、在已排序 PDF 只讀少量候選頁；若失敗檢查同一錯誤 stage + `OS_EXIT` 診斷，不要求使用者關閉全域電池保護或無限制開放背景權限；依實際平台保護限制決定是否 HOLD。保留 800/2000/1000000 LKG。不得要求重複正式入帳。
+- **下一個原定 P1 功能 Gate**（與 4.20.33 隔離版本，避免同時改兩種失敗面）：將候選範圍 exact match / 官方 sorted PDF 二分查找擴展至 `cloud-800`、`cloud-2000`、`cloud-1000000`；先有各 tier 實際官方 PDF fixture 與全量 index parity、上下界與相鄰頁/負例、source URL+SHA+length+candidate-universe SHA+page evidence 與 FAIL-CLOSED 恢復證據，然後再打開分流；不得將單純 `raw_candidate_hits=0` 當「未中獎」或直接略過 PDF source authority。既有 500 搜尋與一般獎邊界不變。
+- PR #45 DRAFT/OPEN/MERGE HOLD；Issue #13 仍 OPEN 且標記 cloud 500 worker 回歸；Issue #4 已完成分組顯示的特定 Owner Gate，但原完整多幣別/借貸 DoD 仍 OPEN；Issue #18 留待最後 schema freeze/encryption。
