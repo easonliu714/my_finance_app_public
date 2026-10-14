@@ -114,6 +114,30 @@ void main() {
       lifecycleSource,
       contains('state == AppLifecycleState.resumed'),
     );
+    expect(
+      lifecycleSource,
+      contains('最後收到的背景進度（尚未完成驗證）'),
+    );
+    expect(lifecycleSource, contains('_cloudTierSummaries[tier]'));
+    expect(
+      lifecycleSource,
+      isNot(contains('正在同步背景雲端獎比對進度與結果。')),
+    );
+    // Diagnostics must distinguish opening an 87,000-page PDF from slow
+    // per-page searches. No timeout or SHA skip may be used as a workaround.
+    expect(
+      foregroundSource,
+      contains("'PLATFORM_RENDERER_OPEN_WAIT' =>"),
+    );
+    expect(
+      foregroundSource,
+      contains("'PLATFORM_RENDERER_PAGE_BEGIN' =>"),
+    );
+    expect(
+      foregroundSource,
+      contains("'PLATFORM_RENDERER_CANDIDATE_SEARCH' =>"),
+    );
+
     final disposeStart = pageSource.indexOf('void dispose()');
     final disposeEnd =
         pageSource.indexOf('void didChangeAppLifecycleState', disposeStart);
