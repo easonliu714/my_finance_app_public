@@ -1,5 +1,7 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+> **CURRENT 2026-10-14:** 4.20.33 native background survives lock in Owner observation, completion >5min HOLD. 4.20.34 native stage visible after lifecycle resume SOURCE only; CI/Owner device pending. Latest appendix prevails over historical status lines.
+
 > **CURRENT 2026-10-14:** Group UX 4.20.32 Owner PASS; cloud500 4.20.33 screen-off Worker mitigation CODE only and exact-head CI/DEVICE PENDING. Other cloud tiers targeted search next governed gate; earlier NEXT labels historical.
 
 > **CURRENT 2026-10-14:** Backup Scope V9 4.20.31 OWNER PASS; 4.20.32 Account Group Balance Semantics CODE-only. Details in latest appendix; prior CURRENT/NEXT labels are historical checkpoints.
@@ -485,3 +487,43 @@ Other modules and statuses:
 ```
 
 Owner 2026-10-14 approximately 08:08–08:17 +08 screenshot reports `CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_PLATFORM_SOURCE_SHA256` at existing platform SOURCE SHA gate, **before actual PDF candidate search**. Screen lock correlates but reason unknown until reliable OS exit evidence. PDF raw structure diagnostic `raw_candidate_hits=0/47` is only compressed raw bytes visibility and cannot determine true PDF award membership. Three other award tiers show old LKG full index; P1 direct lookup must preserve official SHA, completeness and negative-proof semantics, parallel to comprehensive fixture parity before production activation. Issue #13 OPEN / PR #45 Draft Merge HOLD / no financial writes.
+
+## 2026-10-14 4.20.33 鎖屏存活／500元 PDF 長耗時診斷 → 4.20.34
+
+```text
+Owner 4.20.33+491 (Android 10:47~10:56) observed:
+    Screen-off / switch-App survival = PASS (observed; not guaranteed for every device)
+    Official PDF 135200798 bytes cached, local candidate set=47
+    Partial cloud-500 RESULT after 8min = NOT PROVIDED / FULL GATE HOLD
+    native phase on screenshot = AMBIGUOUS, lifecycle overwritten with generic sync
+
+4.20.34+492 current SOURCE-only code (exact head CI + Signed Canary + Owner PENDING)
+    InvoiceAwardProductionPage.didChangeAppLifecycleState(resumed)
+        └─ uses latest _cloudTierSummaries[_activeCloudTierCode]
+             = last actually received native stage; NOT fabricated 'syncing'
+        CloudAwardForegroundAcquisitionService.findMatches(onProgress)
+        ├─ PLATFORM_SOURCE_SHA256 → full rehash progress / length / ETA
+        ├─ PLATFORM_RENDERER_OPEN_BEGIN / WAIT → start/open duration
+        ├─ PLATFORM_RENDERER_OPEN_OK → actual parsed PDF page count
+        ├─ PLATFORM_RENDERER_PAGE_BEGIN → page number and candidate n/47
+        └─ PLATFORM_RENDERER_CANDIDATE_SEARCH → actual pagesRead and elapsed
+             (native stage only; raw PDF structural matches 0/47 ≠ confirmed non-winner)
+    test/.../invoice_award_cloud_lifecycle_contract_test.dart
+        └─ prevent generic status from erasing stage; assert differentiated stages
+
+Unchanged in 4.20.34:
+    PDF structure probe & SHA, Android PlatformPdfCandidateWorkerService
+    PARTIAL_WAKE_LOCK 30min upper bound, separate worker pid/liveness
+    true SHA full official PDF, source URL and file bytes
+    candidate set and official sorted-page binary lookup/parity
+    cache/LKG fail-closed, general award, manual formal-posted 500+200=700
+    SQLite tables, business API, Bank direct readback = NO CHANGE
+
+Follow-up:
+    Need owner elapsed stage screenshot/terminal result to choose real optimization.
+    P1 other sorted cloud tiers 800/2000/million candidate parity remains WAIT,
+    no broad migration, no destructive rewrite, Issue #13 stays OPEN,
+    PR #45 Draft/OPEN/Merge HOLD.
+```
+
+這一版只補實際進度的可觀測性（不是速度或完成的驗證）。實際下載／SHA、PDF 開啟與候選搜尋的瓶頸未由 Owner 截圖直接判明；不得把畫面的「更新中」當成功，不得自行把長時間等待改成完整陰性對獎。
