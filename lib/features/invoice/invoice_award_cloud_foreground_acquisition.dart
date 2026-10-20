@@ -449,6 +449,10 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
                       '${_formatCloudWorkerBytes(progress.sourceBytesRead)}'
                       '/${_formatCloudWorkerBytes(progress.sourceBytesTotal)} · '
                       '已耗時 $elapsed · 預估剩餘 $eta',
+                'PLATFORM_WORKER_HEARTBEAT_STALE' =>
+                  '原生工作心跳已逾時，目前沒有可確認的新處理進度；'
+                      '正持續確認背景工作狀態 · 已耗時 $elapsed · '
+                      '預估剩餘：尚無法可靠估算',
                 'PLATFORM_RENDERER_OPEN_BEGIN' =>
                   '背景服務正在以 Android 系統 PDF 引擎開啟大型 PDF · '
                       '已耗時 $elapsed · 預估剩餘：尚無法可靠估算',

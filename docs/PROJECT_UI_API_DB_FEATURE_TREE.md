@@ -579,3 +579,11 @@ Gate A new 4.20.36+494 code + unit tests SOURCE CANDIDATE only until new exact-h
 
 - Candidate HEAD bd5b0db103176a04926632546d3ad3a1eeb9774e: Flutter CI [38584739463](https://github.com/easonliu714/my_finance_app_public/actions/runs/38584739463) FAIL at first step Analyze Dart code; exact log `curly_braces_in_flow_control_structures` on running_task_bridge.dart:80, 1 issue. True Signed [38584754253](https://github.com/easonliu714/my_finance_app_public/actions/runs/38584754253) fails at waiting for CI authority, signing not attempted.
 - Strict smallest-safe repair: wrap BOTH generation/identity fail-closed early-return branches in explicit braces. No predicate/value/API/DB/worker change, version remains 4.20.36+494, previous CI evidence INVALID after new HEAD. Run full fresh exact-head Flutter CI and true Signed, do not blind rerun previous failed run. Gate A code only, P0 native Gate B still HOLD.
+
+
+## 2026-10-20 — Gate B native-heartbeat stale UI fail-closed partial repair (CI pending)
+
+- Existing PR #45 / `issue-13-invoice-award-official-data`; release remains `4.20.36+494` while owner-ready Gate B is HOLD. No version bump or Signed APK delivery is authorized by this partial change.
+- P0 safe Dart-only scope: stale native heartbeat after 15s now maps to explicit `PLATFORM_WORKER_HEARTBEAT_STALE` status, never synthetic `PLATFORM_RENDERER_OPEN_WAIT`. PID liveness continues to be probed without implying new pages, source authority, success, or official negative evidence. Six focused Flutter tests cover fresh/boundary/stale/future timestamps.
+- Native Kotlin `writeRunning` expected PDF SHA/bytes/candidate-universe SHA is NOT implemented by this change; prior platform rejection is still unresolved. `Gate B = HOLD`; 10/14 CI and Signed Canary cannot validate this new code. Require new exact-HEAD Flutter CI, subsequent native provenance completion and independently validated Signed APK before Owner Android UAT.
+- Preserve approved official PDF cache/LKG and already POSTED NT$500+NT$200=NT$700. Do not change SQLite, auto-post payouts, or merge PR #45.

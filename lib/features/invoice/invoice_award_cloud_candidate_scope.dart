@@ -123,6 +123,20 @@ typedef CloudAwardSortedPdfCandidateProgressCallback = void Function(
   CloudAwardSortedPdfCandidateProgress progress,
 );
 
+/// UI-only status classification. A stale/missing native heartbeat is not
+/// evidence of additional pages, PDF opening progress, or task completion.
+String cloudAwardNativeHeartbeatDisplayStage({
+  required String nativeStage,
+  required Duration heartbeatAge,
+}) {
+  if (heartbeatAge.isNegative ||
+      heartbeatAge > PdfiumCloudAwardSortedPdfCandidateLookup
+          .workerHeartbeatProbeAfter) {
+    return 'PLATFORM_WORKER_HEARTBEAT_STALE';
+  }
+  return nativeStage;
+}
+
 class CloudAwardCandidateLookupCancelled implements Exception {
   const CloudAwardCandidateLookupCancelled();
 
@@ -175,14 +189,12 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   // Android process with disk-backed scratch. If that worker is killed, the
   // Flutter process survives and no partial candidate authority is promoted.
   static const int crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024;
-  // A missing worker-file heartbeat is only a prompt to verify the dedicated
-  // Android process. It is NOT a timeout. If the OS still reports the exact
-  // worker PID alive, the lookup continues indefinitely and the UI emits
-  // synthetic elapsed-time progress until native PDFium produces measurable
-  // progress again.
+  // A stale worker-file heartbeat triggers an OS liveness probe, not a
+  // timeout or evidence of new processing. Report an explicit STALE status
+  // while native progress cannot be verified, even if the PID is alive.
   static const Duration workerHeartbeatProbeAfter = Duration(seconds: 15);
   static const Duration workerLivenessProbeEvery = Duration(seconds: 2);
-  static const Duration syntheticOpenProgressEvery = Duration(seconds: 1);
+  static const Duration staleHeartbeatNoticeEvery = Duration(seconds: 10);
 
   @override
   Future<CloudAwardSortedPdfCandidateMatchResult> findMatches({
@@ -415,7 +427,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     var lastStage = 'STARTED';
     var lastWorkerPid = 0;
     var lastLivenessProbeAt = workerStartedAt;
-    var lastSyntheticProgressAt = workerStartedAt;
+    var lastStaleNoticeAt = workerStartedAt;
 
     while (true) {
       cancellation?.throwIfCancelled();
@@ -553,9 +565,9 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                 );
               }
             }
-            if (now.difference(lastSyntheticProgressAt) >=
-                syntheticOpenProgressEvery) {
-              lastSyntheticProgressAt = now;
+            if (now.difference(lastStaleNoticeAt) >=
+                staleHeartbeatNoticeEvery) {
+              lastStaleNoticeAt = now;
               onProgress?.call(
                 CloudAwardSortedPdfCandidateProgress(
                   candidateIndex: candidateIndex,
@@ -563,9 +575,10 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                   pageNumber: pageNumber,
                   pageCount: pageCount,
                   pagesRead: pagesRead,
-                  stage: stage == 'PLATFORM_RENDERER_OPEN_BEGIN'
-                      ? 'PLATFORM_RENDERER_OPEN_WAIT'
-                      : stage,
+                  stage: cloudAwardNativeHeartbeatDisplayStage(
+                    nativeStage: stage,
+                    heartbeatAge: now.difference(lastHeartbeatAt),
+                  ),
                   elapsed: now.difference(workerStartedAt),
                   estimatedRemaining: null,
                   sourceBytesRead: sourceBytesRead,
