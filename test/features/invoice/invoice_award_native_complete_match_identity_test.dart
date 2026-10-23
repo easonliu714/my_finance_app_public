@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_candidate_scope.dart';
 
@@ -14,6 +15,32 @@ void main() {
           matchedPagesRaw: pages,
           expectedCandidates: expected,
         );
+
+
+    test('COMPLETE consumer invokes strict identity gate before lossy normalize', () {
+      final source = File(
+        'lib/features/invoice/invoice_award_cloud_candidate_scope.dart',
+      ).readAsStringSync();
+      final consumer = source.indexOf(
+        'final identityViolation = cloudAwardNativeCompleteMatchedIdentityViolation(',
+      );
+      expect(consumer, greaterThan(0));
+      final normalize = source.indexOf(
+        'final matched = normalizeCloudCandidateNumbers(',
+        consumer,
+      );
+      expect(normalize, greaterThan(consumer));
+      expect(
+        source.indexOf('throw StateError(identityViolation);', consumer),
+        inInclusiveRange(consumer, normalize),
+      );
+      expect(
+        'String? cloudAwardNativeCompleteMatchedIdentityViolation({'
+            .allMatches(source)
+            .length,
+        1,
+      );
+    });
 
     test('accepts exact positive identities with matching page keys', () {
       expect(
