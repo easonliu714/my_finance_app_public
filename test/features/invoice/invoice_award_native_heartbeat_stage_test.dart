@@ -260,7 +260,7 @@ void main() {
     test('rejects unbounded or untrusted failure text', () {
       for (final error in <String>[
         'http://untrusted.invalid/data',
-        'PLATFORM_WORKER_FAILED:' + List<String>.filled(130, 'X').join(),
+        'PLATFORM_WORKER_FAILED:${List<String>.filled(130, 'X').join()}',
       ]) {
         expect(
           violation(validFailedTerminal()..['error'] = error),
