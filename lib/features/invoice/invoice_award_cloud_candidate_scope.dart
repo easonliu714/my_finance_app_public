@@ -274,6 +274,35 @@ String? cloudAwardNativeCompleteTerminalViolation({
   return null;
 }
 
+/// Reject lossy numeric coercion in native COMPLETE evidence. A fractional,
+/// textual, or boolean JSON value must not become an authoritative page,
+/// candidate count, or source byte count through num.toInt().
+/// This is shape validation only, not global negative-search coverage.
+String? cloudAwardNativeCompleteNumericEvidenceViolation({
+  required Map<String, dynamic> terminal,
+}) {
+  for (final field in <String>[
+    'page_count',
+    'pages_read',
+    'candidate_count',
+    'source_bytes',
+  ]) {
+    if (terminal[field] is! int) {
+      return 'CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID';
+    }
+  }
+  final matchedPages = terminal['matched_pages'];
+  if (matchedPages is! Map<String, dynamic>) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID';
+  }
+  for (final page in matchedPages.values) {
+    if (page is! int) {
+      return 'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH';
+    }
+  }
+  return null;
+}
+
 /// Validate only fields currently emitted by Kotlin's FAILED publisher.
 /// This does not establish native PID/stage custody or durable retention.
 String? cloudAwardNativeFailedTerminalViolation({
@@ -838,14 +867,21 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           if (terminalViolation != null) {
             throw StateError(terminalViolation);
           }
-          final pageCount = (decoded['page_count'] as num?)?.toInt() ?? 0;
-          final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;
-          final candidateCount =
-              (decoded['candidate_count'] as num?)?.toInt() ?? -1;
+          // Fail closed before any lossy num.toInt() conversion can
+          // turn fractional native evidence into apparently valid authority.
+          final numericViolation =
+              cloudAwardNativeCompleteNumericEvidenceViolation(
+            terminal: decoded,
+          );
+          if (numericViolation != null) {
+            throw StateError(numericViolation);
+          }
+          final pageCount = decoded['page_count'] as int;
+          final pagesRead = decoded['pages_read'] as int;
+          final candidateCount = decoded['candidate_count'] as int;
           final sourceSha256 =
               decoded['source_sha256']?.toString().toLowerCase() ?? '';
-          final sourceBytes =
-              (decoded['source_bytes'] as num?)?.toInt() ?? -1;
+          final sourceBytes = decoded['source_bytes'] as int;
           final candidateUniverseSha256 =
               decoded['candidate_universe_sha256']
                       ?.toString()
@@ -877,7 +913,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           for (final entry in matchedPagesRaw.entries) {
             final normalizedKey =
                 normalizeCloudCandidateNumbers(<String>[entry.key]);
-            final pageNumber = (entry.value as num?)?.toInt() ?? 0;
+            final pageNumber = entry.value as int;
             if (normalizedKey.length != 1 ||
                 !matched.contains(normalizedKey.single) ||
                 pageNumber < 1 ||
