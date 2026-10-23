@@ -167,6 +167,16 @@ String? cloudAwardNativeLivenessEnvelopeViolation({
       processName.length <= suffix.length) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PROCESS_MISMATCH';
   }
+  // Android's missing process-list entry is not proof of termination.
+  // Native -1 means no historical exit record; Android reason 0 is unknown.
+  final alive = liveness['alive'] as bool;
+  final exitReasonCode = liveness['exitReasonCode'] as int;
+  if (alive && exitReasonCode != -1) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_RESPONSE_INVALID';
+  }
+  if (!alive && exitReasonCode <= 0) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_UNVERIFIED';
+  }
   return null;
 }
 

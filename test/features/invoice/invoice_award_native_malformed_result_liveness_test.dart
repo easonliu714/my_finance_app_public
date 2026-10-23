@@ -264,4 +264,42 @@ void main() {
       'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PROCESS_MISMATCH',
     );
   });
+
+  // Real partial-result + observed PID integration: missing process-list
+  // membership alone cannot establish a historical process death.
+  test('no historical exit record stays liveness UNKNOWN', () async {
+    await expectInvalidLiveness(
+      <String, Object?>{
+        'alive': false,
+        'pid': 4242,
+        'processName': 'com.example.finance:platform_candidate_worker',
+        'exitReasonCode': -1,
+      },
+      'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_UNVERIFIED',
+    );
+  });
+
+  test('Android REASON_UNKNOWN is not verified process death', () async {
+    await expectInvalidLiveness(
+      <String, Object?>{
+        'alive': false,
+        'pid': 4242,
+        'processName': 'com.example.finance:platform_candidate_worker',
+        'exitReasonCode': 0,
+      },
+      'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_UNVERIFIED',
+    );
+  });
+
+  test('alive process cannot carry historical exit reason', () async {
+    await expectInvalidLiveness(
+      <String, Object?>{
+        'alive': true,
+        'pid': 4242,
+        'processName': 'com.example.finance:platform_candidate_worker',
+        'exitReasonCode': 9,
+      },
+      'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_RESPONSE_INVALID',
+    );
+  });
 }
