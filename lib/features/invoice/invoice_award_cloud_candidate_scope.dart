@@ -305,6 +305,30 @@ String? cloudAwardNativeFailedTerminalViolation({
   return null;
 }
 
+/// Preserve native failure, invalid-terminal, and partial/unknown search
+/// evidence for diagnosis. Only a fully validated, all-positive COMPLETE
+/// result is disposable. This does not guarantee native atomic publication,
+/// a retention quota, or persistent forensic custody.
+Future<void> cloudAwardCleanupNativeTerminalEvidence({
+  required File resultFile,
+  required String? terminalStatus,
+  required bool terminalValidated,
+  required int candidateCount,
+  required int matchedCount,
+}) async {
+  if (terminalStatus != 'complete' ||
+      !terminalValidated ||
+      candidateCount <= 0 ||
+      matchedCount != candidateCount) {
+    return;
+  }
+  try {
+    if (await resultFile.exists()) await resultFile.delete();
+  } catch (_) {
+    // Successful result cleanup is best-effort; never mask the lookup.
+  }
+}
+
 class CloudAwardCandidateLookupCancelled implements Exception {
   const CloudAwardCandidateLookupCancelled();
 
@@ -780,6 +804,12 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           continue;
         }
 
+        // A native terminal is retained unless it has passed all Dart
+        // checks AND every candidate has a positive, page-backed match.
+        // Failed, malformed, and partial/unknown results remain available
+        // for native failure investigation; this is not durable custody.
+        var terminalValidated = false;
+        var terminalMatchedCount = -1;
         try {
           if (status == 'failed') {
             // Reject forged or malformed native FAILED metadata before
@@ -863,19 +893,24 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH',
             );
           }
-          return CloudAwardSortedPdfCandidateMatchResult(
+          final verifiedResult = CloudAwardSortedPdfCandidateMatchResult(
             pageCount: pageCount,
             pagesRead: pagesRead,
             matchedInvoiceNumbers: matched,
             matchedPageNumbers:
                 Map<String, int>.unmodifiable(matchedPageNumbers),
           );
+          terminalValidated = true;
+          terminalMatchedCount = matched.length;
+          return verifiedResult;
         } finally {
-          try {
-            if (await resultFile.exists()) await resultFile.delete();
-          } catch (_) {
-            // Best-effort transient worker-result cleanup only.
-          }
+          await cloudAwardCleanupNativeTerminalEvidence(
+            resultFile: resultFile,
+            terminalStatus: status,
+            terminalValidated: terminalValidated,
+            candidateCount: candidates.length,
+            matchedCount: terminalMatchedCount,
+          );
         }
       }
       final now = DateTime.now();
