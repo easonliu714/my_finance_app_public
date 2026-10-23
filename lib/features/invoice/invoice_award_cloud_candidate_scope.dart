@@ -782,7 +782,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               ) &&
               now.difference(lastStaleNoticeAt) >= staleHeartbeatNoticeEvery) {
             lastStaleNoticeAt = now;
-            final previous = lastNativeProgress!;
+            final previous = lastNativeProgress;
             onProgress?.call(
               CloudAwardSortedPdfCandidateProgress(
                 candidateIndex: previous.candidateIndex,
