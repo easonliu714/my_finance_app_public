@@ -102,6 +102,37 @@ void main() {
       expect(violation(complete()..['pages_read'] = 13), isNull);
     });
 
+    // Kotlin records successful distinct page reads, not the largest page index.
+    test('rejects two distinct matched pages when only one page was read', () {
+      final result = complete()
+        ..['pages_read'] = 1
+        ..['matched_pages'] = <String, dynamic>{
+          'AB12345678': 100,
+          'CD12345678': 200,
+        };
+      expect(
+        violation(result),
+        'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH',
+      );
+    });
+
+    test('accepts two candidates sharing one successfully read page', () {
+      final result = complete()
+        ..['pages_read'] = 1
+        ..['matched_pages'] = <String, dynamic>{
+          'AB12345678': 100,
+          'CD12345678': 100,
+        };
+      expect(violation(result), isNull);
+    });
+
+    test('accepts a sparse high-index page with one native page read', () {
+      final result = complete()
+        ..['pages_read'] = 1
+        ..['matched_pages'] = <String, dynamic>{'AB12345678': 87000};
+      expect(violation(result), isNull);
+    });
+
     test('rejects positive match when native claims zero pages read', () {
       expect(
         violation(complete()..['pages_read'] = 0),

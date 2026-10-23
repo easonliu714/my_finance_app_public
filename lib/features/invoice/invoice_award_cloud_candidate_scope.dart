@@ -308,9 +308,14 @@ String? cloudAwardNativeCompleteNumericEvidenceViolation({
       return 'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH';
     }
   }
+  // Each matched page must have been successfully read by native pageTokens.
+  // Multiple candidates may share one page; sparse high page indices are valid.
+  if (matchedPages.values.toSet().length > pagesRead) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH';
+  }
   // A positive page-backed match cannot exist when native reports that it
   // read zero pages. Preserve zero-read/zero-match as UNKNOWN, not negative.
-  if (matchedPages.isNotEmpty && (terminal['pages_read'] as int) == 0) {
+  if (matchedPages.isNotEmpty && pagesRead == 0) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH';
   }
   return null;
