@@ -68,5 +68,32 @@ void main() {
         'PLATFORM_WORKER_HEARTBEAT_STALE',
       );
     });
+    test('fresh native heartbeat does not require a liveness probe', () {
+      expect(
+        cloudAwardNativeHeartbeatNeedsProbe(const Duration(seconds: 2)),
+        isFalse,
+      );
+    });
+
+    test('exact heartbeat age boundary does not probe', () {
+      expect(
+        cloudAwardNativeHeartbeatNeedsProbe(const Duration(seconds: 15)),
+        isFalse,
+      );
+    });
+
+    test('expired heartbeat requires a liveness probe', () {
+      expect(
+        cloudAwardNativeHeartbeatNeedsProbe(const Duration(seconds: 16)),
+        isTrue,
+      );
+    });
+
+    test('future native clock requires a liveness probe', () {
+      expect(
+        cloudAwardNativeHeartbeatNeedsProbe(const Duration(seconds: -1)),
+        isTrue,
+      );
+    });
   });
 }

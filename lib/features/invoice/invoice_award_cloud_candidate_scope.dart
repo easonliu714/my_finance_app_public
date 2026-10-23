@@ -123,15 +123,21 @@ typedef CloudAwardSortedPdfCandidateProgressCallback = void Function(
   CloudAwardSortedPdfCandidateProgress progress,
 );
 
+/// An invalid future timestamp must trigger the same liveness supervision
+/// as an expired native heartbeat; neither is evidence of fresh progress.
+bool cloudAwardNativeHeartbeatNeedsProbe(Duration heartbeatAge) {
+  return heartbeatAge.isNegative ||
+      heartbeatAge > PdfiumCloudAwardSortedPdfCandidateLookup
+          .workerHeartbeatProbeAfter;
+}
+
 /// UI-only status classification. A stale/missing native heartbeat is not
 /// evidence of additional pages, PDF opening progress, or task completion.
 String cloudAwardNativeHeartbeatDisplayStage({
   required String nativeStage,
   required Duration heartbeatAge,
 }) {
-  if (heartbeatAge.isNegative ||
-      heartbeatAge > PdfiumCloudAwardSortedPdfCandidateLookup
-          .workerHeartbeatProbeAfter) {
+  if (cloudAwardNativeHeartbeatNeedsProbe(heartbeatAge)) {
     return 'PLATFORM_WORKER_HEARTBEAT_STALE';
   }
   return nativeStage;
@@ -487,6 +493,11 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             lastProgressSignature = signature;
             lastStage = stage;
             final now = DateTime.now();
+            // Never display an invalid native clock value as fresh progress.
+            final displayStage = cloudAwardNativeHeartbeatDisplayStage(
+              nativeStage: stage,
+              heartbeatAge: now.difference(lastHeartbeatAt),
+            );
             final elapsed = now.difference(workerStartedAt);
             Duration? eta;
 
@@ -525,11 +536,14 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                 pageNumber: pageNumber,
                 pageCount: pageCount,
                 pagesRead: pagesRead,
-                stage: stage,
+                stage: displayStage,
                 elapsed: stageElapsedMs > 0
                     ? Duration(milliseconds: stageElapsedMs)
                     : elapsed,
-                estimatedRemaining: eta,
+                estimatedRemaining:
+                    displayStage == 'PLATFORM_WORKER_HEARTBEAT_STALE'
+                        ? null
+                        : eta,
                 sourceBytesRead: sourceBytesRead,
                 sourceBytesTotal: sourceBytesTotal,
               ),
@@ -537,7 +551,8 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           }
 
           final now = DateTime.now();
-          if (now.difference(lastHeartbeatAt) > workerHeartbeatProbeAfter) {
+          if (cloudAwardNativeHeartbeatNeedsProbe(
+              now.difference(lastHeartbeatAt))) {
             if (lastWorkerPid <= 0) {
               throw StateError(
                 'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PID_MISSING',
@@ -672,7 +687,8 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
         }
       }
       final now = DateTime.now();
-      if (now.difference(lastHeartbeatAt) > workerHeartbeatProbeAfter &&
+      if (cloudAwardNativeHeartbeatNeedsProbe(
+              now.difference(lastHeartbeatAt)) &&
           lastWorkerPid > 0 &&
           now.difference(lastLivenessProbeAt) >= workerLivenessProbeEvery) {
         lastLivenessProbeAt = now;
