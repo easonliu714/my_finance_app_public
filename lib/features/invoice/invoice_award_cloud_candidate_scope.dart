@@ -175,6 +175,64 @@ String? cloudAwardNativeRunningEnvelopeViolation({
       read is! int || read < 0 || read > total) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_BYTES_MISMATCH';
   }
+  // Native writeRunning() has six known stages. A forged or malformed
+  // stage/page tuple must never become visible progress or ETA authority.
+  const allowedStages = <String>{
+    'PLATFORM_SOURCE_SHA256',
+    'PLATFORM_RENDERER_OPEN_BEGIN',
+    'PLATFORM_RENDERER_OPEN_WAIT',
+    'PLATFORM_RENDERER_OPEN_OK',
+    'PLATFORM_RENDERER_PAGE_BEGIN',
+    'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+  };
+  final stage = running['stage'];
+  if (stage is! String || !allowedStages.contains(stage)) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_INVALID';
+  }
+  final pageNumber = running['page_number'];
+  final pageCount = running['page_count'];
+  final pagesRead = running['pages_read'];
+  final stageElapsedMs = running['stage_elapsed_ms'];
+  if (pageNumber is! int ||
+      pageCount is! int ||
+      pagesRead is! int ||
+      stageElapsedMs is! int ||
+      stageElapsedMs < 0 ||
+      pageCount < 0 ||
+      pageNumber < 0 ||
+      pageNumber > pageCount ||
+      pagesRead < 0 ||
+      pagesRead > pageCount) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_EVIDENCE_INVALID';
+  }
+  if (stage == 'PLATFORM_SOURCE_SHA256') {
+    if (index != 0 || pageNumber != 0 || pageCount != 0 || pagesRead != 0) {
+      return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_PROGRESS_INVALID';
+    }
+  } else if (stage == 'PLATFORM_RENDERER_OPEN_BEGIN' ||
+      stage == 'PLATFORM_RENDERER_OPEN_WAIT') {
+    if (index != 0 ||
+        pageNumber != 0 ||
+        pageCount != 0 ||
+        pagesRead != 0 ||
+        read != total) {
+      return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_PROGRESS_INVALID';
+    }
+  } else if (stage == 'PLATFORM_RENDERER_OPEN_OK') {
+    if (index != 0 ||
+        pageNumber != 0 ||
+        pageCount <= 0 ||
+        pagesRead != 0 ||
+        read != total) {
+      return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_PROGRESS_INVALID';
+    }
+  } else if (index <= 0 ||
+      pageNumber <= 0 ||
+      pageCount <= 0 ||
+      read != total ||
+      (stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' && pagesRead == 0)) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_PROGRESS_INVALID';
+  }
   final updatedAtMs = running['updated_at_ms'];
   if (updatedAtMs is! int || updatedAtMs <= 0 ||
       updatedAtMs > observedAt.millisecondsSinceEpoch ||
