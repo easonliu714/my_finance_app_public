@@ -143,6 +143,37 @@ String cloudAwardNativeHeartbeatDisplayStage({
   return nativeStage;
 }
 
+/// Validate native COMPLETE identity before accepting any PDF match result.
+/// This is metadata continuity only, not a global negative-search proof.
+String? cloudAwardNativeCompleteTerminalViolation({
+  required Map<String, dynamic> terminal,
+  required int priorWorkerPid,
+  required DateTime observedAt,
+  required DateTime priorHeartbeatAt,
+}) {
+  if (terminal['engine'] != 'android-platform-pdfrenderer-candidate-search') {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_ENGINE_MISMATCH';
+  }
+  if (terminal['stage'] != 'PLATFORM_RENDERER_COMPLETE') {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_STAGE_MISMATCH';
+  }
+  final workerPid = terminal['worker_pid'];
+  if (workerPid is! int || workerPid <= 0) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_PID_MISSING';
+  }
+  if (priorWorkerPid > 0 && workerPid != priorWorkerPid) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_PID_MISMATCH';
+  }
+  final updatedAtMs = terminal['updated_at_ms'];
+  if (updatedAtMs is! int ||
+      updatedAtMs <= 0 ||
+      updatedAtMs > observedAt.millisecondsSinceEpoch ||
+      updatedAtMs < priorHeartbeatAt.millisecondsSinceEpoch) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_CLOCK_INVALID';
+  }
+  return null;
+}
+
 class CloudAwardCandidateLookupCancelled implements Exception {
   const CloudAwardCandidateLookupCancelled();
 
@@ -615,6 +646,16 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           }
           if (status != 'complete') {
             throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID');
+          }
+          // Native terminal metadata is not inferred from PID liveness.
+          final terminalViolation = cloudAwardNativeCompleteTerminalViolation(
+            terminal: decoded,
+            priorWorkerPid: lastWorkerPid,
+            observedAt: DateTime.now(),
+            priorHeartbeatAt: lastHeartbeatAt,
+          );
+          if (terminalViolation != null) {
+            throw StateError(terminalViolation);
           }
           final pageCount = (decoded['page_count'] as num?)?.toInt() ?? 0;
           final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;

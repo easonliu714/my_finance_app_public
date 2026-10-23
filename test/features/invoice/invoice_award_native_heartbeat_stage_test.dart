@@ -96,4 +96,77 @@ void main() {
       );
     });
   });
+
+  group('native COMPLETE terminal provenance', () {
+    final observedAt = DateTime.fromMillisecondsSinceEpoch(1800000000000);
+    final priorHeartbeatAt =
+        observedAt.subtract(const Duration(seconds: 1));
+
+    Map<String, dynamic> validTerminal() => <String, dynamic>{
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'stage': 'PLATFORM_RENDERER_COMPLETE',
+          'worker_pid': 321,
+          'updated_at_ms': observedAt.millisecondsSinceEpoch,
+        };
+
+    String? violation(Map<String, dynamic> terminal, {int priorPid = 321}) =>
+        cloudAwardNativeCompleteTerminalViolation(
+          terminal: terminal,
+          priorWorkerPid: priorPid,
+          observedAt: observedAt,
+          priorHeartbeatAt: priorHeartbeatAt,
+        );
+
+    test('accepts native complete identity with matching prior PID', () {
+      expect(violation(validTerminal()), isNull);
+    });
+    test('accepts first terminal with a positive PID', () {
+      expect(violation(validTerminal(), priorPid: 0), isNull);
+    });
+    test('rejects absent engine', () {
+      expect(
+        violation(validTerminal()..remove('engine')),
+        'CLOUD_AWARD_CANDIDATE_WORKER_ENGINE_MISMATCH',
+      );
+    });
+    test('rejects non-complete stage', () {
+      expect(
+        violation(validTerminal()..['stage'] = 'PLATFORM_RENDERER_OPEN_WAIT'),
+        'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_STAGE_MISMATCH',
+      );
+    });
+    test('rejects missing PID', () {
+      expect(
+        violation(validTerminal()..remove('worker_pid')),
+        'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_PID_MISSING',
+      );
+    });
+    test('rejects changed worker PID', () {
+      expect(
+        violation(validTerminal()..['worker_pid'] = 322),
+        'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_PID_MISMATCH',
+      );
+    });
+    test('rejects future-dated terminal clock', () {
+      expect(
+        violation(validTerminal()..['updated_at_ms'] =
+            observedAt.add(const Duration(seconds: 1)).millisecondsSinceEpoch),
+        'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_CLOCK_INVALID',
+      );
+    });
+    test('rejects terminal timestamp older than last native heartbeat', () {
+      expect(
+        violation(validTerminal()..['updated_at_ms'] =
+            priorHeartbeatAt.subtract(const Duration(milliseconds: 1))
+                .millisecondsSinceEpoch),
+        'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_CLOCK_INVALID',
+      );
+    });
+    test('rejects missing terminal timestamp', () {
+      expect(
+        violation(validTerminal()..remove('updated_at_ms')),
+        'CLOUD_AWARD_CANDIDATE_WORKER_TERMINAL_CLOCK_INVALID',
+      );
+    });
+  });
 }
