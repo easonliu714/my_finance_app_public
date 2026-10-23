@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +27,7 @@ void main() {
   );
 
   Future<CloudAwardCandidateScopedAuthority> authority({
-    Set<String> candidates = const <String>{'AB12345678', 'CD87654321'},
+    Set<String> candidates = const <String>{'CD87654321'},
     Set<String> matches = const <String>{'CD87654321'},
     Map<String, int> matchedPages = const <String, int>{'CD87654321': 42},
   }) async => CloudAwardCandidateScopedAuthority(
@@ -54,11 +55,11 @@ void main() {
     final readBack = await repository.readValidated(
       reference: reference,
       pdfSha256: 'a' * 64,
-      candidateInvoiceNumbers: const <String>['cd87654321', 'ab-12345678'],
+      candidateInvoiceNumbers: const <String>['cd87654321'],
       nowUtc: DateTime.utc(2026, 9, 25, 3),
     );
     expect(readBack, isNotNull);
-    expect(readBack!.candidateNumbers, const <String>{'AB12345678', 'CD87654321'});
+    expect(readBack!.candidateNumbers, const <String>{'CD87654321'});
     expect(readBack.matchedInvoiceNumbers, const <String>{'CD87654321'});
     expect(readBack.matchedPageNumbers, const <String, int>{'CD87654321': 42});
   });
@@ -118,8 +119,66 @@ void main() {
       await repository.readValidated(
         reference: reference,
         pdfSha256: 'a' * 64,
-        candidateInvoiceNumbers: const <String>['AB12345678', 'CD87654321'],
+        candidateInvoiceNumbers: const <String>['CD87654321'],
         nowUtc: DateTime.utc(2026, 9, 25, 4),
+      ),
+      isNull,
+    );
+  });
+
+  test('unproven negative is rejected before durable promotion', () async {
+    final partial = await authority(
+      candidates: const <String>{'AB12345678', 'CD87654321'},
+    );
+    await expectLater(
+      repository.promoteValidated(
+        reference: reference,
+        pdfSha256: 'a' * 64,
+        authority: partial,
+        verifiedAtUtc: DateTime.utc(2026, 9, 25, 2),
+      ),
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        'CLOUD_AWARD_CANDIDATE_NEGATIVE_COVERAGE_UNPROVEN',
+      )),
+    );
+  });
+
+  test('legacy schema-1 partial manifest cannot be reused', () async {
+    final complete = await authority(
+      candidates: const <String>{'AB12345678', 'CD87654321'},
+      matches: const <String>{'AB12345678', 'CD87654321'},
+      matchedPages: const <String, int>{
+        'AB12345678': 7,
+        'CD87654321': 42,
+      },
+    );
+    await repository.promoteValidated(
+      reference: reference,
+      pdfSha256: 'a' * 64,
+      authority: complete,
+      verifiedAtUtc: DateTime.utc(2026, 9, 25, 2),
+    );
+    final files = await tempDir
+        .list(recursive: true)
+        .where((entity) => entity is File && entity.path.endsWith('.json'))
+        .cast<File>()
+        .toList();
+    expect(files, hasLength(1));
+    final decoded =
+        jsonDecode(await files.single.readAsString()) as Map<String, dynamic>;
+    decoded['matchedInvoiceNumbers'] = <String>['CD87654321'];
+    decoded['matchedPageNumbers'] = <String, int>{'CD87654321': 42};
+    await files.single.writeAsString(jsonEncode(decoded));
+    expect(
+      await repository.readValidated(
+        reference: reference,
+        pdfSha256: 'a' * 64,
+        candidateInvoiceNumbers: const <String>[
+          'AB12345678',
+          'CD87654321',
+        ],
       ),
       isNull,
     );

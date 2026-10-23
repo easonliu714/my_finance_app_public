@@ -44,6 +44,9 @@ class CloudAwardCandidateScopeRepository {
       final source = Uri.tryParse(decoded['officialSourceUri']?.toString() ?? '');
       final storedMatches = (decoded['matchedInvoiceNumbers'] as List<dynamic>?)?.map((item) => item.toString()).toSet() ?? const <String>{};
       final normalizedMatches = normalizeCloudCandidateNumbers(storedMatches);
+      // Schema-1 has no proven global sorted-page search coverage. An
+      // unmatched candidate is UNKNOWN, not a verified negative result.
+      if (normalizedMatches.length != normalized.length) return null;
       final matchedPageNumbers = <String, int>{};
       final matchedPageNumbersRaw = decoded['matchedPageNumbers'];
       if (matchedPageNumbersRaw != null) {
@@ -104,6 +107,10 @@ class CloudAwardCandidateScopeRepository {
     final normalized = normalizeCloudCandidateNumbers(authority.candidateNumbers);
     final universeSha = await cloudCandidateUniverseSha256(normalized);
     final pdfSha = pdfSha256.toLowerCase();
+    // Do not persist bounded-search misses as verified negative authority.
+    if (authority.matchedInvoiceNumbers.length != normalized.length) {
+      throw StateError('CLOUD_AWARD_CANDIDATE_NEGATIVE_COVERAGE_UNPROVEN');
+    }
     if (authority.periodId != reference.periodId ||
         authority.tierCode != reference.tierCode ||
         authority.officialSourceUri != reference.sourceUri ||

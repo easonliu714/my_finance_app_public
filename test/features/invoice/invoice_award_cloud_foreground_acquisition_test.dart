@@ -152,7 +152,7 @@ void main() {
       () async {
     final repo = repository();
     final scopedLookup = _FixtureSortedCandidateLookup(
-      const <String>{'AB12345678'},
+      const <String>{'AB12345678', 'CD87654321'},
     );
     final firstRequests = <Uri>[];
     final firstClient = MockClient((request) async {
@@ -186,7 +186,7 @@ void main() {
     );
     expect(
       fiveHundred.candidateAuthority?.matchedInvoiceNumbers,
-      const <String>{'AB12345678'},
+      const <String>{'AB12345678', 'CD87654321'},
     );
     expect(
       fiveHundred.candidateAuthority?.candidateNumbers,
@@ -194,7 +194,7 @@ void main() {
     );
     expect(
       fiveHundred.candidateAuthority?.matchedPageNumbers,
-      const <String, int>{'AB12345678': 42},
+      const <String, int>{'AB12345678': 42, 'CD87654321': 42},
     );
     expect(scopedLookup.calls, 1);
 
@@ -231,9 +231,48 @@ void main() {
     );
     expect(
       reusedFiveHundred.candidateAuthority?.matchedPageNumbers,
-      const <String, int>{'AB12345678': 42},
+      const <String, int>{'AB12345678': 42, 'CD87654321': 42},
     );
     expect(scopedLookup.calls, 1);
+  });
+
+  test('partial bounded-search result fails closed and is not cached',
+      () async {
+    final scopedLookup = _FixtureSortedCandidateLookup(
+      const <String>{'AB12345678'},
+    );
+    final client = MockClient((request) async {
+      if (request.url.path == '/cloudNowNumber.html') {
+        return _html(_publicationFixture);
+      }
+      if (request.url.path.startsWith('/pdf/')) return _pdf();
+      return http.Response('unexpected', 404);
+    });
+    final repo = repository();
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final result = await service(
+        client: client,
+        repo: repo,
+        sortedCandidateLookup: scopedLookup,
+      ).refresh(
+        periodId: '115-07-08',
+        candidateInvoiceNumbers: const <String>[
+          'AB12345678',
+          'CD87654321',
+        ],
+      );
+      final fiveHundred = result.tiers.singleWhere(
+        (item) => item.tierCode == 'cloud-500',
+      );
+      expect(result.isComplete, isFalse);
+      expect(fiveHundred.status, CloudAwardTierRefreshStatus.failed);
+      expect(
+        fiveHundred.failureCode,
+        'CLOUD_AWARD_CANDIDATE_NEGATIVE_COVERAGE_UNPROVEN',
+      );
+      expect(fiveHundred.candidateAuthority, isNull);
+    }
+    expect(scopedLookup.calls, 2);
   });
 
   test('wrong period publication fails before any artifact request', () async {
