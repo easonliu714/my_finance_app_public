@@ -143,6 +143,48 @@ String cloudAwardNativeHeartbeatDisplayStage({
   return nativeStage;
 }
 
+/// Validate only Running fields already emitted by the current Kotlin
+/// writeRunning() implementation. This does NOT prove source PDF SHA256 or
+/// candidate-universe SHA256, which are absent from native Running payloads.
+String? cloudAwardNativeRunningEnvelopeViolation({
+  required Map<String, dynamic> running,
+  required int expectedCandidateCount,
+  required int expectedSourceBytes,
+  required int priorWorkerPid,
+  required DateTime observedAt,
+  DateTime? priorHeartbeatAt,
+}) {
+  if (running['status'] != 'running' ||
+      running['engine'] != 'android-platform-pdfrenderer-candidate-search') {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_ENVELOPE_INVALID';
+  }
+  final pid = running['worker_pid'];
+  if (pid is! int || pid <= 0 ||
+      (priorWorkerPid > 0 && pid != priorWorkerPid)) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PID_MISMATCH';
+  }
+  final count = running['candidate_count'];
+  final index = running['candidate_index'];
+  if (count is! int || count != expectedCandidateCount ||
+      index is! int || index < 0 || index > count) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_CANDIDATE_MISMATCH';
+  }
+  final total = running['source_bytes_total'];
+  final read = running['source_bytes_read'];
+  if (total is! int || total != expectedSourceBytes ||
+      read is! int || read < 0 || read > total) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_BYTES_MISMATCH';
+  }
+  final updatedAtMs = running['updated_at_ms'];
+  if (updatedAtMs is! int || updatedAtMs <= 0 ||
+      updatedAtMs > observedAt.millisecondsSinceEpoch ||
+      (priorHeartbeatAt != null &&
+          updatedAtMs < priorHeartbeatAt.millisecondsSinceEpoch)) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_CLOCK_INVALID';
+  }
+  return null;
+}
+
 /// Validate native COMPLETE identity before accepting any PDF match result.
 /// This is metadata continuity only, not a global negative-search proof.
 String? cloudAwardNativeCompleteTerminalViolation({
@@ -523,6 +565,18 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
 
         final status = decoded['status']?.toString();
         if (status == 'running') {
+          final runningViolation = cloudAwardNativeRunningEnvelopeViolation(
+            running: decoded,
+            expectedCandidateCount: candidates.length,
+            expectedSourceBytes: artifact.sizeBytes,
+            priorWorkerPid: lastWorkerPid,
+            observedAt: DateTime.now(),
+            priorHeartbeatAt:
+                lastProgressSignature.isEmpty ? null : lastHeartbeatAt,
+          );
+          if (runningViolation != null) {
+            throw StateError(runningViolation);
+          }
           final stage = decoded['stage']?.toString() ?? 'RUNNING';
           final candidateIndex =
               (decoded['candidate_index'] as num?)?.toInt() ?? 0;
