@@ -144,6 +144,32 @@ String cloudAwardNativeHeartbeatDisplayStage({
   return nativeStage;
 }
 
+/// Reject ambiguous OS liveness replies before diagnosing a worker death.
+/// The native plugin returns an explicit bool, exact queried PID, process name,
+/// and integer exit code. This validates reply shape, not PID-reuse immunity.
+String? cloudAwardNativeLivenessEnvelopeViolation({
+  required Map<String, Object?>? liveness,
+  required int expectedWorkerPid,
+}) {
+  if (expectedWorkerPid <= 0 ||
+      liveness == null ||
+      liveness['alive'] is! bool ||
+      liveness['exitReasonCode'] is! int) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_RESPONSE_INVALID';
+  }
+  if (liveness['pid'] is! int || liveness['pid'] != expectedWorkerPid) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PID_MISMATCH';
+  }
+  final processName = liveness['processName'];
+  const suffix = ':platform_candidate_worker';
+  if (processName is! String ||
+      !processName.endsWith(suffix) ||
+      processName.length <= suffix.length) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PROCESS_MISMATCH';
+  }
+  return null;
+}
+
 /// Validate only Running fields already emitted by the current Kotlin
 /// writeRunning() implementation. This does NOT prove source PDF SHA256 or
 /// candidate-universe SHA256, which are absent from native Running payloads.
@@ -741,11 +767,17 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
         'getPlatformCandidateWorkerLiveness',
         <String, Object?>{'workerPid': lastWorkerPid},
       );
-      if (liveness?['alive'] != true) {
+      final livenessViolation = cloudAwardNativeLivenessEnvelopeViolation(
+        liveness: liveness,
+        expectedWorkerPid: lastWorkerPid,
+      );
+      if (livenessViolation != null) {
+        throw StateError(livenessViolation);
+      }
+      if (liveness?['alive'] == false) {
         final safeStage =
             lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
-        final exitReasonCode =
-            (liveness?['exitReasonCode'] as num?)?.toInt() ?? -1;
+        final exitReasonCode = liveness?['exitReasonCode'] as int;
         final exitReasonSuffix =
             exitReasonCode < 0 ? '' : '_OS_EXIT_$exitReasonCode';
         throw StateError(

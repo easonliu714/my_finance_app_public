@@ -68,6 +68,8 @@ void main() {
     required bool alive,
     CloudAwardCandidateLookupCancellation? cancelAfterProbe,
     bool malformedFromStart = false,
+    bool overrideLiveness = false,
+    Map<String, Object?>? livenessOverride,
   }) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -84,8 +86,12 @@ void main() {
         expect((call.arguments as Map)['workerPid'], 4242);
         probes += 1;
         cancelAfterProbe?.cancel();
+        if (overrideLiveness) return livenessOverride;
         return <String, Object?>{
           'alive': alive,
+          'pid': 4242,
+          'processName': 'com.example.finance:platform_candidate_worker',
+          'importance': alive ? 100 : -1,
           'exitReasonCode': alive ? -1 : 9,
         };
       }
@@ -170,5 +176,92 @@ void main() {
     );
     expect(probes, 0);
     expect(await resultFile.exists(), isTrue);
+  });
+
+  // Real temp-file + MethodChannel integration: an ambiguous liveness reply
+  // must never be reclassified as a verified PROCESS_DIED observation.
+  Future<void> expectInvalidLiveness(
+    Map<String, Object?>? reply,
+    String expectedViolation,
+  ) async {
+    await mockWorker(
+      alive: true,
+      overrideLiveness: true,
+      livenessOverride: reply,
+    );
+    final cancellation = CloudAwardCandidateLookupCancellation();
+    await expectLater(
+      lookupWith(cancellation, onProgress: replaceWithPartialJson)
+          .timeout(const Duration(seconds: 7)),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.toString(),
+          'fail-closed liveness violation',
+          contains(expectedViolation),
+        ),
+      ),
+    );
+    expect(sawPartial, isTrue);
+    expect(probes, 1);
+    expect(await resultFile.readAsString(), '{"request_id":');
+  }
+
+  test('null liveness reply cannot be reported as verified process death',
+      () async {
+    await expectInvalidLiveness(
+      null,
+      'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_RESPONSE_INVALID',
+    );
+  });
+
+  test('missing alive flag cannot be reported as verified process death',
+      () async {
+    await expectInvalidLiveness(
+      <String, Object?>{
+        'pid': 4242,
+        'processName': 'com.example.finance:platform_candidate_worker',
+        'exitReasonCode': -1,
+      },
+      'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_RESPONSE_INVALID',
+    );
+  });
+
+  test('string alive flag cannot be reported as verified process death',
+      () async {
+    await expectInvalidLiveness(
+      <String, Object?>{
+        'alive': 'false',
+        'pid': 4242,
+        'processName': 'com.example.finance:platform_candidate_worker',
+        'exitReasonCode': -1,
+      },
+      'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_RESPONSE_INVALID',
+    );
+  });
+
+  test('mismatched liveness PID fails closed before accepting alive',
+      () async {
+    await expectInvalidLiveness(
+      <String, Object?>{
+        'alive': true,
+        'pid': 4243,
+        'processName': 'com.example.finance:platform_candidate_worker',
+        'exitReasonCode': -1,
+      },
+      'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PID_MISMATCH',
+    );
+  });
+
+  test('wrong liveness process name fails closed before accepting alive',
+      () async {
+    await expectInvalidLiveness(
+      <String, Object?>{
+        'alive': true,
+        'pid': 4242,
+        'processName': 'com.example.finance:other_process',
+        'exitReasonCode': -1,
+      },
+      'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PROCESS_MISMATCH',
+    );
   });
 }
