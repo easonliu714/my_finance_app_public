@@ -291,6 +291,14 @@ String? cloudAwardNativeCompleteNumericEvidenceViolation({
       return 'CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID';
     }
   }
+  // Kotlin pagesRead is the count of distinct successfully read pages,
+  // never the maximum page number. A count above page_count is impossible;
+  // sparse binary-search matches may legitimately have a higher page index.
+  final pageCount = terminal['page_count'] as int;
+  final pagesRead = terminal['pages_read'] as int;
+  if (pagesRead > pageCount) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH';
+  }
   final matchedPages = terminal['matched_pages'];
   if (matchedPages is! Map<String, dynamic>) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID';

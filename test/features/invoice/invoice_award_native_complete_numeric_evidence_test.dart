@@ -88,6 +88,20 @@ void main() {
       );
     });
 
+    // A native set of distinct page reads cannot exceed page_count.
+    test('rejects impossible distinct pages read above page count', () {
+      expect(
+        violation(complete()..['pages_read'] = 87001),
+        'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH',
+      );
+    });
+
+    // Binary-search matched page numbers are not bounded by pages_read.
+    test('accepts upper bound and sparse high-index page evidence', () {
+      expect(violation(complete()..['pages_read'] = 87000), isNull);
+      expect(violation(complete()..['pages_read'] = 13), isNull);
+    });
+
     test('rejects positive match when native claims zero pages read', () {
       expect(
         violation(complete()..['pages_read'] = 0),
