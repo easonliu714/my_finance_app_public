@@ -169,4 +169,104 @@ void main() {
       );
     });
   });
+
+  group('native FAILED terminal current envelope', () {
+    final observedAt = DateTime.fromMillisecondsSinceEpoch(1800000000000);
+    final priorHeartbeatAt =
+        observedAt.subtract(const Duration(seconds: 1));
+
+    Map<String, dynamic> validFailedTerminal() => <String, dynamic>{
+          'request_id': 'request-1',
+          'status': 'failed',
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'error': 'PLATFORM_WORKER_SOURCE_MISSING',
+          'updated_at_ms': observedAt.millisecondsSinceEpoch,
+        };
+
+    String? violation(Map<String, dynamic> terminal,
+            {DateTime? heartbeatAt}) =>
+        cloudAwardNativeFailedTerminalViolation(
+          terminal: terminal,
+          observedAt: observedAt,
+          priorHeartbeatAt: heartbeatAt,
+        );
+
+    test('accepts current Kotlin failed publisher envelope', () {
+      expect(violation(validFailedTerminal()), isNull);
+    });
+    test('accepts bounded Kotlin exception-class suffix', () {
+      expect(
+        violation(validFailedTerminal()
+          ..['error'] = 'PLATFORM_WORKER_FAILED:IllegalStateException'),
+        isNull,
+      );
+    });
+    test('early failure without native heartbeat is not false clock failure',
+        () {
+      expect(
+        violation(validFailedTerminal()
+          ..['updated_at_ms'] = observedAt
+              .subtract(const Duration(seconds: 20))
+              .millisecondsSinceEpoch),
+        isNull,
+      );
+    });
+    test('rejects incorrect failed status', () {
+      expect(
+        violation(validFailedTerminal()..['status'] = 'complete'),
+        'CLOUD_AWARD_CANDIDATE_WORKER_FAILED_STATUS_INVALID',
+      );
+    });
+    test('rejects failed terminal engine mismatch', () {
+      expect(
+        violation(validFailedTerminal()..remove('engine')),
+        'CLOUD_AWARD_CANDIDATE_WORKER_ENGINE_MISMATCH',
+      );
+    });
+    test('rejects missing failed terminal timestamp', () {
+      expect(
+        violation(validFailedTerminal()..remove('updated_at_ms')),
+        'CLOUD_AWARD_CANDIDATE_WORKER_FAILED_CLOCK_INVALID',
+      );
+    });
+    test('rejects future-dated failed terminal', () {
+      expect(
+        violation(validFailedTerminal()
+          ..['updated_at_ms'] = observedAt
+              .add(const Duration(milliseconds: 1))
+              .millisecondsSinceEpoch),
+        'CLOUD_AWARD_CANDIDATE_WORKER_FAILED_CLOCK_INVALID',
+      );
+    });
+    test('rejects failure timestamp older than observed native heartbeat',
+        () {
+      expect(
+        violation(
+          validFailedTerminal()
+            ..['updated_at_ms'] = priorHeartbeatAt
+                .subtract(const Duration(milliseconds: 1))
+                .millisecondsSinceEpoch,
+          heartbeatAt: priorHeartbeatAt,
+        ),
+        'CLOUD_AWARD_CANDIDATE_WORKER_FAILED_CLOCK_INVALID',
+      );
+    });
+    test('rejects missing failed terminal error', () {
+      expect(
+        violation(validFailedTerminal()..remove('error')),
+        'CLOUD_AWARD_CANDIDATE_WORKER_FAILED_ERROR_INVALID',
+      );
+    });
+    test('rejects unbounded or untrusted failure text', () {
+      for (final error in <String>[
+        'http://untrusted.invalid/data',
+        'PLATFORM_WORKER_FAILED:' + 'X' * 130,
+      ]) {
+        expect(
+          violation(validFailedTerminal()..['error'] = error),
+          'CLOUD_AWARD_CANDIDATE_WORKER_FAILED_ERROR_INVALID',
+        );
+      }
+    });
+  });
 }
