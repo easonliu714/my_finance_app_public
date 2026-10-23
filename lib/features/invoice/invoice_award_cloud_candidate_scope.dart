@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 
 import 'existing_invoice_award_candidate_repository.dart';
@@ -463,6 +464,34 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   static const Duration workerLivenessProbeEvery = Duration(seconds: 2);
   static const Duration staleHeartbeatNoticeEvery = Duration(seconds: 10);
 
+  /// Integration-test seam for the actual native result-file consumer.
+  /// Retains official sorted-source validation and candidate normalization.
+  @visibleForTesting
+  Future<CloudAwardSortedPdfCandidateMatchResult>
+      findMatchesCrashIsolatedForTesting({
+    required OfficialCloudAwardDownloadedArtifact artifact,
+    required Iterable<String> candidateInvoiceNumbers,
+    CloudAwardSortedPdfCandidateProgressCallback? onProgress,
+    CloudAwardCandidateLookupCancellation? cancellation,
+  }) {
+    if (!artifact.reference.isApprovedOfficialSource ||
+        !artifact.reference.artifactId.toLowerCase().contains('_sorted_')) {
+      throw StateError('CLOUD_AWARD_SORTED_PDF_SOURCE_INVALID');
+    }
+    final candidates = normalizeCloudCandidateNumbers(candidateInvoiceNumbers)
+        .toList()
+      ..sort();
+    if (candidates.isEmpty) {
+      throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_START_INVALID');
+    }
+    return _findMatchesCrashIsolated(
+      artifact: artifact,
+      candidates: candidates,
+      onProgress: onProgress,
+      cancellation: cancellation,
+    );
+  }
+
   @override
   Future<CloudAwardSortedPdfCandidateMatchResult> findMatches({
     required OfficialCloudAwardDownloadedArtifact artifact,
@@ -695,6 +724,36 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     var lastWorkerPid = 0;
     var lastLivenessProbeAt = workerStartedAt;
     var lastStaleNoticeAt = workerStartedAt;
+    CloudAwardSortedPdfCandidateProgress? lastNativeProgress;
+
+    // All reader paths share one throttled, PID-bound OS liveness probe.
+    // A malformed JSON file cannot prove COMPLETE or negative coverage.
+    Future<void> probeStaleWorkerIfNeeded(DateTime now) async {
+      if (lastWorkerPid <= 0 ||
+          !cloudAwardNativeHeartbeatNeedsProbe(
+            now.difference(lastHeartbeatAt),
+          ) ||
+          now.difference(lastLivenessProbeAt) < workerLivenessProbeEvery) {
+        return;
+      }
+      lastLivenessProbeAt = now;
+      final liveness = await _channel.invokeMapMethod<String, Object?>(
+        'getPlatformCandidateWorkerLiveness',
+        <String, Object?>{'workerPid': lastWorkerPid},
+      );
+      if (liveness?['alive'] != true) {
+        final safeStage =
+            lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
+        final exitReasonCode =
+            (liveness?['exitReasonCode'] as num?)?.toInt() ?? -1;
+        final exitReasonSuffix =
+            exitReasonCode < 0 ? '' : '_OS_EXIT_$exitReasonCode';
+        throw StateError(
+          'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_'
+          '$safeStage$exitReasonSuffix',
+        );
+      }
+    }
 
     while (true) {
       cancellation?.throwIfCancelled();
@@ -713,6 +772,32 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           // A fallback write can briefly expose partial JSON. Retry safely.
         }
         if (decoded == null) {
+          // The native rename-failure fallback may leave a partial JSON file.
+          // Retry bytes without bypassing liveness of a verified worker PID.
+          final now = DateTime.now();
+          await probeStaleWorkerIfNeeded(now);
+          if (lastNativeProgress != null &&
+              cloudAwardNativeHeartbeatNeedsProbe(
+                now.difference(lastHeartbeatAt),
+              ) &&
+              now.difference(lastStaleNoticeAt) >= staleHeartbeatNoticeEvery) {
+            lastStaleNoticeAt = now;
+            final previous = lastNativeProgress!;
+            onProgress?.call(
+              CloudAwardSortedPdfCandidateProgress(
+                candidateIndex: previous.candidateIndex,
+                candidateCount: previous.candidateCount,
+                pageNumber: previous.pageNumber,
+                pageCount: previous.pageCount,
+                pagesRead: previous.pagesRead,
+                stage: 'PLATFORM_WORKER_HEARTBEAT_STALE',
+                elapsed: now.difference(workerStartedAt),
+                estimatedRemaining: null,
+                sourceBytesRead: previous.sourceBytesRead,
+                sourceBytesTotal: previous.sourceBytesTotal,
+              ),
+            );
+          }
           await Future<void>.delayed(const Duration(milliseconds: 50));
           continue;
         }
@@ -802,8 +887,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
               }
             }
 
-            onProgress?.call(
-              CloudAwardSortedPdfCandidateProgress(
+            final observedProgress = CloudAwardSortedPdfCandidateProgress(
                 candidateIndex: candidateIndex,
                 candidateCount: candidateCount,
                 pageNumber: pageNumber,
@@ -819,8 +903,9 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                         : eta,
                 sourceBytesRead: sourceBytesRead,
                 sourceBytesTotal: sourceBytesTotal,
-              ),
             );
+            lastNativeProgress = observedProgress;
+            onProgress?.call(observedProgress);
           }
 
           final now = DateTime.now();
@@ -831,28 +916,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                 'CLOUD_AWARD_CANDIDATE_WORKER_LIVENESS_PID_MISSING',
               );
             }
-            if (now.difference(lastLivenessProbeAt) >=
-                workerLivenessProbeEvery) {
-              lastLivenessProbeAt = now;
-              final liveness =
-                  await _channel.invokeMapMethod<String, Object?>(
-                'getPlatformCandidateWorkerLiveness',
-                <String, Object?>{'workerPid': lastWorkerPid},
-              );
-              if (liveness?['alive'] != true) {
-                final safeStage =
-                    lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
-                final exitReasonCode =
-                    (liveness?['exitReasonCode'] as num?)?.toInt() ?? -1;
-                final exitReasonSuffix = exitReasonCode < 0
-                    ? ''
-                    : '_OS_EXIT_$exitReasonCode';
-                throw StateError(
-                  'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_'
-                  '$safeStage$exitReasonSuffix',
-                );
-              }
-            }
+            await probeStaleWorkerIfNeeded(now);
             if (now.difference(lastStaleNoticeAt) >=
                 staleHeartbeatNoticeEvery) {
               lastStaleNoticeAt = now;
@@ -1006,28 +1070,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
         }
       }
       final now = DateTime.now();
-      if (cloudAwardNativeHeartbeatNeedsProbe(
-              now.difference(lastHeartbeatAt)) &&
-          lastWorkerPid > 0 &&
-          now.difference(lastLivenessProbeAt) >= workerLivenessProbeEvery) {
-        lastLivenessProbeAt = now;
-        final liveness = await _channel.invokeMapMethod<String, Object?>(
-          'getPlatformCandidateWorkerLiveness',
-          <String, Object?>{'workerPid': lastWorkerPid},
-        );
-        if (liveness?['alive'] != true) {
-          final safeStage =
-              lastStage.replaceAll(RegExp(r'[^A-Z0-9_]+'), '_');
-          final exitReasonCode =
-              (liveness?['exitReasonCode'] as num?)?.toInt() ?? -1;
-          final exitReasonSuffix =
-              exitReasonCode < 0 ? '' : '_OS_EXIT_$exitReasonCode';
-          throw StateError(
-            'CLOUD_AWARD_CANDIDATE_WORKER_PROCESS_DIED_'
-            '$safeStage$exitReasonSuffix',
-          );
-        }
-      }
+      await probeStaleWorkerIfNeeded(now);
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
   }
