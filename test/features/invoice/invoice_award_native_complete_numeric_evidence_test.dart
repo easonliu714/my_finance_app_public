@@ -88,6 +88,20 @@ void main() {
       );
     });
 
+    test('rejects positive match when native claims zero pages read', () {
+      expect(
+        violation(complete()..['pages_read'] = 0),
+        'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH',
+      );
+    });
+
+    test('zero-read empty match remains UNKNOWN rather than negative proof', () {
+      final result = complete()
+        ..['pages_read'] = 0
+        ..['matched_pages'] = <String, dynamic>{};
+      expect(violation(result), isNull);
+    });
+
     test('empty match map is shape-valid but not a proven negative', () {
       expect(
         violation(complete()..['matched_pages'] = <String, dynamic>{}),

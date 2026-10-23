@@ -300,6 +300,11 @@ String? cloudAwardNativeCompleteNumericEvidenceViolation({
       return 'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH';
     }
   }
+  // A positive page-backed match cannot exist when native reports that it
+  // read zero pages. Preserve zero-read/zero-match as UNKNOWN, not negative.
+  if (matchedPages.isNotEmpty && (terminal['pages_read'] as int) == 0) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH';
+  }
   return null;
 }
 
