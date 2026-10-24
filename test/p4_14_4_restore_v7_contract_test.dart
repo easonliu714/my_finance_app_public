@@ -5,8 +5,8 @@ import 'package:my_finance_app/features/backup/full_backup_scope.dart';
 
 void main() {
   test('legacy Scope V7 preserves Scope V6 and adds only execution ledger', () {
-    expect(FullBackupScope.backupScopeVersion, 8);
-    expect(FullBackupScope.supportedBackupScopeVersions, containsAll(<int>{6, 7, 8}));
+    expect(FullBackupScope.backupScopeVersion, 9);
+    expect(FullBackupScope.supportedBackupScopeVersions, containsAll(<int>{6, 7, 8, 9}));
     expect(
       FullBackupScope.legacyScopeV7TableNames,
       <String>[

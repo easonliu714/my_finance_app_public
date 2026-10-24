@@ -341,16 +341,30 @@ String buildOfficialQueryPagePreparationScript({
     .filter((cluster) => cluster.rows.size >= coverage)
     .sort((left, right) => left.x - right.x);
   report.exportRoleMapBuilt = true;
-  if (consistentClusters.length < 2) {
+  const tableRect = table.getBoundingClientRect();
+  const donationStatusRowCount = rows.filter((row) => {
+    const cells = Array.from(row.querySelectorAll(
+      'td,[role="cell"],[role="gridcell"]'
+    )).filter(rendered);
+    if (cells.length === 0) return false;
+    return normalize(cells[0].textContent).includes('捐贈');
+  }).length;
+  const donationStatusLayout =
+    consistentClusters.length === 1 &&
+    donationStatusRowCount >= coverage &&
+    consistentClusters[0].x >= tableRect.left + tableRect.width * 0.65;
+  if (consistentClusters.length < 2 && !donationStatusLayout) {
     report.exportCheckboxRoleAmbiguous = true;
     return finish('CSV_EXPORT_CHECKBOX_ROLE_AMBIGUOUS');
   }
 
   const exportCluster = consistentClusters[consistentClusters.length - 1];
-  const leftCluster = consistentClusters[consistentClusters.length - 2];
-  if (exportCluster.x - leftCluster.x <= clusterTolerance) {
-    report.exportCheckboxRoleAmbiguous = true;
-    return finish('CSV_EXPORT_CHECKBOX_ROLE_AMBIGUOUS');
+  if (consistentClusters.length >= 2) {
+    const leftCluster = consistentClusters[consistentClusters.length - 2];
+    if (exportCluster.x - leftCluster.x <= clusterTolerance) {
+      report.exportCheckboxRoleAmbiguous = true;
+      return finish('CSV_EXPORT_CHECKBOX_ROLE_AMBIGUOUS');
+    }
   }
 
   const exportEntries = Array.from(exportCluster.rows)

@@ -113,6 +113,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final invoiceCard = find.byKey(
+      const Key('official_detail_review_GP00000660'),
+      skipOffstage: false,
+    );
+    expect(invoiceCard, findsOneWidget);
+    await tester.ensureVisible(invoiceCard);
+    await tester.pumpAndSettle();
+
     expect(find.text('品項小計'), findsOneWidget);
     expect(find.text('官方稅額'), findsOneWidget);
     expect(find.text('稅額來源'), findsOneWidget);
@@ -125,6 +133,7 @@ void main() {
     expect(
       find.byKey(
         OfficialInvoiceDetailEnrichmentReviewPage.formalImportButtonKey,
+        skipOffstage: false,
       ),
       findsOneWidget,
     );
