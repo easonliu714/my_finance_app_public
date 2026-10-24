@@ -540,4 +540,66 @@ void main() {
     expect(await resultFile.exists(), isTrue);
   });
 
+
+  // Real temporary JSON + MethodChannel consumer: an already-verified PID
+  // cannot report fewer source bytes on a later Running snapshot. Fail before
+  // the forged snapshot is emitted as fresh UI progress.
+  test('result-file consumer rejects later source-byte rollback', () async {
+    final firstAt = DateTime.now()
+        .subtract(const Duration(seconds: 2))
+        .millisecondsSinceEpoch;
+    Map<String, Object?> snapshot(int bytesRead, int updatedAt) =>
+        <String, Object?>{
+          'request_id': 'req-test',
+          'status': 'running',
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'worker_pid': 4242,
+          'stage': 'PLATFORM_SOURCE_SHA256',
+          'candidate_index': 0,
+          'candidate_count': 1,
+          'source_bytes_read': bytesRead,
+          'source_bytes_total': 1000,
+          'page_number': 0,
+          'page_count': 0,
+          'pages_read': 0,
+          'stage_elapsed_ms': 0,
+          'updated_at_ms': updatedAt,
+        };
+    var observedHashProgress = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        await resultFile.writeAsString(jsonEncode(snapshot(800, firstAt)));
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    await expectLater(
+      lookup.findMatchesCrashIsolatedForTesting(
+        artifact: artifact,
+        candidateInvoiceNumbers: const <String>['AB12345678'],
+        onProgress: (progress) {
+          if (progress.stage == 'PLATFORM_SOURCE_SHA256') {
+            observedHashProgress++;
+            if (observedHashProgress == 1) {
+              resultFile.writeAsStringSync(
+                jsonEncode(snapshot(400, firstAt + 1000)),
+              );
+            }
+          }
+        },
+      ).timeout(const Duration(seconds: 5)),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(),
+        'source byte rollback',
+        contains('CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_SOURCE_BYTES_REGRESSION'),
+      )),
+    );
+    expect(observedHashProgress, 1);
+    expect(await resultFile.exists(), isTrue);
+  });
+
 }

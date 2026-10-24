@@ -190,6 +190,7 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   required int priorWorkerPid,
   required DateTime observedAt,
   DateTime? priorHeartbeatAt,
+  int? priorSourceBytesRead,
   int? priorCandidateSearchPagesRead,
   int? priorCandidateSearchIndex,
   int? priorCandidateSearchPageCount,
@@ -215,6 +216,13 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   if (total is! int || total != expectedSourceBytes ||
       read is! int || read < 0 || read > total) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_BYTES_MISMATCH';
+  }
+  // The native SHA256 reader only increases totalRead; after it completes,
+  // renderer stages always report the verified file length. Reject a later
+  // lower byte count for the same request/PID before exposing UI progress.
+  // This continuity check is not proof of a native source SHA identity.
+  if (priorSourceBytesRead != null && read < priorSourceBytesRead) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_SOURCE_BYTES_REGRESSION';
   }
   // Native writeRunning() has six known stages. A forged or malformed
   // stage/page tuple must never become visible progress or ETA authority.
@@ -798,6 +806,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     var lastProgressSignature = '';
     var lastStage = 'STARTED';
     var lastWorkerPid = 0;
+    int? lastVerifiedSourceBytesRead;
     int? lastCandidateSearchPagesRead;
     int? lastCandidateSearchIndex;
     int? lastCandidateSearchPageCount;
@@ -901,6 +910,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             observedAt: DateTime.now(),
             priorHeartbeatAt:
                 lastProgressSignature.isEmpty ? null : lastHeartbeatAt,
+            priorSourceBytesRead: lastVerifiedSourceBytesRead,
             priorCandidateSearchPagesRead: lastCandidateSearchPagesRead,
             priorCandidateSearchIndex: lastCandidateSearchIndex,
             priorCandidateSearchPageCount: lastCandidateSearchPageCount,
@@ -909,6 +919,8 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           if (runningViolation != null) {
             throw StateError(runningViolation);
           }
+          // Persist only validated Running evidence for this request/PID.
+          lastVerifiedSourceBytesRead = decoded['source_bytes_read'] as int;
           if (decoded['stage'] == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
             lastCandidateSearchPagesRead = decoded['pages_read'] as int;
             lastCandidateSearchIndex = decoded['candidate_index'] as int;

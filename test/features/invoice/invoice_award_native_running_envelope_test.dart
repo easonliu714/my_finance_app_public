@@ -26,6 +26,7 @@ void main() {
     String? violation(Map<String, dynamic> item, {
       int priorPid = 321,
       DateTime? priorHeartbeat,
+      int? priorSourceBytesRead,
       int? priorSearchPagesRead,
       int? priorSearchCandidateIndex,
       int? priorSearchPageCount,
@@ -38,6 +39,7 @@ void main() {
           priorWorkerPid: priorPid,
           observedAt: observedAt,
           priorHeartbeatAt: priorHeartbeat,
+          priorSourceBytesRead: priorSourceBytesRead,
           priorCandidateSearchPagesRead: priorSearchPagesRead,
           priorCandidateSearchIndex: priorSearchCandidateIndex,
           priorCandidateSearchPageCount: priorSearchPageCount,
@@ -124,6 +126,61 @@ void main() {
         isNull,
       );
     });
+
+    // Kotlin sha256File increments totalRead; no later verified Running
+    // observation for the same request/PID may report fewer source bytes.
+    test('rejects decreasing SHA256 byte count', () {
+      expect(
+        violation(running()..['source_bytes_read'] = 400,
+            priorSourceBytesRead: 800),
+        'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_SOURCE_BYTES_REGRESSION',
+      );
+    });
+
+    test('rejects completed hash bytes rolling back to partial', () {
+      expect(
+        violation(running()..['source_bytes_read'] = 1000,
+            priorSourceBytesRead: 135200798),
+        'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_SOURCE_BYTES_REGRESSION',
+      );
+    });
+
+    test('accepts zero, increasing, and repeated source byte counts', () {
+      for (final sample in <(int, int)>[
+        (0, 0),
+        (0, 400),
+        (400, 400),
+        (400, 135200798),
+      ]) {
+        expect(
+          violation(running()..['source_bytes_read'] = sample.$2,
+              priorSourceBytesRead: sample.$1),
+          isNull,
+        );
+      }
+    });
+
+    test('accepts OPEN_WAIT and OPEN_OK at unchanged complete bytes', () {
+      for (final stage in <String>[
+        'PLATFORM_RENDERER_OPEN_WAIT',
+        'PLATFORM_RENDERER_OPEN_OK',
+      ]) {
+        expect(
+          violation(
+            running()
+              ..addAll(<String, dynamic>{
+                'stage': stage,
+                'source_bytes_read': 135200798,
+                'page_count': stage == 'PLATFORM_RENDERER_OPEN_OK' ? 87000 : 0,
+              }),
+            priorSourceBytesRead: 135200798,
+          ),
+          isNull,
+          reason: stage,
+        );
+      }
+    });
+
     test('accepts six actual Kotlin Running stage geometries', () {
       final stages = <Map<String, dynamic>>[
         <String, dynamic>{
