@@ -192,6 +192,7 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   DateTime? priorHeartbeatAt,
   int? priorCandidateSearchPagesRead,
   int? priorCandidateSearchIndex,
+  int? priorCandidateSearchPageCount,
 }) {
   if (running['status'] != 'running' ||
       running['engine'] != 'android-platform-pdfrenderer-candidate-search') {
@@ -294,6 +295,14 @@ String? cloudAwardNativeRunningEnvelopeViolation({
       priorCandidateSearchIndex != null &&
       index < priorCandidateSearchIndex) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_CANDIDATE_INDEX_REGRESSION';
+  }
+  // One PdfRenderer supplies an immutable pageCount for a worker request.
+  // Only validated SEARCH snapshots establish this cross-snapshot authority;
+  // concurrent OPEN_WAIT/OPEN_OK writes must not trigger this guard.
+  if (stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' &&
+      priorCandidateSearchPageCount != null &&
+      pageCount != priorCandidateSearchPageCount) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_COUNT_CHANGED';
   }
   return null;
 }
@@ -778,6 +787,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     var lastWorkerPid = 0;
     int? lastCandidateSearchPagesRead;
     int? lastCandidateSearchIndex;
+    int? lastCandidateSearchPageCount;
     var lastLivenessProbeAt = workerStartedAt;
     var lastStaleNoticeAt = workerStartedAt;
     CloudAwardSortedPdfCandidateProgress? lastNativeProgress;
@@ -879,6 +889,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                 lastProgressSignature.isEmpty ? null : lastHeartbeatAt,
             priorCandidateSearchPagesRead: lastCandidateSearchPagesRead,
             priorCandidateSearchIndex: lastCandidateSearchIndex,
+            priorCandidateSearchPageCount: lastCandidateSearchPageCount,
           );
           if (runningViolation != null) {
             throw StateError(runningViolation);
@@ -886,6 +897,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           if (decoded['stage'] == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
             lastCandidateSearchPagesRead = decoded['pages_read'] as int;
             lastCandidateSearchIndex = decoded['candidate_index'] as int;
+            lastCandidateSearchPageCount = decoded['page_count'] as int;
           }
           final stage = decoded['stage']?.toString() ?? 'RUNNING';
           final candidateIndex =
