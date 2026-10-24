@@ -190,6 +190,7 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   required int priorWorkerPid,
   required DateTime observedAt,
   DateTime? priorHeartbeatAt,
+  int? priorCandidateSearchPagesRead,
 }) {
   if (running['status'] != 'running' ||
       running['engine'] != 'android-platform-pdfrenderer-candidate-search') {
@@ -276,6 +277,14 @@ String? cloudAwardNativeRunningEnvelopeViolation({
       (priorHeartbeatAt != null &&
           updatedAtMs < priorHeartbeatAt.millisecondsSinceEpoch)) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_CLOCK_INVALID';
+  }
+  // Native pagesRead is a set cardinality within this worker request.
+  // Compare only verified SEARCH snapshots: OPEN_WAIT/OPEN_OK heartbeat
+  // writes may interleave and must not be treated as page-read snapshots.
+  if (stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' &&
+      priorCandidateSearchPagesRead != null &&
+      pagesRead < priorCandidateSearchPagesRead) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGES_READ_REGRESSION';
   }
   return null;
 }
@@ -758,6 +767,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     var lastProgressSignature = '';
     var lastStage = 'STARTED';
     var lastWorkerPid = 0;
+    int? lastCandidateSearchPagesRead;
     var lastLivenessProbeAt = workerStartedAt;
     var lastStaleNoticeAt = workerStartedAt;
     CloudAwardSortedPdfCandidateProgress? lastNativeProgress;
@@ -857,9 +867,13 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             observedAt: DateTime.now(),
             priorHeartbeatAt:
                 lastProgressSignature.isEmpty ? null : lastHeartbeatAt,
+            priorCandidateSearchPagesRead: lastCandidateSearchPagesRead,
           );
           if (runningViolation != null) {
             throw StateError(runningViolation);
+          }
+          if (decoded['stage'] == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
+            lastCandidateSearchPagesRead = decoded['pages_read'] as int;
           }
           final stage = decoded['stage']?.toString() ?? 'RUNNING';
           final candidateIndex =

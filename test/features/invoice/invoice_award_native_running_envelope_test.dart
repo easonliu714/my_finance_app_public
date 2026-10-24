@@ -26,6 +26,7 @@ void main() {
     String? violation(Map<String, dynamic> item, {
       int priorPid = 321,
       DateTime? priorHeartbeat,
+      int? priorSearchPagesRead,
     }) =>
         cloudAwardNativeRunningEnvelopeViolation(
           running: item,
@@ -34,6 +35,7 @@ void main() {
           priorWorkerPid: priorPid,
           observedAt: observedAt,
           priorHeartbeatAt: priorHeartbeat,
+          priorCandidateSearchPagesRead: priorSearchPagesRead,
         );
 
     test('accepts native first Running envelope', () {
@@ -257,6 +259,50 @@ void main() {
         })),
         'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_PROGRESS_INVALID',
       );
+    });
+
+    test('search page count regression is fail-closed for the same PID', () {
+      final current = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+        'source_bytes_read': 135200798,
+        'candidate_index': 1,
+        'page_number': 43500,
+        'page_count': 87000,
+        'pages_read': 12,
+      });
+      expect(
+        violation(current, priorHeartbeat: priorHeartbeatAt,
+            priorSearchPagesRead: 13),
+        'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGES_READ_REGRESSION',
+      );
+    });
+
+    test('equal and increasing search page counts are valid', () {
+      for (final count in <int>[13, 14]) {
+        final current = running()..addAll(<String, dynamic>{
+          'stage': 'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+          'source_bytes_read': 135200798,
+          'candidate_index': 1,
+          'page_number': 43500,
+          'page_count': 87000,
+          'pages_read': count,
+        });
+        expect(violation(current, priorSearchPagesRead: 13), isNull);
+      }
+    });
+
+    test('opening heartbeat stages are not search-page regression evidence', () {
+      final waiting = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_OPEN_WAIT',
+        'source_bytes_read': 135200798,
+      });
+      final opened = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_OPEN_OK',
+        'source_bytes_read': 135200798,
+        'page_count': 87000,
+      });
+      expect(violation(waiting, priorSearchPagesRead: 13), isNull);
+      expect(violation(opened, priorSearchPagesRead: 13), isNull);
     });
 
   });
