@@ -354,7 +354,7 @@ void main() {
       }
     });
 
-    test('opening heartbeat stages are not search-page regression evidence', () {
+    test('opening stages after verified SEARCH fail closed', () {
       final waiting = running()..addAll(<String, dynamic>{
         'stage': 'PLATFORM_RENDERER_OPEN_WAIT',
         'source_bytes_read': 135200798,
@@ -364,8 +364,8 @@ void main() {
         'source_bytes_read': 135200798,
         'page_count': 87000,
       });
-      expect(violation(waiting, priorSearchPagesRead: 13), isNull);
-      expect(violation(opened, priorSearchPagesRead: 13), isNull);
+      expect(violation(waiting, priorSearchPagesRead: 13), 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION');
+      expect(violation(opened, priorSearchPagesRead: 13), 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION');
     });
 
     // Native candidates.forEachIndexed emits SEARCH in sequential order.
@@ -399,7 +399,7 @@ void main() {
       }
     });
 
-    test('OPEN_WAIT and OPEN_OK do not establish SEARCH candidate order', () {
+    test('opening stages cannot follow verified SEARCH candidate order', () {
       final waiting = running()..addAll(<String, dynamic>{
         'stage': 'PLATFORM_RENDERER_OPEN_WAIT',
         'source_bytes_read': 135200798,
@@ -409,8 +409,10 @@ void main() {
         'source_bytes_read': 135200798,
         'page_count': 87000,
       });
-      expect(violation(waiting, priorSearchCandidateIndex: 2), isNull);
-      expect(violation(opened, priorSearchCandidateIndex: 2), isNull);
+      expect(violation(waiting, priorSearchCandidateIndex: 2,
+          priorSearchPagesRead: 13), 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION');
+      expect(violation(opened, priorSearchCandidateIndex: 2,
+          priorSearchPagesRead: 13), 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION');
     });
 
 
@@ -492,7 +494,7 @@ void main() {
       }
     });
 
-    test('OPEN_WAIT and OPEN_OK ignore prior SEARCH page identity', () {
+    test('opening stages cannot follow verified SEARCH page identity', () {
       final waiting = running()..addAll(<String, dynamic>{
         'stage': 'PLATFORM_RENDERER_OPEN_WAIT',
         'source_bytes_read': 135200798,
@@ -503,12 +505,12 @@ void main() {
         'page_count': 87000,
       });
       expect(violation(waiting, priorSearchPagesRead: 13,
-          priorSearchPageNumber: 43500), isNull);
+          priorSearchPageNumber: 43500), 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION');
       expect(violation(opened, priorSearchPagesRead: 13,
-          priorSearchPageNumber: 43500), isNull);
+          priorSearchPageNumber: 43500), 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION');
     });
 
-    test('OPEN_WAIT and OPEN_OK cannot change SEARCH page-count authority', () {
+    test('opening stages cannot follow verified SEARCH page-count authority', () {
       final waiting = running()..addAll(<String, dynamic>{
         'stage': 'PLATFORM_RENDERER_OPEN_WAIT',
         'source_bytes_read': 135200798,
@@ -518,8 +520,56 @@ void main() {
         'source_bytes_read': 135200798,
         'page_count': 87001,
       });
-      expect(violation(waiting, priorSearchPageCount: 87000), isNull);
-      expect(violation(opened, priorSearchPageCount: 87000), isNull);
+      expect(violation(waiting, priorSearchPageCount: 87000,
+          priorSearchPagesRead: 13), 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION');
+      expect(violation(opened, priorSearchPageCount: 87000,
+          priorSearchPagesRead: 13), 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION');
     });
+    // Once SEARCH has been verified, even a newer timestamp cannot make an
+    // opening-stage write valid. Before SEARCH, all opening stages remain valid.
+    test('rejects all pre-search stages after verified SEARCH', () {
+      for (final stage in <String>[
+        'PLATFORM_SOURCE_SHA256',
+        'PLATFORM_RENDERER_OPEN_BEGIN',
+        'PLATFORM_RENDERER_OPEN_WAIT',
+        'PLATFORM_RENDERER_OPEN_OK',
+      ]) {
+        final current = running()..addAll(<String, dynamic>{
+          'stage': stage,
+          'source_bytes_read': 135200798,
+          'page_count': stage == 'PLATFORM_RENDERER_OPEN_OK' ? 87000 : 0,
+        });
+        expect(
+          violation(current, priorSearchPagesRead: 13,
+              priorSourceBytesRead: 135200798),
+          'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION',
+          reason: stage,
+        );
+        expect(
+          violation(current, priorSourceBytesRead: 135200798),
+          isNull,
+          reason: 'Opening before SEARCH is legal: $stage',
+        );
+      }
+    });
+
+    test('PAGE_BEGIN after verified SEARCH remains legal', () {
+      final nextPage = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+        'source_bytes_read': 135200798,
+        'candidate_index': 1,
+        'page_number': 65000,
+        'page_count': 87000,
+        'pages_read': 13,
+      });
+      expect(
+        violation(nextPage, priorSearchPagesRead: 13,
+            priorSearchCandidateIndex: 1,
+            priorSearchPageCount: 87000,
+            priorSourceBytesRead: 135200798),
+        isNull,
+      );
+    });
+
   });
 }

@@ -238,6 +238,15 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   if (stage is! String || !allowedStages.contains(stage)) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_INVALID';
   }
+  // A verified SEARCH observation proves renderer opening has finished.
+  // A late OPEN_WAIT heartbeat can race with SEARCH in the native writer;
+  // never expose that stale opening state as fresh UI progress.
+  // PAGE_BEGIN -> SEARCH remains a legal next-page transition.
+  if (priorCandidateSearchPagesRead != null &&
+      stage != 'PLATFORM_RENDERER_PAGE_BEGIN' &&
+      stage != 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION';
+  }
   final pageNumber = running['page_number'];
   final pageCount = running['page_count'];
   final pagesRead = running['pages_read'];

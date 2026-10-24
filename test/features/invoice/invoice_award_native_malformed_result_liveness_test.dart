@@ -602,4 +602,76 @@ void main() {
     expect(await resultFile.exists(), isTrue);
   });
 
+  // Real temporary result JSON and MethodChannel consumer: native OPEN_WAIT
+  // can finish writing after SEARCH because interrupt() does not join the
+  // heartbeat thread. Reject the stale snapshot before UI progress.
+  test('result-file consumer rejects OPEN_WAIT after verified SEARCH',
+      () async {
+    final firstAt = DateTime.now()
+        .subtract(const Duration(seconds: 2))
+        .millisecondsSinceEpoch;
+    Map<String, Object?> snapshot(String stage, int updatedAt) =>
+        <String, Object?>{
+          'request_id': 'req-test',
+          'status': 'running',
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'worker_pid': 4242,
+          'stage': stage,
+          'candidate_index':
+              stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' ? 1 : 0,
+          'candidate_count': 1,
+          'source_bytes_read': 1000,
+          'source_bytes_total': 1000,
+          'page_number':
+              stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' ? 50 : 0,
+          'page_count':
+              stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' ? 100 : 0,
+          'pages_read':
+              stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' ? 13 : 0,
+          'stage_elapsed_ms': 500,
+          'updated_at_ms': updatedAt,
+        };
+    var observedSearchProgress = 0;
+    var observedOpeningProgress = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        await resultFile.writeAsString(jsonEncode(
+          snapshot('PLATFORM_RENDERER_CANDIDATE_SEARCH', firstAt),
+        ));
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    await expectLater(
+      lookup.findMatchesCrashIsolatedForTesting(
+        artifact: artifact,
+        candidateInvoiceNumbers: const <String>['AB12345678'],
+        onProgress: (progress) {
+          if (progress.stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
+            observedSearchProgress++;
+            if (observedSearchProgress == 1) {
+              resultFile.writeAsStringSync(jsonEncode(
+                snapshot('PLATFORM_RENDERER_OPEN_WAIT', firstAt + 1000),
+              ));
+            }
+          } else if (progress.stage == 'PLATFORM_RENDERER_OPEN_WAIT') {
+            observedOpeningProgress++;
+          }
+        },
+      ).timeout(const Duration(seconds: 5)),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(),
+        'stale native opening stage',
+        contains('CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION'),
+      )),
+    );
+    expect(observedSearchProgress, 1);
+    expect(observedOpeningProgress, 0);
+    expect(await resultFile.exists(), isTrue);
+  });
+
 }
