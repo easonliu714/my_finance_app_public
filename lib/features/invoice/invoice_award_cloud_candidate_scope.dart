@@ -193,6 +193,7 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   int? priorCandidateSearchPagesRead,
   int? priorCandidateSearchIndex,
   int? priorCandidateSearchPageCount,
+  int? priorCandidateSearchPageNumber,
 }) {
   if (running['status'] != 'running' ||
       running['engine'] != 'android-platform-pdfrenderer-candidate-search') {
@@ -303,6 +304,18 @@ String? cloudAwardNativeRunningEnvelopeViolation({
       priorCandidateSearchPageCount != null &&
       pageCount != priorCandidateSearchPageCount) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_COUNT_CHANGED';
+  }
+  // Kotlin pageTokens() emits SEARCH only after caching a new distinct page.
+  // Repeated polling preserves both page number and pagesRead; a new page
+  // changes both. Ignore concurrent OPEN_WAIT/OPEN_OK heartbeat stages.
+  if (stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' &&
+      priorCandidateSearchPagesRead != null &&
+      priorCandidateSearchPageNumber != null &&
+      ((pagesRead == priorCandidateSearchPagesRead &&
+              pageNumber != priorCandidateSearchPageNumber) ||
+          (pagesRead > priorCandidateSearchPagesRead &&
+              pageNumber == priorCandidateSearchPageNumber))) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_SEARCH_PAGE_IDENTITY_INVALID';
   }
   return null;
 }
@@ -788,6 +801,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     int? lastCandidateSearchPagesRead;
     int? lastCandidateSearchIndex;
     int? lastCandidateSearchPageCount;
+    int? lastCandidateSearchPageNumber;
     var lastLivenessProbeAt = workerStartedAt;
     var lastStaleNoticeAt = workerStartedAt;
     CloudAwardSortedPdfCandidateProgress? lastNativeProgress;
@@ -890,6 +904,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             priorCandidateSearchPagesRead: lastCandidateSearchPagesRead,
             priorCandidateSearchIndex: lastCandidateSearchIndex,
             priorCandidateSearchPageCount: lastCandidateSearchPageCount,
+            priorCandidateSearchPageNumber: lastCandidateSearchPageNumber,
           );
           if (runningViolation != null) {
             throw StateError(runningViolation);
@@ -898,6 +913,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             lastCandidateSearchPagesRead = decoded['pages_read'] as int;
             lastCandidateSearchIndex = decoded['candidate_index'] as int;
             lastCandidateSearchPageCount = decoded['page_count'] as int;
+            lastCandidateSearchPageNumber = decoded['page_number'] as int;
           }
           final stage = decoded['stage']?.toString() ?? 'RUNNING';
           final candidateIndex =

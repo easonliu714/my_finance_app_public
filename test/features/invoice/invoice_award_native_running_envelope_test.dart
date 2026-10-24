@@ -29,6 +29,7 @@ void main() {
       int? priorSearchPagesRead,
       int? priorSearchCandidateIndex,
       int? priorSearchPageCount,
+      int? priorSearchPageNumber,
     }) =>
         cloudAwardNativeRunningEnvelopeViolation(
           running: item,
@@ -40,6 +41,7 @@ void main() {
           priorCandidateSearchPagesRead: priorSearchPagesRead,
           priorCandidateSearchIndex: priorSearchCandidateIndex,
           priorCandidateSearchPageCount: priorSearchPageCount,
+          priorCandidateSearchPageNumber: priorSearchPageNumber,
         );
 
     test('accepts native first Running envelope', () {
@@ -382,6 +384,71 @@ void main() {
         'pages_read': 13,
       });
       expect(violation(current, priorSearchPageCount: 87000), isNull);
+    });
+
+
+    // Kotlin SEARCH is emitted only after a previously uncached page is read.
+    test('same pages_read with changed SEARCH page fails closed', () {
+      final current = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+        'source_bytes_read': 135200798,
+        'candidate_index': 1,
+        'page_number': 43501,
+        'page_count': 87000,
+        'pages_read': 13,
+      });
+      expect(
+        violation(current, priorSearchPagesRead: 13,
+            priorSearchPageNumber: 43500),
+        'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_SEARCH_PAGE_IDENTITY_INVALID',
+      );
+    });
+
+    test('increased pages_read with same SEARCH page fails closed', () {
+      final current = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+        'source_bytes_read': 135200798,
+        'candidate_index': 1,
+        'page_number': 43500,
+        'page_count': 87000,
+        'pages_read': 14,
+      });
+      expect(
+        violation(current, priorSearchPagesRead: 13,
+            priorSearchPageNumber: 43500),
+        'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_SEARCH_PAGE_IDENTITY_INVALID',
+      );
+    });
+
+    test('duplicate SEARCH poll and new sparse page are valid', () {
+      for (final pair in <(int, int)>[(13, 43500), (14, 65000)]) {
+        final current = running()..addAll(<String, dynamic>{
+          'stage': 'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+          'source_bytes_read': 135200798,
+          'candidate_index': 1,
+          'page_number': pair.$2,
+          'page_count': 87000,
+          'pages_read': pair.$1,
+        });
+        expect(violation(current, priorSearchPagesRead: 13,
+            priorSearchPageNumber: 43500), isNull);
+      }
+    });
+
+    test('OPEN_WAIT and OPEN_OK ignore prior SEARCH page identity', () {
+      final waiting = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_OPEN_WAIT',
+        'source_bytes_read': 135200798,
+      });
+      final opened = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_OPEN_OK',
+        'source_bytes_read': 135200798,
+        'page_count': 87000,
+      });
+      expect(violation(waiting, priorSearchPagesRead: 13,
+          priorSearchPageNumber: 43500), isNull);
+      expect(violation(opened, priorSearchPagesRead: 13,
+          priorSearchPageNumber: 43500), isNull);
     });
 
     test('OPEN_WAIT and OPEN_OK cannot change SEARCH page-count authority', () {
