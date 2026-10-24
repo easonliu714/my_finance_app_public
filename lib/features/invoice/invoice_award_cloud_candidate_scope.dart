@@ -191,6 +191,7 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   required DateTime observedAt,
   DateTime? priorHeartbeatAt,
   int? priorCandidateSearchPagesRead,
+  int? priorCandidateSearchIndex,
 }) {
   if (running['status'] != 'running' ||
       running['engine'] != 'android-platform-pdfrenderer-candidate-search') {
@@ -285,6 +286,14 @@ String? cloudAwardNativeRunningEnvelopeViolation({
       priorCandidateSearchPagesRead != null &&
       pagesRead < priorCandidateSearchPagesRead) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGES_READ_REGRESSION';
+  }
+  // Kotlin candidates.forEachIndexed is sequential for a single worker.
+  // Only verified SEARCH snapshots establish candidate order; concurrent
+  // renderer-opening heartbeat stages are not candidate-order evidence.
+  if (stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' &&
+      priorCandidateSearchIndex != null &&
+      index < priorCandidateSearchIndex) {
+    return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_CANDIDATE_INDEX_REGRESSION';
   }
   return null;
 }
@@ -768,6 +777,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     var lastStage = 'STARTED';
     var lastWorkerPid = 0;
     int? lastCandidateSearchPagesRead;
+    int? lastCandidateSearchIndex;
     var lastLivenessProbeAt = workerStartedAt;
     var lastStaleNoticeAt = workerStartedAt;
     CloudAwardSortedPdfCandidateProgress? lastNativeProgress;
@@ -868,12 +878,14 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             priorHeartbeatAt:
                 lastProgressSignature.isEmpty ? null : lastHeartbeatAt,
             priorCandidateSearchPagesRead: lastCandidateSearchPagesRead,
+            priorCandidateSearchIndex: lastCandidateSearchIndex,
           );
           if (runningViolation != null) {
             throw StateError(runningViolation);
           }
           if (decoded['stage'] == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
             lastCandidateSearchPagesRead = decoded['pages_read'] as int;
+            lastCandidateSearchIndex = decoded['candidate_index'] as int;
           }
           final stage = decoded['stage']?.toString() ?? 'RUNNING';
           final candidateIndex =

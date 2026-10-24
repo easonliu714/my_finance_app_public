@@ -359,4 +359,63 @@ void main() {
     expect(observedSearchProgress, 1);
     expect(await resultFile.exists(), isTrue);
   });
+  // Real result-file consumer and MethodChannel: reject a later SEARCH index
+  // regression before emitting the forged native progress to the UI.
+  test('result-file consumer rejects later SEARCH candidate index regression',
+      () async {
+    final firstAt = DateTime.now()
+        .subtract(const Duration(seconds: 2))
+        .millisecondsSinceEpoch;
+    Map<String, Object?> snapshot(int index, int updatedAt) =>
+        <String, Object?>{
+          'request_id': 'req-test',
+          'status': 'running',
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'worker_pid': 4242,
+          'stage': 'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+          'candidate_index': index,
+          'candidate_count': 2,
+          'source_bytes_read': 1000,
+          'source_bytes_total': 1000,
+          'page_number': 50,
+          'page_count': 100,
+          'pages_read': 13,
+          'stage_elapsed_ms': 500,
+          'updated_at_ms': updatedAt,
+        };
+    var observedSearchProgress = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        await resultFile.writeAsString(jsonEncode(snapshot(2, firstAt)));
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    await expectLater(
+      lookup.findMatchesCrashIsolatedForTesting(
+        artifact: artifact,
+        candidateInvoiceNumbers: const <String>['AB12345678', 'CD87654321'],
+        onProgress: (progress) {
+          if (progress.stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
+            observedSearchProgress++;
+            if (observedSearchProgress == 1) {
+              resultFile.writeAsStringSync(jsonEncode(snapshot(1, firstAt + 1000)));
+            }
+          }
+        },
+      ).timeout(const Duration(seconds: 5)),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(),
+        'search candidate index regression',
+        contains('CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_CANDIDATE_INDEX_REGRESSION'),
+      )),
+    );
+    expect(observedSearchProgress, 1);
+    expect(await resultFile.exists(), isTrue);
+  });
+
 }
