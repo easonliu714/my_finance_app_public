@@ -192,6 +192,7 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   DateTime? priorHeartbeatAt,
   int? priorSourceBytesRead,
   int? priorCandidateSearchPagesRead,
+  bool priorRendererPageObserved = false,
   int? priorCandidateSearchIndex,
   int? priorCandidateSearchPageCount,
   int? priorCandidateSearchPageNumber,
@@ -238,11 +239,11 @@ String? cloudAwardNativeRunningEnvelopeViolation({
   if (stage is! String || !allowedStages.contains(stage)) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_INVALID';
   }
-  // A verified SEARCH observation proves renderer opening has finished.
-  // A late OPEN_WAIT heartbeat can race with SEARCH in the native writer;
-  // never expose that stale opening state as fresh UI progress.
-  // PAGE_BEGIN -> SEARCH remains a legal next-page transition.
-  if (priorCandidateSearchPagesRead != null &&
+  // A verified PAGE_BEGIN already proves entry into PdfRenderer, even when
+  // the 50ms result-file poll has not yet observed any SEARCH snapshot.
+  // A late native OPEN_WAIT heartbeat must never roll UI progress backwards.
+  // This Dart guard does not repair native terminal-result write races.
+  if ((priorRendererPageObserved || priorCandidateSearchPagesRead != null) &&
       stage != 'PLATFORM_RENDERER_PAGE_BEGIN' &&
       stage != 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION';
@@ -839,6 +840,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     var lastWorkerPid = 0;
     int? lastVerifiedSourceBytesRead;
     int? lastCandidateSearchPagesRead;
+    var lastRendererPageObserved = false;
     int? lastCandidateSearchIndex;
     int? lastCandidateSearchPageCount;
     int? lastCandidateSearchPageNumber;
@@ -943,6 +945,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
                 lastProgressSignature.isEmpty ? null : lastHeartbeatAt,
             priorSourceBytesRead: lastVerifiedSourceBytesRead,
             priorCandidateSearchPagesRead: lastCandidateSearchPagesRead,
+            priorRendererPageObserved: lastRendererPageObserved,
             priorCandidateSearchIndex: lastCandidateSearchIndex,
             priorCandidateSearchPageCount: lastCandidateSearchPageCount,
             priorCandidateSearchPageNumber: lastCandidateSearchPageNumber,
@@ -951,6 +954,12 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             throw StateError(runningViolation);
           }
           // Persist only validated Running evidence for this request/PID.
+          // Renderer entry is irreversible even when SEARCH was skipped by
+          // the 50ms polling cadence; never accept a later opening heartbeat.
+          if (decoded['stage'] == 'PLATFORM_RENDERER_PAGE_BEGIN' ||
+              decoded['stage'] == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
+            lastRendererPageObserved = true;
+          }
           lastVerifiedSourceBytesRead = decoded['source_bytes_read'] as int;
           if (decoded['stage'] == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
             lastCandidateSearchPagesRead = decoded['pages_read'] as int;

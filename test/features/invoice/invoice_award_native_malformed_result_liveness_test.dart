@@ -817,6 +817,75 @@ void main() {
     expect(await resultFile.exists(), isTrue);
   });
 
+
+  // Real temp result-file and MethodChannel regression: native OPEN_WAIT can
+  // overtake PAGE_BEGIN before the first SEARCH is sampled. Reject it before
+  // publishing a second, stale progress event to the UI.
+  test('result-file consumer rejects OPEN_WAIT after verified PAGE_BEGIN',
+      () async {
+    final firstAt = DateTime.now()
+        .subtract(const Duration(seconds: 2))
+        .millisecondsSinceEpoch;
+    Map<String, Object?> snapshot(String stage, int updatedAt) =>
+        <String, Object?>{
+          'request_id': 'req-test',
+          'status': 'running',
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'worker_pid': 4242,
+          'stage': stage,
+          'candidate_index': stage == 'PLATFORM_RENDERER_PAGE_BEGIN' ? 1 : 0,
+          'candidate_count': 1,
+          'source_bytes_read': 1000,
+          'source_bytes_total': 1000,
+          'page_number': stage == 'PLATFORM_RENDERER_PAGE_BEGIN' ? 50 : 0,
+          'page_count': stage == 'PLATFORM_RENDERER_PAGE_BEGIN' ? 100 : 0,
+          'pages_read': stage == 'PLATFORM_RENDERER_PAGE_BEGIN' ? 13 : 0,
+          'stage_elapsed_ms': 500,
+          'updated_at_ms': updatedAt,
+        };
+    var observedPageBegin = 0;
+    var observedOpening = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        await resultFile.writeAsString(jsonEncode(
+          snapshot('PLATFORM_RENDERER_PAGE_BEGIN', firstAt),
+        ));
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    await expectLater(
+      lookup.findMatchesCrashIsolatedForTesting(
+        artifact: artifact,
+        candidateInvoiceNumbers: const <String>['AB12345678'],
+        onProgress: (progress) {
+          if (progress.stage == 'PLATFORM_RENDERER_PAGE_BEGIN') {
+            observedPageBegin++;
+            if (observedPageBegin == 1) {
+              resultFile.writeAsStringSync(jsonEncode(
+                snapshot('PLATFORM_RENDERER_OPEN_WAIT', firstAt + 1000),
+              ));
+            }
+          } else if (progress.stage == 'PLATFORM_RENDERER_OPEN_WAIT') {
+            observedOpening++;
+          }
+        },
+      ).timeout(const Duration(seconds: 5)),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(),
+        'stale opening after verified PAGE_BEGIN',
+        contains('CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION'),
+      )),
+    );
+    expect(observedPageBegin, 1);
+    expect(observedOpening, 0);
+    expect(await resultFile.exists(), isTrue);
+  });
+
   // The native worker reports PAGE_BEGIN before adding the last distinct page.
   // Exercise real temporary JSON polling through the MethodChannel consumer:
   // pre-read pageCount-1 is valid, but pageCount is impossible and fail-closed.

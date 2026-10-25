@@ -28,6 +28,7 @@ void main() {
       DateTime? priorHeartbeat,
       int? priorSourceBytesRead,
       int? priorSearchPagesRead,
+      bool priorRendererPageObserved = false,
       int? priorSearchCandidateIndex,
       int? priorSearchPageCount,
       int? priorSearchPageNumber,
@@ -41,6 +42,7 @@ void main() {
           priorHeartbeatAt: priorHeartbeat,
           priorSourceBytesRead: priorSourceBytesRead,
           priorCandidateSearchPagesRead: priorSearchPagesRead,
+          priorRendererPageObserved: priorRendererPageObserved,
           priorCandidateSearchIndex: priorSearchCandidateIndex,
           priorCandidateSearchPageCount: priorSearchPageCount,
           priorCandidateSearchPageNumber: priorSearchPageNumber,
@@ -352,6 +354,57 @@ void main() {
         });
         expect(violation(current, priorSearchPagesRead: 13), isNull);
       }
+    });
+
+
+    // PAGE_BEGIN is already renderer-entry evidence, even before SEARCH
+    // appears in the 50ms sampled result-file stream.
+    test('opening stages after verified PAGE_BEGIN fail closed', () {
+      for (final stage in <String>[
+        'PLATFORM_SOURCE_SHA256',
+        'PLATFORM_RENDERER_OPEN_BEGIN',
+        'PLATFORM_RENDERER_OPEN_WAIT',
+        'PLATFORM_RENDERER_OPEN_OK',
+      ]) {
+        final current = running()..addAll(<String, dynamic>{
+          'stage': stage,
+          'source_bytes_read': stage == 'PLATFORM_SOURCE_SHA256'
+              ? 0
+              : 135200798,
+          'page_count': stage == 'PLATFORM_RENDERER_OPEN_OK' ? 87000 : 0,
+        });
+        expect(
+          violation(current, priorRendererPageObserved: true),
+          'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_REGRESSION',
+          reason: stage,
+        );
+      }
+    });
+
+    test('first opening and sampled PAGE_BEGIN to SEARCH remain valid', () {
+      final opening = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_OPEN_WAIT',
+        'source_bytes_read': 135200798,
+      });
+      expect(violation(opening), isNull);
+      final pageBegin = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+        'source_bytes_read': 135200798,
+        'candidate_index': 1,
+        'page_number': 50,
+        'page_count': 87000,
+        'pages_read': 13,
+      });
+      expect(violation(pageBegin), isNull);
+      final search = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_CANDIDATE_SEARCH',
+        'source_bytes_read': 135200798,
+        'candidate_index': 1,
+        'page_number': 50,
+        'page_count': 87000,
+        'pages_read': 14,
+      });
+      expect(violation(search, priorRendererPageObserved: true), isNull);
     });
 
     test('opening stages after verified SEARCH fail closed', () {
