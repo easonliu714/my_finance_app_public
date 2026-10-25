@@ -817,4 +817,66 @@ void main() {
     expect(await resultFile.exists(), isTrue);
   });
 
+  // The native worker reports PAGE_BEGIN before adding the last distinct page.
+  // Exercise real temporary JSON polling through the MethodChannel consumer:
+  // pre-read pageCount-1 is valid, but pageCount is impossible and fail-closed.
+  test('result-file PAGE_BEGIN rejects already-read full page count',
+      () async {
+    for (final pagesRead in <int>[99, 100]) {
+      final cancellation = CloudAwardCandidateLookupCancellation();
+      var observedBegin = 0;
+      final snapshot = <String, Object?>{
+        'request_id': 'req-test',
+        'status': 'running',
+        'engine': 'android-platform-pdfrenderer-candidate-search',
+        'worker_pid': 4242,
+        'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+        'candidate_index': 1,
+        'candidate_count': 1,
+        'source_bytes_read': 1000,
+        'source_bytes_total': 1000,
+        'page_number': 100,
+        'page_count': 100,
+        'pages_read': pagesRead,
+        'stage_elapsed_ms': 500,
+        'updated_at_ms': DateTime.now()
+            .subtract(const Duration(seconds: 1)).millisecondsSinceEpoch,
+      };
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'startPlatformCandidateWorker') {
+          await resultFile.writeAsString(jsonEncode(snapshot));
+          return <String, Object?>{
+            'requestId': 'req-test',
+            'resultPath': resultFile.path,
+          };
+        }
+        fail('Unexpected native method: ${call.method}');
+      });
+      final pending = lookupWith(cancellation, onProgress: (progress) {
+        observedBegin++;
+        expect(progress.stage, 'PLATFORM_RENDERER_PAGE_BEGIN');
+        cancellation.cancel();
+      }).timeout(const Duration(seconds: 5));
+      if (pagesRead == 99) {
+        await expectLater(
+          pending,
+          throwsA(isA<CloudAwardCandidateLookupCancelled>()),
+        );
+        expect(observedBegin, 1);
+      } else {
+        await expectLater(
+          pending,
+          throwsA(isA<StateError>().having(
+            (error) => error.toString(),
+            'impossible PAGE_BEGIN pre-read cardinality',
+            contains('CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_PROGRESS_INVALID'),
+          )),
+        );
+        expect(observedBegin, 0);
+      }
+      expect(await resultFile.exists(), isTrue);
+    }
+  });
+
 }

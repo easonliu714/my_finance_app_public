@@ -574,6 +574,29 @@ void main() {
       }
     });
 
+    // The native worker publishes PAGE_BEGIN before reading an uncached page.
+    // A new-page pre-read cardinality cannot already equal pageCount.
+    test('PAGE_BEGIN requires at least one unread page', () {
+      for (final pagesRead in <int>[86999, 87000]) {
+        final current = running()..addAll(<String, dynamic>{
+          'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+          'source_bytes_read': 135200798,
+          'candidate_index': 2,
+          'page_number': 87000,
+          'page_count': 87000,
+          'pages_read': pagesRead,
+        });
+        expect(
+          violation(current, priorSearchPagesRead: 86998,
+              priorSearchCandidateIndex: 2, priorSearchPageCount: 87000),
+          pagesRead == 87000
+              ? 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_PROGRESS_INVALID'
+              : isNull,
+          reason: 'PAGE_BEGIN pages_read=$pagesRead',
+        );
+      }
+    });
+
     test('PAGE_BEGIN accepts unobserved intermediate SEARCH progress', () {
       for (final pagesRead in <int>[13, 14, 15]) {
         final current = running()..addAll(<String, dynamic>{

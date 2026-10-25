@@ -288,6 +288,9 @@ String? cloudAwardNativeRunningEnvelopeViolation({
       pageNumber <= 0 ||
       pageCount <= 0 ||
       read != total ||
+      // Native pageTokens() emits PAGE_BEGIN before adding the new page to
+      // pagesRead. Equality to pageCount is impossible for that stage.
+      (stage == 'PLATFORM_RENDERER_PAGE_BEGIN' && pagesRead >= pageCount) ||
       (stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH' && pagesRead == 0)) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_STAGE_PROGRESS_INVALID';
   }
