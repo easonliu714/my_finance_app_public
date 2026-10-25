@@ -102,12 +102,15 @@ void main() {
   Future<CloudAwardSortedPdfCandidateMatchResult> lookupWith(
     CloudAwardCandidateLookupCancellation cancellation, {
     void Function(CloudAwardSortedPdfCandidateProgress)? onProgress,
+    Duration startupEvidenceTimeout =
+        PdfiumCloudAwardSortedPdfCandidateLookup.workerStartupEvidenceTimeout,
   }) =>
       lookup.findMatchesCrashIsolatedForTesting(
         artifact: artifact,
         candidateInvoiceNumbers: const <String>['AB12345678'],
         cancellation: cancellation,
         onProgress: onProgress,
+        startupEvidenceTimeout: startupEvidenceTimeout,
       );
 
   void replaceWithPartialJson(CloudAwardSortedPdfCandidateProgress progress) {
@@ -946,6 +949,137 @@ void main() {
       }
       expect(await resultFile.exists(), isTrue);
     }
+  });
+
+  // Native service-start ACK is not evidence of a running process.
+  test('worker ACK without result file has bounded startup UNKNOWN', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    await expectLater(
+      lookupWith(
+        CloudAwardCandidateLookupCancellation(),
+        startupEvidenceTimeout: const Duration(milliseconds: 100),
+      ).timeout(const Duration(seconds: 3)),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(),
+        'unverified startup',
+        contains('CLOUD_AWARD_CANDIDATE_WORKER_STARTUP_UNVERIFIED'),
+      )),
+    );
+    expect(probes, 0);
+    expect(await resultFile.exists(), isFalse);
+  });
+
+  // Partial JSON without a trusted PID is UNKNOWN, not a process-death proof.
+  test('malformed result without PID has bounded startup UNKNOWN', () async {
+    await mockWorker(alive: false, malformedFromStart: true);
+    await expectLater(
+      lookupWith(
+        CloudAwardCandidateLookupCancellation(),
+        startupEvidenceTimeout: const Duration(milliseconds: 150),
+      ).timeout(const Duration(seconds: 3)),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(),
+        'malformed startup',
+        contains('CLOUD_AWARD_CANDIDATE_WORKER_STARTUP_UNVERIFIED'),
+      )),
+    );
+    expect(probes, 0);
+    expect(await resultFile.readAsString(), '{"request_id":');
+  });
+
+  // A verified native Running/PID must not inherit a global PDF timeout.
+  test('verified Running is not timed out by startup observation', () async {
+    final running = staleRunning();
+    running['updated_at_ms'] = DateTime.now().millisecondsSinceEpoch;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        await resultFile.writeAsString(jsonEncode(running));
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    final cancellation = CloudAwardCandidateLookupCancellation();
+    Future<void>.delayed(const Duration(milliseconds: 650), cancellation.cancel);
+    await expectLater(
+      lookupWith(
+        cancellation,
+        startupEvidenceTimeout: const Duration(milliseconds: 200),
+      ).timeout(const Duration(seconds: 3)),
+      throwsA(isA<CloudAwardCandidateLookupCancelled>()),
+    );
+    expect(probes, 0);
+    expect(await resultFile.exists(), isTrue);
+  });
+
+  // Existing terminal validator handles early FAILED and retains evidence.
+  test('early native FAILED terminal remains retained', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        await resultFile.writeAsString(jsonEncode(<String, Object?>{
+          'request_id': 'req-test',
+          'status': 'failed',
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'error': 'PLATFORM_TEST_FAILURE',
+          'updated_at_ms': DateTime.now().millisecondsSinceEpoch,
+        }));
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    await expectLater(
+      lookupWith(
+        CloudAwardCandidateLookupCancellation(),
+        startupEvidenceTimeout: const Duration(milliseconds: 150),
+      ).timeout(const Duration(seconds: 3)),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(),
+        'native failed terminal',
+        contains('PLATFORM_TEST_FAILURE'),
+      )),
+    );
+    expect(await resultFile.exists(), isTrue);
+    expect(probes, 0);
+  });
+
+  // Cancellation remains higher priority than unverified startup expiry.
+  test('cancellation takes priority over missing startup evidence', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    final cancellation = CloudAwardCandidateLookupCancellation();
+    Future<void>.delayed(const Duration(milliseconds: 40), cancellation.cancel);
+    await expectLater(
+      lookupWith(
+        cancellation,
+        startupEvidenceTimeout: const Duration(milliseconds: 100),
+      ).timeout(const Duration(seconds: 3)),
+      throwsA(isA<CloudAwardCandidateLookupCancelled>()),
+    );
+    expect(probes, 0);
   });
 
 }

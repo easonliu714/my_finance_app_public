@@ -579,6 +579,9 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
   static const Duration workerHeartbeatProbeAfter = Duration(seconds: 15);
   static const Duration workerLivenessProbeEvery = Duration(seconds: 2);
   static const Duration staleHeartbeatNoticeEvery = Duration(seconds: 10);
+  // A service-start ACK does not prove the native worker ever wrote Running.
+  // Bound only first trusted evidence; do not time out a verified long PDF job.
+  static const Duration workerStartupEvidenceTimeout = Duration(minutes: 2);
 
   /// Integration-test seam for the actual native result-file consumer.
   /// Retains official sorted-source validation and candidate normalization.
@@ -589,6 +592,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     required Iterable<String> candidateInvoiceNumbers,
     CloudAwardSortedPdfCandidateProgressCallback? onProgress,
     CloudAwardCandidateLookupCancellation? cancellation,
+    Duration startupEvidenceTimeout = workerStartupEvidenceTimeout,
   }) {
     if (!artifact.reference.isApprovedOfficialSource ||
         !artifact.reference.artifactId.toLowerCase().contains('_sorted_')) {
@@ -605,6 +609,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
       candidates: candidates,
       onProgress: onProgress,
       cancellation: cancellation,
+      startupEvidenceTimeout: startupEvidenceTimeout,
     );
   }
 
@@ -811,6 +816,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     required List<String> candidates,
     CloudAwardSortedPdfCandidateProgressCallback? onProgress,
     CloudAwardCandidateLookupCancellation? cancellation,
+    Duration startupEvidenceTimeout = workerStartupEvidenceTimeout,
   }) async {
     cancellation?.throwIfCancelled();
     final expectedCandidateUniverseSha256 =
@@ -838,6 +844,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
     var lastProgressSignature = '';
     var lastStage = 'STARTED';
     var lastWorkerPid = 0;
+    var trustedStartupEvidenceObserved = false;
     int? lastVerifiedSourceBytesRead;
     int? lastCandidateSearchPagesRead;
     var lastRendererPageObserved = false;
@@ -883,6 +890,14 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
       }
     }
 
+    // No verified PID means no OS-death claim. Expiry is UNKNOWN/HOLD only.
+    void requireStartupEvidenceWithinDeadline(DateTime now) {
+      if (!trustedStartupEvidenceObserved &&
+          now.difference(workerStartedAt) >= startupEvidenceTimeout) {
+        throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_STARTUP_UNVERIFIED');
+      }
+    }
+
     while (true) {
       cancellation?.throwIfCancelled();
       if (await resultFile.exists()) {
@@ -904,6 +919,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           // Retry bytes without bypassing liveness of a verified worker PID.
           final now = DateTime.now();
           await probeStaleWorkerIfNeeded(now);
+          requireStartupEvidenceWithinDeadline(now);
           if (lastNativeProgress != null &&
               cloudAwardNativeHeartbeatNeedsProbe(
                 now.difference(lastHeartbeatAt),
@@ -977,6 +993,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
           if (engine != 'android-platform-pdfrenderer-candidate-search') {
             throw StateError('CLOUD_AWARD_CANDIDATE_WORKER_ENGINE_MISMATCH');
           }
+          trustedStartupEvidenceObserved = true;
           final pageCount = (decoded['page_count'] as num?)?.toInt() ?? 0;
           final pagesRead = (decoded['pages_read'] as num?)?.toInt() ?? 0;
           final sourceBytesRead =
@@ -1219,6 +1236,7 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
       }
       final now = DateTime.now();
       await probeStaleWorkerIfNeeded(now);
+      requireStartupEvidenceWithinDeadline(now);
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
   }
