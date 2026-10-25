@@ -553,10 +553,10 @@ void main() {
       }
     });
 
-    // PAGE_BEGIN is emitted before opening a *new* uncached page, so it
-    // must preserve the last verified SEARCH cardinality and page geometry.
-    test('PAGE_BEGIN rejects rolled-back or invented pages_read', () {
-      for (final pagesRead in <int>[0, 12, 14]) {
+    // Polling can miss SEARCH writes between observed snapshots; only
+    // cardinality rollback relative to the last verified SEARCH is invalid.
+    test('PAGE_BEGIN rejects pages_read rollback after SEARCH', () {
+      for (final pagesRead in <int>[0, 12]) {
         final current = running()..addAll(<String, dynamic>{
           'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
           'source_bytes_read': 135200798,
@@ -570,6 +570,25 @@ void main() {
               priorSearchCandidateIndex: 2, priorSearchPageCount: 87000),
           'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_BEGIN_PAGES_READ_MISMATCH',
           reason: 'pages_read=$pagesRead',
+        );
+      }
+    });
+
+    test('PAGE_BEGIN accepts unobserved intermediate SEARCH progress', () {
+      for (final pagesRead in <int>[13, 14, 15]) {
+        final current = running()..addAll(<String, dynamic>{
+          'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+          'source_bytes_read': 135200798,
+          'candidate_index': 2,
+          'page_number': 65000,
+          'page_count': 87000,
+          'pages_read': pagesRead,
+        });
+        expect(
+          violation(current, priorSearchPagesRead: 13,
+              priorSearchCandidateIndex: 2, priorSearchPageCount: 87000),
+          isNull,
+          reason: 'A 50ms poll may skip intermediate SEARCH: $pagesRead',
         );
       }
     });

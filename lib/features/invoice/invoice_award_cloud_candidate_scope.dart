@@ -322,14 +322,14 @@ String? cloudAwardNativeRunningEnvelopeViolation({
       pageCount != priorCandidateSearchPageCount) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_COUNT_CHANGED';
   }
-  // Native pageTokens() writes PAGE_BEGIN immediately before opening a
-  // previously uncached page. At that instant the distinct-pages count is
-  // exactly the last verified SEARCH count; candidates.forEachIndexed cannot
-  // move backward and PdfRenderer.pageCount cannot change within a request.
-  // This protects observed progress only, not native terminal durability.
+  // Native PAGE_BEGIN precedes a new uncached page, but the 50ms Dart
+  // result-file poll can skip multiple intervening SEARCH writes. The latest
+  // observed PAGE_BEGIN may therefore have more pages read than the last
+  // observed verified SEARCH; only a decrease is a source-bound regression.
+  // This protects sampled UI progress, not native terminal or negative proof.
   if (stage == 'PLATFORM_RENDERER_PAGE_BEGIN') {
     if (priorCandidateSearchPagesRead != null &&
-        pagesRead != priorCandidateSearchPagesRead) {
+        pagesRead < priorCandidateSearchPagesRead) {
       return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_BEGIN_PAGES_READ_MISMATCH';
     }
     if (priorCandidateSearchIndex != null &&

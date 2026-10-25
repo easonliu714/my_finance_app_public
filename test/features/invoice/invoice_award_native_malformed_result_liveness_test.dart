@@ -670,6 +670,81 @@ void main() {
     expect(await resultFile.exists(), isTrue);
   });
 
+  // Native overwrites a single result JSON faster than the 50ms Dart poll.
+  // Observe SEARCH(13), then write PAGE_BEGIN(13), SEARCH(14),
+  // PAGE_BEGIN(14), SEARCH(15), PAGE_BEGIN(15) before the next poll.
+  // A valid sampled PAGE_BEGIN(15) must not be rejected as a forged jump.
+  test('result-file consumer accepts skipped SEARCH before PAGE_BEGIN',
+      () async {
+    final firstAt = DateTime.now()
+        .subtract(const Duration(seconds: 2))
+        .millisecondsSinceEpoch;
+    Map<String, Object?> snapshot(
+      String stage, int pagesRead, int pageNumber, int updatedAt,
+    ) =>
+        <String, Object?>{
+          'request_id': 'req-test',
+          'status': 'running',
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'worker_pid': 4242,
+          'stage': stage,
+          'candidate_index': 1,
+          'candidate_count': 1,
+          'source_bytes_read': 1000,
+          'source_bytes_total': 1000,
+          'page_number': pageNumber,
+          'page_count': 100,
+          'pages_read': pagesRead,
+          'stage_elapsed_ms': 500,
+          'updated_at_ms': updatedAt,
+        };
+    final cancellation = CloudAwardCandidateLookupCancellation();
+    var observedSearch = 0;
+    var observedBegin = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        await resultFile.writeAsString(jsonEncode(snapshot(
+          'PLATFORM_RENDERER_CANDIDATE_SEARCH', 13, 50, firstAt,
+        )));
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    await expectLater(
+      lookupWith(cancellation, onProgress: (progress) {
+        if (progress.stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
+          observedSearch++;
+          if (observedSearch == 1) {
+            for (final sample in <(String, int, int, int)>[
+              ('PLATFORM_RENDERER_PAGE_BEGIN', 13, 55, 10),
+              ('PLATFORM_RENDERER_CANDIDATE_SEARCH', 14, 60, 16),
+              ('PLATFORM_RENDERER_PAGE_BEGIN', 14, 65, 24),
+              ('PLATFORM_RENDERER_CANDIDATE_SEARCH', 15, 70, 30),
+              ('PLATFORM_RENDERER_PAGE_BEGIN', 15, 75, 45),
+            ]) {
+              resultFile.writeAsStringSync(jsonEncode(snapshot(
+                sample.$1, sample.$2, sample.$3, firstAt + sample.$4,
+              )));
+            }
+          }
+        } else if (progress.stage == 'PLATFORM_RENDERER_PAGE_BEGIN') {
+          observedBegin++;
+          expect(progress.pagesRead, 15);
+          expect(progress.pageNumber, 75);
+          cancellation.cancel(); // Stop without synthesizing COMPLETE/negative.
+        }
+      }).timeout(const Duration(seconds: 5)),
+      throwsA(isA<CloudAwardCandidateLookupCancelled>()),
+    );
+    expect(observedSearch, 1);
+    expect(observedBegin, 1);
+    expect(await resultFile.exists(), isTrue);
+  });
+
   // Real temporary result JSON and MethodChannel consumer: native OPEN_WAIT
   // can finish writing after SEARCH because interrupt() does not join the
   // heartbeat thread. Reject the stale snapshot before UI progress.
