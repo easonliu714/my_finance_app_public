@@ -322,6 +322,25 @@ String? cloudAwardNativeRunningEnvelopeViolation({
       pageCount != priorCandidateSearchPageCount) {
     return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_COUNT_CHANGED';
   }
+  // Native pageTokens() writes PAGE_BEGIN immediately before opening a
+  // previously uncached page. At that instant the distinct-pages count is
+  // exactly the last verified SEARCH count; candidates.forEachIndexed cannot
+  // move backward and PdfRenderer.pageCount cannot change within a request.
+  // This protects observed progress only, not native terminal durability.
+  if (stage == 'PLATFORM_RENDERER_PAGE_BEGIN') {
+    if (priorCandidateSearchPagesRead != null &&
+        pagesRead != priorCandidateSearchPagesRead) {
+      return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_BEGIN_PAGES_READ_MISMATCH';
+    }
+    if (priorCandidateSearchIndex != null &&
+        index < priorCandidateSearchIndex) {
+      return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_CANDIDATE_INDEX_REGRESSION';
+    }
+    if (priorCandidateSearchPageCount != null &&
+        pageCount != priorCandidateSearchPageCount) {
+      return 'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_COUNT_CHANGED';
+    }
+  }
   // Kotlin pageTokens() emits SEARCH only after caching a new distinct page.
   // Repeated polling preserves both page number and pagesRead; a new page
   // changes both. Ignore concurrent OPEN_WAIT/OPEN_OK heartbeat stages.

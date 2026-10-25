@@ -553,6 +553,78 @@ void main() {
       }
     });
 
+    // PAGE_BEGIN is emitted before opening a *new* uncached page, so it
+    // must preserve the last verified SEARCH cardinality and page geometry.
+    test('PAGE_BEGIN rejects rolled-back or invented pages_read', () {
+      for (final pagesRead in <int>[0, 12, 14]) {
+        final current = running()..addAll(<String, dynamic>{
+          'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+          'source_bytes_read': 135200798,
+          'candidate_index': 2,
+          'page_number': 65000,
+          'page_count': 87000,
+          'pages_read': pagesRead,
+        });
+        expect(
+          violation(current, priorSearchPagesRead: 13,
+              priorSearchCandidateIndex: 2, priorSearchPageCount: 87000),
+          'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_BEGIN_PAGES_READ_MISMATCH',
+          reason: 'pages_read=$pagesRead',
+        );
+      }
+    });
+
+    test('PAGE_BEGIN rejects candidate index rollback after SEARCH', () {
+      final current = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+        'source_bytes_read': 135200798,
+        'candidate_index': 1,
+        'page_number': 65000,
+        'page_count': 87000,
+        'pages_read': 13,
+      });
+      expect(
+        violation(current, priorSearchPagesRead: 13,
+            priorSearchCandidateIndex: 2, priorSearchPageCount: 87000),
+        'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_CANDIDATE_INDEX_REGRESSION',
+      );
+    });
+
+    test('PAGE_BEGIN rejects changed page count after SEARCH', () {
+      final current = running()..addAll(<String, dynamic>{
+        'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+        'source_bytes_read': 135200798,
+        'candidate_index': 2,
+        'page_number': 65000,
+        'page_count': 87001,
+        'pages_read': 13,
+      });
+      expect(
+        violation(current, priorSearchPagesRead: 13,
+            priorSearchCandidateIndex: 2, priorSearchPageCount: 87000),
+        'CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_COUNT_CHANGED',
+      );
+    });
+
+    test('PAGE_BEGIN allows sparse new page and forward candidate index', () {
+      for (final index in <int>[2, 3]) {
+        final current = running()..addAll(<String, dynamic>{
+          'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',
+          'source_bytes_read': 135200798,
+          'candidate_index': index,
+          'page_number': 65000,
+          'page_count': 87000,
+          'pages_read': 13,
+        });
+        expect(
+          violation(current, priorSearchPagesRead: 13,
+              priorSearchCandidateIndex: 2, priorSearchPageCount: 87000),
+          isNull,
+          reason: 'candidate_index=$index',
+        );
+      }
+    });
+
     test('PAGE_BEGIN after verified SEARCH remains legal', () {
       final nextPage = running()..addAll(<String, dynamic>{
         'stage': 'PLATFORM_RENDERER_PAGE_BEGIN',

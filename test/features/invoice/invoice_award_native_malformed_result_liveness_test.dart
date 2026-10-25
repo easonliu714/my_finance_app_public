@@ -602,6 +602,74 @@ void main() {
     expect(await resultFile.exists(), isTrue);
   });
 
+  // Real temp-file/MethodChannel consumer: a PAGE_BEGIN emitted after
+  // verified SEARCH cannot roll back distinct page reads, even with a later
+  // timestamp and matching request/PID. Reject before displaying UI progress.
+  test('result-file consumer rejects PAGE_BEGIN page-read rollback',
+      () async {
+    final firstAt = DateTime.now()
+        .subtract(const Duration(seconds: 2))
+        .millisecondsSinceEpoch;
+    Map<String, Object?> snapshot(String stage, int pagesRead, int updatedAt) =>
+        <String, Object?>{
+          'request_id': 'req-test',
+          'status': 'running',
+          'engine': 'android-platform-pdfrenderer-candidate-search',
+          'worker_pid': 4242,
+          'stage': stage,
+          'candidate_index': 1,
+          'candidate_count': 1,
+          'source_bytes_read': 1000,
+          'source_bytes_total': 1000,
+          'page_number': stage == 'PLATFORM_RENDERER_PAGE_BEGIN' ? 75 : 50,
+          'page_count': 100,
+          'pages_read': pagesRead,
+          'stage_elapsed_ms': 500,
+          'updated_at_ms': updatedAt,
+        };
+    var observedSearch = 0;
+    var observedInvalidBegin = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startPlatformCandidateWorker') {
+        await resultFile.writeAsString(jsonEncode(
+          snapshot('PLATFORM_RENDERER_CANDIDATE_SEARCH', 13, firstAt),
+        ));
+        return <String, Object?>{
+          'requestId': 'req-test',
+          'resultPath': resultFile.path,
+        };
+      }
+      fail('Unexpected native method: ${call.method}');
+    });
+    await expectLater(
+      lookup.findMatchesCrashIsolatedForTesting(
+        artifact: artifact,
+        candidateInvoiceNumbers: const <String>['AB12345678'],
+        onProgress: (progress) {
+          if (progress.stage == 'PLATFORM_RENDERER_CANDIDATE_SEARCH') {
+            observedSearch++;
+            if (observedSearch == 1) {
+              resultFile.writeAsStringSync(jsonEncode(
+                snapshot('PLATFORM_RENDERER_PAGE_BEGIN', 0, firstAt + 1000),
+              ));
+            }
+          } else if (progress.stage == 'PLATFORM_RENDERER_PAGE_BEGIN') {
+            observedInvalidBegin++;
+          }
+        },
+      ).timeout(const Duration(seconds: 5)),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(),
+        'PAGE_BEGIN page-read rollback',
+        contains('CLOUD_AWARD_CANDIDATE_WORKER_RUNNING_PAGE_BEGIN_PAGES_READ_MISMATCH'),
+      )),
+    );
+    expect(observedSearch, 1);
+    expect(observedInvalidBegin, 0);
+    expect(await resultFile.exists(), isTrue);
+  });
+
   // Real temporary result JSON and MethodChannel consumer: native OPEN_WAIT
   // can finish writing after SEARCH because interrupt() does not join the
   // heartbeat thread. Reject the stale snapshot before UI progress.
