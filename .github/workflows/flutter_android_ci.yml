@@ -290,6 +290,17 @@ jobs:
           flutter build apk --debug
           --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB="$ENABLE_PRIVATE_CLOUD_INVOICE_LAB"
 
+      # Native JVM contract gate: a RED result is a real HOLD, never skipped or masked.
+      - name: Android Platform Worker API35 notification-channel native regression
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :flutter_pdf_text:testDebugUnitTest \
+            --tests "me.movenext.flutter_pdf_text.PlatformPdfCandidateWorkerServiceNotificationChannelTest" \
+            --no-daemon --stacktrace
+
       - name: Record debug APK SHA256
         if: >-
           ${{ steps.changes.outputs.run_heavy == 'true' &&
