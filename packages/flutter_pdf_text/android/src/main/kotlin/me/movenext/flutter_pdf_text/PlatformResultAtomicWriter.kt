@@ -21,7 +21,7 @@ internal class PlatformResultAtomicWriter(
   },
   private val syncParent: (Path) -> Unit = { directory ->
     val fd = Os.open(directory.toString(),
-      OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
+      OsConstants.O_RDONLY, 0)
     try { Os.fsync(fd) } finally { Os.close(fd) }
   }
 ) {
