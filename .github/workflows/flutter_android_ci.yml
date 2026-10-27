@@ -230,12 +230,24 @@ jobs:
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         run: flutter analyze
 
+      - name: Focused source custody Flutter contract regressions
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test \
+            test/features/invoice/invoice_award_cloud_lifecycle_contract_test.dart \
+            test/features/invoice/invoice_award_cloud_pdfium_successor_routing_contract_test.dart \
+            test/issue_13_cloud500_pdfium_successor_contract_test.dart \
+            test/issue_13_owner_4_20_14_followup_contract_test.dart \
+            2>&1 | tee flutter-test.log
+
       - name: Run tests
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         shell: bash
         run: |
           set -o pipefail
-          flutter test 2>&1 | tee flutter-test.log
+          flutter test 2>&1 | tee -a flutter-test.log
 
       - name: Summarize failed test evidence
         if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' }}

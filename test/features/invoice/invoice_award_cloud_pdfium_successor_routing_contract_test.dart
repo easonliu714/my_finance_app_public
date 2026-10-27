@@ -55,6 +55,15 @@ void main() {
       'me/movenext/flutter_pdf_text/PlatformPdfCandidateWorkerService.kt',
     ).readAsStringSync();
 
+    final custody = File(
+      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformSourceSnapshotCustody.kt',
+    ).readAsStringSync();
+
+    expect(worker, contains('PlatformSourceSnapshotCustody.capture('));
+    expect(worker, contains('var descriptor: ParcelFileDescriptor? = custody.descriptor'));
+    expect(custody, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(custody, contains('LinkOption.NOFOLLOW_LINKS'));
+    expect(custody, contains('Files.delete(snapshot)'));
     expect(worker, contains('PdfRenderer'));
     expect(worker, contains('renderer = PdfRenderer(descriptor)'));
     expect(worker, contains('renderer.openPage(pageNumber - 1)'));
@@ -72,11 +81,13 @@ void main() {
     expect(worker, isNot(matches(RegExp(r'for\s*\([^)]*1\s*\.\.\s*pageCount'))));
     expect(worker, isNot(matches(RegExp(r'for\s*\([^)]*0\s+until\s+pageCount'))));
 
-    expect(worker, contains('actualSourceSha256'));
+    expect(worker, contains('val actualSourceSha256 = custody.sha256'));
+    expect(custody, contains('if (total != expectedBytes)'));
+    expect(custody, contains('SOURCE_CUSTODY_SHA256_MISMATCH'));
     expect(worker, contains('actualCandidateUniverseSha256'));
     expect(worker, contains('matchedPages[candidate] = middle'));
     expect(worker, contains('.put("source_sha256", actualSourceSha256)'));
-    expect(worker, contains('.put("source_bytes", source.length())'));
+    expect(worker, contains('.put("source_bytes", custody.bytes)'));
     expect(
       worker,
       contains('.put("candidate_universe_sha256", actualCandidateUniverseSha256)'),

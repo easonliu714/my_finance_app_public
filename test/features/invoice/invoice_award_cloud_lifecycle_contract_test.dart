@@ -22,6 +22,9 @@ void main() {
     final largeWorkerSource = File(
       'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfCandidateWorkerService.kt',
     ).readAsStringSync();
+    final sourceCustody = File(
+      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformSourceSnapshotCustody.kt',
+    ).readAsStringSync();
     final pluginManifest = File(
       'packages/flutter_pdf_text/android/src/main/AndroidManifest.xml',
     ).readAsStringSync();
@@ -168,7 +171,12 @@ void main() {
     );
     expect(pluginSource, contains('startForegroundService(intent)'));
     expect(largeWorkerSource, contains('android.graphics.pdf.PdfRenderer'));
-    expect(largeWorkerSource, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(largeWorkerSource, contains('PlatformSourceSnapshotCustody.capture('));
+    expect(largeWorkerSource, contains('var descriptor: ParcelFileDescriptor? = custody.descriptor'));
+    expect(sourceCustody, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(sourceCustody, contains('LinkOption.NOFOLLOW_LINKS'));
+    expect(sourceCustody, contains('Files.delete(snapshot)'));
+    expect(sourceCustody, contains('SOURCE_CUSTODY_SHA256_MISMATCH'));
     expect(largeWorkerSource, contains('renderer = PdfRenderer(descriptor)'));
     expect(
       largeWorkerSource,

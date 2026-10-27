@@ -98,6 +98,21 @@ class PlatformSourceSnapshotCustodyTest {
     assertNoSnapshotFiles(cache)
   }
 
+  @Test fun onlyVerifiedSourceShaMismatchMapsToStableExternalFailureCode() {
+    assertEquals(
+      "PLATFORM_WORKER_SOURCE_SHA256_MISMATCH",
+      platformSourceCustodyFailureCode(IOException("SOURCE_CUSTODY_SHA256_MISMATCH"))
+    )
+    assertEquals(
+      "PLATFORM_WORKER_FAILED:IOException",
+      platformSourceCustodyFailureCode(IOException("SOURCE_CUSTODY_BYTES_MISMATCH"))
+    )
+    assertEquals(
+      "PLATFORM_WORKER_FAILED:IOException",
+      platformSourceCustodyFailureCode(IOException("SOURCE_CUSTODY_SHA256_MISMATCH_FOREIGN"))
+    )
+  }
+
   @Test fun incorrectShaAndLengthNeverReturnRendererAuthority() {
     val source = folder.newFile("mismatch.pdf")
     source.writeText("TRUSTED")

@@ -15,6 +15,7 @@ import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
@@ -107,6 +108,10 @@ class PlatformPdfCandidateWorkerService : Service() {
           )
         } catch (oom: OutOfMemoryError) {
           writeFailure(resultPath, requestId, "PLATFORM_WORKER_OOM")
+        } catch (error: IOException) {
+          // Preserve only the exact verified SHA mismatch as the legacy
+          // external failure code; all other IO errors remain generic.
+          writeFailure(resultPath, requestId, platformSourceCustodyFailureCode(error))
         } catch (error: Throwable) {
           writeFailure(
             resultPath,
@@ -496,3 +501,12 @@ internal fun stopAndJoinPlatformOpenHeartbeat(opening: AtomicBoolean, heartbeat:
   }
   if (callerInterrupted) Thread.currentThread().interrupt()
 }
+
+// Map only the verified snapshot SHA mismatch to the stable external code.
+// No other custody, filesystem, or callback IO error can be promoted.
+internal fun platformSourceCustodyFailureCode(error: IOException): String =
+  if (error.message == "SOURCE_CUSTODY_SHA256_MISMATCH") {
+    "PLATFORM_WORKER_SOURCE_SHA256_MISMATCH"
+  } else {
+    "PLATFORM_WORKER_FAILED:IOException"
+  }

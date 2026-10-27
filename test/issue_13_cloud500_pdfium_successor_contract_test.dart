@@ -5,11 +5,15 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('Issue #13 cloud-500 >120 MiB platform successor contract', () {
     late String workerSource;
+    late String custodySource;
 
     setUpAll(() {
       workerSource = File(
         'packages/flutter_pdf_text/android/src/main/kotlin/'
         'me/movenext/flutter_pdf_text/PlatformPdfCandidateWorkerService.kt',
+      ).readAsStringSync();
+      custodySource = File(
+        'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformSourceSnapshotCustody.kt',
       ).readAsStringSync();
     });
 
@@ -46,7 +50,14 @@ void main() {
         workerSource,
         contains('PLATFORM_WORKER_CANDIDATE_UNIVERSE_SHA256_MISMATCH'),
       );
-      expect(workerSource, contains('PLATFORM_WORKER_SOURCE_SHA256_MISMATCH'));
+      expect(workerSource, contains('PlatformSourceSnapshotCustody.capture('));
+      expect(workerSource, contains('val actualSourceSha256 = custody.sha256'));
+      expect(custodySource, contains('throw IOException("SOURCE_CUSTODY_SHA256_MISMATCH")'));
+      expect(workerSource, contains('platformSourceCustodyFailureCode(error)'));
+      expect(workerSource, contains('writeFailure(resultPath, requestId, platformSourceCustodyFailureCode(error))'));
+      expect(workerSource, contains('"PLATFORM_WORKER_SOURCE_SHA256_MISMATCH"'));
+      expect(custodySource, contains('LinkOption.NOFOLLOW_LINKS'));
+      expect(custodySource, contains('Files.delete(snapshot)'));
       expect(workerSource, contains('matched_pages'));
       expect(workerSource, contains('PLATFORM_RENDERER_API35_REQUIRED'));
     });

@@ -13,6 +13,9 @@ void main() {
     final worker = File(
       'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfCandidateWorkerService.kt',
     ).readAsStringSync();
+    final custody = File(
+      'packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformSourceSnapshotCustody.kt',
+    ).readAsStringSync();
     final scope = File(
       'lib/features/invoice/invoice_award_cloud_candidate_scope.dart',
     ).readAsStringSync();
@@ -35,7 +38,12 @@ void main() {
     // PdfRenderer random-access candidate-only page search. Owner v4 evidence
     // proved third-party PDFium crashes natively on the exact 87,000-page PDF.
     expect(worker, contains('android.graphics.pdf.PdfRenderer'));
-    expect(worker, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(worker, contains('PlatformSourceSnapshotCustody.capture('));
+    expect(worker, contains('var descriptor: ParcelFileDescriptor? = custody.descriptor'));
+    expect(custody, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(custody, contains('LinkOption.NOFOLLOW_LINKS'));
+    expect(custody, contains('Files.delete(snapshot)'));
+    expect(custody, contains('SOURCE_CUSTODY_SHA256_MISMATCH'));
     expect(worker, contains('renderer = PdfRenderer(descriptor)'));
     expect(worker, contains('renderer.openPage(pageNumber - 1)'));
     expect(worker, contains('it.textContents'));
