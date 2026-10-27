@@ -15,21 +15,39 @@ import java.nio.file.attribute.BasicFileAttributes
  * Exclusive OS-held lease on a stable, never-deleted result sidecar inode.
  * This is NOT terminal durability, source FD custody or Android device proof.
  * Inode checks bracket lock acquisition only; same-UID replacement after
- * returning the lease remains unproven and must fail closed at a later gate.
+ * returning the lease remains unproven across processes. A process-local
+ * reservation prevents same-VM re-entry after a sidecar rename/unlink, but
+ * cannot authenticate other Android processes or hostile same-UID actors.
  */
 internal class PlatformResultProcessLease private constructor(
   private val channel: FileChannel,
-  private val lock: FileLock
+  private val lock: FileLock,
+  private val resultKey: Path
 ) : Closeable {
+  private var closed = false
+
   companion object {
+    // This guards only re-entry in the same VM when a held sidecar pathname
+    // is unlinked or replaced. Other processes/same-UID actors remain HOLD.
+    private val activeResultKeys = mutableSetOf<Path>()
+    private fun reserve(key: Path): Boolean =
+      synchronized(activeResultKeys) { activeResultKeys.add(key) }
+    private fun unreserve(key: Path) {
+      synchronized(activeResultKeys) { activeResultKeys.remove(key) }
+    }
     fun tryAcquire(
       resultPath: String,
       afterOpenBeforeLock: (() -> Unit)? = null
     ): PlatformResultProcessLease? {
       if (resultPath.isBlank()) return null
+      val target = try { File(resultPath).absoluteFile.toPath().normalize() }
+        catch (_: Exception) { return null }
+      // Reserve before opening the replaceable sidecar. OS lock alone is
+      // insufficient after a same-process pathname swap.
+      if (!reserve(target)) return null
       var opened: FileChannel? = null
+      var acquired = false
       try {
-        val target = File(resultPath).absoluteFile.toPath().normalize()
         if (Files.isSymbolicLink(target)) return null
         // Do not resolve a caller-supplied symlinked parent into a different
         // lock directory. The writer independently rejects that same parent.
@@ -66,16 +84,23 @@ internal class PlatformResultProcessLease private constructor(
           return null
         }
         opened = null
-        return PlatformResultProcessLease(channel, held)
+        acquired = true
+        return PlatformResultProcessLease(channel, held, target)
       } catch (_: Exception) {
         return null
       } finally {
         try { opened?.close() } catch (_: Exception) {}
+        if (!acquired) unreserve(target)
       }
     }
   }
 
+  @Synchronized
   override fun close() {
-    try { lock.release() } finally { channel.close() }
+    if (closed) return
+    closed = true
+    try { lock.release() } finally {
+      try { channel.close() } finally { unreserve(resultKey) }
+    }
   }
 }

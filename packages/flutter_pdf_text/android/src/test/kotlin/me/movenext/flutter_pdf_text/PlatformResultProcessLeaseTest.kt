@@ -113,4 +113,64 @@ class PlatformResultProcessLeaseTest {
     try { assertNull(PlatformResultProcessLease.tryAcquire(result.path)) }
     finally { lease!!.close() }
   }
+
+  @Test fun heldSidecarRenameAndReplacementCannotReenterSameProcess() {
+    val result = folder.newFile("held-replaced.json")
+    val first = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(first)
+    val sidecar = folder.root.toPath().resolve(
+      ".held-replaced.json.platform-worker.lock")
+    val displaced = folder.root.toPath().resolve("held-original-inode.lock")
+    try {
+      // The original kernel lock remains on the displaced inode.
+      Files.move(sidecar, displaced, StandardCopyOption.ATOMIC_MOVE)
+      Files.createFile(sidecar)
+      assertTrue(Files.isRegularFile(sidecar, LinkOption.NOFOLLOW_LINKS))
+      assertNull(PlatformResultProcessLease.tryAcquire(result.path))
+    } finally { first!!.close() }
+    val recovered = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(recovered)
+    recovered!!.close()
+  }
+
+  @Test fun heldSidecarUnlinkCannotReenterSameProcess() {
+    val result = folder.newFile("held-unlinked.json")
+    val first = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(first)
+    val sidecar = folder.root.toPath().resolve(
+      ".held-unlinked.json.platform-worker.lock")
+    try {
+      Files.delete(sidecar)
+      assertFalse(Files.exists(sidecar, LinkOption.NOFOLLOW_LINKS))
+      assertNull(PlatformResultProcessLease.tryAcquire(result.path))
+    } finally { first!!.close() }
+    val recovered = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(recovered)
+    recovered!!.close()
+  }
+
+  @Test fun failedAcquisitionDoesNotLeakProcessReservation() {
+    val result = folder.newFile("rejected-reservation.json")
+    val sidecar = folder.root.toPath().resolve(
+      ".rejected-reservation.json.platform-worker.lock")
+    Files.createSymbolicLink(sidecar, folder.newFile("untrusted-sidecar").toPath())
+    assertNull(PlatformResultProcessLease.tryAcquire(result.path))
+    Files.delete(sidecar)
+    val recovered = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(recovered)
+    recovered!!.close()
+  }
+
+  @Test fun repeatedCloseCannotReleaseNewOwnersReservation() {
+    val result = folder.newFile("idempotent-close.json")
+    val first = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(first)
+    first!!.close()
+    val second = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(second)
+    try {
+      first.close()
+      assertNull(PlatformResultProcessLease.tryAcquire(result.path))
+    } finally { second!!.close() }
+  }
 }
