@@ -13,8 +13,12 @@ import org.junit.Test
 
 /** Synthetic JVM concurrency contract; no Android device or cross-process proof. */
 class PlatformWorkerStartLeaseTest {
+  // Synthetic foreground ownership tests; OS lock tests run separately.
+  private fun syntheticLease() =
+    PlatformWorkerStartLease { java.io.Closeable { } }
+
   @Test fun overlappingDifferentRequestAndDuplicateStartCannotOwnForeground() {
-    val lease = PlatformWorkerStartLease()
+    val lease = syntheticLease()
     val first = lease.acquire(11, "request-A", "/synthetic/result-A.json")!!
     assertEquals(11, first.startId)
     assertEquals("request-A", first.requestId)
@@ -29,9 +33,9 @@ class PlatformWorkerStartLeaseTest {
   }
 
   @Test fun forgedOrStaleTokenCannotStopTheActualOwner() {
-    val lease = PlatformWorkerStartLease()
+    val lease = syntheticLease()
     val owner = lease.acquire(21, "owner", "/synthetic/owner.json")!!
-    val other = PlatformWorkerStartLease().acquire(21, "owner", "/synthetic/owner.json")!!
+    val other = syntheticLease().acquire(21, "owner", "/synthetic/owner.json")!!
     var stopCount = 0
     assertFalse(lease.finish(other) { stopCount++ })
     assertEquals(0, stopCount)
@@ -42,7 +46,7 @@ class PlatformWorkerStartLeaseTest {
   }
 
   @Test fun cleanupCannotRaceASecondStartIntoForeground() {
-    val lease = PlatformWorkerStartLease()
+    val lease = syntheticLease()
     val owner = lease.acquire(31, "owner", "/synthetic/owner.json")!!
     val inCleanup = CountDownLatch(1)
     val releaseCleanup = CountDownLatch(1)
@@ -74,7 +78,7 @@ class PlatformWorkerStartLeaseTest {
   }
 
   @Test fun failedCleanupCannotReopenServiceOwnership() {
-    val lease = PlatformWorkerStartLease()
+    val lease = syntheticLease()
     assertNull(lease.acquire(0, "invalid", "/synthetic/x.json"))
     assertNull(lease.acquire(41, "", "/synthetic/x.json"))
     assertNull(lease.acquire(41, "owner", ""))
