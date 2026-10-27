@@ -38,6 +38,9 @@ class PlatformSourceSnapshotOrphanCleanupTest {
     val fresh = orphan(cache, "fresh")
     val unrelated = File(cache, "important.pdf").apply { writeText("keep") }
     age(stale)
+    // Align the fresh fixture's mtime with the deterministic 2027 test clock;
+    // CI filesystem creation time is earlier and must not be misclassified as stale.
+    Files.setLastModifiedTime(fresh.toPath(), FileTime.fromMillis(now))
     age(unrelated)
     assertEquals(1, PlatformSourceSnapshotCustody.pruneStaleOrphans(cache, now))
     assertFalse(stale.exists())
