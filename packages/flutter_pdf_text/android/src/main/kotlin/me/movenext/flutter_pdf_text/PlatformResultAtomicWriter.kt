@@ -15,7 +15,9 @@ import java.nio.file.StandardCopyOption
  * Process-local serialized native result replacement. Not a cross-process
  * lease or full request/PID/source identity authority. Default production
  * publishing rejects any overwrite of an existing COMPLETE/FAILED result,
- * malformed prior state or foreign-request RUNNING state. Directory-fsync
+ * malformed prior state or foreign-request RUNNING state. In strict production
+ * mode, a RUNNING transition also pins PID and per-process random epoch;
+ * this is not a cryptographic or same-UID replacement defense. Directory-fsync
  * failure after move remains ambiguous, never verified durable COMPLETE.
  */
 internal class PlatformResultAtomicWriter(
@@ -28,8 +30,26 @@ internal class PlatformResultAtomicWriter(
       OsConstants.O_RDONLY, 0)
     try { Os.fsync(fd) } finally { Os.close(fd) }
   },
-  private val protectTerminal: Boolean = true
+  private val protectTerminal: Boolean = true,
+  private val requireWorkerEpoch: Boolean = false
 ) {
+  private val workerEpochPattern =
+    Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+  private fun workerIdentity(payload: JSONObject): Pair<Long, String> {
+    val pid = when (val value = payload.opt("worker_pid")) {
+      is Int -> value.toLong()
+      is Long -> value
+      else -> throw IOException("RESULT_WORKER_IDENTITY_INVALID")
+    }
+    val epoch = payload.optString("worker_epoch")
+    if (pid <= 0L || pid > Int.MAX_VALUE.toLong() ||
+        !workerEpochPattern.matches(epoch)) {
+      throw IOException("RESULT_WORKER_IDENTITY_INVALID")
+    }
+    return pid to epoch
+  }
+
   private fun validateResultTransition(target: Path, incomingContent: String) {
     // The OS-held per-result lease belongs to the calling worker. This
     // guard adds monotonic terminal status, not a replacement for that lease.
@@ -41,6 +61,8 @@ internal class PlatformResultAtomicWriter(
         nextStatus !in setOf("running", "complete", "failed")) {
       throw IOException("RESULT_INCOMING_IDENTITY_INVALID")
     }
+    val incomingWorkerIdentity =
+      if (requireWorkerEpoch) workerIdentity(incoming) else null
     if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) return
     if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS) ||
         Files.size(target) > 1_048_576L) {
@@ -55,6 +77,10 @@ internal class PlatformResultAtomicWriter(
     if (oldStatus != "running") throw IOException("RESULT_PRIOR_STATE_UNKNOWN")
     if (prior.optString("request_id") != nextRequest) {
       throw IOException("RESULT_REQUEST_ID_MISMATCH")
+    }
+    if (incomingWorkerIdentity != null &&
+        workerIdentity(prior) != incomingWorkerIdentity) {
+      throw IOException("RESULT_WORKER_IDENTITY_MISMATCH")
     }
   }
 

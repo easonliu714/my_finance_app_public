@@ -50,7 +50,11 @@ class PlatformPdfCandidateWorkerService : Service() {
     // This is time-bounded; Android may still reclaim an isolated process.
     private const val CANDIDATE_WAKE_LOCK_MAX_MS = 30 * 60 * 1000L
     // Process-local serialization only; not a cross-process result lease.
-    private val PLATFORM_RESULT_WRITER = PlatformResultAtomicWriter()
+    // A fresh UUID on process restart prevents PID reuse from inheriting
+    // a prior RUNNING result's worker identity. Not a secret/authenticator.
+    private val WORKER_PROCESS_EPOCH = java.util.UUID.randomUUID().toString()
+    private val PLATFORM_RESULT_WRITER =
+      PlatformResultAtomicWriter(requireWorkerEpoch = true)
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -360,6 +364,7 @@ class PlatformPdfCandidateWorkerService : Service() {
         .put("status", "complete")
         .put("engine", "android-platform-pdfrenderer-candidate-search")
         .put("worker_pid", android.os.Process.myPid())
+        .put("worker_epoch", WORKER_PROCESS_EPOCH)
         .put("stage", "PLATFORM_RENDERER_COMPLETE")
         .put("page_count", pageCount)
         .put("pages_read", pagesRead.size)
@@ -412,6 +417,7 @@ class PlatformPdfCandidateWorkerService : Service() {
       .put("status", "running")
       .put("engine", "android-platform-pdfrenderer-candidate-search")
       .put("worker_pid", android.os.Process.myPid())
+        .put("worker_epoch", WORKER_PROCESS_EPOCH)
       .put("stage", stage)
       .put("candidate_index", candidateIndex)
       .put("candidate_count", candidateCount)
@@ -471,6 +477,8 @@ class PlatformPdfCandidateWorkerService : Service() {
         .put("request_id", requestId)
         .put("status", "failed")
         .put("engine", "android-platform-pdfrenderer-candidate-search")
+        .put("worker_pid", android.os.Process.myPid())
+        .put("worker_epoch", WORKER_PROCESS_EPOCH)
         .put("error", code)
         .put("updated_at_ms", System.currentTimeMillis())
       writeAtomic(resultPath, payload.toString())
