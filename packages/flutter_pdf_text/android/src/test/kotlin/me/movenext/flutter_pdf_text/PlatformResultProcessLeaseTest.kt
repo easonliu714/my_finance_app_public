@@ -1,6 +1,8 @@
 package me.movenext.flutter_pdf_text
 
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.StandardCopyOption
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
@@ -61,5 +63,54 @@ class PlatformResultProcessLeaseTest {
     val recovered = PlatformResultProcessLease.tryAcquire(result.path)
     assertNotNull(recovered)
     recovered!!.close()
+  }
+
+  @Test fun sidecarRenameDuringAcquisitionRejectsStaleInode() {
+    val result = folder.newFile("replace-during-lock.json")
+    val initial = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(initial)
+    initial!!.close()
+    val sidecar = folder.root.toPath().resolve(
+      ".replace-during-lock.json.platform-worker.lock")
+    val replacement = folder.newFile("replacement-lock-inode").toPath()
+    assertNull(PlatformResultProcessLease.tryAcquire(result.path) {
+      Files.move(replacement, sidecar,
+        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+    })
+    assertTrue(Files.isRegularFile(sidecar, LinkOption.NOFOLLOW_LINKS))
+    val recovered = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(recovered)
+    recovered!!.close()
+  }
+
+  @Test fun sidecarSymlinkSwapDuringAcquisitionFailsClosed() {
+    val result = folder.newFile("symlink-during-lock.json")
+    val initial = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(initial)
+    initial!!.close()
+    val sidecar = folder.root.toPath().resolve(
+      ".symlink-during-lock.json.platform-worker.lock")
+    val foreign = folder.newFile("foreign-lock").toPath()
+    assertNull(PlatformResultProcessLease.tryAcquire(result.path) {
+      Files.delete(sidecar)
+      Files.createSymbolicLink(sidecar, foreign)
+    })
+    assertTrue(Files.isSymbolicLink(sidecar))
+    Files.delete(sidecar)
+    val recovered = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(recovered)
+    recovered!!.close()
+  }
+
+  @Test fun unchangedSidecarPassesInodeCheckAndRemainsExclusive() {
+    val result = folder.newFile("stable-during-lock.json")
+    val lease = PlatformResultProcessLease.tryAcquire(result.path) {
+      assertTrue(Files.isRegularFile(
+        folder.root.toPath().resolve(".stable-during-lock.json.platform-worker.lock"),
+        LinkOption.NOFOLLOW_LINKS))
+    }
+    assertNotNull(lease)
+    try { assertNull(PlatformResultProcessLease.tryAcquire(result.path)) }
+    finally { lease!!.close() }
   }
 }

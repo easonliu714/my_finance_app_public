@@ -9,17 +9,23 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
 
 /**
  * Exclusive OS-held lease on a stable, never-deleted result sidecar inode.
  * This is NOT terminal durability, source FD custody or Android device proof.
+ * Inode checks bracket lock acquisition only; same-UID replacement after
+ * returning the lease remains unproven and must fail closed at a later gate.
  */
 internal class PlatformResultProcessLease private constructor(
   private val channel: FileChannel,
   private val lock: FileLock
 ) : Closeable {
   companion object {
-    fun tryAcquire(resultPath: String): PlatformResultProcessLease? {
+    fun tryAcquire(
+      resultPath: String,
+      afterOpenBeforeLock: (() -> Unit)? = null
+    ): PlatformResultProcessLease? {
       if (resultPath.isBlank()) return null
       var opened: FileChannel? = null
       try {
@@ -37,9 +43,28 @@ internal class PlatformResultProcessLease private constructor(
           LinkOption.NOFOLLOW_LINKS
         )
         opened = channel
+        // Bind this acquisition to the same regular sidecar path inode on
+        // both sides of the OS lock. A same-UID rename/unlink during this
+        // bounded window must not authorize a second result writer.
+        val before = Files.readAttributes(
+          lockPath, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+        val openedKey = before.fileKey()
+        if (!before.isRegularFile || openedKey == null) return null
+        afterOpenBeforeLock?.invoke() // Deterministic native race-test seam.
         val held = try { channel.tryLock() }
           catch (_: OverlappingFileLockException) { null }
         if (held == null) return null
+        val after = try {
+          Files.readAttributes(
+            lockPath, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+        } catch (_: Exception) {
+          held.release()
+          return null
+        }
+        if (!after.isRegularFile || after.fileKey() != openedKey) {
+          held.release()
+          return null
+        }
         opened = null
         return PlatformResultProcessLease(channel, held)
       } catch (_: Exception) {
