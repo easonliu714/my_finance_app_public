@@ -32,6 +32,7 @@ import kotlin.concurrent.thread
  * No invoice/accounting data leaves the device.
  */
 class PlatformPdfCandidateWorkerService : Service() {
+  private val startLease = PlatformWorkerStartLease()
   companion object {
     const val EXTRA_PDF_PATH = "pdf_path"
     const val EXTRA_CANDIDATES_JSON = "candidates_json"
@@ -55,16 +56,12 @@ class PlatformPdfCandidateWorkerService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent == null) {
-      stopSelf(startId)
+      // A newer null start must never stop an older active foreground owner.
+      if (!startLease.isActive()) stopSelf(startId)
       return START_NOT_STICKY
     }
-    // A fresh Android install may start this Service before any other PDF
-    // Service. Register its own channel before promoting to foreground.
+    // A fresh install may start this service before any other PDF service.
     ensureNotificationChannel()
-    startForeground(
-      NOTIFICATION_ID,
-      buildNotification("正在使用系統 PDF 引擎處理大型官方候選比對")
-    )
 
     val pdfPath = intent.getStringExtra(EXTRA_PDF_PATH).orEmpty()
     val candidatesJson = intent.getStringExtra(EXTRA_CANDIDATES_JSON).orEmpty()
@@ -77,41 +74,64 @@ class PlatformPdfCandidateWorkerService : Service() {
     val resultPath = intent.getStringExtra(EXTRA_RESULT_PATH).orEmpty()
     val requestId = intent.getStringExtra(EXTRA_REQUEST_ID).orEmpty()
 
-    thread(start = true, name = "issue13-platform-cloud500-worker") {
-      var wakeLock: PowerManager.WakeLock? = null
-      try {
-        val manager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = manager.newWakeLock(
-          PowerManager.PARTIAL_WAKE_LOCK,
-          "$packageName:cloud_award_candidate_verification"
-        ).apply { setReferenceCounted(false) }
-        wakeLock.acquire(CANDIDATE_WAKE_LOCK_MAX_MS)
-        runLookup(
-          pdfPath,
-          candidatesJson,
-          expectedSourceSha256,
-          expectedSourceBytes,
-          expectedCandidateUniverseSha256,
-          resultPath,
-          requestId
-        )
-      } catch (oom: OutOfMemoryError) {
-        writeFailure(resultPath, requestId, "PLATFORM_WORKER_OOM")
-      } catch (error: Throwable) {
-        writeFailure(
-          resultPath,
-          requestId,
-          "PLATFORM_WORKER_FAILED:${error.javaClass.simpleName}"
-        )
-      } finally {
+    // One foreground owner per service instance. Rejected overlapping starts
+    // do not spawn writers, emit FAILED, or stop the existing foreground owner.
+    // They must remain UNKNOWN to the caller; cross-process custody is HOLD.
+    val token = startLease.acquire(startId, requestId, resultPath)
+    if (token == null) {
+      if (!startLease.isActive()) stopSelf(startId)
+      return START_NOT_STICKY
+    }
+    try {
+      startForeground(
+        NOTIFICATION_ID,
+        buildNotification("正在使用系統 PDF 引擎處理大型官方候選比對")
+      )
+      thread(start = true, name = "issue13-platform-cloud500-worker") {
+        var wakeLock: PowerManager.WakeLock? = null
         try {
-          wakeLock?.let { if (it.isHeld) it.release() }
-        } catch (_: RuntimeException) {
-          // A timed-out wake lock is already released by Android.
+          val manager = getSystemService(Context.POWER_SERVICE) as PowerManager
+          wakeLock = manager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "$packageName:cloud_award_candidate_verification"
+          ).apply { setReferenceCounted(false) }
+          wakeLock.acquire(CANDIDATE_WAKE_LOCK_MAX_MS)
+          runLookup(
+            pdfPath,
+            candidatesJson,
+            expectedSourceSha256,
+            expectedSourceBytes,
+            expectedCandidateUniverseSha256,
+            resultPath,
+            requestId
+          )
+        } catch (oom: OutOfMemoryError) {
+          writeFailure(resultPath, requestId, "PLATFORM_WORKER_OOM")
+        } catch (error: Throwable) {
+          writeFailure(
+            resultPath,
+            requestId,
+            "PLATFORM_WORKER_FAILED:${error.javaClass.simpleName}"
+          )
+        } finally {
+          try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+          } catch (_: RuntimeException) {
+            // A timed-out wake lock is already released by Android.
+          }
+          startLease.finish(token) {
+            // No newer owner can acquire before foreground teardown finishes.
+            // This service instance closes after its single accepted owner.
+            try { stopForeground(true) } finally { stopSelf() }
+          }
         }
-        stopForeground(true)
-        stopSelf(startId)
       }
+    } catch (startError: Throwable) {
+      // Failure to promote/spawn must never leave a stale active owner.
+      startLease.finish(token) {
+        try { stopForeground(true) } finally { stopSelf() }
+      }
+      throw startError
     }
     return START_NOT_STICKY
   }
