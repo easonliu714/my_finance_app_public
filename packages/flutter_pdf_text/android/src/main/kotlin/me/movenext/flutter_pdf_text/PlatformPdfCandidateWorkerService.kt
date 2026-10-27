@@ -227,8 +227,7 @@ class PlatformPdfCandidateWorkerService : Service() {
         ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
       renderer = PdfRenderer(descriptor)
       descriptor = null
-      opening.set(false)
-      openHeartbeat.interrupt()
+      stopAndJoinPlatformOpenHeartbeat(opening, openHeartbeat)
 
       val pageCount = renderer.pageCount
       require(pageCount > 0)
@@ -343,8 +342,7 @@ class PlatformPdfCandidateWorkerService : Service() {
         .put("updated_at_ms", System.currentTimeMillis())
       writeAtomic(resultPath, payload.toString())
     } finally {
-      opening.set(false)
-      openHeartbeat.interrupt()
+      stopAndJoinPlatformOpenHeartbeat(opening, openHeartbeat)
       try { renderer?.close() } catch (_: Throwable) {}
       try { descriptor?.close() } catch (_: Throwable) {}
     }
@@ -485,4 +483,23 @@ class PlatformPdfCandidateWorkerService : Service() {
       temp.delete()
     }
   }
+}
+
+// The native OPEN_WAIT writer may already be inside a result-file write when
+// PdfRenderer returns. Never publish OPEN_OK, FAILED, or COMPLETE until that
+// writer has finished. A bounded join would allow a late write after timeout,
+// so interruption requests shutdown but does not authorize an early return.
+internal fun stopAndJoinPlatformOpenHeartbeat(opening: AtomicBoolean, heartbeat: Thread) {
+  opening.set(false)
+  heartbeat.interrupt()
+  var callerInterrupted = false
+  while (heartbeat.isAlive) {
+    try {
+      heartbeat.join()
+    } catch (_: InterruptedException) {
+      callerInterrupted = true
+      heartbeat.interrupt()
+    }
+  }
+  if (callerInterrupted) Thread.currentThread().interrupt()
 }
