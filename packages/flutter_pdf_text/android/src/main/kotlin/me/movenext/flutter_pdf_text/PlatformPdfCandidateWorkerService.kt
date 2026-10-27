@@ -252,7 +252,10 @@ class PlatformPdfCandidateWorkerService : Service() {
       }
     }
 
-      renderer = PdfRenderer(descriptor)
+      // Retain the nullable FD for finally cleanup until PdfRenderer owns it.
+      // Missing snapshot custody is a hard failure, never a null assertion.
+      val rendererDescriptor = descriptor ?: throw IOException("SOURCE_CUSTODY_DESCRIPTOR_MISSING")
+      renderer = PdfRenderer(rendererDescriptor)
       descriptor = null
       openHeartbeat?.let { stopAndJoinPlatformOpenHeartbeat(opening, it) }
 

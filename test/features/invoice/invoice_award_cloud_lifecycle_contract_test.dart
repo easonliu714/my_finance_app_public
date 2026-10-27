@@ -177,7 +177,22 @@ void main() {
     expect(sourceCustody, contains('LinkOption.NOFOLLOW_LINKS'));
     expect(sourceCustody, contains('Files.delete(snapshot)'));
     expect(sourceCustody, contains('SOURCE_CUSTODY_SHA256_MISMATCH'));
-    expect(largeWorkerSource, contains('renderer = PdfRenderer(descriptor)'));
+    // Verify the nullable snapshot FD is checked before renderer ownership.
+    expect(
+      largeWorkerSource,
+      contains('val rendererDescriptor = descriptor ?: throw IOException("SOURCE_CUSTODY_DESCRIPTOR_MISSING")'),
+    );
+    expect(largeWorkerSource, contains('renderer = PdfRenderer(rendererDescriptor)'));
+    final guardAt = largeWorkerSource.indexOf(
+      'val rendererDescriptor = descriptor ?: throw IOException(',
+    );
+    final rendererAt = largeWorkerSource.indexOf('renderer = PdfRenderer(rendererDescriptor)');
+    expect(guardAt, greaterThanOrEqualTo(0));
+    expect(rendererAt, greaterThan(guardAt));
+    final handoffAt = largeWorkerSource.indexOf('descriptor = null', rendererAt);
+    expect(handoffAt, greaterThan(rendererAt));
+    expect(largeWorkerSource, contains('try { renderer?.close() }'));
+    expect(largeWorkerSource, contains('try { descriptor?.close() }'));
     expect(
       largeWorkerSource,
       contains('renderer.openPage(pageNumber - 1)'),

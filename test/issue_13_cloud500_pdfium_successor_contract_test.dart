@@ -19,7 +19,22 @@ void main() {
 
     test('large worker is platform PdfRenderer, never PDFium or PDFBox', () {
       expect(workerSource, contains('android.graphics.pdf.PdfRenderer'));
-      expect(workerSource, contains('PdfRenderer(descriptor)'));
+        // Verify the nullable snapshot FD is checked before renderer ownership.
+      expect(
+        workerSource,
+        contains('val rendererDescriptor = descriptor ?: throw IOException("SOURCE_CUSTODY_DESCRIPTOR_MISSING")'),
+      );
+      expect(workerSource, contains('renderer = PdfRenderer(rendererDescriptor)'));
+      final guardAt = workerSource.indexOf(
+        'val rendererDescriptor = descriptor ?: throw IOException(',
+      );
+      final rendererAt = workerSource.indexOf('renderer = PdfRenderer(rendererDescriptor)');
+      expect(guardAt, greaterThanOrEqualTo(0));
+      expect(rendererAt, greaterThan(guardAt));
+      final handoffAt = workerSource.indexOf('descriptor = null', rendererAt);
+      expect(handoffAt, greaterThan(rendererAt));
+      expect(workerSource, contains('try { renderer?.close() }'));
+      expect(workerSource, contains('try { descriptor?.close() }'));
       expect(workerSource, contains('renderer.openPage'));
       expect(workerSource, contains('textContents'));
       expect(
