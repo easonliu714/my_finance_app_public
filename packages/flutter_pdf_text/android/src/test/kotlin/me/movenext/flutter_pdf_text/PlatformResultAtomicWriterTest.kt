@@ -25,7 +25,7 @@ class PlatformResultAtomicWriterTest {
     target.writeText("previous")
     val names = mutableListOf<String>()
     val syncs = AtomicInteger()
-    val writer = PlatformResultAtomicWriter(
+    val writer = PlatformResultAtomicWriter(protectTerminal = false, 
       atomicReplace = { tmp, dst ->
         assertEquals(dir.canonicalPath, tmp.parent.toFile().canonicalPath)
         names.add(tmp.fileName.toString())
@@ -49,7 +49,7 @@ class PlatformResultAtomicWriterTest {
     val target = dir.resolve("result.json")
     target.writeText("trusted")
     val syncs = AtomicInteger()
-    val writer = PlatformResultAtomicWriter(
+    val writer = PlatformResultAtomicWriter(protectTerminal = false, 
       atomicReplace = { _, _ -> throw IOException("INJECTED_RENAME_FAILURE") },
       syncParent = { syncs.incrementAndGet() })
     assertThrows(IOException::class.java) { writer.write(target.path, "untrusted") }
@@ -61,7 +61,7 @@ class PlatformResultAtomicWriterTest {
   @Test fun directorySyncFailurePropagatesWithoutSuccessClaim() {
     val dir = folder.newFolder("sync")
     val target = dir.resolve("result.json")
-    val writer = PlatformResultAtomicWriter(
+    val writer = PlatformResultAtomicWriter(protectTerminal = false, 
       syncParent = { throw IOException("INJECTED_PARENT_FSYNC_FAILURE") })
     assertThrows(IOException::class.java) { writer.write(target.path, "unverified") }
     // A rename may already have occurred; durability is NOT proven.
@@ -75,7 +75,7 @@ class PlatformResultAtomicWriterTest {
     val release = CountDownLatch(1)
     val active = AtomicInteger()
     val peak = AtomicInteger()
-    val writer = PlatformResultAtomicWriter(
+    val writer = PlatformResultAtomicWriter(protectTerminal = false, 
       atomicReplace = { tmp, dst ->
         val current = active.incrementAndGet()
         peak.updateAndGet { old -> maxOf(old, current) }

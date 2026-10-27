@@ -291,7 +291,7 @@ jobs:
           --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB="$ENABLE_PRIVATE_CLOUD_INVOICE_LAB"
 
       # Native JVM contract gate: a RED result is a real HOLD, never skipped or masked.
-      - name: Android Platform Worker channel, heartbeat, atomic-result, foreground and OS-lock native regressions
+      - name: Android Platform Worker channel, heartbeat, atomic-result, foreground, OS-lock and terminal native regressions
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         working-directory: android
         shell: bash
@@ -303,6 +303,7 @@ jobs:
             --tests "me.movenext.flutter_pdf_text.PlatformResultAtomicWriterTest" \
             --tests "me.movenext.flutter_pdf_text.PlatformWorkerStartLeaseTest" \
             --tests "me.movenext.flutter_pdf_text.PlatformResultProcessLeaseTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultTerminalFenceTest" \
             --no-daemon --stacktrace
 
       - name: Record debug APK SHA256
