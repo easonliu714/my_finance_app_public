@@ -46,7 +46,7 @@ internal class PlatformResultAtomicWriter(
         Files.size(target) > 1_048_576L) {
       throw IOException("RESULT_PRIOR_FILE_UNTRUSTED")
     }
-    val prior = try { JSONObject(Files.readString(target)) }
+    val prior = try { JSONObject(String(Files.readAllBytes(target), Charsets.UTF_8)) }
       catch (error: Exception) { throw IOException("RESULT_PRIOR_JSON_INVALID", error) }
     val oldStatus = prior.optString("status")
     if (oldStatus == "complete" || oldStatus == "failed") {

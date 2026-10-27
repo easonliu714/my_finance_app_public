@@ -37,6 +37,7 @@ class PlatformResultTerminalFenceTest {
 
   @Test fun failedTerminalCannotBeReplacedByComplete() {
     val target = folder.newFile("failed.json")
+    target.delete()
     writer().write(target.path, payload("A", "failed"))
     val trusted = target.readText()
     assertThrows(IOException::class.java) {
@@ -47,6 +48,7 @@ class PlatformResultTerminalFenceTest {
 
   @Test fun foreignRequestCannotOverwriteExistingRunning() {
     val target = folder.newFile("foreign.json")
+    target.delete()
     writer().write(target.path, payload("A", "running"))
     val trusted = target.readText()
     assertThrows(IOException::class.java) {
