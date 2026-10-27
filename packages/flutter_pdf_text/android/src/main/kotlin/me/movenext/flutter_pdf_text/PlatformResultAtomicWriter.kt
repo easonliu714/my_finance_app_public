@@ -102,7 +102,16 @@ internal class PlatformResultAtomicWriter(
   fun write(path: String, content: String) {
     val target = File(path).absoluteFile.toPath()
     val parent = target.parent ?: throw IOException("RESULT_PARENT_MISSING")
+    // A caller-controlled symlinked result parent must never redirect writes
+    // or create the temporary file outside the intended result directory.
+    if (Files.exists(parent, LinkOption.NOFOLLOW_LINKS) &&
+        !Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) {
+      throw IOException("RESULT_PARENT_UNTRUSTED")
+    }
     Files.createDirectories(parent)
+    if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) {
+      throw IOException("RESULT_PARENT_UNTRUSTED")
+    }
     if (protectTerminal) validateResultTransition(target, content)
     // Unique temporary file in the same directory, not a shared .tmp path.
     val temp = Files.createTempFile(parent, ".${target.fileName}.", ".tmp")

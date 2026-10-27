@@ -25,8 +25,11 @@ internal class PlatformResultProcessLease private constructor(
       try {
         val target = File(resultPath).absoluteFile.toPath().normalize()
         if (Files.isSymbolicLink(target)) return null
-        val parent = target.parent?.toRealPath() ?: return null
-        if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) return null
+        // Do not resolve a caller-supplied symlinked parent into a different
+        // lock directory. The writer independently rejects that same parent.
+        val parentPath = target.parent ?: return null
+        if (!Files.isDirectory(parentPath, LinkOption.NOFOLLOW_LINKS)) return null
+        val parent = parentPath.toRealPath(LinkOption.NOFOLLOW_LINKS)
         val lockPath: Path = parent.resolve(".${target.fileName}.platform-worker.lock")
         if (Files.isSymbolicLink(lockPath)) return null
         val channel = FileChannel.open(
