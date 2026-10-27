@@ -319,6 +319,7 @@ jobs:
             --tests "me.movenext.flutter_pdf_text.PlatformResultWorkerEpochTest" \
             --tests "me.movenext.flutter_pdf_text.PlatformResultTerminalProvenanceTest" \
             --tests "me.movenext.flutter_pdf_text.PlatformSourceSnapshotCustodyTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformSourceSnapshotOrphanCleanupTest" \
             --no-daemon --stacktrace
 
       - name: Record debug APK SHA256
