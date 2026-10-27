@@ -56,6 +56,9 @@ class PlatformPdfCandidateWorkerService : Service() {
       stopSelf(startId)
       return START_NOT_STICKY
     }
+    // A fresh Android install may start this Service before any other PDF
+    // Service. Register its own channel before promoting to foreground.
+    ensureNotificationChannel()
     startForeground(
       NOTIFICATION_ID,
       buildNotification("正在使用系統 PDF 引擎處理大型官方候選比對")
