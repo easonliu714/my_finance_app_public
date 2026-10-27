@@ -31,8 +31,10 @@ internal class PlatformResultAtomicWriter(
     try { Os.fsync(fd) } finally { Os.close(fd) }
   },
   private val protectTerminal: Boolean = true,
-  private val requireWorkerEpoch: Boolean = false
+  private val requireWorkerEpoch: Boolean = false,
+  private val requireTerminalProvenance: Boolean = false
 ) {
+  private val sha256Pattern = Regex("^[0-9a-fA-F]{64}$")
   private val workerEpochPattern =
     Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -63,7 +65,19 @@ internal class PlatformResultAtomicWriter(
     }
     val incomingWorkerIdentity =
       if (requireWorkerEpoch) workerIdentity(incoming) else null
-    if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) return
+    // A COMPLETE must carry verified digest syntax and follow a RUNNING state.
+    // Matching those digests to RUNNING/source custody is a separate HOLD.
+    if (requireTerminalProvenance && nextStatus == "complete" &&
+        (!sha256Pattern.matches(incoming.optString("source_sha256")) ||
+         !sha256Pattern.matches(incoming.optString("candidate_universe_sha256")))) {
+      throw IOException("RESULT_TERMINAL_PROVENANCE_INVALID")
+    }
+    if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+      if (requireTerminalProvenance && nextStatus == "complete") {
+        throw IOException("RESULT_COMPLETION_WITHOUT_RUNNING")
+      }
+      return
+    }
     if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS) ||
         Files.size(target) > 1_048_576L) {
       throw IOException("RESULT_PRIOR_FILE_UNTRUSTED")

@@ -317,6 +317,7 @@ jobs:
             --tests "me.movenext.flutter_pdf_text.PlatformResultProcessLeaseTest" \
             --tests "me.movenext.flutter_pdf_text.PlatformResultTerminalFenceTest" \
             --tests "me.movenext.flutter_pdf_text.PlatformResultWorkerEpochTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultTerminalProvenanceTest" \
             --tests "me.movenext.flutter_pdf_text.PlatformSourceSnapshotCustodyTest" \
             --no-daemon --stacktrace
 

@@ -54,7 +54,8 @@ class PlatformPdfCandidateWorkerService : Service() {
     // a prior RUNNING result's worker identity. Not a secret/authenticator.
     private val WORKER_PROCESS_EPOCH = java.util.UUID.randomUUID().toString()
     private val PLATFORM_RESULT_WRITER =
-      PlatformResultAtomicWriter(requireWorkerEpoch = true)
+      PlatformResultAtomicWriter(
+        requireWorkerEpoch = true, requireTerminalProvenance = true)
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
