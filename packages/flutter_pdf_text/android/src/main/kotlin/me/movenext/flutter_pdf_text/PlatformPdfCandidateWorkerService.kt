@@ -47,6 +47,8 @@ class PlatformPdfCandidateWorkerService : Service() {
     // Prevent a sleeping screen from suspending SHA-256 + candidate lookup.
     // This is time-bounded; Android may still reclaim an isolated process.
     private const val CANDIDATE_WAKE_LOCK_MAX_MS = 30 * 60 * 1000L
+    // Process-local serialization only; not a cross-process result lease.
+    private val PLATFORM_RESULT_WRITER = PlatformResultAtomicWriter()
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -474,14 +476,9 @@ class PlatformPdfCandidateWorkerService : Service() {
   }
 
   private fun writeAtomic(path: String, content: String) {
-    val target = File(path)
-    target.parentFile?.mkdirs()
-    val temp = File(target.parentFile, target.name + ".tmp")
-    temp.writeText(content)
-    if (!temp.renameTo(target)) {
-      target.writeText(content)
-      temp.delete()
-    }
+    // Unique same-directory temp + fsync + atomic move, with no direct-write
+    // fallback. Cross-process and terminal ownership remain separate HOLDs.
+    PLATFORM_RESULT_WRITER.write(path, content)
   }
 }
 
