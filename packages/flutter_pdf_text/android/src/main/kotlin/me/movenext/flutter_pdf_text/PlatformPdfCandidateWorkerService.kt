@@ -199,29 +199,32 @@ class PlatformPdfCandidateWorkerService : Service() {
       resultPath, requestId, "PLATFORM_SOURCE_SHA256", 0, candidates.size,
       sourceBytesTotal = expectedSourceBytes
     )
-    val actualSourceSha256 = sha256File(source) { bytesRead ->
+    // Capture from one no-follow source FD, then hash and render the same
+    // unlinked private snapshot. The caller-controlled pathname is never
+    // reopened after verification.
+    val custody = PlatformSourceSnapshotCustody.capture(
+      source, cacheDir, expectedSourceBytes, expectedSourceSha256
+    ) { bytesRead ->
       writeRunning(
         resultPath, requestId, "PLATFORM_SOURCE_SHA256", 0, candidates.size,
         sourceBytesRead = bytesRead,
         sourceBytesTotal = expectedSourceBytes
       )
     }
-    if (!actualSourceSha256.equals(expectedSourceSha256, ignoreCase = true)) {
-      writeFailure(resultPath, requestId, "PLATFORM_WORKER_SOURCE_SHA256_MISMATCH")
-      return
-    }
-
+    val actualSourceSha256 = custody.sha256
+    var descriptor: ParcelFileDescriptor? = custody.descriptor
+    var renderer: PdfRenderer? = null
+    val opening = AtomicBoolean(true)
+    val openStartedAt = SystemClock.elapsedRealtime()
+    var openHeartbeat: Thread? = null
+    try {
     writeRunning(
       resultPath, requestId, "PLATFORM_RENDERER_OPEN_BEGIN", 0, candidates.size,
       sourceBytesRead = expectedSourceBytes,
       sourceBytesTotal = expectedSourceBytes
     )
 
-    var descriptor: ParcelFileDescriptor? = null
-    var renderer: PdfRenderer? = null
-    val opening = AtomicBoolean(true)
-    val openStartedAt = SystemClock.elapsedRealtime()
-    val openHeartbeat = thread(
+    openHeartbeat = thread(
       start = true,
       isDaemon = true,
       name = "issue13-platform-open-heartbeat"
@@ -244,12 +247,9 @@ class PlatformPdfCandidateWorkerService : Service() {
       }
     }
 
-    try {
-      descriptor =
-        ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
       renderer = PdfRenderer(descriptor)
       descriptor = null
-      stopAndJoinPlatformOpenHeartbeat(opening, openHeartbeat)
+      openHeartbeat?.let { stopAndJoinPlatformOpenHeartbeat(opening, it) }
 
       val pageCount = renderer.pageCount
       require(pageCount > 0)
@@ -357,14 +357,14 @@ class PlatformPdfCandidateWorkerService : Service() {
         .put("pages_read", pagesRead.size)
         .put("candidate_count", candidates.size)
         .put("source_sha256", actualSourceSha256)
-        .put("source_bytes", source.length())
+        .put("source_bytes", custody.bytes)
         .put("candidate_universe_sha256", actualCandidateUniverseSha256)
         .put("matched", JSONArray(matched.toList()))
         .put("matched_pages", matchedPagesJson)
         .put("updated_at_ms", System.currentTimeMillis())
       writeAtomic(resultPath, payload.toString())
     } finally {
-      stopAndJoinPlatformOpenHeartbeat(opening, openHeartbeat)
+      openHeartbeat?.let { stopAndJoinPlatformOpenHeartbeat(opening, it) }
       try { renderer?.close() } catch (_: Throwable) {}
       try { descriptor?.close() } catch (_: Throwable) {}
     }
@@ -415,30 +415,6 @@ class PlatformPdfCandidateWorkerService : Service() {
       .put("stage_elapsed_ms", stageElapsedMs)
       .put("updated_at_ms", System.currentTimeMillis())
     writeAtomic(resultPath, payload.toString())
-  }
-
-  private fun sha256File(file: File, onProgress: (Long) -> Unit): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val buffer = ByteArray(64 * 1024)
-    var totalRead = 0L
-    var nextProgress = 8L * 1024L * 1024L
-    file.inputStream().buffered().use { input ->
-      while (true) {
-        val read = input.read(buffer)
-        if (read < 0) break
-        if (read == 0) continue
-        digest.update(buffer, 0, read)
-        totalRead += read
-        if (totalRead >= nextProgress) {
-          onProgress(totalRead)
-          nextProgress = totalRead + 8L * 1024L * 1024L
-        }
-      }
-    }
-    onProgress(totalRead)
-    return digest.digest().joinToString("") {
-      (it.toInt() and 0xff).toString(16).padStart(2, '0')
-    }
   }
 
   private fun sha256Bytes(bytes: ByteArray): String {
