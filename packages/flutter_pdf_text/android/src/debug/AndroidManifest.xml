@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- Debug-only, non-exported; a distinct target-app process shares UID. -->
+    <service
+      android:name="me.movenext.flutter_pdf_text.PlatformLeaseProbeService"
+      android:exported="false"
+      android:process=":pr45_native_lease_probe" />
+  </application>
+</manifest>

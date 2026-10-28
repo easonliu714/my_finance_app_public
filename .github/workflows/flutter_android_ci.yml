@@ -323,6 +323,17 @@ jobs:
             --tests "me.movenext.flutter_pdf_text.PlatformSourceSnapshotOrphanCleanupTest" \
             --no-daemon --stacktrace
 
+      # Compiles an Android API35 two-process RED witness. It does NOT run
+      # instrumentation or assert a device PASS; no emulator is provisioned.
+      - name: Compile Android API35 two-process lease instrumentation (not executed)
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :flutter_pdf_text:assembleDebugAndroidTest --no-daemon --stacktrace
+          echo "ANDROID_NATIVE_REAL_DEVICE_PROOF_HOLD=1 (compile-only)"
+
       - name: Record debug APK SHA256
         if: >-
           ${{ steps.changes.outputs.run_heavy == 'true' &&
