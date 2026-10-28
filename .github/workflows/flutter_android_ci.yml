@@ -414,7 +414,9 @@ jobs:
           disable-animations: true
           working-directory: ./android
           script: |
-            set -euo pipefail
+            # reactivecircus executes this script with /usr/bin/sh (dash), not bash.
+            # dash has no pipefail; preserve fail-fast with POSIX-compatible -eu.
+            set -eu
             adb shell getprop ro.build.version.sdk
             ./gradlew :flutter_pdf_text:connectedDebugAndroidTest \
               -Pandroid.testInstrumentationRunnerArguments.class=me.movenext.flutter_pdf_text.PlatformResultProcessLeaseInstrumentedTest \
