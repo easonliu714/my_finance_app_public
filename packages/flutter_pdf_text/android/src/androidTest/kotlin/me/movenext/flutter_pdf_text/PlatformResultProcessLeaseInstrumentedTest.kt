@@ -11,6 +11,8 @@ import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.os.Process
+import android.net.LocalServerSocket
+import java.security.MessageDigest
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
@@ -25,6 +27,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -100,6 +103,33 @@ class PlatformResultProcessLeaseInstrumentedTest {
     val selinux = reply.getString("selinux").orEmpty()
     assertTrue("Android SELinux context unavailable: $selinux", selinux.startsWith("u:r:"))
     println("PR45_API35_PID_UID_SELINUX local_pid=${Process.myPid()} remote_pid=${reply.getInt("pid")} local_uid=${Process.myUid()} remote_uid=${reply.getInt("uid")} remote_selinux=$selinux")
+  }
+
+  /**
+   * C16 API35 real-kernel negative/positive: a same-UID prebound abstract
+   * socket name must deny the lease BEFORE creating any sidecar. Releasing
+   * the foreign binder must permit a fresh acquisition. This is not
+   * protection against a permanently hostile same-UID prebinder (DoS HOLD).
+   */
+  @Test fun preboundKernelIdentityDeniesLeaseWithoutSidecarThenRecovers() {
+    val result = isolatedResult()
+    val identity = result.toPath().toAbsolutePath().normalize().toString()
+    val digest = MessageDigest.getInstance("SHA-256")
+      .digest(identity.toByteArray(Charsets.UTF_8))
+      .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    val sidecar = File(result.parentFile, ".result.json.platform-worker.lock").toPath()
+    val prebound = LocalServerSocket("myfinance.result.v1.$digest")
+    try {
+      assertNull("PREBOUND_KERNEL_NAME_MUST_FAIL_CLOSED",
+        PlatformResultProcessLease.tryAcquire(result.path))
+      assertFalse("No replaceable sidecar may be opened on kernel bind denial",
+        Files.exists(sidecar))
+    } finally {
+      prebound.close()
+    }
+    val recovered = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull("Released kernel name must permit acquisition", recovered)
+    recovered!!.close()
   }
 
   @Test fun unchangedSidecarRejectsSecondAndroidProcessUntilRelease() {

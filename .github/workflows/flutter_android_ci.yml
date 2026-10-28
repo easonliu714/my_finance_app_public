@@ -418,7 +418,9 @@ jobs:
             # Keep Gradle and its arguments on ONE line: trailing backslash is
             # passed as a literal task name (Task '\\' not found), not a shell continuation.
             adb shell getprop ro.build.version.sdk
-            ./gradlew :flutter_pdf_text:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=me.movenext.flutter_pdf_text.PlatformResultProcessLeaseInstrumentedTest --no-daemon --stacktrace
+            # Capture logcat while the emulator is alive, including on a real RED.
+            # Preserve Gradle's original exit status: no masking or skip.
+            ./gradlew :flutter_pdf_text:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=me.movenext.flutter_pdf_text.PlatformResultProcessLeaseInstrumentedTest --no-daemon --stacktrace; native_status=$?; mkdir -p ../android-api35-evidence; (timeout 20s adb -e logcat -d -v threadtime > ../android-api35-evidence/logcat.txt || true); (timeout 10s adb -e shell getprop ro.build.version.sdk > ../android-api35-evidence/api-level.txt || true); (timeout 10s adb -e shell getenforce > ../android-api35-evidence/selinux-mode.txt || true); exit "$native_status"
             test -n "$(find ../build -path '*/androidTest-results/*' -name '*.xml' -print -quit)" || { echo 'ANDROID_API35_JUNIT_XML_MISSING' >&2; exit 61; }
             echo 'ANDROID_API35_TWO_PROCESS_LEASE_TESTS_EXECUTED=PASS'
       - name: Preserve Android API35 native JUnit and device evidence
