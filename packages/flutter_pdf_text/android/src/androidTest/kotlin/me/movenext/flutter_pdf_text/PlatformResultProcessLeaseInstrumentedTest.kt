@@ -119,6 +119,26 @@ class PlatformResultProcessLeaseInstrumentedTest {
     } finally { first?.close() }
   }
 
+  @Test fun ancestorAliasCannotCreateSecondAndroidOwner() {
+    val result = isolatedResult()
+    val cacheRoot = result.parentFile.parentFile.toPath()
+    val aliasRoot = cacheRoot.resolve("ancestor-alias-${UUID.randomUUID()}")
+    Files.createSymbolicLink(aliasRoot, cacheRoot)
+    val aliasResult = aliasRoot.resolve(result.parentFile.name).resolve(result.name)
+    val first = PlatformResultProcessLease.tryAcquire(result.path)
+    assertNotNull(first)
+    try {
+      RemoteLease(targetContext).use { remote ->
+        val denied = remote.call(PlatformLeaseProbeService.ACQUIRE, aliasResult.toString())
+        assertIndependentSameUid(denied)
+        assertFalse("CROSS_PROCESS_ALIAS_DOUBLE_OWNER", denied.getBoolean("acquired"))
+      }
+    } finally {
+      first!!.close()
+      Files.deleteIfExists(aliasRoot)
+    }
+  }
+
   @Test fun sidecarReplacementCannotCreateSecondAndroidOwnerWhileFirstAlive() {
     val result = isolatedResult()
     val first = PlatformResultProcessLease.tryAcquire(result.path)
