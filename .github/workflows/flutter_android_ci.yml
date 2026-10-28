@@ -414,13 +414,11 @@ jobs:
           disable-animations: true
           working-directory: ./android
           script: |
-            # reactivecircus executes this script with /usr/bin/sh (dash), not bash.
-            # dash has no pipefail; preserve fail-fast with POSIX-compatible -eu.
-            set -eu
+            # The emulator runner executes EACH script line through /usr/bin/sh -c.
+            # Keep Gradle and its arguments on ONE line: trailing backslash is
+            # passed as a literal task name (Task '\\' not found), not a shell continuation.
             adb shell getprop ro.build.version.sdk
-            ./gradlew :flutter_pdf_text:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=me.movenext.flutter_pdf_text.PlatformResultProcessLeaseInstrumentedTest \
-              --no-daemon --stacktrace
+            ./gradlew :flutter_pdf_text:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=me.movenext.flutter_pdf_text.PlatformResultProcessLeaseInstrumentedTest --no-daemon --stacktrace
             test -n "$(find ../build -path '*/androidTest-results/*' -name '*.xml' -print -quit)" || { echo 'ANDROID_API35_JUNIT_XML_MISSING' >&2; exit 61; }
             echo 'ANDROID_API35_TWO_PROCESS_LEASE_TESTS_EXECUTED=PASS'
       - name: Preserve Android API35 native JUnit and device evidence
