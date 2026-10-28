@@ -426,9 +426,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p android-api35-evidence
-          (adb logcat -d -v threadtime > android-api35-evidence/logcat.txt) || true
-          (adb shell getprop ro.build.version.sdk > android-api35-evidence/api-level.txt) || true
-          (adb shell getenforce > android-api35-evidence/selinux-mode.txt) || true
+          # Never hang the evidence job when emulator launch fails before ADB.
+          if command -v adb >/dev/null 2>&1 && timeout 8s adb devices | grep -Eq '^emulator-[0-9]+[[:space:]]+device
+          find build -path '*/androidTest-results/*' -type f -name '*.xml' -exec cp --parents '{}' android-api35-evidence/ \; 2>/dev/null || true
+          find build -path '*/reports/androidTests/*' -type f -exec cp --parents '{}' android-api35-evidence/ \; 2>/dev/null || true
+      - name: Upload Android API35 JUnit and logcat evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr45-android-api35-lease-${{ github.event.pull_request.head.sha }}
+          path: android-api35-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+; then
+            (timeout 20s adb -e logcat -d -v threadtime > android-api35-evidence/logcat.txt) || true
+            (timeout 10s adb -e shell getprop ro.build.version.sdk > android-api35-evidence/api-level.txt) || true
+            (timeout 10s adb -e shell getenforce > android-api35-evidence/selinux-mode.txt) || true
+          else
+            echo 'ANDROID_API35_ADB_DEVICE_UNAVAILABLE' > android-api35-evidence/device-status.txt
+          fi
           find build -path '*/androidTest-results/*' -type f -name '*.xml' -exec cp --parents '{}' android-api35-evidence/ \; 2>/dev/null || true
           find build -path '*/reports/androidTests/*' -type f -exec cp --parents '{}' android-api35-evidence/ \; 2>/dev/null || true
       - name: Upload Android API35 JUnit and logcat evidence
