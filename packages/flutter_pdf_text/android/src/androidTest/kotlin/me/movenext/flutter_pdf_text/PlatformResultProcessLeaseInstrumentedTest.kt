@@ -97,6 +97,9 @@ class PlatformResultProcessLeaseInstrumentedTest {
     assertNotEquals("Must be a different Android PID", Process.myPid(), reply.getInt("pid"))
     assertEquals("Must be the same Android app UID", Process.myUid(), reply.getInt("uid"))
     assertFalse("Remote probe failed: ${reply.getString("error")}", reply.containsKey("error"))
+    val selinux = reply.getString("selinux").orEmpty()
+    assertTrue("Android SELinux context unavailable: $selinux", selinux.startsWith("u:r:"))
+    println("PR45_API35_PID_UID_SELINUX local_pid=${Process.myPid()} remote_pid=${reply.getInt("pid")} local_uid=${Process.myUid()} remote_uid=${reply.getInt("uid")} remote_selinux=$selinux")
   }
 
   @Test fun unchangedSidecarRejectsSecondAndroidProcessUntilRelease() {
@@ -135,6 +138,10 @@ class PlatformResultProcessLeaseInstrumentedTest {
         assertIndependentSameUid(afterSwap)
         assertFalse("CROSS_PROCESS_DOUBLE_OWNER_AFTER_SIDECAR_SWAP",
           afterSwap.getBoolean("acquired"))
+        first!!.close()
+        val recovered = remote.call(PlatformLeaseProbeService.ACQUIRE, result.path)
+        assertIndependentSameUid(recovered)
+        assertTrue("B must recover ownership after A releases", recovered.getBoolean("acquired"))
       }
     } finally { first?.close() }
   }
