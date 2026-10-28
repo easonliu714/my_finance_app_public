@@ -139,7 +139,7 @@ class PlatformResultAtomicWriterTest {
     if (!rejected) {
       // Returning successfully with FORGED_RESULT is the expected RED failure.
       assertEquals("Successful publication must preserve the written inode bytes",
-        trustedContent, Files.readString(target))
+        trustedContent, target.toFile().readText(Charsets.UTF_8))
     }
   }
 
