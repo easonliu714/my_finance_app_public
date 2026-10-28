@@ -160,4 +160,35 @@ class PlatformResultAtomicWriterTest {
     assertEquals("FORGED_RESULT", target.toFile().readText(Charsets.UTF_8))
   }
 
+
+  /**
+   * C17 RED witness for the missing publication-integrity invariant:
+   * a thrown writer exception is not sufficient when a forged result remains
+   * visible at the consumer's result pathname. This is a deterministic JVM
+   * pathname/inode fault injection, NOT an Android process/device PASS.
+   * Do not weaken this assertion to checking only the exception.
+   */
+  @Test fun failedPublicationMustNotLeaveForgedResultVisible() {
+    val parent = folder.newFolder("c17-publication-fail-closed").toPath()
+    val displaced = parent.resolveSibling("c17-original-parent")
+    val target = parent.resolve("result.json")
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      atomicReplace = { temp, destination ->
+        Files.move(parent, displaced, StandardCopyOption.ATOMIC_MOVE)
+        Files.createDirectory(parent)
+        Files.write(parent.resolve(temp.fileName),
+          "FORGED_RESULT".toByteArray(Charsets.UTF_8))
+        Files.move(temp, destination,
+          StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+      },
+      syncParent = { throw AssertionError("Untrusted bytes must never be fsynced as valid") }
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.toString(), "TRUSTED_RESULT")
+    }
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    assertFalse("C17_FORGED_RESULT_VISIBLE_AFTER_FAILED_PUBLICATION",
+      Files.exists(target))
+  }
 }
