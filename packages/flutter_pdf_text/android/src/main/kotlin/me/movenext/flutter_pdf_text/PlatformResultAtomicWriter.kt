@@ -98,6 +98,35 @@ internal class PlatformResultAtomicWriter(
     }
   }
 
+  // Bounded post-move readback: detect a replaced temporary inode before
+  // reporting write() success. This is detection, NOT a same-UID race closure:
+  // a forged target may already be visible and directory durability is unknown.
+  private fun verifyPublishedBytes(target: Path, expected: ByteArray) {
+    if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
+      throw IOException("RESULT_PUBLICATION_CONTENT_MISMATCH")
+    }
+    try {
+      Files.newInputStream(target, LinkOption.NOFOLLOW_LINKS).use { input ->
+        val chunk = ByteArray(8192)
+        var offset = 0
+        while (offset < expected.size) {
+          val count = input.read(chunk, 0, minOf(chunk.size, expected.size - offset))
+          if (count <= 0) throw IOException("RESULT_PUBLICATION_CONTENT_MISMATCH")
+          for (index in 0 until count) {
+            if (chunk[index] != expected[offset + index]) {
+              throw IOException("RESULT_PUBLICATION_CONTENT_MISMATCH")
+            }
+          }
+          offset += count
+        }
+        if (input.read() != -1) throw IOException("RESULT_PUBLICATION_CONTENT_MISMATCH")
+      }
+    } catch (error: IOException) {
+      if (error.message == "RESULT_PUBLICATION_CONTENT_MISMATCH") throw error
+      throw IOException("RESULT_PUBLICATION_READBACK_FAILED", error)
+    }
+  }
+
   @Synchronized
   fun write(path: String, content: String) {
     val target = File(path).absoluteFile.toPath()
@@ -113,14 +142,16 @@ internal class PlatformResultAtomicWriter(
       throw IOException("RESULT_PARENT_UNTRUSTED")
     }
     if (protectTerminal) validateResultTransition(target, content)
+    val expectedBytes = content.toByteArray(Charsets.UTF_8)
     // Unique temporary file in the same directory, not a shared .tmp path.
     val temp = Files.createTempFile(parent, ".${target.fileName}.", ".tmp")
     try {
       FileOutputStream(temp.toFile()).use { output ->
-        output.write(content.toByteArray(Charsets.UTF_8))
+        output.write(expectedBytes)
         output.fd.sync()
       }
       atomicReplace(temp, target)
+      verifyPublishedBytes(target, expectedBytes)
       syncParent(parent)
     } finally {
       Files.deleteIfExists(temp)

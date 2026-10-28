@@ -104,12 +104,33 @@ class PlatformResultAtomicWriterTest {
     }
   }
   /**
-   * C12 deterministic RED witness: a pathname-based atomic move can publish
-   * another inode after the parent directory is replaced between temp fsync
-   * and rename. This models a hostile same-UID interposition; it is NOT an
-   * Android independent-process or device security proof.
+   * C12 adversarial witness: a pathname-based atomic move can publish a
+   * different inode after parent replacement. Readback must reject success,
+   * but a forged target can still be visible. Full Native Gate remains HOLD;
+   * this is NOT an Android independent-process or device security proof.
    */
-  @Test fun parentReplacementCannotPublishForeignTemporaryInode() {
+  @Test fun replacedTemporaryBytesFailReadbackBeforeDirectorySync() {
+    val dir = folder.newFolder("inplace-temporary-swap")
+    val target = dir.resolve("result.json")
+    var parentSyncCalled = false
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      atomicReplace = { temp, destination ->
+        Files.write(temp, "TAMPERED".toByteArray(Charsets.UTF_8))
+        Files.move(temp, destination,
+          StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+      },
+      syncParent = { parentSyncCalled = true }
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.path, "TRUSTED")
+    }
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    assertFalse("Forged result must not be falsely certified by parent fsync", parentSyncCalled)
+    assertEquals("TAMPERED", target.readText())
+  }
+
+  @Test fun parentReplacementMustNotReturnSuccessfulPublication() {
     val parent = folder.newFolder("swappable-parent").toPath()
     val displaced = parent.resolveSibling("displaced-parent")
     val target = parent.resolve("result.json")
@@ -129,18 +150,14 @@ class PlatformResultAtomicWriterTest {
       },
       syncParent = {}
     )
-    var rejected = false
-    try {
+    val failure = assertThrows(IOException::class.java) {
       writer.write(target.toString(), trustedContent)
-    } catch (_: IOException) {
-      rejected = true
     }
     assertTrue("The parent/temp pathname swap must have been injected", injected)
-    if (!rejected) {
-      // Returning successfully with FORGED_RESULT is the expected RED failure.
-      assertEquals("Successful publication must preserve the written inode bytes",
-        trustedContent, target.toFile().readText(Charsets.UTF_8))
-    }
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    // Forged file remains visible: this guard detects false success only.
+    // Native same-UID publication integrity and durability remain P0 HOLD.
+    assertEquals("FORGED_RESULT", target.toFile().readText(Charsets.UTF_8))
   }
 
 }
