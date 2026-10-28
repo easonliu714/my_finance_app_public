@@ -1,5 +1,6 @@
 package me.movenext.flutter_pdf_text
 
+import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -22,12 +23,24 @@ import org.robolectric.annotation.Config
 class PlatformResultParentCustodyTest {
   @get:Rule val folder = TemporaryFolder()
 
+  // JVM/Robolectric filesystem-boundary tests inject a synthetic binder;
+  // real Android LocalServerSocket ownership is exercised by API35 instrumentation.
+  private val boundNames = mutableSetOf<String>()
+  private fun bindFakeKernel(name: String): Closeable? = synchronized(boundNames) {
+    if (!boundNames.add(name)) null else Closeable {
+      synchronized(boundNames) { boundNames.remove(name) }
+    }
+  }
+  private fun tryAcquire(path: String) =
+    PlatformResultProcessLease.tryAcquireWithKernelFenceForTest(
+      path, bindKernel = ::bindFakeKernel)
+
   @Test fun symlinkedParentCannotRedirectResultOrLease() {
     val outside = folder.newFolder("outside")
     val alias = folder.root.toPath().resolve("alias")
     Files.createSymbolicLink(alias, outside.toPath())
     val result = alias.resolve("result.json")
-    assertNull(PlatformResultProcessLease.tryAcquire(result.toString()))
+    assertNull(tryAcquire(result.toString()))
     val writer = PlatformResultAtomicWriter(syncParent = {})
     val error = assertThrows(IOException::class.java) {
       writer.write(result.toString(), """{"request_id":"A","status":"running"}""")
@@ -41,7 +54,7 @@ class PlatformResultParentCustodyTest {
   @Test fun ordinaryFileCannotBeUsedAsResultParent() {
     val notDirectory = folder.newFile("not-a-directory").apply { writeText("keep") }
     val result = File(notDirectory, "result.json")
-    assertNull(PlatformResultProcessLease.tryAcquire(result.path))
+    assertNull(tryAcquire(result.path))
     assertThrows(IOException::class.java) {
       PlatformResultAtomicWriter(syncParent = {}).write(
         result.path, """{"request_id":"A","status":"running"}""")
@@ -52,17 +65,17 @@ class PlatformResultParentCustodyTest {
   @Test fun realParentRetainsExclusiveLeaseAndValidRunningWrite() {
     val parent = folder.newFolder("real")
     val result = File(parent, "result.json")
-    val first = PlatformResultProcessLease.tryAcquire(result.path)
+    val first = tryAcquire(result.path)
     assertNotNull(first)
     try {
-      assertNull(PlatformResultProcessLease.tryAcquire(result.path))
+      assertNull(tryAcquire(result.path))
       PlatformResultAtomicWriter(syncParent = {}).write(
         result.path, """{"request_id":"A","status":"running"}""")
       assertTrue(result.readText().contains(""""status":"running""""))
     } finally {
       first!!.close()
     }
-    val reacquired = PlatformResultProcessLease.tryAcquire(result.path)
+    val reacquired = tryAcquire(result.path)
     assertNotNull(reacquired)
     reacquired!!.close()
   }
@@ -73,7 +86,7 @@ class PlatformResultParentCustodyTest {
     PlatformResultAtomicWriter(syncParent = {}).write(
       result.path, """{"request_id":"B","status":"running"}""")
     assertTrue(result.isFile)
-    val lease = PlatformResultProcessLease.tryAcquire(result.path)
+    val lease = tryAcquire(result.path)
     assertNotNull(lease)
     lease!!.close()
   }
