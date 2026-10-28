@@ -127,6 +127,11 @@ internal object PlatformSourceSnapshotCustody {
       renderFd = ParcelFileDescriptor.open(snapshot.toFile(), ParcelFileDescriptor.MODE_READ_ONLY)
       ParcelFileDescriptor.open(snapshot.toFile(), ParcelFileDescriptor.MODE_READ_ONLY).use { hashFd ->
         Files.delete(snapshot)
+        // C13: progress is untrusted caller code. It must run BEFORE the
+        // authoritative digest so a retained writable FD mutation is caught
+        // by SHA validation instead of blessing stale renderer bytes.
+        // This does not establish same-UID post-return inode immutability.
+        onProgress(expectedBytes)
         val digest = MessageDigest.getInstance("SHA-256")
         var total = 0L
         val buffer = ByteArray(64 * 1024)
@@ -147,7 +152,6 @@ internal object PlatformSourceSnapshotCustody {
         if (!actualSha.equals(expectedSha256, ignoreCase = true)) {
           throw IOException("SOURCE_CUSTODY_SHA256_MISMATCH")
         }
-        onProgress(total)
         val verified = VerifiedSource(renderFd ?: throw IOException("SOURCE_CUSTODY_DESCRIPTOR_MISSING"), actualSha, total)
         renderFd = null
         return verified

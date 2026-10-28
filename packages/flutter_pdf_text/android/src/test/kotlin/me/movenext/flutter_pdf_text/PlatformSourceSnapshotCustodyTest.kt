@@ -128,11 +128,25 @@ class PlatformSourceSnapshotCustodyTest {
     assertNoSnapshotFiles(cache)
   }
 
-  // C13: an already-open same-UID writable FD survives snapshot unlink. The
-  // post-hash progress callback must not turn an unverified renderer inode into
-  // VerifiedSource. This is a deterministic Robolectric/JVM RED witness, not
-  // an Android independent-process or device-security certification.
-  @Test fun postHashHeldWritableSnapshotFdNeverBecomesVerifiedRendererAuthority() {
+  // C13: a pre-opened same-UID writable FD survives unlink. Terminal progress
+  // must run before authoritative hashing; a mutation during that callback
+  // must fail closed, never return a mismatched renderer FD. Robolectric only.
+  @Test fun terminalProgressWithoutMutationPreservesVerifiedSource() {
+    val source = folder.newFile("terminal-progress-clean.pdf")
+    val original = ByteArray(128 * 1024 + 1) { (it % 197).toByte() }
+    source.writeBytes(original)
+    val cache = folder.newFolder("terminal-progress-clean-cache")
+    val progress = mutableListOf<Long>()
+    val verified = PlatformSourceSnapshotCustody.capture(
+      source, cache, original.size.toLong(), sha(original)
+    ) { copied -> progress.add(copied) }
+    assertEquals(listOf(original.size.toLong()), progress)
+    assertEquals(sha(original), verified.sha256)
+    assertArrayEquals(original, bytes(verified.descriptor))
+    assertNoSnapshotFiles(cache)
+  }
+
+  @Test fun terminalProgressWritableFdMutationNeverBecomesVerifiedRendererAuthority() {
     val source = folder.newFile("post-hash-source.pdf")
     val original = ByteArray(8 * 1024 * 1024 + 1024) { (it % 251).toByte() }
     source.writeBytes(original)
@@ -142,8 +156,9 @@ class PlatformSourceSnapshotCustodyTest {
     val firstProgress = 8L * 1024L * 1024L
     var heldSnapshot: RandomAccessFile? = null
     var openedBeforeUnlink = false
-    var modifiedAfterHash = false
+    var modifiedAtTerminalProgress = false
 
+    var rejectedReason: String? = null
     val verified = try {
       PlatformSourceSnapshotCustody.capture(source, cache, expectedBytes, expectedSha) { copied ->
         if (copied >= firstProgress && copied < expectedBytes && heldSnapshot == null) {
@@ -152,26 +167,29 @@ class PlatformSourceSnapshotCustodyTest {
           }
           heldSnapshot = RandomAccessFile(named, "rw")
           openedBeforeUnlink = true
-        } else if (copied == expectedBytes && heldSnapshot != null && !modifiedAfterHash) {
-          // capture() invokes this final callback AFTER hashing its other FD.
+        } else if (copied == expectedBytes && heldSnapshot != null && !modifiedAtTerminalProgress) {
           // Mutate the unlinked inode through the pre-existing writable FD.
+          // This callback must precede the final authoritative SHA check.
           val writable = heldSnapshot ?: throw IOException("TEST_SNAPSHOT_FD_MISSING")
           writable.seek(0L)
           writable.writeByte((original[0].toInt() xor 0x7f) and 0xff)
           writable.fd.sync()
-          modifiedAfterHash = true
+          modifiedAtTerminalProgress = true
         }
       }
-    } catch (_: IOException) {
-      // A verified fail-closed capture is an acceptable outcome.
+    } catch (error: IOException) {
+      rejectedReason = error.message
       null
     } finally {
       heldSnapshot?.close()
     }
 
     assertTrue("Test must retain a writable FD before snapshot unlink", openedBeforeUnlink)
-    assertTrue("Test must mutate the same inode after the custody hash", modifiedAfterHash)
-    if (verified != null) {
+    assertTrue("Test must mutate the unlinked inode during terminal progress", modifiedAtTerminalProgress)
+    if (verified == null) {
+      assertEquals("Mutation must be rejected by the authoritative digest",
+        "SOURCE_CUSTODY_SHA256_MISMATCH", rejectedReason)
+    } else {
       try {
         // Returning VerifiedSource with a digest for different bytes is RED.
         assertEquals("Renderer FD must match the advertised verified SHA", expectedSha,
