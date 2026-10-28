@@ -103,4 +103,44 @@ class PlatformResultAtomicWriterTest {
       pool.shutdownNow()
     }
   }
+  /**
+   * C12 deterministic RED witness: a pathname-based atomic move can publish
+   * another inode after the parent directory is replaced between temp fsync
+   * and rename. This models a hostile same-UID interposition; it is NOT an
+   * Android independent-process or device security proof.
+   */
+  @Test fun parentReplacementCannotPublishForeignTemporaryInode() {
+    val parent = folder.newFolder("swappable-parent").toPath()
+    val displaced = parent.resolveSibling("displaced-parent")
+    val target = parent.resolve("result.json")
+    val trustedContent = "TRUSTED_NATIVE_RESULT"
+    var injected = false
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      atomicReplace = { temp, destination ->
+        // The original fsynced temp remains in the displaced directory.
+        Files.move(parent, displaced, StandardCopyOption.ATOMIC_MOVE)
+        Files.createDirectory(parent)
+        // The same pathname now resolves to an attacker-controlled inode.
+        Files.write(parent.resolve(temp.fileName), "FORGED_RESULT".toByteArray(Charsets.UTF_8))
+        injected = true
+        Files.move(temp, destination,
+          StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+      },
+      syncParent = {}
+    )
+    var rejected = false
+    try {
+      writer.write(target.toString(), trustedContent)
+    } catch (_: IOException) {
+      rejected = true
+    }
+    assertTrue("The parent/temp pathname swap must have been injected", injected)
+    if (!rejected) {
+      // Returning successfully with FORGED_RESULT is the expected RED failure.
+      assertEquals("Successful publication must preserve the written inode bytes",
+        trustedContent, Files.readString(target))
+    }
+  }
+
 }
