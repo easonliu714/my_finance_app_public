@@ -21,6 +21,8 @@ import java.io.IOException
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.nio.file.SecureDirectoryStream
+import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -259,6 +261,46 @@ class PlatformResultProcessLeaseInstrumentedTest {
           "result_visible=${Files.exists(target.toPath())}")
         assertFalse("C18_ANDROID_CROSS_PID_FORGED_RESULT_VISIBLE_AFTER_FAILED_PUBLICATION",
           Files.exists(target.toPath()))
+      }
+    } finally {
+      parent.deleteRecursively()
+      displaced.deleteRecursively()
+    }
+  }
+
+  /**
+   * C19 API35 capability witness: SecureDirectoryStream.move must use the
+   * already-open original directory inode, even after an independent same-UID
+   * Android PID renames/replaces the parent and plants a forged temp pathname.
+   * This does NOT prove the public replacement directory is trustworthy, nor
+   * close C17/C18 consumer-visible forged-result RED. It proves only the
+   * FD-anchored publication primitive needed for a future production fix.
+   */
+  @Test fun c19SecureDirectoryStreamMoveAnchorsOriginalParentAcrossCrossPidSwap() {
+    val parent = File(targetContext.cacheDir, "pr45-c12-${UUID.randomUUID()}")
+    assertTrue("C19 isolated private directory", parent.mkdirs())
+    val target = File(parent, "result.json")
+    val displaced = File(parent.parentFile, parent.name + "-held")
+    try {
+      RemoteLease(targetContext).use { remote ->
+        val temp = Files.createTempFile(parent.toPath(), ".result.json.", ".tmp")
+        Files.write(temp, "TRUSTED_RESULT".toByteArray(Charsets.UTF_8))
+        Files.newDirectoryStream(parent.toPath()).use { directory ->
+          assertTrue("C19_ANDROID_SECURE_DIRECTORY_STREAM_REQUIRED",
+            directory is SecureDirectoryStream<*>)
+          @Suppress("UNCHECKED_CAST")
+          val anchored = directory as SecureDirectoryStream<Path>
+          val swap = remote.call(PlatformLeaseProbeService.SWAP_C12_PARENT, temp.toString())
+          assertIndependentSameUid(swap)
+          assertTrue("C19_REMOTE_PARENT_SWAP_FAILED", swap.getBoolean("swapped"))
+          anchored.move(temp.fileName, anchored, target.toPath().fileName)
+        }
+        assertEquals("C19 original inode receives trusted bytes",
+          "TRUSTED_RESULT", File(displaced, "result.json").readText(Charsets.UTF_8))
+        assertFalse("C19_ANCHORED_MOVE_MUST_NOT_PUBLISH_TO_REPLACED_PARENT",
+          Files.exists(target.toPath()))
+        assertTrue("C19 adversary-created new-parent temp remains distinct",
+          Files.exists(File(parent, temp.fileName.toString()).toPath()))
       }
     } finally {
       parent.deleteRecursively()
