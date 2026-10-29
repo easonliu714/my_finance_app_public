@@ -272,6 +272,8 @@ class PdfiumCandidateWorkerService : Service() {
         val matched = linkedSetOf<String>()
         val matchedPages = linkedMapOf<String, Int>()
         val pagesRead = linkedSetOf<Int>()
+        // C26: validate observed page ordering, not unvisited 87K pages.
+        val observedPageOrder = PlatformObservedPageOrderGate(pageCount)
 
         writeRunning(
           resultPath = resultPath,
@@ -313,7 +315,11 @@ class PdfiumCandidateWorkerService : Service() {
             pageCount = pageCount,
             pagesRead = pagesRead.size
           )
-          return extractInvoiceNumbers(text)
+          val tokens = extractInvoiceNumbers(text)
+          if (!observedPageOrder.observe(pageNumber, tokens)) {
+            throw IOException("PDFIUM_OBSERVED_PAGE_ORDER_INVERSION")
+          }
+          return tokens
         }
 
         candidates.forEachIndexed { index, candidate ->

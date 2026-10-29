@@ -270,6 +270,8 @@ class PlatformPdfCandidateWorkerService : Service() {
       val matchedPages = linkedMapOf<String, Int>()
       val pagesRead = linkedSetOf<Int>()
       val pageCache = mutableMapOf<Int, List<String>>()
+      // C26: reject sampled cross-page inversions before a terminal COMPLETE.
+      val observedPageOrder = PlatformObservedPageOrderGate(pageCount)
 
       writeRunning(
         resultPath, requestId, "PLATFORM_RENDERER_OPEN_OK", 0, candidates.size,
@@ -296,7 +298,9 @@ class PlatformPdfCandidateWorkerService : Service() {
           it.textContents.joinToString("\n") { content -> content.text }
         }
         val tokens = extractInvoiceNumbers(text)
-        require(tokens.isNotEmpty())
+        if (!observedPageOrder.observe(pageNumber, tokens)) {
+          throw IOException("PLATFORM_OBSERVED_PAGE_ORDER_INVERSION")
+        }
         pageCache[pageNumber] = tokens
         pagesRead.add(pageNumber)
         writeRunning(
