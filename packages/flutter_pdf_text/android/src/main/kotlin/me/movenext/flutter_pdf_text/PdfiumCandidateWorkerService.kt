@@ -403,19 +403,9 @@ class PdfiumCandidateWorkerService : Service() {
   }
 
   private fun extractInvoiceNumbers(text: String): List<String> {
-    val normalized = text.uppercase()
-    val pattern = Regex("[A-Z]\\s*[A-Z](?:\\s*[0-9]){8}")
-    return pattern.findAll(normalized).mapNotNull { match ->
-      val before = normalized.getOrNull(match.range.first - 1)
-      val after = normalized.getOrNull(match.range.last + 1)
-      if ((before != null && before.isLetterOrDigit()) ||
-          (after != null && after.isLetterOrDigit())) {
-        null
-      } else {
-        match.value.replace(Regex("\\s+"), "")
-          .takeIf { Regex("^[A-Z]{2}[0-9]{8}$").matches(it) }
-      }
-    }.distinct().sorted().toList()
+    // C28: never sort or deduplicate extracted PDF rows before the observed
+    // page-order gate. Doing so silently launders a source-order inversion.
+    return PlatformInvoicePageTokenExtractor.extractInDocumentOrder(text)
   }
 
   private fun writeRunning(
