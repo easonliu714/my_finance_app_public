@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# C500-G0d: one-shot isolated Android API35 PdfRenderer lab. No production app.
+# C500-G0f: one-shot isolated Android API35 three-engine OPEN lab. No production app.
 set -euo pipefail
 : "${G0_OLD_PDF:?G0D_PINNED_OLD_SOURCE_REQUIRED}"
 : "${G0_NEW_PDF:?G0D_PINNED_NEW_SOURCE_REQUIRED}"
@@ -40,15 +40,22 @@ run_case() {
   grep -E 'C500_G0D|OK \(|FAILURES|INSTRUMENTATION_' "$output" | tail -n 50 || true
   timeout 15s adb logcat -d -s C500_G0D:I AndroidRuntime:E libc:E | tail -n 60 || true
   if [[ "$status" -ne 0 ]] || ! grep -Fq 'OK (1 test)' "$output"; then
-    if [[ "$method" == *Pdfium* ]]; then
-      echo "C500_G0E_NATIVE_CRASH_BUFFER_BEGIN=$method"
-      timeout 15s adb logcat -b crash -d -t 80 | tail -n 70 || true
+    if [[ "$method" == *Pdfium* || "$method" == *PdfBox* ]]; then
+      if [[ "$method" == *Pdfium* ]]; then
+        echo "C500_G0E_NATIVE_CRASH_BUFFER_BEGIN=$method"
+      else
+        echo "C500_G0F_ENGINE_CRASH_BUFFER_BEGIN=$method"
+      fi
+      # Capture first native frames rather than a long tombstone's tail.
+      timeout 15s adb logcat -b crash -d -t 500 | grep -E 'Fatal signal|Abort message|backtrace:|#0[0-9] pc|#1[0-9] pc' | tail -n 65 || true
     fi
     echo "C500_G0D_CASE_FAILED=$method exit=$status" >&2
     return 1
   fi
   if [[ "$method" == *Pdfium* ]]; then
     echo "C500_G0E_CASE_PASS=$method (OPEN_ONLY_NOT_GLOBAL_NEGATIVE)"
+  elif [[ "$method" == *PdfBox* ]]; then
+    echo "C500_G0F_CASE_PASS=$method (OPEN_ONLY_NOT_GLOBAL_NEGATIVE)"
   else
     echo "C500_G0D_CASE_PASS=$method (OPEN_AND_THREE_PAGES_ONLY)"
   fi
@@ -59,5 +66,8 @@ run_case newOfficialPdfRendererOpenAndBoundedPages || status=1
 # C500-G0e: two independent instrumentation processes, OPEN ONLY.
 run_case oldOfficialPdfiumOpenOnly || status=1
 run_case newOfficialPdfiumOpenOnly || status=1
-echo "C500_G0E_PDFBOX_NOT_RUN_PDFIUM_OPEN_ONLY_NOT_GLOBAL_NEGATIVE_NOT_PRODUCTION_AUTHORITY"
+# Even an OOM/crash on one period cannot mask the other official file.
+run_case oldOfficialPdfBoxOpenOnly || status=1
+run_case newOfficialPdfBoxOpenOnly || status=1
+echo "C500_G0F_THREE_ENGINE_OPEN_ONLY_NOT_GLOBAL_NEGATIVE_NOT_PRODUCTION_AUTHORITY"
 exit "$status"

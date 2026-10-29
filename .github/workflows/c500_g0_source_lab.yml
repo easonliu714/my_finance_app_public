@@ -62,7 +62,7 @@ jobs:
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         run: flutter test test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart
 
-      - name: G0e instrumentation and PDFium failure-isolation contract (synthetic mock)
+      - name: G0f instrumentation and PDFium/PDFBox failure-isolation contract (synthetic mock)
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         shell: bash
         run: bash tool/c500_g0_android_renderer_lab_contract_test.sh
@@ -136,8 +136,8 @@ jobs:
           timeout 300s flutter test test/features/invoice/invoice_award_cloud_g0_lab_test.dart --reporter expanded
           echo "G0c: real official source hashes and same bounded structure probe PASS only; Android PDF engines, PSS and original OOM root cause NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
 
-      # G0d/e: separate API35 emulator; official binaries never leave runner.
-      # PdfRenderer samples 3 pages; PDFium OPEN ONLY in independent PIDs.
+      # G0d/e/f: separate API35 emulator; official binaries never leave runner.
+      # PdfRenderer samples 3 pages; PDFium/PDFBox OPEN ONLY in independent PIDs.
       # Native crash/failure is evidence, never a safe NOT_WIN or G0 PASS.
       - name: Setup Java 17 for G0d Android renderer lab
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -156,7 +156,7 @@ jobs:
           test -c /dev/kvm || { echo 'G0D_ANDROID_KVM_UNAVAILABLE' >&2; exit 60; }
           sudo chmod a+rw /dev/kvm
 
-      - name: G0e Android API35 real official pair PdfRenderer and PDFium open lab
+      - name: G0f Android API35 real official pair PdfRenderer, PDFium and PDFBox open lab
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:

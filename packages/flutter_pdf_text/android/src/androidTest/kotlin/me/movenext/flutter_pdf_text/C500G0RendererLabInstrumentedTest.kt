@@ -2,6 +2,9 @@ package me.movenext.flutter_pdf_text
 
 import android.graphics.pdf.PdfRenderer
 import io.legere.pdfiumandroid.PdfiumCore
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
+import com.tom_roush.pdfbox.pdmodel.PDDocument
 import android.os.Debug
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -106,6 +109,52 @@ class C500G0RendererLabInstrumentedTest {
   @Test fun newOfficialPdfiumOpenOnly() {
     inspectPdfiumOpen("115-07-08", "new.pdf", 135200798L,
       "f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571")
+  }
+
+  // C500-G0f: production PDFBox-Android 2.0.27.0 load signature in
+  // fresh instrumentation processes, one pinned official source each.
+  // OPEN ONLY; never infer complete NOT_WIN from this diagnostic.
+  @Test fun oldOfficialPdfBoxOpenOnly() {
+    inspectPdfBoxOpen("115-05-06", "old.pdf", 119769589L,
+      "1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe")
+  }
+
+  @Test fun newOfficialPdfBoxOpenOnly() {
+    inspectPdfBoxOpen("115-07-08", "new.pdf", 135200798L,
+      "f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571")
+  }
+
+  private fun inspectPdfBoxOpen(period: String, name: String, size: Long, sha: String) {
+    val started = SystemClock.elapsedRealtime()
+    val engine = "Android35_PDFBoxAndroid_2.0.27.0"
+    val source = File(labDirectory(), name)
+    emit(period, "SOURCE_SHA256_BEGIN", started, "expected_bytes=" + size, engine)
+    assertTrue("C500_G0F_PINNED_BINARY_MISSING_OR_MISMATCH_" + period,
+      isPinned(source, size, sha))
+    emit(period, "SOURCE_SHA256_OK", started, engine = engine)
+    // Temp-file-only constrains scratch buffering, NOT Java object graph/PSS.
+    // The unique scratch dir belongs only to this instrumentation test app.
+    val scratch = File.createTempFile("c500_g0_pdfbox_", ".scratch", targetContext.cacheDir)
+    check(scratch.delete() && scratch.mkdir()) { "C500_G0F_SCRATCH_UNAVAILABLE" }
+    try {
+      emit(period, "INIT_BEGIN", started, engine = engine)
+      PDFBoxResourceLoader.init(targetContext.applicationContext)
+      emit(period, "INIT_OK", started, engine = engine)
+      emit(period, "OPEN_BEGIN", started, engine = engine)
+      val setting = MemoryUsageSetting.setupTempFileOnly().setTempDir(scratch)
+      PDDocument.load(source, "", setting).use { document ->
+        val pageCount = document.numberOfPages
+        assertTrue("C500_G0F_PAGE_COUNT_INVALID", pageCount > 0)
+        emit(period, "OPEN_OK", started, "page_count=" + pageCount, engine)
+      }
+      emit(period, "OPEN_ONLY_PASS_NOT_GLOBAL_NEGATIVE", started, engine = engine)
+    } catch (failure: Throwable) {
+      emit(period, "ENGINE_FAILED", started,
+        "failure_class=" + failure.javaClass.simpleName, engine)
+      throw failure
+    } finally {
+      scratch.deleteRecursively()
+    }
   }
 
   private fun inspect(period: String, name: String, size: Long, sha: String) {
