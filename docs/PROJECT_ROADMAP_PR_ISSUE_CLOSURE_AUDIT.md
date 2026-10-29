@@ -1,5 +1,55 @@
 # 記帳軟體 Roadmap／PR／Issues 結案稽核與防重工治理
 
+## CURRENT OWNER DECISION — 2026-10-29 · C500-D0 · cloud NT$500 oversized official PDF
+
+**Decision authority and status (Owner, 2026-10-29 Asia/Taipei):** PR #45 `issue-13-invoice-award-official-data` OPEN/DRAFT, base `main` frozen; app `4.20.36+494`. This is the only current cloud-500 roadmap authority in these two canonical documents. All pre-2026-10-29 `CURRENT` / `NEXT` headings below are **historical snapshots**, not competing priorities. Preserve history, do not delete or reinterpret earlier acceptance. The 2026-10-29 G0 laboratory appendix is CODE/TEST preparation, **not** G0 PASS.
+
+**Owner-approved scope/order:** first diagnose the *original* 115-07-08 oversized official sorted PDF load failure against historically successful 115-05-06 using the same engines/environment; then evidence-gate all four architecture options; then Owner selects the production architecture. No option is approved for production yet. This explicit D0 authorization permits **one docs-only controlled commit** updating both canonical files, superseding the prior general no-docs-only rule **for C500-D0 only**. D0 is a governance publication, not engineering, CI, Signed, Device, or security closure.
+
+**Official binary baseline / missing evidence:** 115-05-06 official cloud NT$500 sorted PDF was historical Owner PASS (~114.2 MiB; HTTP Content-Length previously observed `119769589` bytes, NOT an independently verified exact binary/SHA). Its actual bytes, SHA, PDF object/xref details are `PENDING_BINARY`. 115-07-08 official sorted PDF archived record `135200798` bytes (~128.94 MiB), SHA-256 `f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`; historical app `4.20.15+473` `PDFBOX_WORKER_OOM`, earlier PDFium native crash. **Root cause unproven.** Both source URLs must be independently fetched and byte/hash verified before actual-file conclusions. Repo has no verified cached official binaries; if unavailable, `SOURCE_BINARY_UNAVAILABLE` / `PENDING_BINARY` / G0 HOLD, never synthetic-as-official.
+
+**Source URIs:** 115-05-06 `https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124620_sorted_AI_D.pdf`; 115-07-08 `https://invoice.etax.nat.gov.tw/pdf/20260708_20260925124717_sorted_AI_D.pdf`. MOF-only publication/period/tier provenance required. `PdfiumCloudAwardSortedPdfCandidateLookup.crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024` is a **software dispatch policy**, not a measured Android hard PDF limit.
+
+**Immutable safety:** protected formal SQLite/ledger and existing POSTED NT$500 + NT$200 = NT$700, installed Owner data, official PDF/LKG remain untouched; no production invoice/accounting upload, no auto-post, no silent award-number substitution. `verified WIN`, `verified NOT_WIN`, and `UNKNOWN` are distinct; partial, zero-hit or sampled ~87,000-page PDF without global negative proof stays UNKNOWN. OCR/external candidates require review. Native B strict C17/C18 same-UID forged-public-path RED remain SECURITY HOLD (`SECURITY_GATE_NOT_CONVERGING`; `SPEC_UNSATISFIABLE_OR_OWNER_THREAT_MODEL_DECISION_REQUIRED`); do not weaken, skip or declare PASS. Original C13 hostile FD, custody and fsync recovery retained. No PR merge, main write, Signed/Owner-ready APK, or Owner production-data access.
+
+**Execution ownership:** exactly one existing Primary Writer at :15 Asia/Taipei and read-only Watchdog at :45; no competing writer/branch. Every engineering hour must fresh-read PR HEAD, both canonical docs, Issue #13, exact-head CI/JUnit/Android first failure and Signed/artifacts; old CI does not transfer to a new HEAD. Keep CODE / TEST / CI / SIGNED / DEVICE / MERGED distinct. Lab-only Android target (distinct applicationId, isolated private synthetic data, no production SQLite/LKG/ledger, no auto-post, never overwrite installed app) only if existing instrumentation cannot reproduce the engine-specific failure.
+
+### C500 formal gate sequence — no premature architecture commitment
+
+| Gate | Order / status at D0 | Evidence required / pass or no-go |
+|---|---|---|
+| **C500-D0** governance | **OWNER AUTHORIZED; DOC_ONLY** | Same controlled PR-branch commit updates BOTH canonical docs; read back exact HEAD, only two paths, both blob SHAs. No code/CI/Native PASS inferred. |
+| **C500-G0** loading root-cause lab | **FIRST ACTIVE ENGINEERING; HOLD PENDING_BINARY** | Same-parser, same-Android environment comparison of both verified official binaries; reproducible failing stage/cause and minimal safe remediation; missing binary = SOURCE_BINARY_UNAVAILABLE HOLD. |
+| **C500-G1** option 4 official structured data | **AFTER G0; PENDING** | Check whether MOF offers authoritative **COMPLETE per-invoice cloud NT$500 winning numbers** via CSV/JSON/API, not aggregate statistics, third-party, or partial lists. Full identity/tier/period/row completeness and offline/LKG safety. Unavailable = OPTION4 NO_GO, not invented data. |
+| **C500-G2** option 1 bounded PDF search + Binder | **PREFLIGHT, not chosen** | Both actual PDFs open with bounded heap; globally sorted-page proof, all candidate positives AND GLOBAL zero-hit/negative completeness; protected Binder IPC terminal (not forgeable result.json), PID/epoch/replay/worker death/custody, strict C17/C18 threat model. No global negative proof = NO_GO for reliable NOT_WIN; Binder alone is not separate-UID authenticity. |
+| **C500-G3** option 2 bounded full PDF scan + IPC | **PREFLIGHT, not chosen** | Independent native worker scans **every** ~87K actual page with bounded memory; complete positive and NO_MATCH proof; boundary/duplicates/empty/malformed negatives, OOM/kill/restart/partial=UNKNOWN; device CPU/battery/PSS/foreground and time acceptable. |
+| **C500-G4** option 3 durable local index/SQLite | **PREFLIGHT after G0 + full-scan feasibility; not chosen** | Full official-PDF extraction/index first build must itself be bounded and affordable; measure first build memory/time/storage/CPU/battery and repeated lookup; SHA/period/parser revision binding, transactional atomic index-LKG, corrupt/partial/restart/schema/backup/restore; no blind giant-index fallback or formal ledger changes. |
+| **C500-G5** neutral comparison + Owner choice | **PENDING evidence** | Side-by-side exact source trust, heap/native/PSS, cold/repeat elapsed, CPU/battery, peak storage, true positive + true negative, privacy/offline, worker lifecycle, C17/C18 trust, maintenance/deployment, tests/CI/device. Owner alone selects architecture; hybrid separately gated. |
+| **C500-G6** production implementation/release | **BLOCKED on G5 Owner choice** | Implement chosen route, strict C17/C18, C13 hostile FD, fsync recovery, global ~87K negative proof, full exact-head CI, genuine Signed >=`4.20.37+495`, independent ZIP CRC/APK SHA/version/signer `9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7`/permissions, Owner Android UAT, merge only with explicit authorization. |
+
+### G0a minimum reproducible laboratory and controlled costs
+
+1. Reuse `CloudAwardPdfStructureProbe` and `CloudAwardPdfBoundedStreamDecoder`; preserve official period/URI/bytes/SHA custody. Bounded-window structural evidence: PDF header/version, `startxref`, classic xref / xref stream / hybrid, `/ObjStm`, stream/filter counts, `/Pages` Count/tree, encryption, incremental `/Prev` revisions. Include parser revision and evidence file hash. A sample cannot certify complete PDF integrity.
+2. Same actual official binaries, same Android API35/device/build and same parser for 115-05-06 and 115-07-08: PDFBox open, PDFium open/index/text extraction, Android `PdfRenderer` open/bounded-page sample. Record exact first-failing stage/stack/logs, elapsed, Java heap, native heap, PSS/RSS, storage and CPU/battery, process PID/lifecycle. Use strict budgets and bounded sample; no blind 87K-page loading, largeHeap or repeated OOM on installed Owner app.
+3. Positive/negative/failure regression matrix: valid small and large synthetic PDFs, malformed xref/filter/ObjStm, wrong source period/SHA/size, missing/truncated binary, parser crash/OOM, interruption/worker death, partial/zero-hit UNKNOWN, cross-engine same-source comparison. Synthetic tests prove harness behavior only; **G0 PASS requires real file-specific before/after failure reproduction and safe minimal remediation**.
+4. Acquisition if unavailable: obtain official files only from the two pinned MOF HTTPS URIs into **isolated lab read-only input**, stream to temp with bounded I/O and independent SHA/byte count; compare 115-07-08 exact 135200798/SHA and independently pin 115-05-06; never use or overwrite production LKG. If either missing, publish `SOURCE_BINARY_UNAVAILABLE` and list all NOT_RUN actual binary/engine tests.
+
+### G1–G5 option cost/architecture decision (conditional, not selected)
+
+| Option | Advantage if proven | Primary cost/risk and required rejection rule |
+|---|---|---|
+| **4 structured MOF COMPLETE** | No huge PDF parse; bounded streaming and quick local membership | Official per-invoice completeness may not exist; check source, tiers, period, identity, rows, SHA/cache/LKG, offline/download failures, malformed, winner and negative. Tens of MB of data do **not** imply PDF parser OOM. NO_GO if incomplete/nonofficial. |
+| **1 PDF bounded binary search + protected IPC** | Few page reads, potentially best PDF fallback efficiency | Cannot certify NOT_WIN without GLOBAL sorted/negative proof; public result.json forged; Binder alone does not create isolated UID. |
+| **2 full bounded native page scan + IPC** | Strong positive/negative proof after all pages | ~87K-page cold scan runtime, heap/PSS, CPU/battery, foreground lifecycle and interrupted state may be unaffordable; partial is UNKNOWN. |
+| **3 verified durable PDF index** | Fast repeated queries after one verified build | Initial full extraction may recreate OOM; large storage and crash-safe transactional index-LKG/schema/restore burden. Only if full scan affordable and repeated use justifies. |
+
+**Conditional recommendation, not Owner choice:** if G1 finds COMPLETE authoritative structured numbers, prefer option 4 after proof; else if G0 fixes parsing and global negatives are proven, compare option 1 for efficiency; otherwise compare option 2 for correctness; option 3 only when full build is affordable and repeated lookups justify durable index. Hybrid requires its own Gate. **NEXT actual work after D0:** C500-G0a official binary acquisition + bounded structural and engine-stage diagnostics, not speculative C17/C18 repair or premature options 3/4.
+
+---
+
+### Historical record follows (all older CURRENT/NEXT labels are archival)
+
+
 > **CURRENT 2026-10-14 22:42:** 4.20.35 Back-to-Top OWNER PASS; new 4.20.36 P0 UI reattach Gate A code only / native Gate B HOLD. See latest appendix.
 
 > **CURRENT 2026-10-14 20:11:** 4.20.35 exact CI/Signed blocked by two known test regressions; test-only repair committed for fresh new HEAD CI. Latest appendix controls.

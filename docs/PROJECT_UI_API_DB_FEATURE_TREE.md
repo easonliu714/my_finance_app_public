@@ -1,5 +1,83 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+## CURRENT OWNER DECISION — 2026-10-29 · C500-D0 · feature/API/storage authority
+
+**Decision authority and status (Owner, 2026-10-29 Asia/Taipei):** PR #45 `issue-13-invoice-award-official-data` OPEN/DRAFT, base `main` frozen; app `4.20.36+494`. This is the only current cloud-500 roadmap authority in these two canonical documents. All pre-2026-10-29 `CURRENT` / `NEXT` headings below are **historical snapshots**, not competing priorities. Preserve history, do not delete or reinterpret earlier acceptance. The 2026-10-29 G0 laboratory appendix is CODE/TEST preparation, **not** G0 PASS.
+
+**Owner-approved scope/order:** first diagnose the *original* 115-07-08 oversized official sorted PDF load failure against historically successful 115-05-06 using the same engines/environment; then evidence-gate all four architecture options; then Owner selects the production architecture. No option is approved for production yet. This explicit D0 authorization permits **one docs-only controlled commit** updating both canonical files, superseding the prior general no-docs-only rule **for C500-D0 only**. D0 is a governance publication, not engineering, CI, Signed, Device, or security closure.
+
+**Official binary baseline / missing evidence:** 115-05-06 official cloud NT$500 sorted PDF was historical Owner PASS (~114.2 MiB; HTTP Content-Length previously observed `119769589` bytes, NOT an independently verified exact binary/SHA). Its actual bytes, SHA, PDF object/xref details are `PENDING_BINARY`. 115-07-08 official sorted PDF archived record `135200798` bytes (~128.94 MiB), SHA-256 `f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`; historical app `4.20.15+473` `PDFBOX_WORKER_OOM`, earlier PDFium native crash. **Root cause unproven.** Both source URLs must be independently fetched and byte/hash verified before actual-file conclusions. Repo has no verified cached official binaries; if unavailable, `SOURCE_BINARY_UNAVAILABLE` / `PENDING_BINARY` / G0 HOLD, never synthetic-as-official.
+
+**Source URIs:** 115-05-06 `https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124620_sorted_AI_D.pdf`; 115-07-08 `https://invoice.etax.nat.gov.tw/pdf/20260708_20260925124717_sorted_AI_D.pdf`. MOF-only publication/period/tier provenance required. `PdfiumCloudAwardSortedPdfCandidateLookup.crashIsolatedPdfiumPdfBytes = 120 * 1024 * 1024` is a **software dispatch policy**, not a measured Android hard PDF limit.
+
+**Immutable safety:** protected formal SQLite/ledger and existing POSTED NT$500 + NT$200 = NT$700, installed Owner data, official PDF/LKG remain untouched; no production invoice/accounting upload, no auto-post, no silent award-number substitution. `verified WIN`, `verified NOT_WIN`, and `UNKNOWN` are distinct; partial, zero-hit or sampled ~87,000-page PDF without global negative proof stays UNKNOWN. OCR/external candidates require review. Native B strict C17/C18 same-UID forged-public-path RED remain SECURITY HOLD (`SECURITY_GATE_NOT_CONVERGING`; `SPEC_UNSATISFIABLE_OR_OWNER_THREAT_MODEL_DECISION_REQUIRED`); do not weaken, skip or declare PASS. Original C13 hostile FD, custody and fsync recovery retained. No PR merge, main write, Signed/Owner-ready APK, or Owner production-data access.
+
+**Execution ownership:** exactly one existing Primary Writer at :15 Asia/Taipei and read-only Watchdog at :45; no competing writer/branch. Every engineering hour must fresh-read PR HEAD, both canonical docs, Issue #13, exact-head CI/JUnit/Android first failure and Signed/artifacts; old CI does not transfer to a new HEAD. Keep CODE / TEST / CI / SIGNED / DEVICE / MERGED distinct. Lab-only Android target (distinct applicationId, isolated private synthetic data, no production SQLite/LKG/ledger, no auto-post, never overwrite installed app) only if existing instrumentation cannot reproduce the engine-specific failure.
+
+### Feature/service/API/SQLite crosswalk — reuse existing implementation
+
+```text
+UI: existing InvoiceAwardProductionPage / cloud-500 foreground status
+  └─ lib/features/invoice/invoice_award_cloud_foreground_acquisition.dart
+     ├─ MOF publication: invoice_award_cloud_publication_parser.dart
+     │  └─ only official HTTPS invoice.etax.nat.gov.tw/pdf/*_sorted_*.pdf
+     ├─ Download: invoice_award_cloud_artifact_downloader.dart
+     │  └─ streaming bounded transfer + bytes/SHA; no invoice upload
+     ├─ Cache/LKG: invoice_award_cloud_pdf_cache_repository.dart
+     │  └─ immutable official provenance, do not alter production LKG in lab
+     ├─ Structure: invoice_award_cloud_pdf_structure_probe.dart
+     │  └─ CloudAwardPdfStructureProbe; bounded structural metadata
+     ├─ Stream primitive: invoice_award_cloud_pdf_bounded_stream_decoder.dart
+     │  └─ CloudAwardPdfBoundedStreamDecoder; not full award authority
+     ├─ Candidate route: invoice_award_cloud_candidate_scope.dart
+     │  ├─ PdfiumCloudAwardSortedPdfCandidateLookup
+     │  ├─ _findMatchesCrashIsolated + strict terminal/coverage checks
+     │  └─ 120*1024*1024 dispatch threshold = SOFTWARE POLICY ONLY
+     └─ Existing index: invoice_award_cloud_pdf_index.dart
+        ├─ CloudAwardPdfIndexBuilder
+        └─ CloudAwardLocalIndexLookup (NOT option-3 preapproval)
+Native packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/
+  ├─ PdfTextPlugin.kt: PDFBox / PDFium method-channel entry points
+  ├─ PdfiumCandidateWorkerService.kt: native PDFium worker
+  ├─ PlatformPdfCandidateWorkerService.kt: Android PdfRenderer worker
+  └─ PlatformResultAtomicWriter.kt: atomic pathname writer,
+     NOT a trusted Consumer receipt against same-UID forgery
+Test: test/features/invoice/invoice_award_cloud_g0_lab_test.dart
+  └─ synthetic bounded probe + optional two real MOF files,
+     G0_OLD_PDF/G0_NEW_PDF; missing binaries => SOURCE_BINARY_UNAVAILABLE
+Storage: existing official cache/index LKG only; formal ledger/SQLite
+  untouched; no duplicate Service, DB, schema, posting or UI route
+```
+
+### Unified C500 gate IDs and feature acceptance matrix
+
+| Gate | Code / Service / API / storage and required test | State at D0 |
+|---|---|---|
+| **C500-D0** | Top-of-file matching owner decision in both canonical docs, one PR-branch docs-only commit; readback both blob SHA; historical sections retained | **OWNER AUTHORIZED DOC_ONLY**, not code/CI PASS |
+| **C500-G0** | `CloudAwardPdfStructureProbe` + bounded decoder + existing downloader; real 115-05-06 and 115-07-08 official files; compare PDFBox, PDFium, API35 `PdfRenderer` same source/device; header/version/startxref/xref classic-stream-hybrid, ObjStm, filters, Pages/tree, Encrypt, Prev, bytes/SHA/period; Java/native/PSS/RSS/time/storage/CPU/battery and exact open/index/text failure. Synthetic positive/malformed/missing/wrong-SHA/OOM/interrupt regressions; G0 PASS requires reproducible actual-binary before/after root cause and minimal safe remediation | **FIRST ACTIVE, PENDING_BINARY / SOURCE_BINARY_UNAVAILABLE HOLD** |
+| **C500-G1** option 4 structured | MOF official COMPLETE per-invoice NT$500 cloud-winning list via CSV/JSON/API (not stats/nonofficial/partial); period/tier/row/identity completeness, bounded stream, SHA/cache/LKG, offline/failure/malformed, winner and nonwinner. If absent OPTION4 NO_GO, retain verified PDF | **AFTER G0; NOT SELECTED** |
+| **C500-G2** option 1 PDF binary search + Binder | Both verified official PDFs bounded open; global page order and negative proof, page-backed positives; protected IPC terminal vs forgeable JSON, PID/epoch/replay/death/custody; false/missing/partial/zero/malformed cases; strict C17/C18 unchanged; Binder alone not independent-UID proof | **PREFLIGHT; NOT SELECTED** |
+| **C500-G3** option 2 full native scan + IPC | Every ~87K page with bounded per-page memory; complete WIN and NOT_WIN, randomized boundaries/duplicates/empty/malformed, OOM/kill/restart/partial UNKNOWN; exact Android foreground/PSS/CPU/battery/storage/time | **PREFLIGHT; NOT SELECTED** |
+| **C500-G4** option 3 durable local index | Existing `CloudAwardPdfIndexBuilder`/`CloudAwardLocalIndexLookup` only if full bounded PDF scan feasible; actual first-build cost and repeated lookup; SHA+period+parser-revision identity, atomic index-LKG, corruption/restart/schema/backup/restore; no blind giant fallback, no formal SQLite ledger writes | **PREFLIGHT; NOT SELECTED** |
+| **C500-G5** | Neutral evidence table (source trust, real memory, cold/repeated elapsed, CPU/battery, storage, true +/- correctness, privacy/offline, process lifecycle, C17/C18, maintenance/deploy, tests/CI/device); explicit Owner production selection, hybrid separate Gate | **PENDING** |
+| **C500-G6** | Only after Owner choice: production code + full strict C17/C18/C13, fsync, global ~87K negative, exact-head full CI, genuine Signed >=4.20.37+495, ZIP CRC/APK SHA/version/signer pin `9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7`/permissions, Owner device, explicit merge approval | **BLOCKED** |
+
+### Official source and failure evidence boundary
+
+- **115-05-06:** historical Owner PASS, ~114.2 MiB, earlier HTTP Content-Length `119769589` only; precise binary bytes/SHA, PDF objects/xref `PENDING_BINARY`. **115-07-08:** recorded `135200798` bytes (~128.94 MiB), SHA-256 `f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`; historical `4.20.15+473` `PDFBOX_WORKER_OOM` and earlier PDFium native crash; **unproven root cause**. Official URIs are in the current decision above.
+- G0 test has synthetic bounded probe and optional `G0_OLD_PDF` / `G0_NEW_PDF`; repo has no independently verified actual binaries. Do not claim Android PDFBox/PDFium/PdfRenderer real-file performance, full ~87K page completeness or safe negative from synthetic/sample. If missing, `SOURCE_BINARY_UNAVAILABLE`, explicit NOT_RUN for actual engines. Use isolated lab only; distinct applicationId if standalone app becomes indispensable.
+- The 120 MiB policy branch in `PdfiumCloudAwardSortedPdfCandidateLookup` cannot establish a physical Android parser limit. Preserve original strict C17 `PlatformResultAtomicWriterTest.failedPublicationMustNotLeaveForgedResultVisible` and C18 independent-PID `c18CrossPidParentSwapMustNotExposeForgedResultAfterFailedPublish` RED; no same-UID public pathname trust assertion or CI green transfer.
+- Trust/transaction semantics: verified WIN needs official positive evidence; verified NOT_WIN requires globally complete trustworthy negative evidence; zero/partial/sample => UNKNOWN. No award result automatically posts income. Existing POSTED NT$700, official PDF/LKG and formal SQLite frozen; OCR/external candidates reviewed. No new DB/service or Owner production-data access.
+
+### G5 conditional architecture recommendation and next implementation boundary
+
+Option 4 is preferred **only if** MOF provides verified COMPLETE structured award numbers; otherwise NO_GO and compare option 1 only with real PDF parser fix + global negative proof; if that cannot prove negative, assess option 2 full bounded scan; option 3 only if first full scan/index build is demonstrably affordable and repeated lookup savings justify storage. Measure same device/source across all; Owner chooses at G5. **NEXT after D0: C500-G0a read-only official acquisition and bounded real-binary engine root-cause lab.** Do not implement G1–G4 production routes before their preflights. Historical content below remains for traceability.
+
+---
+
+### Historical record follows (all older CURRENT/NEXT labels are archival)
+
+
 > **CURRENT 2026-10-14 22:42:** 4.20.35 Back-to-Top OWNER PASS; new 4.20.36 P0 UI reattach Gate A code only / native Gate B HOLD. See latest appendix.
 
 > **CURRENT 2026-10-14 20:11:** 4.20.35 CI failed two tests; focused widget viewport and strict version pin repair; cloud500 P0 still HOLD. Latest appendix controls.
