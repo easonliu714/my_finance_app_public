@@ -35,6 +35,9 @@ adb push "$G0_NEW_PDF" "$private_external/new.pdf"
 echo "C500_G0D_BOTH_PINNED_FILES_PUSHED_TO_LAB_APP_EXTERNAL_DIR"
 run_case() {
   local method="$1" output="c500-g0d-$1.log" status=0
+  # G0g: clear only the isolated lab emulator crash ring before each PID.
+  # Prevent a previous PDFium SIGTRAP being misattributed to PDFBox.
+  adb logcat -b crash -c >/dev/null
   echo "C500_G0D_CASE_BEGIN=$method"
   timeout 180s adb shell am instrument -w -r -e class "me.movenext.flutter_pdf_text.C500G0RendererLabInstrumentedTest#$method" "$runner" > "$output" 2>&1 || status=$?
   grep -E 'C500_G0D|OK \(|FAILURES|INSTRUMENTATION_' "$output" | tail -n 50 || true
@@ -46,8 +49,17 @@ run_case() {
       else
         echo "C500_G0F_ENGINE_CRASH_BUFFER_BEGIN=$method"
       fi
-      # Capture first native frames rather than a long tombstone's tail.
-      timeout 15s adb logcat -b crash -d -t 500 | grep -E 'Fatal signal|Abort message|backtrace:|#0[0-9] pc|#1[0-9] pc' | tail -n 65 || true
+      # G0g: this crash ring belongs to the current case after pre-case clear.
+      local crash_evidence
+      crash_evidence="$(timeout 15s adb logcat -b crash -d -t 500 || true)"
+      printf '%s\n' "$crash_evidence" | grep -E 'Fatal signal|Abort message|backtrace:|#0[0-9] pc|#1[0-9] pc' | tail -n 65 || true
+      if grep -Fq 'OutOfMemoryError' "$output" || printf '%s\n' "$crash_evidence" | grep -Fq 'pending exception java.lang.OutOfMemoryError'; then
+        echo "C500_G0G_JAVA_HEAP_OOM_EVIDENCE=$method"
+      fi
+      if printf '%s\n' "$crash_evidence" | grep -Fq 'Fatal signal 6 (SIGABRT)' &&
+         printf '%s\n' "$crash_evidence" | grep -Fq 'pending exception java.lang.OutOfMemoryError'; then
+        echo "C500_G0G_JNI_ABORT_WITH_PENDING_OOM=$method"
+      fi
     fi
     echo "C500_G0D_CASE_FAILED=$method exit=$status" >&2
     return 1

@@ -6,6 +6,8 @@ on:
     paths:
       - 'tool/c500_g0_acquire.dart'
       - 'test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart'
+      - 'tool/c500_g0_android_renderer_lab.sh'
+      - 'tool/c500_g0_android_renderer_lab_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
 
@@ -62,7 +64,7 @@ jobs:
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         run: flutter test test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart
 
-      - name: G0f instrumentation and PDFium/PDFBox failure-isolation contract (synthetic mock)
+      - name: G0g per-case crash isolation and OOM/abort contract (synthetic mock)
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         shell: bash
         run: bash tool/c500_g0_android_renderer_lab_contract_test.sh
@@ -156,7 +158,7 @@ jobs:
           test -c /dev/kvm || { echo 'G0D_ANDROID_KVM_UNAVAILABLE' >&2; exit 60; }
           sudo chmod a+rw /dev/kvm
 
-      - name: G0f Android API35 real official pair PdfRenderer, PDFium and PDFBox open lab
+      - name: G0g Android API35 official pair three-engine OOM and crash attribution lab
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
