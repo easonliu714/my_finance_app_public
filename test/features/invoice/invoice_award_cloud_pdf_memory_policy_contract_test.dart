@@ -14,6 +14,12 @@ void main() {
     final license = File('$packageRoot/LICENSE').readAsStringSync();
     final pluginSource = File(pluginSourcePath).readAsStringSync();
     final workerSource = File(workerSourcePath).readAsStringSync();
+    final sourceCustody = File(
+      '$packageRoot/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformSourceSnapshotCustody.kt',
+    ).readAsStringSync();
+    final sourceAuthority = File(
+      '$packageRoot/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfiumSourceAuthority.kt',
+    ).readAsStringSync();
     final appPubspec = File('pubspec.yaml').readAsStringSync();
     final appExtractor = File(
       'lib/features/invoice/invoice_award_cloud_pdf_index.dart',
@@ -79,7 +85,14 @@ void main() {
 
     // >120 MiB authority must never regress to PDFBox whole-document open.
     expect(workerSource, contains('PdfiumCore(applicationContext)'));
-    expect(workerSource, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    // C24A: READ_ONLY is enforced where the verified unlinked snapshot FD is opened,
+    // not by reopening the caller-controlled PDF pathname in the worker.
+    expect(workerSource, contains('PlatformPdfiumSourceAuthority.capture('));
+    expect(sourceAuthority, contains('PlatformSourceSnapshotCustody.capture('));
+    expect(sourceCustody, contains('ParcelFileDescriptor.MODE_READ_ONLY'));
+    expect(sourceCustody, contains('Files.delete(snapshot)'));
+    expect(workerSource, isNot(contains('ParcelFileDescriptor.open(source')));
+    expect(workerSource, isNot(contains('sha256File(source)')));
     expect(workerSource, contains('pdfiumCore.newDocument(descriptor)'));
     expect(workerSource, contains('document.openPage(pageNumber - 1)'));
     expect(workerSource, contains('page.openTextPage()'));

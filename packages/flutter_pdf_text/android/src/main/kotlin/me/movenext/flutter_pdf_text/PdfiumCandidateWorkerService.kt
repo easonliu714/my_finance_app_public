@@ -240,7 +240,10 @@ class PdfiumCandidateWorkerService : Service() {
         sourceBytesTotal = expectedSourceBytes
       )
       // Descriptor custody transfers only after PDFium accepts it.
-      val document = pdfiumCore.newDocument(descriptor)
+      // C24A: nullable custody holder is closed on failure and transferred only after successful open.
+      val document = pdfiumCore.newDocument(
+        descriptor ?: throw IOException("PDFIUM_SOURCE_DESCRIPTOR_MISSING")
+      )
       opening.set(false)
       openHeartbeat.interrupt()
       descriptor = null // ownership transferred to PdfDocument
