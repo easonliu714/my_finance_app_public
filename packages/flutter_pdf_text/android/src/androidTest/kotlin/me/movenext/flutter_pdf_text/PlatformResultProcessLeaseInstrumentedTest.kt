@@ -308,4 +308,54 @@ class PlatformResultProcessLeaseInstrumentedTest {
     }
   }
 
+
+  /**
+   * C21 real Android API35 independent-PID source-bound regression of the
+   * default C20 production writer, not merely the C19 directory-stream
+   * prototype. Strict C17/C18 forged-consumer-result RED remains unchanged.
+   */
+  @Test fun c21DefaultProductionWriterAnchorsPublicationAcrossCrossPidSwap() {
+    val parent = File(targetContext.cacheDir, "pr45-c21-${UUID.randomUUID()}")
+    assertTrue("C21 isolated cache parent", parent.mkdirs())
+    val target = File(parent, "result.json")
+    val displaced = File(parent.parentFile, parent.name + "-held")
+    try {
+      RemoteLease(targetContext).use { remote ->
+        var injected = false
+        val writer = PlatformResultAtomicWriter(
+          protectTerminal = false,
+          beforeAnchoredMoveForTest = { temp, _ ->
+            val swap = remote.call(PlatformLeaseProbeService.SWAP_C12_PARENT, temp.toString())
+            assertIndependentSameUid(swap)
+            assertTrue("C21_REMOTE_PARENT_SWAP_FAILED", swap.getBoolean("swapped"))
+            injected = true
+          },
+          syncParent = {
+            throw AssertionError("C21_REPLACED_PARENT_MUST_NOT_BE_FSYNCED")
+          }
+        )
+        var failure: IOException? = null
+        try {
+          writer.write(target.absolutePath, "TRUSTED_RESULT")
+        } catch (error: IOException) {
+          failure = error
+        }
+        assertTrue("C21 cross-PID parent swap was injected", injected)
+        assertNotNull("C21 public-path readback must fail closed", failure)
+        assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure!!.message)
+        assertEquals("TRUSTED_RESULT",
+          File(displaced, "result.json").readText(Charsets.UTF_8))
+        assertFalse("C21 forged new-parent temp must not be published by writer",
+          Files.exists(target.toPath()))
+        assertTrue("C21 hostile temp stays in replacement directory",
+          parent.listFiles().orEmpty().any { it.name.endsWith(".tmp") })
+        println("C21_ANDROID_DEFAULT_ANCHORED_WRITER local_pid=${Process.myPid()} " +
+          "trusted_original=true replacement_result_visible=${Files.exists(target.toPath())}")
+      }
+    } finally {
+      parent.deleteRecursively()
+      displaced.deleteRecursively()
+    }
+  }
+
 }
