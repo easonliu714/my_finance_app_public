@@ -7,6 +7,10 @@ package me.movenext.flutter_pdf_text
  * This is not result-file authenticity, same-UID isolation or page-order proof.
  */
 internal object PlatformCandidateCompletionGate {
+  // C29: a self-consistent but malformed candidate cannot become COMPLETE.
+  // Schema validation is not proof that the page or publisher is authentic.
+  private val canonicalCandidate = Regex("^[A-Z]{2}[0-9]{8}$")
+
   fun allCandidatesPositivelyMatched(
     candidates: Collection<String>,
     matched: Set<String>,
@@ -14,6 +18,7 @@ internal object PlatformCandidateCompletionGate {
     pageCount: Int
   ): Boolean {
     if (pageCount <= 0 || candidates.isEmpty() ||
+        candidates.any { !canonicalCandidate.matches(it) } ||
         candidates.toSet().size != candidates.size ||
         matched.size != candidates.size ||
         matchedPages.size != matched.size) return false
