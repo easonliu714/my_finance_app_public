@@ -14,6 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -41,9 +42,13 @@ class PdfiumCandidateWorkerService : Service() {
     private const val NOTIFICATION_CHANNEL_ID = "cloud_award_pdf_worker"
     private const val NOTIFICATION_ID = 1320475
     private const val OPEN_HEARTBEAT_INTERVAL_MS = 5_000L
+    private val WORKER_PROCESS_EPOCH = UUID.randomUUID().toString()
   }
 
   private lateinit var pdfiumCore: PdfiumCore
+  // C23: PDFium uses the same strict, FD-anchored terminal publisher as the
+  // platform worker; never fall back to a direct write of the public pathname.
+  private val resultPublisher = PlatformPdfiumResultPublisher()
 
   override fun onCreate() {
     super.onCreate()
@@ -336,6 +341,7 @@ class PdfiumCandidateWorkerService : Service() {
           .put("status", "complete")
           .put("engine", "pdfium-random-access-candidate-search")
           .put("worker_pid", android.os.Process.myPid())
+          .put("worker_epoch", WORKER_PROCESS_EPOCH)
           .put("stage", "PDFIUM_COMPLETE")
           .put("page_count", pageCount)
           .put("pages_read", pagesRead.size)
@@ -388,6 +394,7 @@ class PdfiumCandidateWorkerService : Service() {
       .put("status", "running")
       .put("engine", "pdfium-random-access-candidate-search")
       .put("worker_pid", android.os.Process.myPid())
+      .put("worker_epoch", WORKER_PROCESS_EPOCH)
       .put("stage", stage)
       .put("candidate_index", candidateIndex)
       .put("candidate_count", candidateCount)
@@ -471,7 +478,10 @@ class PdfiumCandidateWorkerService : Service() {
         .put("request_id", requestId)
         .put("status", "failed")
         .put("engine", "pdfium-random-access-candidate-search")
+        .put("worker_pid", android.os.Process.myPid())
+        .put("worker_epoch", WORKER_PROCESS_EPOCH)
         .put("error", code)
+        .put("updated_at_ms", System.currentTimeMillis())
       writeAtomic(resultPath, payload.toString())
     } catch (_: Throwable) {
       // A killed worker may leave only the last running heartbeat. The caller
@@ -480,13 +490,8 @@ class PdfiumCandidateWorkerService : Service() {
   }
 
   private fun writeAtomic(path: String, content: String) {
-    val target = File(path)
-    target.parentFile?.mkdirs()
-    val temp = File(target.parentFile, target.name + ".tmp")
-    temp.writeText(content)
-    if (!temp.renameTo(target)) {
-      target.writeText(content)
-      temp.delete()
-    }
+    // C23: no reusable .tmp name, direct target write, or rename fallback.
+    // Writer custody is bounded; hostile same-UID consumer forgery remains HOLD.
+    resultPublisher.publish(path, content)
   }
 }

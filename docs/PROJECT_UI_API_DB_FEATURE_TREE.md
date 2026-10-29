@@ -998,3 +998,21 @@ Exact prior head `0ae69100e20214e0380101c138310f19f4f2535f` CI [#40802574173](ht
 - C17/C18 original strict assertion requires that an arbitrary same-UID hostile process **cannot leave its own bytes visible at a public writable pathname**. Counterexample: after any writer return, the adversary writes a new file at that pathname. Writer-only fixes cannot prevent this. `SPEC_UNSATISFIABLE_OR_OWNER_THREAT_MODEL_DECISION_REQUIRED`: Owner must choose separate security domain/UID and trusted consumer channel, or redefine acceptance as "untrusted bytes may be visible but never accepted as authoritative". Do not weaken C17/C18 tests without explicit decision; retain both RED.
 - Adjacent C22 source change: both native bounded-search workers must publish COMPLETE **only** if every exact candidate has an in-range page-backed positive; partial/zero/foreign/invalid-page evidence fails closed with `PLATFORM_WORKER_NEGATIVE_COVERAGE_UNPROVEN` or `PDFIUM_WORKER_NEGATIVE_COVERAGE_UNPROVEN`. Synthetic Kotlin positive/negative tests cover full, partial, zero, foreign, duplicate, missing and out-of-range pages. No assertion that 87K pages are globally monotonic; a global negative still requires complete official-source proof and remains UNKNOWN.
 - This does not authenticate a same-UID forged terminal file, establish durable fsync recovery, or close C12/C13. Android API35 independent PID, real phone, version >=4.20.37+495, exact-head CI/Signed and Owner UAT remain HOLD. PR OPEN/DRAFT/Merge HOLD; main, ledger/SQLite/NT$700 POSTED, 135200798-byte official PDF/LKG and auto-post remain frozen.
+
+
+### 2026-10-29 C23 PDFium native publisher integration (exact-head CI required)
+```text
+PdfiumCandidateWorkerService
+ ├─ RUNNING / COMPLETE / FAILED: same Android PID + per-process UUID epoch
+ ├─ COMPLETE: source_sha256 + candidate_universe_sha256 required
+ └─ writeAtomic → PlatformPdfiumResultPublisher
+      └─ PlatformResultAtomicWriter (strict epoch/provenance, C20 anchored move)
+           ├─ unique CREATE_NEW/NOFOLLOW temp + file fsync
+           ├─ no renameTo / direct target.writeText fallback
+           └─ terminal immutability / fail-closed on rename error
+Robolectric API35: 4 positive/negative cases (CI pending)
+C17/C18 hostile same-UID consumer-visible forged pathname: strict RED/HOLD
+C13 arbitrary writable FD / durable fsync / 87K global negative: HOLD
+SQLite / ledger / POSTED NT$700 / official PDF-LKG: FROZEN
+```
+PR OPEN/DRAFT/Merge HOLD, version 4.20.36+494; no Signed/Owner APK. Previous exact-head CI #40811726404: C17/C18 RED, true Signed #40811734103 FAILED. C23 is a bounded PDFium writer fix, not trusted consumer authority.
