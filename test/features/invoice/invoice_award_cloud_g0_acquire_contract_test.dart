@@ -288,7 +288,9 @@ class _DelayedBodyClient extends http.BaseClient {
         (_) => <int>[37, 80, 68, 70, 45],
       ).take(1),
       HttpStatus.ok,
-      contentLength: 5,
+      // Pass the production downloader's minimum declared-size preflight
+      // so the body-idle timeout is the actual first failure.
+      contentLength: 100,
       headers: const <String, String>{'content-type': 'application/pdf'},
       request: request,
     );
