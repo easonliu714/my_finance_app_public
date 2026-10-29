@@ -93,7 +93,16 @@ void main() {
     expect(sourceCustody, contains('Files.delete(snapshot)'));
     expect(workerSource, isNot(contains('ParcelFileDescriptor.open(source')));
     expect(workerSource, isNot(contains('sha256File(source)')));
-    expect(workerSource, contains('pdfiumCore.newDocument(descriptor)'));
+    // C24B: the non-null verified snapshot FD is handed to PDFium only at open,
+    // and custody is released only after a successful newDocument call.
+    // This guards the source identity contract without asserting stale syntax.
+    expect(workerSource, contains('val document = pdfiumCore.newDocument('));
+    expect(workerSource, contains(
+      'descriptor ?: throw IOException("PDFIUM_SOURCE_DESCRIPTOR_MISSING")',
+    ));
+    expect(workerSource, contains(
+      'descriptor = null // ownership transferred to PdfDocument',
+    ));
     expect(workerSource, contains('document.openPage(pageNumber - 1)'));
     expect(workerSource, contains('page.openTextPage()'));
     expect(workerSource, contains('"PDFIUM_OPEN_BEGIN"'));
