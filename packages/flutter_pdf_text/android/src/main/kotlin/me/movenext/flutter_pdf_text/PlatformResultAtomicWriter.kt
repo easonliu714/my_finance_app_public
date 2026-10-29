@@ -4,12 +4,17 @@ import android.system.Os
 import android.system.OsConstants
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.LinkOption
-import java.nio.file.StandardCopyOption
+import java.nio.file.NoSuchFileException
+import java.nio.file.OpenOption
+import java.nio.file.SecureDirectoryStream
+import java.nio.file.StandardOpenOption
+import java.util.UUID
 
 /**
  * Process-local serialized native result replacement. Not a cross-process
@@ -21,10 +26,10 @@ import java.nio.file.StandardCopyOption
  * failure after move remains ambiguous, never verified durable COMPLETE.
  */
 internal class PlatformResultAtomicWriter(
-  private val atomicReplace: (Path, Path) -> Unit = { temp, target ->
-    Files.move(temp, target,
-      StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-  },
+  // A non-null replacement is only used by deterministic fault-injection
+  // tests. Production always uses the already-open directory FD anchor.
+  private val atomicReplace: ((Path, Path) -> Unit)? = null,
+  internal val beforeAnchoredMoveForTest: ((Path, Path) -> Unit)? = null,
   private val syncParent: (Path) -> Unit = { directory ->
     val fd = Os.open(directory.toString(),
       OsConstants.O_RDONLY, 0)
@@ -143,18 +148,50 @@ internal class PlatformResultAtomicWriter(
     }
     if (protectTerminal) validateResultTransition(target, content)
     val expectedBytes = content.toByteArray(Charsets.UTF_8)
-    // Unique temporary file in the same directory, not a shared .tmp path.
-    val temp = Files.createTempFile(parent, ".${target.fileName}.", ".tmp")
-    try {
-      FileOutputStream(temp.toFile()).use { output ->
-        output.write(expectedBytes)
-        output.fd.sync()
+    // C20: keep one directory FD anchor from temp creation through rename.
+    // A parent pathname replacement must not redirect our own publication
+    // into the new directory. This does NOT authenticate arbitrary same-UID
+    // writes to the public pathname or make parent fsync durable after swap.
+    Files.newDirectoryStream(parent).use { directory ->
+      if (directory !is SecureDirectoryStream<*>) {
+        throw IOException("RESULT_ANCHORED_DIRECTORY_UNAVAILABLE")
       }
-      atomicReplace(temp, target)
-      verifyPublishedBytes(target, expectedBytes)
-      syncParent(parent)
-    } finally {
-      Files.deleteIfExists(temp)
+      @Suppress("UNCHECKED_CAST")
+      val anchored = directory as SecureDirectoryStream<Path>
+      val tempName = parent.fileSystem.getPath(
+        ".${target.fileName}.${UUID.randomUUID()}.tmp")
+      val temp = parent.resolve(tempName)
+      var created = false
+      try {
+        // Relative openat(CREATE_NEW|NOFOLLOW) on the same held directory.
+        // Do not reopen the temporary pathname through a swapped parent.
+        anchored.newByteChannel(tempName, setOf<OpenOption>(
+          StandardOpenOption.CREATE_NEW,
+          StandardOpenOption.WRITE,
+          LinkOption.NOFOLLOW_LINKS
+        )).use { channel ->
+          created = true
+          val durable = channel as? FileChannel
+            ?: throw IOException("RESULT_TEMP_FSYNC_UNAVAILABLE")
+          val buffer = ByteBuffer.wrap(expectedBytes)
+          while (buffer.hasRemaining()) durable.write(buffer)
+          durable.force(true)
+        }
+        if (atomicReplace != null) {
+          atomicReplace.invoke(temp, target)
+        } else {
+          beforeAnchoredMoveForTest?.invoke(temp, target)
+          // renameat against the held directory, not the mutable pathname.
+          anchored.move(tempName, anchored, target.fileName)
+        }
+        verifyPublishedBytes(target, expectedBytes)
+        syncParent(parent)
+      } finally {
+        if (created) {
+          try { anchored.deleteFile(tempName) }
+          catch (_: NoSuchFileException) { /* Moved into target. */ }
+        }
+      }
     }
   }
 }

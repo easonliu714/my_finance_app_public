@@ -191,4 +191,55 @@ class PlatformResultAtomicWriterTest {
     assertFalse("C17_FORGED_RESULT_VISIBLE_AFTER_FAILED_PUBLICATION",
       Files.exists(target))
   }
+
+  /**
+   * C20 positive: the default production publisher uses a directory-anchored
+   * CREATE_NEW temp and rename, not the legacy pathname Files.move fallback.
+   */
+  @Test fun defaultAnchoredMovePublishesExactBytesWithoutInjection() {
+    val dir = folder.newFolder("c20-anchored-normal")
+    val target = dir.resolve("result.json")
+    PlatformResultAtomicWriter(protectTerminal = false, syncParent = {})
+      .write(target.absolutePath, "TRUSTED_RESULT")
+    assertEquals("TRUSTED_RESULT", target.readText(Charsets.UTF_8))
+    assertFalse(dir.listFiles().orEmpty().any { it.name.endsWith(".tmp") })
+  }
+
+  /**
+   * C20 deterministic JVM negative: after secure temp creation and fsync,
+   * replace the parent and plant a fake temp in the new directory. The
+   * default production move must publish only to the held original directory.
+   * The public path can still be forged directly by a hostile same-UID
+   * actor; C17/C18 strict RED assertions are intentionally preserved.
+   */
+  @Test fun defaultAnchoredMoveCannotPublishForgedNewParentTemp() {
+    val parent = folder.newFolder("c20-anchored-swap").toPath()
+    val displaced = parent.resolveSibling("c20-original-parent")
+    val target = parent.resolve("result.json")
+    var injected = false
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      syncParent = { throw AssertionError("Swapped parent must not be fsynced") },
+      beforeAnchoredMoveForTest = { temp, _ ->
+        Files.move(parent, displaced, StandardCopyOption.ATOMIC_MOVE)
+        Files.createDirectory(parent)
+        Files.write(parent.resolve(temp.fileName),
+          "FORGED_RESULT".toByteArray(Charsets.UTF_8))
+        injected = true
+      }
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.toString(), "TRUSTED_RESULT")
+    }
+    assertTrue("C20 parent/temp swap must be injected", injected)
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    assertEquals("TRUSTED_RESULT",
+      displaced.resolve("result.json").toFile().readText(Charsets.UTF_8))
+    assertFalse("Writer must not publish fake temp into replacement parent",
+      Files.exists(target))
+    assertEquals("FORGED_RESULT",
+      parent.toFile().listFiles().orEmpty().single { it.name.endsWith(".tmp") }
+        .readText(Charsets.UTF_8))
+  }
+
 }
