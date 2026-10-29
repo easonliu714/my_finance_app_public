@@ -146,18 +146,48 @@ Future<Map<String, Object?>> acquireC500G0Source({
 
 /// No automatic redirect to a non-authoritative host. The production
 /// downloader remains unchanged; this restriction applies to the lab only.
-class _PinnedNoRedirectClient extends http.BaseClient {
-  _PinnedNoRedirectClient(this._inner);
+/// G0a laboratory-only network bounds: a stalled official source must not
+/// consume the entire diagnostic run or prevent the other period's evidence.
+/// Header and body-idle budgets are independent; neither proves PDF validity.
+class C500G0PinnedNoRedirectClient extends http.BaseClient {
+  C500G0PinnedNoRedirectClient(
+    this._inner, {
+    this.responseHeaderTimeout = const Duration(seconds: 30),
+    this.bodyIdleTimeout = const Duration(seconds: 45),
+  });
 
   final http.Client _inner;
+  final Duration responseHeaderTimeout;
+  final Duration bodyIdleTimeout;
 
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) {
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
     if (!c500G0Sources.any((source) => source.uri == request.url)) {
       throw StateError('G0_NETWORK_URI_NOT_PINNED');
     }
+    if (responseHeaderTimeout <= Duration.zero ||
+        bodyIdleTimeout <= Duration.zero) {
+      throw StateError('G0_LAB_TIMEOUT_POLICY_INVALID');
+    }
     request.followRedirects = false;
-    return _inner.send(request);
+    final response = await _inner.send(request).timeout(
+      responseHeaderTimeout,
+      onTimeout: () => throw TimeoutException('G0_LAB_RESPONSE_HEADER_TIMEOUT'),
+    );
+    return http.StreamedResponse(
+      response.stream.timeout(
+        bodyIdleTimeout,
+        onTimeout: (sink) =>
+            sink.addError(TimeoutException('G0_LAB_BODY_IDLE_TIMEOUT')),
+      ),
+      response.statusCode,
+      contentLength: response.contentLength,
+      headers: response.headers,
+      isRedirect: response.isRedirect,
+      persistentConnection: response.persistentConnection,
+      reasonPhrase: response.reasonPhrase,
+      request: response.request,
+    );
   }
 
   @override
@@ -216,7 +246,7 @@ Future<void> main(List<String> args) async {
   }
   // Unique system-temp directory, never production application storage.
   final directory = await Directory.systemTemp.createTemp('c500_g0_lab_');
-  final client = _PinnedNoRedirectClient(http.Client());
+  final client = C500G0PinnedNoRedirectClient(http.Client());
   try {
     final report = await acquireC500G0SourcesIndependently(
       sources: c500G0Sources,

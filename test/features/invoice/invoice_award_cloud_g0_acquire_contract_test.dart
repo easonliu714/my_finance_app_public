@@ -113,6 +113,58 @@ void main() {
     );
     expect(await scratch.list().toList(), isEmpty);
   });
+  test('stalled official response headers fail bounded without a lab file',
+      () async {
+    final client = C500G0PinnedNoRedirectClient(
+      _DelayedHeaderClient(),
+      responseHeaderTimeout: const Duration(milliseconds: 10),
+      bodyIdleTimeout: const Duration(milliseconds: 10),
+    );
+    try {
+      await expectLater(
+        acquireC500G0Source(
+          source: c500G0Sources.first,
+          labDirectory: scratch,
+          client: client,
+        ),
+        throwsA(isA<TimeoutException>().having(
+          (error) => error.message,
+          'code',
+          'G0_LAB_RESPONSE_HEADER_TIMEOUT',
+        )),
+      );
+      expect(await scratch.list().toList(), isEmpty);
+    } finally {
+      client.close();
+    }
+  });
+
+  test('stalled official response body fails bounded and deletes partial',
+      () async {
+    final client = C500G0PinnedNoRedirectClient(
+      _DelayedBodyClient(),
+      responseHeaderTimeout: const Duration(milliseconds: 50),
+      bodyIdleTimeout: const Duration(milliseconds: 10),
+    );
+    try {
+      await expectLater(
+        acquireC500G0Source(
+          source: c500G0Sources.first,
+          labDirectory: scratch,
+          client: client,
+        ),
+        throwsA(isA<TimeoutException>().having(
+          (error) => error.message,
+          'code',
+          'G0_LAB_BODY_IDLE_TIMEOUT',
+        )),
+      );
+      expect(await scratch.list().toList(), isEmpty);
+    } finally {
+      client.close();
+    }
+  });
+
   test('one failed period cannot mask the other period acquisition', () async {
     final bytes = _syntheticPdf();
     final client = _SyntheticClient(bytes);
@@ -209,6 +261,35 @@ class _SyntheticClient extends http.BaseClient {
       statusCode,
       headers: const <String, String>{'content-type': 'application/pdf'},
       contentLength: bytes.length,
+      request: request,
+    );
+  }
+}
+
+// Synthetic transport stalls only; no real official PDF or Android engine.
+class _DelayedHeaderClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return http.StreamedResponse(
+      const Stream<List<int>>.empty(),
+      HttpStatus.ok,
+      request: request,
+    );
+  }
+}
+
+class _DelayedBodyClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    return http.StreamedResponse(
+      Stream<List<int>>.periodic(
+        const Duration(milliseconds: 150),
+        (_) => <int>[37, 80, 68, 70, 45],
+      ).take(1),
+      HttpStatus.ok,
+      contentLength: 5,
+      headers: const <String, String>{'content-type': 'application/pdf'},
       request: request,
     );
   }
