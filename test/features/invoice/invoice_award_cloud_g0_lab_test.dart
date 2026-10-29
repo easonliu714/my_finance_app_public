@@ -84,7 +84,7 @@ void main() {
   });
 
   test('synthetic multi-MiB structure scan uses bounded existing probe', () async {
-    final file = File(scratch.path + '/synthetic.pdf');
+    final file = File('${scratch.path}/synthetic.pdf');
     final sink = file.openWrite();
     const header = '%PDF-1.7\n1 0 obj\n<< /Type /Pages /Count 87000 >>\nendobj\n';
     sink.add(latin1.encode(header));
@@ -109,7 +109,7 @@ void main() {
   });
 
   test('missing source and incorrect binary pins fail closed', () async {
-    final file = File(scratch.path + '/missing.pdf');
+    final file = File('${scratch.path}/missing.pdf');
     await expectLater(
       _measure(file, period: 'SYNTHETIC', expectedLength: 42),
       throwsA(isA<StateError>().having(
@@ -141,7 +141,7 @@ void main() {
     );
     // Both files go through the same parser. Android engine-specific
     // root cause and Java/native/PSS are NOT established by this test.
-    print(jsonEncode(<String, Object?>{
+    stdout.writeln(jsonEncode(<String, Object?>{
       'gate': 'G0_STRUCTURE_ONLY_ANDROID_ENGINES_NOT_RUN',
       'official_uris': <String>[_oldUri, _newUri],
       'old_sha_pin': 'UNAVAILABLE',
