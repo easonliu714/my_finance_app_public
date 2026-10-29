@@ -11,6 +11,8 @@ import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_structur
 
 const _oldUri = 'https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124620_sorted_AI_D.pdf';
 const _newUri = 'https://invoice.etax.nat.gov.tw/pdf/20260708_20260925124717_sorted_AI_D.pdf';
+// G0b GitHub runner measured the old official binary; lab-only identity pin.
+const _oldSha = '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe';
 const _newSha = 'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571';
 const _oldHttpLength = 119769589; // Observed HTTP length; SHA not pinned.
 const _newPinnedLength = 135200798;
@@ -134,17 +136,28 @@ void main() {
     final newFile = File(newPath);
     final old = await _measure(
       oldFile, period: '115-05-06', expectedLength: _oldHttpLength,
+      expectedSha: _oldSha,
     );
     final newer = await _measure(
       newFile, period: '115-07-08',
       expectedLength: _newPinnedLength, expectedSha: _newSha,
     );
+    // G0c: actual source-specific structure regression, not an Android
+    // parser, page-tree completeness, or OOM root-cause acceptance gate.
+    expect(old['pdf_version'], '1.5');
+    expect(newer['pdf_version'], '1.5');
+    expect(old['xref_type'], 'xrefStream');
+    expect(newer['xref_type'], 'xrefStream');
+    expect(old['max_scan_window_bytes'], 65536 + 1024);
+    expect(newer['max_scan_window_bytes'], 65536 + 1024);
+    expect(old['sha256'], _oldSha);
+    expect(newer['sha256'], _newSha);
     // Both files go through the same parser. Android engine-specific
     // root cause and Java/native/PSS are NOT established by this test.
     stdout.writeln(jsonEncode(<String, Object?>{
       'gate': 'G0_STRUCTURE_ONLY_ANDROID_ENGINES_NOT_RUN',
       'official_uris': <String>[_oldUri, _newUri],
-      'old_sha_pin': 'UNAVAILABLE',
+      'old_sha_pin': 'G0B_GITHUB_RUNNER_VERIFIED',
       'old': old,
       'new': newer,
       'production_authority': 'HOLD',

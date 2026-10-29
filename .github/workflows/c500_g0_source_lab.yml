@@ -79,5 +79,54 @@ jobs:
             echo "Native engines, Android PSS, root cause and global negative proof: NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
             exit "$rc"
           fi
+          # G0c: promote only validated ephemeral paths into a same-run
+          # structure regression; never upload/commit either official PDF.
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = Path('c500-g0-source-lab.log').read_text(encoding='utf-8')
+          marker = '{"gate":"C500_G0A_SOURCE_ACQUIRED_STRUCTURE_ONLY"'
+          pos = raw.find(marker)
+          if pos < 0:
+              raise SystemExit('G0C_VERIFIED_SOURCE_REPORT_MISSING')
+          report = json.loads(raw[pos:].splitlines()[0])
+          if report.get('failures') or len(report.get('sources', [])) != 2:
+              raise SystemExit('G0C_OFFICIAL_PAIR_NOT_VERIFIED')
+          expected = {
+              '115-05-06': (119769589, '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe', 'G0_OLD_PDF'),
+              '115-07-08': (135200798, 'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571', 'G0_NEW_PDF'),
+          }
+          observed = set()
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              for source in report['sources']:
+                  period = source['period']
+                  if period not in expected or period in observed:
+                      raise SystemExit('G0C_PERIOD_DUPLICATE_OR_UNKNOWN')
+                  observed.add(period)
+                  size, digest, name = expected[period]
+                  path = Path(source['lab_file'])
+                  if (source['bytes'] != size or source['sha256'] != digest or
+                      not path.is_absolute() or path.is_symlink() or
+                      not path.is_file() or
+                      not path.resolve().parent.name.startswith('c500_g0_lab_')):
+                      raise SystemExit('G0C_SOURCE_IDENTITY_OR_PATH_INVALID')
+                  env.write(f'{name}={path}\n')
+          if observed != set(expected):
+              raise SystemExit('G0C_OFFICIAL_PERIOD_MISSING')
+          print('G0C_OFFICIAL_PAIR_PINNED_AND_MOUNTED_EPHEMERALLY')
+          PY
           echo "C500-G0a: both binaries acquired and bounded structure inspected ONLY." >> "$GITHUB_STEP_SUMMARY"
           echo "G0 root cause, Android engine/PSS and global negative proof: NOT_PROVEN/NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: G0c actual official pair same-probe regression (NOT Android OOM proof)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          : "${G0_OLD_PDF:?G0C_OLD_OFFICIAL_BINARY_MISSING}"
+          : "${G0_NEW_PDF:?G0C_NEW_OFFICIAL_BINARY_MISSING}"
+          timeout 300s flutter test test/features/invoice/invoice_award_cloud_g0_lab_test.dart --reporter expanded
+          echo "G0c: real official source hashes and same bounded structure probe PASS only; Android PDF engines, PSS and original OOM root cause NOT_RUN." >> "$GITHUB_STEP_SUMMARY"

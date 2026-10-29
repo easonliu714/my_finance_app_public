@@ -40,8 +40,11 @@ const c500G0Sources = <C500G0Source>[
     period: '115-05-06',
     uriText:
         'https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124620_sorted_AI_D.pdf',
-    // Historical HTTP length, not an independently pinned official binary.
+    // G0b 2026-10-30: independent ephemeral GitHub-runner HTTPS fetch
+    // verified this exact binary; pin is lab-only, not award authority.
     expectedBytes: 119769589,
+    expectedSha256:
+        '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe',
   ),
   C500G0Source(
     period: '115-07-08',
@@ -115,8 +118,10 @@ Future<Map<String, Object?>> acquireC500G0Source({
       'bytes': downloaded.sizeBytes,
       'sha256': downloaded.sha256,
       'sha_pin': source.expectedSha256 == null
-          ? 'PENDING_INDEPENDENT_OLD_BINARY_PIN'
-          : 'MATCHED_ARCHIVED_115_07_08_PIN',
+          ? 'UNPINNED_SYNTHETIC_OR_EXPERIMENTAL_SOURCE'
+          : source.period == '115-05-06'
+              ? 'MATCHED_G0B_OBSERVED_115_05_06_PIN'
+              : 'MATCHED_ARCHIVED_115_07_08_PIN',
       'pdf_version': structure.pdfVersion,
       'xref_type': structure.xrefTopology.name,
       'startxref': structure.startXrefOffset,

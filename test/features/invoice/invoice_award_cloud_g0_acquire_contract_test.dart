@@ -17,11 +17,12 @@ void main() {
     if (await scratch.exists()) await scratch.delete(recursive: true);
   });
 
-  test('official fixed periods, URLs, and archived 07-08 pins are stable', () {
+  test('official fixed periods and both observed/archived SHA pins are stable', () {
     expect(c500G0Sources, hasLength(2));
     expect(c500G0Sources.first.period, '115-05-06');
     expect(c500G0Sources.first.expectedBytes, 119769589);
-    expect(c500G0Sources.first.expectedSha256, isNull);
+    expect(c500G0Sources.first.expectedSha256,
+        '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe');
     expect(c500G0Sources.last.period, '115-07-08');
     expect(c500G0Sources.last.expectedBytes, 135200798);
     expect(c500G0Sources.last.expectedSha256,
@@ -49,7 +50,7 @@ void main() {
     expect(result['bytes'], bytes.length);
     expect(result['pdf_version'], '1.7');
     expect(result['xref_type'], 'classicTable');
-    expect(result['sha_pin'], 'PENDING_INDEPENDENT_OLD_BINARY_PIN');
+    expect(result['sha_pin'], 'UNPINNED_SYNTHETIC_OR_EXPERIMENTAL_SOURCE');
     expect(result['pdfbox_pdfium_pdfrenderer'], 'NOT_RUN');
     expect(result['global_negative_proof'], 'NOT_RUN');
     expect(result['award_authority'], 'HOLD');
