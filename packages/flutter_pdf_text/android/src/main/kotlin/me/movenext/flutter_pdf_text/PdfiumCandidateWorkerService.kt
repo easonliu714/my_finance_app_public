@@ -319,7 +319,15 @@ class PdfiumCandidateWorkerService : Service() {
           }
         }
 
-        val matchedPagesJson = JSONObject()
+          // C22: an empty/partial bounded search cannot certify a negative.
+        // Preserve UNKNOWN rather than publishing a misleading COMPLETE.
+        if (!PlatformCandidateCompletionGate.allCandidatesPositivelyMatched(
+            candidates, matched, matchedPages, pageCount)) {
+          writeFailure(resultPath, requestId, "PDFIUM_WORKER_NEGATIVE_COVERAGE_UNPROVEN")
+          return
+        }
+
+      val matchedPagesJson = JSONObject()
         matchedPages.forEach { (candidate, pageNumber) ->
           matchedPagesJson.put(candidate, pageNumber)
         }

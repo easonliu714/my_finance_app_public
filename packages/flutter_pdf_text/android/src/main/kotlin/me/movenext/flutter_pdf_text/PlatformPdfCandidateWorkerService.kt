@@ -356,6 +356,16 @@ class PlatformPdfCandidateWorkerService : Service() {
         }
       }
 
+      // C22: a bounded sorted-page search does not prove that an unmatched
+      // candidate is absent from the entire official PDF. Publish COMPLETE
+      // only when every requested candidate has a page-backed positive.
+      // This is not a global monotonicity or result-file authenticity proof.
+      if (!PlatformCandidateCompletionGate.allCandidatesPositivelyMatched(
+          candidates, matched, matchedPages, pageCount)) {
+        writeFailure(resultPath, requestId, "PLATFORM_WORKER_NEGATIVE_COVERAGE_UNPROVEN")
+        return
+      }
+
       val matchedPagesJson = JSONObject()
       matchedPages.forEach { (candidate, pageNumber) ->
         matchedPagesJson.put(candidate, pageNumber)
