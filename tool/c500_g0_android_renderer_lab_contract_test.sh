@@ -85,7 +85,8 @@ grep -Fq 'C500_G0F_CASE_PASS=newOfficialPdfBoxOpenOnly' "$tmp/output"
 [[ "$(grep -c '^install -r -t ' "$tmp/trace")" == 1 ]]
 [[ "$(grep -c '^push ' "$tmp/trace")" == 2 ]]
 [[ "$(grep -c '^shell am instrument ' "$tmp/trace")" == 6 ]]
-[[ "$(grep -c '^logcat -b crash -c# A PDFium instrumentation failure must not mask the next period, and must
+[[ "$(grep -c '^logcat -b crash -c$' "$tmp/trace")" == 6 ]]
+# A PDFium instrumentation failure must not mask the next period, and must
 # produce a failing overall gate even when adb itself returns exit 0.
 if (cd "$tmp/android" && C500_TEST_PDFIUM_OLD_FAIL=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/pdfium-failure-output" 2>&1; then
   echo 'C500_G0E_CONTRACT_EXPECTED_PDFIUM_FAILURE' >&2
@@ -120,26 +121,3 @@ if (cd "$tmp/android" && C500_TEST_NO_APK=1 PATH="$tmp/fakebin:$PATH" bash ../to
 fi
 grep -Fq 'C500_G0D_ANDROIDTEST_APK_MISSING_OR_AMBIGUOUS' "$tmp/no-apk-output"
 echo 'PASS C500_G0G_MOCK_PER_CASE_CRASH_ISOLATION_JAVA_OOM_JNI_ABORT_AND_MISSING_APK_FAIL_CLOSED'
- "$tmp/trace")" == 6 ]]
-# A PDFium instrumentation failure must not mask the next period, and must
-# produce a failing overall gate even when adb itself returns exit 0.
-if (cd "$tmp/android" && C500_TEST_PDFIUM_OLD_FAIL=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/pdfium-failure-output" 2>&1; then
-  echo 'C500_G0E_CONTRACT_EXPECTED_PDFIUM_FAILURE' >&2
-  exit 75
-fi
-grep -Fq 'C500_G0D_CASE_FAILED=oldOfficialPdfiumOpenOnly' "$tmp/pdfium-failure-output"
-grep -Fq 'C500_G0E_CASE_PASS=newOfficialPdfiumOpenOnly' "$tmp/pdfium-failure-output"
-# A failed PDFBox old-period test must not mask the new-period attempt.
-if (cd "$tmp/android" && C500_TEST_PDFBOX_OLD_FAIL=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/pdfbox-failure-output" 2>&1; then
-  echo 'C500_G0F_CONTRACT_EXPECTED_PDFBOX_FAILURE' >&2
-  exit 76
-fi
-grep -Fq 'C500_G0D_CASE_FAILED=oldOfficialPdfBoxOpenOnly' "$tmp/pdfbox-failure-output"
-grep -Fq 'C500_G0F_CASE_PASS=newOfficialPdfBoxOpenOnly' "$tmp/pdfbox-failure-output"
-rm -rf "$tmp/build" "$tmp/installed"
-if (cd "$tmp/android" && C500_TEST_NO_APK=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/no-apk-output" 2>&1; then
-  echo 'C500_G0D_CONTRACT_EXPECTED_MISSING_APK_FAILURE' >&2
-  exit 74
-fi
-grep -Fq 'C500_G0D_ANDROIDTEST_APK_MISSING_OR_AMBIGUOUS' "$tmp/no-apk-output"
-echo 'PASS C500_G0F_MOCK_THREE_ENGINE_REINSTALL_FAILURE_ISOLATION_AND_MISSING_APK_FAIL_CLOSED'
