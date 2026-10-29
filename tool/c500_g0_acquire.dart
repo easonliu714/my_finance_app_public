@@ -164,6 +164,50 @@ class _PinnedNoRedirectClient extends http.BaseClient {
   void close() => _inner.close();
 }
 
+/// Attempt each pinned period independently. A failure in the older file
+/// must not hide the newer file's exact source or parser failure. This is
+/// laboratory evidence only: partial acquisition never becomes award authority.
+Future<Map<String, Object?>> acquireC500G0SourcesIndependently({
+  required List<C500G0Source> sources,
+  required Directory labDirectory,
+  required http.Client client,
+}) async {
+  if (sources.isEmpty) {
+    throw ArgumentError('G0_SOURCES_EMPTY');
+  }
+  final acquired = <Map<String, Object?>>[];
+  final failures = <Map<String, Object?>>[];
+  for (final source in sources) {
+    try {
+      acquired.add(await acquireC500G0Source(
+        source: source,
+        labDirectory: labDirectory,
+        client: client,
+      ));
+    } catch (error) {
+      failures.add(<String, Object?>{
+        'period': source.period,
+        'source_uri': source.uri.toString(),
+        'failure': error.toString(),
+        'verified_official_binary': false,
+      });
+    }
+  }
+  final allVerified = failures.isEmpty && acquired.length == sources.length;
+  return <String, Object?>{
+    'gate': allVerified
+        ? 'C500_G0A_SOURCE_ACQUIRED_STRUCTURE_ONLY'
+        : 'C500_G0A_HOLD_SOURCE_BINARY_UNAVAILABLE_OR_PIN_MISMATCH',
+    'lab_directory': labDirectory.path,
+    'sources': acquired,
+    'failures': failures,
+    'g0_root_cause': 'NOT_PROVEN',
+    'android_engine_evidence': 'NOT_RUN',
+    'global_negative_proof': 'NOT_RUN',
+    'owner_production_authority': 'HOLD',
+  };
+}
+
 Future<void> main(List<String> args) async {
   if (args.isNotEmpty) {
     stderr.writeln('G0_USAGE: dart run tool/c500_g0_acquire.dart');
@@ -174,22 +218,15 @@ Future<void> main(List<String> args) async {
   final directory = await Directory.systemTemp.createTemp('c500_g0_lab_');
   final client = _PinnedNoRedirectClient(http.Client());
   try {
-    final evidence = <Map<String, Object?>>[];
-    for (final source in c500G0Sources) {
-      evidence.add(await acquireC500G0Source(
-        source: source,
-        labDirectory: directory,
-        client: client,
-      ));
+    final report = await acquireC500G0SourcesIndependently(
+      sources: c500G0Sources,
+      labDirectory: directory,
+      client: client,
+    );
+    stdout.writeln(jsonEncode(report));
+    if (report['gate'] != 'C500_G0A_SOURCE_ACQUIRED_STRUCTURE_ONLY') {
+      exitCode = 2;
     }
-    stdout.writeln(jsonEncode(<String, Object?>{
-      'gate': 'C500_G0A_SOURCE_ACQUIRED_STRUCTURE_ONLY',
-      'lab_directory': directory.path,
-      'sources': evidence,
-      'g0_root_cause': 'NOT_PROVEN',
-      'android_engine_evidence': 'NOT_RUN',
-      'owner_production_authority': 'HOLD',
-    }));
   } catch (error) {
     stdout.writeln(jsonEncode(<String, Object?>{
       'gate': 'C500_G0A_HOLD_SOURCE_BINARY_UNAVAILABLE_OR_PIN_MISMATCH',

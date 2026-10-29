@@ -113,6 +113,72 @@ void main() {
     );
     expect(await scratch.list().toList(), isEmpty);
   });
+  test('one failed period cannot mask the other period acquisition', () async {
+    final bytes = _syntheticPdf();
+    final client = _SyntheticClient(bytes);
+    final report = await acquireC500G0SourcesIndependently(
+      sources: <C500G0Source>[
+        C500G0Source(
+          period: '115-05-06',
+          uriText: c500G0Sources.first.uriText,
+          expectedBytes: bytes.length + 1,
+        ),
+        C500G0Source(
+          period: '115-07-08',
+          uriText: c500G0Sources.last.uriText,
+          expectedBytes: bytes.length,
+        ),
+      ],
+      labDirectory: scratch,
+      client: client,
+    );
+    expect(client.requests, 2);
+    expect(report['gate'],
+        'C500_G0A_HOLD_SOURCE_BINARY_UNAVAILABLE_OR_PIN_MISMATCH');
+    final failures = report['failures'] as List<Map<String, Object?>>;
+    expect(failures, hasLength(1));
+    expect(failures.single['period'], '115-05-06');
+    expect(failures.single['failure'], contains('G0_SOURCE_BYTES_MISMATCH'));
+    final acquired = report['sources'] as List<Map<String, Object?>>;
+    expect(acquired, hasLength(1));
+    expect(acquired.single['period'], '115-07-08');
+    expect(acquired.single['award_authority'], 'HOLD');
+    expect(report['g0_root_cause'], 'NOT_PROVEN');
+    expect(await File(acquired.single['lab_file'] as String).exists(), isTrue);
+    expect(await scratch.list().toList(), hasLength(1));
+  });
+
+  test('both failed periods are reported, not silently short-circuited',
+      () async {
+    final bytes = _syntheticPdf();
+    final client = _SyntheticClient(bytes);
+    final report = await acquireC500G0SourcesIndependently(
+      sources: <C500G0Source>[
+        C500G0Source(
+          period: '115-05-06',
+          uriText: c500G0Sources.first.uriText,
+          expectedBytes: bytes.length + 1,
+        ),
+        C500G0Source(
+          period: '115-07-08',
+          uriText: c500G0Sources.last.uriText,
+          expectedBytes: bytes.length + 1,
+        ),
+      ],
+      labDirectory: scratch,
+      client: client,
+    );
+    expect(client.requests, 2);
+    expect(report['gate'],
+        'C500_G0A_HOLD_SOURCE_BINARY_UNAVAILABLE_OR_PIN_MISMATCH');
+    expect(report['sources'], isEmpty);
+    final failures = report['failures'] as List<Map<String, Object?>>;
+    expect(failures.map((entry) => entry['period']).toList(),
+        <String>['115-05-06', '115-07-08']);
+    expect(report['owner_production_authority'], 'HOLD');
+    expect(await scratch.list().toList(), isEmpty);
+  });
+
 }
 
 List<int> _syntheticPdf() {
