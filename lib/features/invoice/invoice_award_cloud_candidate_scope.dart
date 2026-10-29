@@ -466,6 +466,27 @@ String? cloudAwardNativeCompleteMatchedIdentityViolation({
   return null;
 }
 
+
+/// C30: the native COMPLETE terminal is not proof of an all-positive result
+/// merely because its matched identities and page map are internally shaped
+/// correctly. Bounded sorted-page searches cannot certify an absent candidate.
+/// This check is an additional fail-closed consumer gate, NOT same-UID result
+/// authentication, crash durability, or a global PDF ordering proof.
+String? cloudAwardNativeCompletePositiveCoverageViolation({
+  required Set<String> expectedCandidates,
+  required Set<String> matchedCandidates,
+  required Map<String, int> matchedPageNumbers,
+}) {
+  if (expectedCandidates.isEmpty ||
+      matchedCandidates.length != expectedCandidates.length ||
+      !matchedCandidates.containsAll(expectedCandidates) ||
+      matchedPageNumbers.length != expectedCandidates.length ||
+      !matchedPageNumbers.keys.toSet().containsAll(expectedCandidates)) {
+    return 'CLOUD_AWARD_CANDIDATE_NEGATIVE_COVERAGE_UNPROVEN';
+  }
+  return null;
+}
+
 /// Validate only fields currently emitted by Kotlin's FAILED publisher.
 /// This does not establish native PID/stage custody or durable retention.
 String? cloudAwardNativeFailedTerminalViolation({
@@ -1213,6 +1234,18 @@ class PdfiumCloudAwardSortedPdfCandidateLookup
             throw StateError(
               'CLOUD_AWARD_CANDIDATE_WORKER_PAGE_EVIDENCE_MISMATCH',
             );
+          }
+          // C30: refuse partial/zero native COMPLETE at the consumer boundary.
+          // Repository persistence also rejects it, but a result must not be
+          // returned as verified before that downstream check is reached.
+          final coverageViolation =
+              cloudAwardNativeCompletePositiveCoverageViolation(
+            expectedCandidates: candidates.toSet(),
+            matchedCandidates: matched,
+            matchedPageNumbers: matchedPageNumbers,
+          );
+          if (coverageViolation != null) {
+            throw StateError(coverageViolation);
           }
           final verifiedResult = CloudAwardSortedPdfCandidateMatchResult(
             pageCount: pageCount,

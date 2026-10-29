@@ -115,5 +115,67 @@ void main() {
         'CLOUD_AWARD_CANDIDATE_WORKER_RESULT_INVALID',
       );
     });
+    test('C30 consumer COMPLETE coverage requires all positive page-backed candidates', () {
+      expect(
+        cloudAwardNativeCompletePositiveCoverageViolation(
+          expectedCandidates: expected,
+          matchedCandidates: <String>{a, b},
+          matchedPageNumbers: <String, int>{a: 1, b: 87000},
+        ),
+        isNull,
+      );
+      for (final partial in <Set<String>>[<String>{}, <String>{a}]) {
+        expect(
+          cloudAwardNativeCompletePositiveCoverageViolation(
+            expectedCandidates: expected,
+            matchedCandidates: partial,
+            matchedPageNumbers: <String, int>{
+              for (final candidate in partial) candidate: 1,
+            },
+          ),
+          'CLOUD_AWARD_CANDIDATE_NEGATIVE_COVERAGE_UNPROVEN',
+        );
+      }
+      expect(
+        cloudAwardNativeCompletePositiveCoverageViolation(
+          expectedCandidates: expected,
+          matchedCandidates: <String>{a, b},
+          matchedPageNumbers: <String, int>{a: 1},
+        ),
+        'CLOUD_AWARD_CANDIDATE_NEGATIVE_COVERAGE_UNPROVEN',
+      );
+      expect(
+        cloudAwardNativeCompletePositiveCoverageViolation(
+          expectedCandidates: <String>{},
+          matchedCandidates: <String>{},
+          matchedPageNumbers: <String, int>{},
+        ),
+        'CLOUD_AWARD_CANDIDATE_NEGATIVE_COVERAGE_UNPROVEN',
+      );
+    });
+
+    test('C30 consumer applies coverage before returning verified terminal', () {
+      final source = File(
+        'lib/features/invoice/invoice_award_cloud_candidate_scope.dart',
+      ).readAsStringSync();
+      final terminal = source.indexOf(
+        'final coverageViolation =',
+        source.indexOf('final matchedPageNumbers = <String, int>{};',
+          source.indexOf('final terminalViolation =')),
+      );
+      final verified = source.indexOf(
+        'final verifiedResult = CloudAwardSortedPdfCandidateMatchResult(',
+        terminal,
+      );
+      final accepted = source.indexOf('terminalValidated = true;', verified);
+      expect(terminal, greaterThan(0));
+      expect(verified, greaterThan(terminal));
+      expect(accepted, greaterThan(verified));
+      expect(
+        source.indexOf('throw StateError(coverageViolation);', terminal),
+        inInclusiveRange(terminal, verified),
+      );
+    });
+
   });
 }
