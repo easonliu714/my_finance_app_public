@@ -88,7 +88,7 @@ void main() {
     final sink = file.openWrite();
     const header = '%PDF-1.7\n1 0 obj\n<< /Type /Pages /Count 87000 >>\nendobj\n';
     sink.add(latin1.encode(header));
-    const block = 'X' * 65536;
+    final block = List<String>.filled(65536, 'X').join();
     for (var i = 0; i < 32; i++) {
       sink.add(latin1.encode(block));
     }
