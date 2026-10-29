@@ -6,11 +6,25 @@ set -euo pipefail
 test -f "$G0_OLD_PDF" && test -f "$G0_NEW_PDF"
 adb shell getprop ro.build.version.sdk | tr -d '\r' | grep -qx '35'
 ./gradlew :flutter_pdf_text:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=me.movenext.flutter_pdf_text.C500G0RendererLabInstrumentedTest#provisionAndRejectWrongSourceBeforeEngineOpen --no-daemon --stacktrace
+# AGP connectedAndroidTest may uninstall the test APK on completion. Restore
+# exactly the APK built by this Gradle invocation before discovering the runner.
+apk_root="../build/flutter_pdf_text/outputs/apk/androidTest"
+if [[ ! -d "$apk_root" ]]; then
+  echo "C500_G0D_ANDROIDTEST_APK_MISSING_OR_AMBIGUOUS" >&2
+  exit 64
+fi
+mapfile -t test_apks < <(find "$apk_root" -type f -name '*.apk' -print | sort)
+if [[ "${#test_apks[@]}" -ne 1 ]]; then
+  echo "C500_G0D_ANDROIDTEST_APK_MISSING_OR_AMBIGUOUS count=${#test_apks[@]}" >&2
+  exit 64
+fi
+adb install -r -t "${test_apks[0]}" >/dev/null
+echo "C500_G0D_INSTRUMENTATION_TEST_APK_REINSTALLED"
 instrumentations="$(adb shell pm list instrumentation | tr -d '\r')"
 runner="$(printf '%s\n' "$instrumentations" | awk '/flutter_pdf_text/ {sub(/^instrumentation:/, ""); sub(/ .*/, ""); print; exit}')"
 target="$(printf '%s\n' "$instrumentations" | sed -n '/flutter_pdf_text/s/.*target=\([^)]*\).*/\1/p' | head -n 1)"
 if [[ -z "$runner" || -z "$target" ]]; then
-  echo "C500_G0D_INSTRUMENTATION_IDENTITY_UNAVAILABLE" >&2
+  echo "C500_G0D_INSTRUMENTATION_IDENTITY_UNAVAILABLE_AFTER_REINSTALL" >&2
   exit 64
 fi
 echo "C500_G0D_TEST_TARGET=$target"

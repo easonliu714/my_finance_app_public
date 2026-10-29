@@ -62,6 +62,11 @@ jobs:
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         run: flutter test test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart
 
+      - name: G0d instrumentation reinstall contract (synthetic mock, no Android)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: bash tool/c500_g0_android_renderer_lab_contract_test.sh
+
       - name: Attempt BOTH exact MOF PDFs with bounded stream and structure probe
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         shell: bash
