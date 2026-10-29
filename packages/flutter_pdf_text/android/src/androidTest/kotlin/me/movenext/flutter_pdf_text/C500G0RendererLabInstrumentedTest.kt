@@ -15,6 +15,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -72,6 +75,58 @@ class C500G0RendererLabInstrumentedTest {
     println("C500_G0D " + message)
   }
 
+  // C500-G0h: lab-only bounded heap trajectory during PDFBox object-graph
+  // construction. A native crash can bypass finally; periodic logs survive.
+  private class BoundedPdfBoxHeapSampler(
+    private val period: String,
+    private val engine: String
+  ) {
+    private val running = AtomicBoolean(false)
+    private val count = AtomicInteger(0)
+    private val peakBytes = AtomicLong(0)
+    private var worker: Thread? = null
+
+    fun start() {
+      check(running.compareAndSet(false, true)) { "C500_G0H_SAMPLER_ALREADY_RUNNING" }
+      worker = Thread({
+        while (running.get() && count.get() < 720) {
+          val runtime = Runtime.getRuntime()
+          val used = runtime.totalMemory() - runtime.freeMemory()
+          // Single-writer peak; no retained sample history or page data.
+          val peak = maxOf(peakBytes.get(), used)
+          peakBytes.set(peak)
+          val number = count.incrementAndGet()
+          if (number == 1 || number % 4 == 0) {
+            Log.i("C500_G0H",
+              "period=$period engine=$engine sample=$number" +
+              " java_used_bytes=$used java_peak_bytes=$peak" +
+              " java_max_bytes=${runtime.maxMemory()}" +
+              " interval_ms=250 max_samples=720")
+          }
+          try {
+            Thread.sleep(250L)
+          } catch (_: InterruptedException) {
+            break
+          }
+        }
+      }, "c500-g0h-pdfbox-heap")
+      worker?.isDaemon = true
+      worker?.start()
+    }
+
+    fun stop(): Pair<Int, Long> {
+      running.set(false)
+      worker?.interrupt()
+      worker?.join(1000L)
+      val result = Pair(count.get(), peakBytes.get())
+      Log.i("C500_G0H",
+        "period=$period engine=$engine stage=SAMPLER_STOP" +
+        " samples=${result.first} java_peak_bytes=${result.second}" +
+        " max_samples=720")
+      return result
+    }
+  }
+
   @Test fun provisionAndRejectWrongSourceBeforeEngineOpen() {
     val dir = labDirectory()
     assertTrue("Lab directory creation", dir.isDirectory || dir.mkdirs())
@@ -87,6 +142,14 @@ class C500G0RendererLabInstrumentedTest {
       fake.delete()
     }
     assertNotNull("Lab path must be app-specific", targetContext.getExternalFilesDir("c500_g0_lab"))
+    // Synthetic lifecycle check only; no official PDF is opened here.
+    val sampler = BoundedPdfBoxHeapSampler("SYNTHETIC", "LAB_ONLY")
+    sampler.start()
+    Thread.sleep(1000L)
+    val (samples, peak) = sampler.stop()
+    assertTrue("C500_G0H_SYNTHETIC_SAMPLER_NO_SAMPLES", samples in 1..720)
+    assertTrue("C500_G0H_SYNTHETIC_SAMPLER_INVALID_PEAK",
+      peak > 0L && peak <= Runtime.getRuntime().maxMemory())
   }
 
   @Test fun oldOfficialPdfRendererOpenAndBoundedPages() {
@@ -136,11 +199,13 @@ class C500G0RendererLabInstrumentedTest {
     // The unique scratch dir belongs only to this instrumentation test app.
     val scratch = File.createTempFile("c500_g0_pdfbox_", ".scratch", targetContext.cacheDir)
     check(scratch.delete() && scratch.mkdir()) { "C500_G0F_SCRATCH_UNAVAILABLE" }
+    val sampler = BoundedPdfBoxHeapSampler(period, engine)
     try {
       emit(period, "INIT_BEGIN", started, engine = engine)
       PDFBoxResourceLoader.init(targetContext.applicationContext)
       emit(period, "INIT_OK", started, engine = engine)
       emit(period, "OPEN_BEGIN", started, engine = engine)
+      sampler.start()
       val setting = MemoryUsageSetting.setupTempFileOnly().setTempDir(scratch)
       PDDocument.load(source, "", setting).use { document ->
         val pageCount = document.numberOfPages
@@ -153,6 +218,7 @@ class C500G0RendererLabInstrumentedTest {
         "failure_class=" + failure.javaClass.simpleName, engine)
       throw failure
     } finally {
+      sampler.stop()
       scratch.deleteRecursively()
     }
   }
