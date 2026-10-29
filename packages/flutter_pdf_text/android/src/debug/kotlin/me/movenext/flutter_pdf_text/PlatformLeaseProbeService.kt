@@ -59,8 +59,14 @@ class PlatformLeaseProbeService : Service() {
             .toPath().toAbsolutePath().normalize()
           val parent = temp.parent ?: throw IOException("C18_TEMP_PARENT_MISSING")
           val cache = cacheDir.toPath().toAbsolutePath().normalize()
+          // C21A: allow only the two UUID-scoped C12/C21 Android test roots.
+          // The production writer test uses pr45-c21-; a C18-only prefix
+          // incorrectly returned IOException before any adversarial swap.
+          val allowedParent = Regex(
+            "^pr45-c(?:12|21)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          ).matches(parent.fileName.toString())
           if (parent.parent != cache ||
-              !parent.fileName.toString().startsWith("pr45-c12-") ||
+              !allowedParent ||
               !temp.fileName.toString().startsWith(".result.json.") ||
               !temp.fileName.toString().endsWith(".tmp") ||
               !Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS) ||

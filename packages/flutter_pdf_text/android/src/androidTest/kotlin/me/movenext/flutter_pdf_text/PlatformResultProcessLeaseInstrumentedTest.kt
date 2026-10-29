@@ -309,6 +309,37 @@ class PlatformResultProcessLeaseInstrumentedTest {
   }
 
 
+
+  /**
+   * C21A Android negative: debug fault injection must reject unrelated
+   * cache roots without renaming or mutating their temporary file. The
+   * companion C21 production-writer test is the positive authorized scope.
+   */
+  @Test fun c21DebugSwapRejectsUnscopedCacheParentWithoutMutation() {
+    val parent = File(targetContext.cacheDir, "pr45-unscoped-${UUID.randomUUID()}")
+    assertTrue("C21A isolated cache parent", parent.mkdirs())
+    val displaced = File(parent.parentFile, parent.name + "-held")
+    try {
+      val temp = Files.createTempFile(parent.toPath(), ".result.json.", ".tmp")
+      val expected = "UNCHANGED_TEST_BYTES".toByteArray(Charsets.UTF_8)
+      Files.write(temp, expected)
+      RemoteLease(targetContext).use { remote ->
+        val denied = remote.call(PlatformLeaseProbeService.SWAP_C12_PARENT, temp.toString())
+        assertNotEquals("C21A independent Android PID", Process.myPid(), denied.getInt("pid"))
+        assertEquals("C21A same Android UID", Process.myUid(), denied.getInt("uid"))
+        assertEquals("IOException", denied.getString("error"))
+        assertFalse("C21A unscoped swap denied", denied.getBoolean("swapped"))
+      }
+      assertTrue("C21A original parent remains", Files.isDirectory(parent.toPath()))
+      assertFalse("C21A no displaced parent", displaced.exists())
+      assertTrue("C21A temporary file remains", Files.exists(temp))
+      assertTrue("C21A temporary bytes unchanged", Files.readAllBytes(temp).contentEquals(expected))
+    } finally {
+      parent.deleteRecursively()
+      displaced.deleteRecursively()
+    }
+  }
+
   /**
    * C21 real Android API35 independent-PID source-bound regression of the
    * default C20 production writer, not merely the C19 directory-stream

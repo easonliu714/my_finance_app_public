@@ -977,3 +977,17 @@ Gate A new 4.20.36+494 code + unit tests SOURCE CANDIDATE only until new exact-h
 - FIRST FRESH READ PR OPEN/DRAFT HEAD `284129956f30fff892d0fb0a15e3722e52ddcbd8`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, version 4.20.36+494, Issue #13 OPEN. Exact-head CI #40801016353 complete FAILURE: original native JVM job log 574022 characters, 69 tests/1 failed at C17 `failedPublicationMustNotLeaveForgedResultVisible` line 191; API35 emulator original job log 128356 characters, 7 tests/1 failed at C18 `c18CrossPidParentSwapMustNotExposeForgedResultAfterFailedPublish` line 262. Both RED assertions remain unchanged.
 - C21 adds `c21DefaultProductionWriterAnchorsPublicationAcrossCrossPidSwap` to real API35 instrumentation. It invokes the actual default C20 production writer while a separate same-UID Android PID swaps parent and temporary pathname at the existing test seam. Assertions: trusted bytes in held original directory, no writer promotion of the hostile replacement-directory temp, and public-path readback fail-closed. This is a bounded writer-side custody regression, NOT full consumer authority or durable recovery.
 - Await exact-head CI/JUnit before claiming C21 PASS. C17/C18, arbitrary same-UID forged consumer pathname, C13 hostile FD, fsync crash recovery, ~87K-page negative completeness, Android physical phone and Signed >=4.20.37+495 all HOLD. PR OPEN/DRAFT/Merge HOLD, no main/ledger/SQLite/POSTED NT$700/official PDF/LKG mutation, no auto-post.
+
+### 2026-10-29 C21A API35 Debug Probe strict-scope repair (source committed; CI pending)
+```text
+Debug-only PlatformLeaseProbeService.SWAP_C12_PARENT
+  ├── allowed immediate cache roots: pr45-c12-<UUID> OR pr45-c21-<UUID>
+  ├── required temp: .result.json.*.tmp, existing regular NOFOLLOW
+  ├── unrelated cache parent → IOException / no mutation (new API35 negative)
+  ├── separate PID / same app UID / SELinux evidence retained
+  └── production C20 default writer → C21 real Android positive (must rerun)
+Production PlatformResultAtomicWriter / ResultProcessLease / SourceSnapshotCustody
+  └── UNCHANGED; C17/C18 consumer-visible forged-result RED still blocks Gate B
+Storage / ledger / SQLite / official PDF / LKG: UNCHANGED
+```
+Exact prior head `0ae69100e20214e0380101c138310f19f4f2535f` CI [#40802574173](https://github.com/easonliu714/my_finance_app_public/actions/runs/40802574173) FAILED with C21 debug scope IOException, C17/C18 RED; next exact-head CI required. No Signed/Owner APK authority, no release bump, no merge. Consumer receipt/durable recovery, hostile same-UID FD, real-device and global 87K negative proof HOLD.
