@@ -20,7 +20,7 @@ jobs:
   official-source-only-lab:
     name: Pinned MOF binary acquisition and bounded structure (NOT G0 PASS)
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 48
     steps:
       - name: Checkout exact PR source HEAD
         uses: actions/checkout@v4
@@ -130,3 +130,33 @@ jobs:
           : "${G0_NEW_PDF:?G0C_NEW_OFFICIAL_BINARY_MISSING}"
           timeout 300s flutter test test/features/invoice/invoice_award_cloud_g0_lab_test.dart --reporter expanded
           echo "G0c: real official source hashes and same bounded structure probe PASS only; Android PDF engines, PSS and original OOM root cause NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+
+      # G0d: separate API35 emulator; actual official binaries never leave the runner.
+      # This is PdfRenderer-only open and three-page sampling, NOT G0 PASS.
+      - name: Setup Java 17 for G0d Android renderer lab
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare isolated Android test host
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android .
+          flutter pub get
+          test -c /dev/kvm || { echo 'G0D_ANDROID_KVM_UNAVAILABLE' >&2; exit 60; }
+          sudo chmod a+rw /dev/kvm
+
+      - name: G0d Android API35 real official pair PdfRenderer open lab
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          working-directory: ./android
+          script: bash ../tool/c500_g0_android_renderer_lab.sh
