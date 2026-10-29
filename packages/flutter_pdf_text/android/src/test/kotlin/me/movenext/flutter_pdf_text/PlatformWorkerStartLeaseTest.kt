@@ -89,4 +89,30 @@ class PlatformWorkerStartLeaseTest {
     assertFalse(lease.isActive())
     assertNull(lease.acquire(42, "other", "/synthetic/other.json"))
   }
+  /**
+   * C25 JVM positive/negative ownership regression for PDFium/Platform parity.
+   * Synthetic kernel callback is not independent Android PID evidence.
+   */
+  @Test fun independentWorkerInstancesShareExclusiveResultOwnership() {
+    val owned = java.util.concurrent.atomic.AtomicBoolean(false)
+    val kernel = { _: String ->
+      if (owned.compareAndSet(false, true)) {
+        java.io.Closeable { owned.set(false) }
+      } else null
+    }
+    val pdfium = PlatformWorkerStartLease(kernel)
+    val platform = PlatformWorkerStartLease(kernel)
+    val first = pdfium.acquire(51, "PDFIUM-A", "/synthetic/shared.json")
+    assertTrue("PDFium must obtain the first lease", first != null)
+    assertNull("A second worker must not obtain the same result lease",
+      platform.acquire(52, "PLATFORM-B", "/synthetic/shared.json"))
+    assertNull("A duplicate PDFium start must be rejected",
+      pdfium.acquire(53, "PDFIUM-C", "/synthetic/shared.json"))
+    assertTrue(pdfium.finish(first!!) { })
+    val recovered = platform.acquire(54, "PLATFORM-D", "/synthetic/shared.json")
+    assertTrue("Ownership must recover only after release", recovered != null)
+    assertTrue(platform.finish(recovered!!) { })
+    assertFalse(owned.get())
+  }
+
 }

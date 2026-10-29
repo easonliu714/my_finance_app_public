@@ -31,6 +31,8 @@ import kotlin.concurrent.thread
  * No invoice/accounting data leaves the device.
  */
 class PdfiumCandidateWorkerService : Service() {
+  // C25: use the same OS-held single-owner result lease as the Platform worker.
+  private val startLease = PlatformWorkerStartLease()
   companion object {
     const val EXTRA_PDF_PATH = "pdf_path"
     const val EXTRA_CANDIDATES_JSON = "candidates_json"
@@ -61,13 +63,10 @@ class PdfiumCandidateWorkerService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent == null) {
-      stopSelf(startId)
+      if (!startLease.isActive()) stopSelf(startId)
       return START_NOT_STICKY
     }
-    startForeground(
-      NOTIFICATION_ID,
-      buildNotification("正在處理大型官方 PDF 候選比對")
-    )
+    ensureNotificationChannel()
 
     val pdfPath = intent.getStringExtra(EXTRA_PDF_PATH).orEmpty()
     val candidatesJson = intent.getStringExtra(EXTRA_CANDIDATES_JSON).orEmpty()
@@ -79,7 +78,20 @@ class PdfiumCandidateWorkerService : Service() {
       intent.getStringExtra(EXTRA_EXPECTED_CANDIDATE_UNIVERSE_SHA256).orEmpty()
     val resultPath = intent.getStringExtra(EXTRA_RESULT_PATH).orEmpty()
     val requestId = intent.getStringExtra(EXTRA_REQUEST_ID).orEmpty()
-    thread(start = true, name = "issue13-cloud500-worker") {
+
+    // C25: denied/overlapping ownership is UNKNOWN, never a second writer,
+    // a FAILED terminal, or teardown of the existing foreground owner.
+    val token = startLease.acquire(startId, requestId, resultPath)
+    if (token == null) {
+      if (!startLease.isActive()) stopSelf(startId)
+      return START_NOT_STICKY
+    }
+    try {
+      startForeground(
+        NOTIFICATION_ID,
+        buildNotification("正在處理大型官方 PDF 候選比對")
+      )
+      thread(start = true, name = "issue13-cloud500-worker") {
       try {
         runLookup(
           pdfPath,
@@ -99,9 +111,16 @@ class PdfiumCandidateWorkerService : Service() {
           "PDFIUM_WORKER_FAILED:${error.javaClass.simpleName}"
         )
       } finally {
-        stopForeground(true)
-        stopSelf(startId)
+        startLease.finish(token) {
+          try { stopForeground(true) } finally { stopSelf() }
+        }
       }
+      }
+    } catch (startError: Throwable) {
+      startLease.finish(token) {
+        try { stopForeground(true) } finally { stopSelf() }
+      }
+      throw startError
     }
     return START_NOT_STICKY
   }
