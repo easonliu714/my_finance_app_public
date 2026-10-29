@@ -1,0 +1,83 @@
+name: C500 G0 Official PDF Source Lab
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/c500_g0_acquire.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart'
+      - '.github/workflows/c500_g0_source_lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c500-g0-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  official-source-only-lab:
+    name: Pinned MOF binary acquisition and bounded structure (NOT G0 PASS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout exact PR source HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Gate one-shot PR diagnostic or explicit manual dispatch
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_lab=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            run_lab=true
+          elif [[ "${{ github.event_name }}" == "pull_request" ]] && \
+               [[ "$(git log -1 --format=%s)" == *"[G0-SOURCE-LAB]"* ]]; then
+            run_lab=true
+          fi
+          echo "run_lab=$run_lab" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)"
+          echo "LAB_ENABLED=$run_lab"
+          if [[ "$run_lab" != "true" ]]; then
+            echo "One-shot G0 source lab not requested on this commit; no binary fetch." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Setup Flutter/Dart (lab only)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve existing dependencies (lab only)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        run: flutter pub get
+
+      - name: G0a synthetic source/timeout regressions (not official evidence)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        run: flutter test test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart
+
+      - name: Attempt BOTH exact MOF PDFs with bounded stream and structure probe
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          echo "G0_SOURCE_LAB_HEAD=$(git rev-parse HEAD)"
+          echo "No official PDFs are uploaded, committed, signed or promoted."
+          set +e
+          dart run tool/c500_g0_acquire.dart 2>&1 | tee c500-g0-source-lab.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if (( rc != 0 )); then
+            echo "C500-G0: HOLD — source binary unavailable or pin/probe mismatch. Inspect exact error in job log." >> "$GITHUB_STEP_SUMMARY"
+            echo "Native engines, Android PSS, root cause and global negative proof: NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+            exit "$rc"
+          fi
+          echo "C500-G0a: both binaries acquired and bounded structure inspected ONLY." >> "$GITHUB_STEP_SUMMARY"
+          echo "G0 root cause, Android engine/PSS and global negative proof: NOT_PROVEN/NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
