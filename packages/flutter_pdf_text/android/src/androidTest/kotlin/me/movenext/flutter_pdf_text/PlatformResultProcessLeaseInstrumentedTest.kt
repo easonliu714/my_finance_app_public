@@ -17,6 +17,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.Closeable
+import java.io.IOException
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -195,4 +196,74 @@ class PlatformResultProcessLeaseInstrumentedTest {
       }
     } finally { first?.close() }
   }
+
+  /**
+   * C18 Android API35 positive: the real production writer publishes exact
+   * bytes and directory-fsync succeeds without a hostile parent replacement.
+   * This is emulator runtime evidence, not physical phone or durability after
+   * a power loss.
+   */
+  @Test fun c18NormalAndroidResultPublicationMatchesTrustedBytes() {
+    val parent = File(targetContext.cacheDir, "pr45-c12-${UUID.randomUUID()}")
+    assertTrue("C18 private test directory", parent.mkdirs())
+    try {
+      val target = File(parent, "result.json")
+      PlatformResultAtomicWriter(protectTerminal = false).write(
+        target.absolutePath, "TRUSTED_RESULT")
+      assertEquals("TRUSTED_RESULT", target.readText(Charsets.UTF_8))
+    } finally {
+      parent.deleteRecursively()
+    }
+  }
+
+  /**
+   * C18 real independent Android PID/UID witness for C12. The DEBUG-only
+   * remote process replaces the parent and temporary pathname while the
+   * production writer is paused at its existing atomicReplace seam.
+   * A detected IOException is not enough: a forged consumer-visible result
+   * must not survive. Expected RED until an actual publication protocol
+   * prevents promotion of untrusted bytes; never mask or skip this assertion.
+   */
+  @Test fun c18CrossPidParentSwapMustNotExposeForgedResultAfterFailedPublish() {
+    val parent = File(targetContext.cacheDir, "pr45-c12-${UUID.randomUUID()}")
+    assertTrue("C18 private test directory", parent.mkdirs())
+    val target = File(parent, "result.json")
+    val displaced = File(parent.parentFile, parent.name + "-held")
+    try {
+      RemoteLease(targetContext).use { remote ->
+        var injected = false
+        val writer = PlatformResultAtomicWriter(
+          protectTerminal = false,
+          atomicReplace = { temp, destination ->
+            val swap = remote.call(PlatformLeaseProbeService.SWAP_C12_PARENT, temp.toString())
+            assertIndependentSameUid(swap)
+            assertTrue("C18_REMOTE_PARENT_SWAP_FAILED", swap.getBoolean("swapped"))
+            injected = true
+            Files.move(temp, destination,
+              StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+          },
+          syncParent = {
+            throw AssertionError("C18_FORGED_PUBLICATION_MUST_NOT_REACH_FSYNC")
+          }
+        )
+        var failure: IOException? = null
+        try {
+          writer.write(target.absolutePath, "TRUSTED_RESULT")
+        } catch (error: IOException) {
+          failure = error
+        }
+        assertTrue("C18 remote process must have injected swap", injected)
+        assertNotNull("C18 writer must fail closed on forged bytes", failure)
+        assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure!!.message)
+        println("C18_API35_CROSS_PID_PUBLICATION local_pid=${Process.myPid()} " +
+          "result_visible=${Files.exists(target.toPath())}")
+        assertFalse("C18_ANDROID_CROSS_PID_FORGED_RESULT_VISIBLE_AFTER_FAILED_PUBLICATION",
+          Files.exists(target.toPath()))
+      }
+    } finally {
+      parent.deleteRecursively()
+      displaced.deleteRecursively()
+    }
+  }
+
 }
