@@ -1016,3 +1016,9 @@ C13 arbitrary writable FD / durable fsync / 87K global negative: HOLD
 SQLite / ledger / POSTED NT$700 / official PDF-LKG: FROZEN
 ```
 PR OPEN/DRAFT/Merge HOLD, version 4.20.36+494; no Signed/Owner APK. Previous exact-head CI #40811726404: C17/C18 RED, true Signed #40811734103 FAILED. C23 is a bounded PDFium writer fix, not trusted consumer authority.
+
+
+### 2026-10-29 C24 PDFium source inode custody — source/test submitted, exact-head CI required
+- Fresh PR OPEN/DRAFT pre-HEAD `48e19bcc8fe6f6204ad51803caeeb9f9d8dc99b2`; main remains `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; version `4.20.36+494`. Exact-head Flutter CI #40816790468 FAILED only strict C17 native JVM (69/1, line 191) and C18 Android API35 (9/1, line 262); Signed #40816797529 FAILED CI authority, no release APK. C23 PDFium publisher regressions were not first failures.
+- C24 removes PDFium's separate `sha256File(source)` followed by `ParcelFileDescriptor.open(source)` pathname reopen. PDFium now consumes the SHA-verified unlinked private snapshot FD returned by `PlatformSourceSnapshotCustody`, and terminal `source_bytes` comes from that verified snapshot, not mutable `source.length()`. The descriptor is closed on failed open and transferred to PDFium only on successful `newDocument`. Add two Robolectric API35 source identity/mismatch tests.
+- This closes a bounded PDFium source pathname-swap TOCTOU, NOT same-UID hostile post-return writable FD, trusted Consumer acceptance, C17/C18 arbitrary public pathname visibility, fsync crash recovery or ~87K global-negative completeness. Strict C17/C18 RED remain unchanged and `SPEC_UNSATISFIABLE_OR_OWNER_THREAT_MODEL_DECISION_REQUIRED` / `SECURITY_GATE_NOT_CONVERGING` remain. PR OPEN/DRAFT/Merge HOLD; no main, ledger/SQLite/POSTED NT$700/official PDF/LKG mutation, no auto-post; no Owner APK.

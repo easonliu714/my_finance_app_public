@@ -13,6 +13,7 @@ import io.legere.pdfiumandroid.PdfiumCore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -170,33 +171,37 @@ class PdfiumCandidateWorkerService : Service() {
       candidateCount = candidates.size,
       sourceBytesTotal = expectedSourceBytes
     )
-    val actualSourceSha256 = sha256File(source) { bytesRead ->
-      writeRunning(
-        resultPath = resultPath,
-        requestId = requestId,
-        stage = "PDFIUM_SOURCE_SHA256",
-        candidateIndex = 0,
-        candidateCount = candidates.size,
-        sourceBytesRead = bytesRead,
-        sourceBytesTotal = expectedSourceBytes
-      )
+    // C24: PDFium must parse the SAME unlinked, SHA-verified snapshot inode.
+    // Hashing one source pathname and opening it again is a TOCTOU gap.
+    val verifiedSource = try {
+      PlatformPdfiumSourceAuthority.capture(
+        source, cacheDir, expectedSourceBytes, expectedSourceSha256
+      ) { bytesRead ->
+        writeRunning(
+          resultPath = resultPath,
+          requestId = requestId,
+          stage = "PDFIUM_SOURCE_SHA256",
+          candidateIndex = 0,
+          candidateCount = candidates.size,
+          sourceBytesRead = bytesRead,
+          sourceBytesTotal = expectedSourceBytes
+        )
+      }
+    } catch (error: IOException) {
+      val code = when (error.message) {
+        "SOURCE_CUSTODY_SHA256_MISMATCH" -> "PDFIUM_WORKER_SOURCE_SHA256_MISMATCH"
+        "SOURCE_CUSTODY_BYTES_MISMATCH", "SOURCE_CUSTODY_BYTES_EXCEEDED" ->
+          "PDFIUM_WORKER_SOURCE_BYTES_MISMATCH"
+        else -> null
+      }
+      if (code != null) {
+        writeFailure(resultPath, requestId, code)
+        return
+      }
+      throw error
     }
-    if (!actualSourceSha256.equals(expectedSourceSha256, ignoreCase = true)) {
-      writeFailure(resultPath, requestId, "PDFIUM_WORKER_SOURCE_SHA256_MISMATCH")
-      return
-    }
-
-    writeRunning(
-      resultPath = resultPath,
-      requestId = requestId,
-      stage = "PDFIUM_OPEN_BEGIN",
-      candidateIndex = 0,
-      candidateCount = candidates.size,
-      sourceBytesRead = expectedSourceBytes,
-      sourceBytesTotal = expectedSourceBytes
-    )
-
-    var descriptor: ParcelFileDescriptor? = null
+    val actualSourceSha256 = verifiedSource.sha256
+    var descriptor: ParcelFileDescriptor? = verifiedSource.descriptor
     val opening = AtomicBoolean(true)
     val openStartedAt = SystemClock.elapsedRealtime()
     val openHeartbeat = thread(
@@ -225,7 +230,16 @@ class PdfiumCandidateWorkerService : Service() {
       }
     }
     try {
-      descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+      writeRunning(
+        resultPath = resultPath,
+        requestId = requestId,
+        stage = "PDFIUM_OPEN_BEGIN",
+        candidateIndex = 0,
+        candidateCount = candidates.size,
+        sourceBytesRead = verifiedSource.bytes,
+        sourceBytesTotal = expectedSourceBytes
+      )
+      // Descriptor custody transfers only after PDFium accepts it.
       val document = pdfiumCore.newDocument(descriptor)
       opening.set(false)
       openHeartbeat.interrupt()
@@ -347,7 +361,7 @@ class PdfiumCandidateWorkerService : Service() {
           .put("pages_read", pagesRead.size)
           .put("candidate_count", candidates.size)
           .put("source_sha256", actualSourceSha256)
-          .put("source_bytes", source.length())
+          .put("source_bytes", verifiedSource.bytes)
           .put("candidate_universe_sha256", actualCandidateUniverseSha256)
           .put("matched", JSONArray(matched.toList()))
           .put("matched_pages", matchedPagesJson)
@@ -406,30 +420,6 @@ class PdfiumCandidateWorkerService : Service() {
       .put("stage_elapsed_ms", stageElapsedMs)
       .put("updated_at_ms", System.currentTimeMillis())
     writeAtomic(resultPath, payload.toString())
-  }
-
-  private fun sha256File(file: File, onProgress: (Long) -> Unit): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val buffer = ByteArray(64 * 1024)
-    var totalRead = 0L
-    var nextProgress = 8L * 1024L * 1024L
-    file.inputStream().buffered().use { input ->
-      while (true) {
-        val read = input.read(buffer)
-        if (read < 0) break
-        if (read == 0) continue
-        digest.update(buffer, 0, read)
-        totalRead += read
-        if (totalRead >= nextProgress) {
-          onProgress(totalRead)
-          nextProgress = totalRead + 8L * 1024L * 1024L
-        }
-      }
-    }
-    onProgress(totalRead)
-    return digest.digest().joinToString("") {
-      (it.toInt() and 0xff).toString(16).padStart(2, '0')
-    }
   }
 
   private fun sha256Bytes(bytes: ByteArray): String {
