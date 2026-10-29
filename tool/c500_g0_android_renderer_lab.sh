@@ -41,7 +41,7 @@ run_case() {
   echo "C500_G0D_CASE_BEGIN=$method"
   timeout 180s adb shell am instrument -w -r -e class "me.movenext.flutter_pdf_text.C500G0RendererLabInstrumentedTest#$method" "$runner" > "$output" 2>&1 || status=$?
   grep -E 'C500_G0D|OK \(|FAILURES|INSTRUMENTATION_' "$output" | tail -n 50 || true
-  timeout 15s adb logcat -d -s C500_G0D:I AndroidRuntime:E libc:E | tail -n 60 || true
+  timeout 15s adb logcat -d -s C500_G0D:I C500_G0H:I AndroidRuntime:E libc:E | tail -n 60 || true
   if [[ "$status" -ne 0 ]] || ! grep -Fq 'OK (1 test)' "$output"; then
     if [[ "$method" == *Pdfium* || "$method" == *PdfBox* ]]; then
       if [[ "$method" == *Pdfium* ]]; then
