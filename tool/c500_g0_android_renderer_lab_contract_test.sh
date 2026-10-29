@@ -33,7 +33,15 @@ if [[ "$1" == shell && "$2" == pm ]]; then
   fi
   exit 0
 fi
-if [[ "$1" == shell && "$2" == am ]]; then echo 'OK (1 test)'; exit 0; fi
+if [[ "$1" == shell && "$2" == am ]]; then
+  if [[ "${C500_TEST_PDFIUM_OLD_FAIL:-0}" == 1 && "$*" == *oldOfficialPdfiumOpenOnly* ]]; then
+    echo 'FAILURES!!!'
+    exit 0
+  fi
+  echo 'OK (1 test)'
+  exit 0
+fi
+if [[ "$1" == logcat ]]; then exit 0; fi
 if [[ "$1" == shell && "$2" == mkdir ]]; then exit 0; fi
 if [[ "$1" == push ]]; then exit 0; fi
 if [[ "$1" == logcat ]]; then exit 0; fi
@@ -49,13 +57,23 @@ export G0_OLD_PDF="$tmp/old.pdf" G0_NEW_PDF="$tmp/new.pdf"
 grep -Fq 'C500_G0D_INSTRUMENTATION_TEST_APK_REINSTALLED' "$tmp/output"
 grep -Fq 'C500_G0D_CASE_PASS=oldOfficialPdfRendererOpenAndBoundedPages' "$tmp/output"
 grep -Fq 'C500_G0D_CASE_PASS=newOfficialPdfRendererOpenAndBoundedPages' "$tmp/output"
+grep -Fq 'C500_G0E_CASE_PASS=oldOfficialPdfiumOpenOnly' "$tmp/output"
+grep -Fq 'C500_G0E_CASE_PASS=newOfficialPdfiumOpenOnly' "$tmp/output"
 [[ "$(grep -c '^install -r -t ' "$tmp/trace")" == 1 ]]
 [[ "$(grep -c '^push ' "$tmp/trace")" == 2 ]]
-[[ "$(grep -c '^shell am instrument ' "$tmp/trace")" == 2 ]]
+[[ "$(grep -c '^shell am instrument ' "$tmp/trace")" == 4 ]]
+# A PDFium instrumentation failure must not mask the next period, and must
+# produce a failing overall gate even when adb itself returns exit 0.
+if (cd "$tmp/android" && C500_TEST_PDFIUM_OLD_FAIL=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/pdfium-failure-output" 2>&1; then
+  echo 'C500_G0E_CONTRACT_EXPECTED_PDFIUM_FAILURE' >&2
+  exit 75
+fi
+grep -Fq 'C500_G0D_CASE_FAILED=oldOfficialPdfiumOpenOnly' "$tmp/pdfium-failure-output"
+grep -Fq 'C500_G0E_CASE_PASS=newOfficialPdfiumOpenOnly' "$tmp/pdfium-failure-output"
 rm -rf "$tmp/build" "$tmp/installed"
 if (cd "$tmp/android" && C500_TEST_NO_APK=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/no-apk-output" 2>&1; then
   echo 'C500_G0D_CONTRACT_EXPECTED_MISSING_APK_FAILURE' >&2
   exit 74
 fi
 grep -Fq 'C500_G0D_ANDROIDTEST_APK_MISSING_OR_AMBIGUOUS' "$tmp/no-apk-output"
-echo 'PASS C500_G0D_MOCK_REINSTALL_DISCOVERY_AND_MISSING_APK_FAIL_CLOSED'
+echo 'PASS C500_G0E_MOCK_REINSTALL_PDFIUM_FAILURE_ISOLATION_AND_MISSING_APK_FAIL_CLOSED'

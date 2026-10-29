@@ -1,6 +1,7 @@
 package me.movenext.flutter_pdf_text
 
 import android.graphics.pdf.PdfRenderer
+import io.legere.pdfiumandroid.PdfiumCore
 import android.os.Debug
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -52,12 +53,12 @@ class C500G0RendererLabInstrumentedTest {
     return actual.equals(expectedSha, ignoreCase = false)
   }
 
-  private fun emit(period: String, stage: String, start: Long, extra: String = "") {
+  private fun emit(period: String, stage: String, start: Long, extra: String = "", engine: String = "Android35_PdfRenderer") {
     val memory = Debug.MemoryInfo()
     Debug.getMemoryInfo(memory)
     val runtime = Runtime.getRuntime()
     val message = "period=" + period +
-      " engine=Android35_PdfRenderer stage=" + stage +
+      " engine=" + engine + " stage=" + stage +
       " elapsed_ms=" + (SystemClock.elapsedRealtime() - start) +
       " java_used_bytes=" + (runtime.totalMemory() - runtime.freeMemory()) +
       " java_max_bytes=" + runtime.maxMemory() +
@@ -92,6 +93,18 @@ class C500G0RendererLabInstrumentedTest {
 
   @Test fun newOfficialPdfRendererOpenAndBoundedPages() {
     inspect("115-07-08", "new.pdf", 135200798L,
+      "f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571")
+  }
+
+  // C500-G0e: exact production PDFiumCore.newDocument API; separate invocation
+  // per pinned official file. OPEN-ONLY, not page completeness or NOT_WIN proof.
+  @Test fun oldOfficialPdfiumOpenOnly() {
+    inspectPdfiumOpen("115-05-06", "old.pdf", 119769589L,
+      "1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe")
+  }
+
+  @Test fun newOfficialPdfiumOpenOnly() {
+    inspectPdfiumOpen("115-07-08", "new.pdf", 135200798L,
       "f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571")
   }
 
@@ -134,4 +147,37 @@ class C500G0RendererLabInstrumentedTest {
       try { descriptor?.close() } catch (_: Throwable) {}
     }
   }
+
+  // Lab-only and bounded: PDFium is invoked once per fresh instrumentation
+  // process. A native SIGSEGV may bypass Throwable; the host captures the
+  // instrumentation exit and crash log, then independently runs the next file.
+  private fun inspectPdfiumOpen(period: String, name: String, size: Long, sha: String) {
+    val started = SystemClock.elapsedRealtime()
+    val engine = "Android35_PdfiumCore_1.0.35"
+    val source = File(labDirectory(), name)
+    emit(period, "SOURCE_SHA256_BEGIN", started, "expected_bytes=" + size, engine)
+    assertTrue("C500_G0E_PINNED_BINARY_MISSING_OR_MISMATCH_" + period,
+      isPinned(source, size, sha))
+    emit(period, "SOURCE_SHA256_OK", started, engine = engine)
+    var descriptor: ParcelFileDescriptor? = null
+    try {
+      emit(period, "OPEN_BEGIN", started, engine = engine)
+      descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+      val document = PdfiumCore(targetContext).newDocument(descriptor)
+      descriptor = null // ownership transferred only after successful open
+      document.use {
+        val pageCount = it.getPageCount()
+        assertTrue("C500_G0E_PAGE_COUNT_INVALID", pageCount > 0)
+        emit(period, "OPEN_OK", started, "page_count=" + pageCount, engine)
+      }
+      emit(period, "OPEN_ONLY_PASS_NOT_GLOBAL_NEGATIVE", started, engine = engine)
+    } catch (failure: Throwable) {
+      emit(period, "ENGINE_FAILED", started,
+        "failure_class=" + failure.javaClass.simpleName, engine)
+      throw failure
+    } finally {
+      try { descriptor?.close() } catch (_: Throwable) {}
+    }
+  }
+
 }

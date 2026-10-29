@@ -40,13 +40,24 @@ run_case() {
   grep -E 'C500_G0D|OK \(|FAILURES|INSTRUMENTATION_' "$output" | tail -n 50 || true
   timeout 15s adb logcat -d -s C500_G0D:I AndroidRuntime:E libc:E | tail -n 60 || true
   if [[ "$status" -ne 0 ]] || ! grep -Fq 'OK (1 test)' "$output"; then
+    if [[ "$method" == *Pdfium* ]]; then
+      echo "C500_G0E_NATIVE_CRASH_BUFFER_BEGIN=$method"
+      timeout 15s adb logcat -b crash -d -t 80 | tail -n 70 || true
+    fi
     echo "C500_G0D_CASE_FAILED=$method exit=$status" >&2
     return 1
   fi
-  echo "C500_G0D_CASE_PASS=$method (OPEN_AND_THREE_PAGES_ONLY)"
+  if [[ "$method" == *Pdfium* ]]; then
+    echo "C500_G0E_CASE_PASS=$method (OPEN_ONLY_NOT_GLOBAL_NEGATIVE)"
+  else
+    echo "C500_G0D_CASE_PASS=$method (OPEN_AND_THREE_PAGES_ONLY)"
+  fi
 }
 status=0
 run_case oldOfficialPdfRendererOpenAndBoundedPages || status=1
 run_case newOfficialPdfRendererOpenAndBoundedPages || status=1
-echo "C500_G0D_NOT_PDFBOX_OR_PDFIUM_NOT_GLOBAL_NEGATIVE_NOT_PRODUCTION_AUTHORITY"
+# C500-G0e: two independent instrumentation processes, OPEN ONLY.
+run_case oldOfficialPdfiumOpenOnly || status=1
+run_case newOfficialPdfiumOpenOnly || status=1
+echo "C500_G0E_PDFBOX_NOT_RUN_PDFIUM_OPEN_ONLY_NOT_GLOBAL_NEGATIVE_NOT_PRODUCTION_AUTHORITY"
 exit "$status"
