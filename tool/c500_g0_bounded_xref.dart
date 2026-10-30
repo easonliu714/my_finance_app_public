@@ -572,59 +572,7 @@ class C500G0BoundedXrefInspector {
         }
         final words = latin1.decode(header).trim().split(RegExp(r'\s+'));
         if (words.length != count * 2 ||
-            words.any((word) => !RegExp(r'^\d+
-  if (args.isNotEmpty) {
-    stderr.writeln('C500_G0L_USAGE_NO_ARGUMENTS');
-    exitCode = 64;
-    return;
-  }
-  const sources = <Map<String, Object>>[
-    <String, Object>{
-      'period': '115-05-06',
-      'env': 'G0_OLD_PDF',
-      'bytes': 119769589,
-      'sha': '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe',
-    },
-    <String, Object>{
-      'period': '115-07-08',
-      'env': 'G0_NEW_PDF',
-      'bytes': 135200798,
-      'sha': 'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571',
-    },
-  ];
-  var failures = 0;
-  for (final source in sources) {
-    final period = source['period']! as String;
-    final path = Platform.environment[source['env']! as String];
-    try {
-      if (path == null || path.isEmpty) {
-        throw const C500G0BoundedXrefException('C500_G0L_SOURCE_UNAVAILABLE');
-      }
-      final result = await const C500G0BoundedXrefInspector().inspect(
-        file: File(path),
-        expectedBytes: source['bytes']! as int,
-        expectedSha256: source['sha']! as String,
-        // G0q official experiment: isolate exactly the pinned Catalog and
-        // Pages root; never run unrelated sampled ObjStm scans in this mode.
-        verifyObjectOffsets: false,
-        verifyCompressedMembers: false,
-        verifyCatalogRoot: true,
-      );
-      stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
-    } catch (error) {
-      failures++;
-      stdout.writeln(jsonEncode(<String, Object?>{
-        'period': period,
-        'gate': 'C500_G0L_HOLD_BOUNDED_XREF',
-        'failure': error.toString(),
-        'global_not_win': 'NOT_PROVEN',
-        'award_authority': 'HOLD',
-      }));
-    }
-  }
-  if (failures != 0) exitCode = 1;
-}
-).hasMatch(word))) {
+            words.any((word) => !RegExp(r'^\d+$').hasMatch(word))) {
           throw const C500G0BoundedXrefException('C500_G0O_INDEX_HEADER_INVALID');
         }
         final index = sample['index']!;
