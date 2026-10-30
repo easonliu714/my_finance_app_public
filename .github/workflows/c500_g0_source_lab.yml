@@ -8,6 +8,8 @@ on:
       - 'test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart'
       - 'tool/c500_g0_android_renderer_lab.sh'
       - 'tool/c500_g0_android_renderer_lab_contract_test.sh'
+      - 'tool/c500_g0_qpdf_preflight.sh'
+      - 'tool/c500_g0_qpdf_preflight_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
 
@@ -68,6 +70,11 @@ jobs:
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         shell: bash
         run: bash tool/c500_g0_android_renderer_lab_contract_test.sh
+
+      - name: G0k synthetic qpdf and pinned-source fail-closed contract
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: bash tool/c500_g0_qpdf_preflight_contract_test.sh
 
       - name: Attempt BOTH exact MOF PDFs with bounded stream and structure probe
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -137,6 +144,16 @@ jobs:
           : "${G0_NEW_PDF:?G0C_NEW_OFFICIAL_BINARY_MISSING}"
           timeout 300s flutter test test/features/invoice/invoice_award_cloud_g0_lab_test.dart --reporter expanded
           echo "G0c: real official source hashes and same bounded structure probe PASS only; Android PDF engines, PSS and original OOM root cause NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: G0k bounded independent qpdf structural crosscheck (NOT Android proof)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qpdf
+          bash tool/c500_g0_qpdf_preflight.sh
 
       # G0d/e/f: separate API35 emulator; official binaries never leave runner.
       # PdfRenderer samples 3 pages; PDFium/PDFBox OPEN ONLY in independent PIDs.
