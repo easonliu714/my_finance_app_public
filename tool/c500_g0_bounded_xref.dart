@@ -42,9 +42,9 @@ class C500G0BoundedXrefInspector {
     if (verifyCompressedMembers && !verifyObjectOffsets) {
       throw const C500G0BoundedXrefException('C500_G0O_REQUIRES_OFFSET_VERIFICATION');
     }
-    if (verifyCatalogRoot && !verifyCompressedMembers) {
-      throw const C500G0BoundedXrefException('C500_G0P_REQUIRES_MEMBER_VERIFICATION');
-    }
+    // G0q: Catalog/Pages-root access validates its own direct or compressed
+    // object identity. Unrelated global ObjStm samples are NOT a prerequisite:
+    // a sampled oversized parent must not obscure the root's first failure.
     // Reuse the existing fixed-window SHA/topology probe, not PDFBox/qpdf.
     final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
     if (source.byteLength != expectedBytes ||
@@ -446,10 +446,16 @@ class C500G0BoundedXrefInspector {
     }
     final count = number('N'), first = number('First');
     final compressedLength = number('Length');
-    if (count <= 0 || count > 100000 ||
-        first <= 0 || first > 1024 * 1024 ||
-        compressedLength <= 0 || compressedLength > 2 * 1024 * 1024) {
-      throw const C500G0BoundedXrefException('C500_G0O_STREAM_LIMIT');
+    // G0q: preserve each independent resource ceiling and attribute the
+    // first rejected field; never silently increase a cap for official PDFs.
+    if (count <= 0 || count > 100000) {
+      throw const C500G0BoundedXrefException('C500_G0O_COUNT_LIMIT');
+    }
+    if (first <= 0 || first > 1024 * 1024) {
+      throw const C500G0BoundedXrefException('C500_G0O_FIRST_LIMIT');
+    }
+    if (compressedLength <= 0 || compressedLength > 2 * 1024 * 1024) {
+      throw const C500G0BoundedXrefException('C500_G0O_COMPRESSED_LIMIT');
     }
     final offset = parentOffset + marker.end;
     if (offset < 0 || offset > sourceLength ||
@@ -531,8 +537,10 @@ Future<void> main(List<String> args) async {
         file: File(path),
         expectedBytes: source['bytes']! as int,
         expectedSha256: source['sha']! as String,
-        verifyObjectOffsets: true,
-        verifyCompressedMembers: true,
+        // G0q official experiment: isolate exactly the pinned Catalog and
+        // Pages root; never run unrelated sampled ObjStm scans in this mode.
+        verifyObjectOffsets: false,
+        verifyCompressedMembers: false,
         verifyCatalogRoot: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));

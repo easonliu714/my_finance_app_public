@@ -363,7 +363,7 @@ void main() {
       inspectSynthetic(file, verifyObjectOffsets: true,
           verifyCompressedMembers: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
-        (e) => e.code, 'code', 'C500_G0O_STREAM_LIMIT',
+        (e) => e.code, 'code', 'C500_G0O_COMPRESSED_LIMIT',
       )),
     );
   });
@@ -431,13 +431,23 @@ void main() {
     await rejectsCatalog('C500_G0P_PAGE_COUNT_INVALID',
         () => makeCatalogSynthetic(directory, zeroPageCount: true));
   });
-  test('G0p requires prior ObjStm member verification', () async {
+  // G0q: root-only mode is independently bounded; unrelated sampled parents
+  // must not be touched before the authoritative Root/Pages path is examined.
+  test('G0q verifies Catalog/Pages without unrelated ObjStm samples', () async {
     final file = await makeCatalogSynthetic(directory);
+    final result = await inspectSynthetic(file, verifyCatalogRoot: true);
+    expect(result['catalog_root_verified'], true);
+    expect(result['pages_root_verified'], true);
+    expect(result.containsKey('compressed_members_verified'), false);
+    expect(result['page_tree'], 'ROOT_ONLY_NOT_TRAVERSED');
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0q root-only mode still rejects a forged Root reference', () async {
+    final file = await makeCatalogSynthetic(directory, forgedRoot: true);
     await expectLater(
-      inspectSynthetic(file, verifyObjectOffsets: true,
-          verifyCatalogRoot: true),
+      inspectSynthetic(file, verifyCatalogRoot: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
-        (e) => e.code, 'code', 'C500_G0P_REQUIRES_MEMBER_VERIFICATION',
+        (e) => e.code, 'code', 'C500_G0P_ROOT_XREF_MISSING',
       )),
     );
   });
