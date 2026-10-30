@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'c500_g0_content_glyph_probe.dart';
+
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_bounded_stream_decoder.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_structure_probe.dart';
 
@@ -39,6 +41,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageChild = false,
     bool verifyFirstPagePath = false,
     bool verifyFirstPageContents = false,
+    bool verifyFirstPageGlyphOperands = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -51,6 +54,9 @@ class C500G0BoundedXrefInspector {
     // G0t: one first child only; never claim full page-tree coverage.
     if (verifyFirstPagePath && !verifyFirstPageChild) {
       throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_FIRST_CHILD');
+    }
+    if (verifyFirstPageGlyphOperands && !verifyFirstPageContents) {
+      throw const C500G0BoundedXrefException('C500_G0W_REQUIRES_CONTENT');
     }
     if (verifyFirstPageContents && !verifyFirstPagePath) {
       throw const C500G0BoundedXrefException('C500_G0V_REQUIRES_LEAF_PATH');
@@ -193,7 +199,7 @@ class C500G0BoundedXrefInspector {
           ? await _verifyCatalogRoot(handle, source.byteLength, dictionary,
               decoded, widths, indexes, entryWidth,
               verifyFirstPageChild, verifyFirstPagePath,
-              verifyFirstPageContents)
+              verifyFirstPageContents, verifyFirstPageGlyphOperands)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -252,7 +258,7 @@ class C500G0BoundedXrefInspector {
     RandomAccessFile file, int sourceLength, String xrefDictionary,
     List<int> bytes, List<int> widths, List<int> indexes, int stride,
     bool verifyFirstPageChild, bool verifyFirstPagePath,
-    bool verifyFirstPageContents,
+    bool verifyFirstPageContents, bool verifyFirstPageGlyphOperands,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -427,6 +433,7 @@ class C500G0BoundedXrefInspector {
         if (verifyFirstPageContents) {
           firstChildEvidence.addAll(await _verifyFirstPageContents(
             file, sourceLength, bytes, widths, indexes, stride, nodeBody,
+            verifyFirstPageGlyphOperands,
           ));
         }
       }
@@ -454,6 +461,7 @@ class C500G0BoundedXrefInspector {
   Future<Map<String, Object?>> _verifyFirstPageContents(
     RandomAccessFile file, int sourceLength, List<int> xref,
     List<int> widths, List<int> indexes, int stride, String leaf,
+    bool verifyFirstPageGlyphOperands,
   ) async {
     if (RegExp(r'/Contents\s*\[').hasMatch(leaf)) {
       throw const C500G0BoundedXrefException('C500_G0V_CONTENT_ARRAY_UNSUPPORTED');
@@ -541,7 +549,12 @@ class C500G0BoundedXrefInspector {
       'leftmost_content_compressed_bytes': length,
       'leftmost_content_decoded_bytes': decoded.length,
       'leftmost_content_stream_verified': true,
-      'content_semantics': 'UNPARSED_ONE_PAGE_ONLY',
+      ...verifyFirstPageGlyphOperands
+          ? const C500G0GlyphProbe().inspect(decoded)
+          : const <String, Object?>{},
+      'content_semantics': verifyFirstPageGlyphOperands
+          ? 'GLYPH_OPERANDS_ONE_PAGE_ONLY'
+          : 'UNPARSED_ONE_PAGE_ONLY',
     };
   }
 
@@ -887,6 +900,7 @@ Future<void> main(List<String> args) async {
         verifyFirstPageChild: true,
         verifyFirstPagePath: true,
         verifyFirstPageContents: true,
+        verifyFirstPageGlyphOperands: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {
