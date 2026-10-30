@@ -44,6 +44,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageGlyphOperands = false,
     bool verifyFirstPageFontResources = false,
     bool verifyFirstPageCmapStreams = false,
+    bool verifyFirstPageCmapSemantics = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -56,6 +57,10 @@ class C500G0BoundedXrefInspector {
     // G0t: one first child only; never claim full page-tree coverage.
     if (verifyFirstPagePath && !verifyFirstPageChild) {
       throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_FIRST_CHILD');
+    }
+    // G0ad: semantic CMap inspection is strictly downstream of bounded streams.
+    if (verifyFirstPageCmapSemantics && !verifyFirstPageCmapStreams) {
+      throw const C500G0BoundedXrefException('C500_G0AD_REQUIRES_CMAP_STREAM');
     }
     // G0ab: CMap access requires verified font bindings.
     if (verifyFirstPageCmapStreams && !verifyFirstPageFontResources) {
@@ -463,6 +468,7 @@ class C500G0BoundedXrefInspector {
                 selectedFontNames: names,
                 readObject: readObject,
                 verifyCmapStreams: verifyFirstPageCmapStreams,
+              verifyCmapSemantics: verifyFirstPageCmapSemantics,
               ),
             );
           }
@@ -934,6 +940,7 @@ Future<void> main(List<String> args) async {
         verifyFirstPageGlyphOperands: true,
         verifyFirstPageFontResources: true,
         verifyFirstPageCmapStreams: true,
+        verifyFirstPageCmapSemantics: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {
@@ -964,6 +971,7 @@ class C500G0FontResourceInspector {
     required List<String> selectedFontNames,
     required C500G0ReadObject readObject,
     bool verifyCmapStreams = false,
+    bool verifyCmapSemantics = false,
   }) async {
     if (pageTreeObjects.isEmpty || pageTreeObjects.length > 9 ||
         selectedFontNames.isEmpty || selectedFontNames.length > 16 ||
@@ -1003,7 +1011,10 @@ class C500G0FontResourceInspector {
         int.parse(ref.group(2)!), int.parse(ref.group(3)!),
       ];
     }
-    var cmapReferences = 0, cmapStreams = 0;
+    if (verifyCmapSemantics && !verifyCmapStreams) {
+      throw const C500G0BoundedXrefException('C500_G0AD_REQUIRES_CMAP_STREAM');
+    }
+    var cmapReferences = 0, cmapStreams = 0, cmapMappedCodes = 0;
     for (final name in selectedFontNames) {
       final ref = bindings[name];
       if (ref == null) {
@@ -1031,10 +1042,11 @@ class C500G0FontResourceInspector {
         if (verifyCmapStreams) {
           final id = int.parse(reference.group(1)!);
           final generation = int.parse(reference.group(2)!);
-          const C500G0CmapStreamProbe().verify(
+          cmapMappedCodes += const C500G0CmapStreamProbe().verify(
             object: await readObject(id, generation),
             id: id,
             generation: generation,
+            verifyMappings: verifyCmapSemantics,
           );
           cmapStreams++;
         }
@@ -1048,9 +1060,12 @@ class C500G0FontResourceInspector {
       'first_page_font_objects_verified': selectedFontNames.length,
       'first_page_tounicode_references_unverified': cmapReferences - cmapStreams,
       'first_page_tounicode_streams_structure_verified': cmapStreams,
-      'first_page_font_cmap': cmapStreams > 0
-          ? 'BOUNDED_STREAM_LEXICAL_STRUCTURE_ONLY_NOT_MAPPING'
-          : 'NOT_VERIFIED',
+      'first_page_tounicode_mapping_codes_syntax_verified': cmapMappedCodes,
+      'first_page_font_cmap': verifyCmapSemantics && cmapMappedCodes > 0
+          ? 'BOUNDED_CMAP_SYNTAX_ONLY_NOT_GLYPH_TEXT'
+          : cmapStreams > 0
+              ? 'BOUNDED_STREAM_LEXICAL_STRUCTURE_ONLY_NOT_MAPPING'
+              : 'NOT_VERIFIED',
       'first_page_text_authority': 'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS',
     };
   }
@@ -1106,10 +1121,11 @@ class C500G0FontResourceInspector {
 class C500G0CmapStreamProbe {
   const C500G0CmapStreamProbe();
 
-  void verify({
+  int verify({
     required String object,
     required int id,
     required int generation,
+    bool verifyMappings = false,
   }) {
     if (object.length > 64 * 1024 ||
         !RegExp('^$id\\s+$generation\\s+obj\\b').hasMatch(object)) {
@@ -1166,6 +1182,180 @@ class C500G0CmapStreamProbe {
         !(RegExp(r'\bbeginbfchar\b').hasMatch(body) ||
             RegExp(r'\bbeginbfrange\b').hasMatch(body))) {
       throw const C500G0BoundedXrefException('C500_G0AB_CMAP_LEXICAL_MARKERS_MISSING');
+    }
+    return verifyMappings ? const C500G0CmapSemanticProbe().verify(body) : 0;
+  }
+}
+
+
+// G0ad: bounded syntax and UTF-16 consistency for one already verified CMap.
+// This never promotes glyph bytes to invoice numbers, and never proves the
+// remaining pages, global ordering, or NOT_WIN. Unsupported syntax fails closed.
+class C500G0CmapSemanticProbe {
+  const C500G0CmapSemanticProbe();
+
+  int verify(String body) {
+    if (body.length > 256 * 1024 ||
+        RegExp(r'\busecmap\b|\b(?:begin|end)(?:cidchar|cidrange|notdefchar|notdefrange)\b')
+            .hasMatch(body)) {
+      throw const C500G0BoundedXrefException('C500_G0AD_UNSUPPORTED_SEMANTICS');
+    }
+    final codespaces = <List<int>>[];
+    final seen = <int>{};
+    var mapped = 0;
+    String? kind;
+    var expected = 0;
+    final entries = <String>[];
+    final begin = RegExp(r'^(\d+)[ \t]+begin(codespacerange|bfchar|bfrange)$');
+    final control = RegExp(r'\b(?:begin|end)(?:codespacerange|bfchar|bfrange)\b');
+    final tokens = RegExp(r'<[0-9A-Fa-f]+>|\[|\]|[^\s]+');
+
+    for (final rawLine in body.split(RegExp(r'\r\n|\r|\n'))) {
+      final line = rawLine.split('%').first.trim();
+      if (line.isEmpty) continue;
+      if (kind == null) {
+        final match = begin.firstMatch(line);
+        if (match != null) {
+          expected = int.parse(match.group(1)!);
+          if (expected < 1 || expected > 256) {
+            throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_BUDGET');
+          }
+          kind = match.group(2)!;
+          entries.clear();
+        } else if (control.hasMatch(line)) {
+          throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
+        }
+        continue;
+      }
+      if (line == 'end$kind') {
+        var index = 0;
+        for (var row = 0; row < expected; row++) {
+          if (index + 1 >= entries.length) {
+            throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
+          }
+          final low = _source(entries[index++]);
+          final highOrTarget = entries[index++];
+          if (kind == 'codespacerange') {
+            final high = _source(highOrTarget);
+            if (low.$1 != high.$1 || low.$2 > high.$2 ||
+                codespaces.length >= 16) {
+              throw const C500G0BoundedXrefException('C500_G0AD_CODESPACE_INVALID');
+            }
+            codespaces.add(<int>[low.$1, low.$2, high.$2]);
+            continue;
+          }
+          _requireCodespace(low, codespaces);
+          if (kind == 'bfchar') {
+            _utf16(highOrTarget);
+            _record(low.$1, low.$2, seen);
+            mapped++;
+            continue;
+          }
+          final high = _source(highOrTarget);
+          if (high.$1 != low.$1 || high.$2 < low.$2 ||
+              high.$2 - low.$2 >= 8192) {
+            throw const C500G0BoundedXrefException('C500_G0AD_RANGE_INVALID');
+          }
+          final span = high.$2 - low.$2 + 1;
+          if (index >= entries.length) {
+            throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
+          }
+          final destination = entries[index++];
+          if (destination == '[') {
+            for (var offset = 0; offset < span; offset++) {
+              if (index >= entries.length) {
+                throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
+              }
+              _utf16(entries[index++]);
+            }
+            if (index >= entries.length || entries[index++] != ']') {
+              throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
+            }
+          } else {
+            final units = _utf16(destination);
+            if (units.length != 1) {
+              throw const C500G0BoundedXrefException('C500_G0AD_RANGE_INVALID');
+            }
+            for (var offset = 0; offset < span; offset++) {
+              final unit = units.single + offset;
+              if (unit > 0xffff || (unit >= 0xd800 && unit <= 0xdfff)) {
+                throw const C500G0BoundedXrefException('C500_G0AD_UTF16_INVALID');
+              }
+            }
+          }
+          for (var offset = 0; offset < span; offset++) {
+            _requireCodespace((low.$1, low.$2 + offset), codespaces);
+            _record(low.$1, low.$2 + offset, seen);
+          }
+          mapped += span;
+          if (mapped > 8192) {
+            throw const C500G0BoundedXrefException('C500_G0AD_MAPPING_BUDGET');
+          }
+        }
+        if (index != entries.length) {
+          throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
+        }
+        kind = null;
+        entries.clear();
+        continue;
+      }
+      if (control.hasMatch(line)) {
+        throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
+      }
+      entries.addAll(tokens.allMatches(line).map((match) => match.group(0)!));
+      if (entries.length > 32768) {
+        throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_BUDGET');
+      }
+    }
+    if (kind != null || codespaces.isEmpty || mapped == 0) {
+      throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
+    }
+    return mapped;
+  }
+
+  (int, int) _source(String token) {
+    final match = RegExp(r'^<([0-9A-Fa-f]{2,8})>$').firstMatch(token);
+    final hex = match?.group(1);
+    if (hex == null || hex.length.isOdd) {
+      throw const C500G0BoundedXrefException('C500_G0AD_SOURCE_INVALID');
+    }
+    return (hex.length ~/ 2, int.parse(hex, radix: 16));
+  }
+
+  List<int> _utf16(String token) {
+    final match = RegExp(r'^<([0-9A-Fa-f]{4,64})>$').firstMatch(token);
+    final hex = match?.group(1);
+    if (hex == null || hex.length % 4 != 0) {
+      throw const C500G0BoundedXrefException('C500_G0AD_UTF16_INVALID');
+    }
+    final units = <int>[];
+    for (var i = 0; i < hex.length; i += 4) {
+      units.add(int.parse(hex.substring(i, i + 4), radix: 16));
+    }
+    for (var i = 0; i < units.length; i++) {
+      final unit = units[i];
+      if (unit >= 0xd800 && unit <= 0xdbff) {
+        if (++i >= units.length ||
+            units[i] < 0xdc00 || units[i] > 0xdfff) {
+          throw const C500G0BoundedXrefException('C500_G0AD_UTF16_INVALID');
+        }
+      } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+        throw const C500G0BoundedXrefException('C500_G0AD_UTF16_INVALID');
+      }
+    }
+    return units;
+  }
+
+  void _requireCodespace((int, int) code, List<List<int>> ranges) {
+    if (!ranges.any((range) => range[0] == code.$1 &&
+        range[1] <= code.$2 && code.$2 <= range[2])) {
+      throw const C500G0BoundedXrefException('C500_G0AD_CODESPACE_INVALID');
+    }
+  }
+
+  void _record(int width, int value, Set<int> seen) {
+    if (!seen.add((width << 32) | value) || seen.length > 8192) {
+      throw const C500G0BoundedXrefException('C500_G0AD_DUPLICATE_OR_BUDGET');
     }
   }
 }

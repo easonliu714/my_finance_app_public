@@ -245,6 +245,7 @@ Future<Map<String, Object?>> inspectSynthetic(
   bool verifyFirstPageContents = false,
   bool verifyFirstPageFontResources = false,
   bool verifyFirstPageCmapStreams = false,
+  bool verifyFirstPageCmapSemantics = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -259,6 +260,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     verifyFirstPageContents: verifyFirstPageContents,
     verifyFirstPageFontResources: verifyFirstPageFontResources,
     verifyFirstPageCmapStreams: verifyFirstPageCmapStreams,
+    verifyFirstPageCmapSemantics: verifyFirstPageCmapSemantics,
   );
 }
 
@@ -858,6 +860,7 @@ void main() {
     bool badMarkers = false,
     bool badLength = false,
     bool decodedBomb = false,
+    String? cmapBody,
   }) {
     const valid = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
         'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
@@ -865,7 +868,7 @@ void main() {
     // G0ac: fail closed on highly compressible >256KiB decoded CMap.
     final content = decodedBomb
         ? '$valid${List<String>.filled(300000, 'X').join()}'
-        : (badMarkers ? 'begincmap\nendcmap\n' : valid);
+        : (badMarkers ? 'begincmap\nendcmap\n' : (cmapBody ?? valid));
     final payload = compressed
         ? zlib.encode(latin1.encode(content))
         : latin1.encode(content);
@@ -964,6 +967,83 @@ void main() {
       inspectSynthetic(file, verifyFirstPageCmapStreams: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0AB_REQUIRES_FONT_BINDING')),
+    );
+  });
+
+
+  // G0ad validates mapping syntax only, not glyph-to-invoice authority.
+  test('G0ad bfchar and bfrange sequential plus array syntax accepted', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\nendbfchar\n'
+        '1 beginbfrange\n<40> <42> <0041>\nendbfrange\n'
+        '1 beginbfrange\n<50> <51> [<0061> <0062>]\n'
+        'endbfrange\nendcmap\n';
+    final count = const C500G0CmapStreamProbe().verify(
+      object: g0abCmapObject(21, cmapBody: cmap),
+      id: 21, generation: 0, verifyMappings: true,
+    );
+    expect(count, 6);
+  });
+
+  test('G0ad malformed UTF16 surrogate fails closed', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <D800>\n'
+        'endbfchar\nendcmap\n';
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(21, cmapBody: cmap),
+        id: 21, generation: 0, verifyMappings: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_UTF16_INVALID')),
+    );
+  });
+
+  test('G0ad duplicate mapping source fails closed', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n2 beginbfchar\n<31> <0031>\n'
+        '<31> <0032>\nendbfchar\nendcmap\n';
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(21, cmapBody: cmap),
+        id: 21, generation: 0, verifyMappings: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_DUPLICATE_OR_BUDGET')),
+    );
+  });
+
+  test('G0ad out-of-codespace source fails closed', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <30>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
+        'endbfchar\nendcmap\n';
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(21, cmapBody: cmap),
+        id: 21, generation: 0, verifyMappings: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_CODESPACE_INVALID')),
+    );
+  });
+
+  test('G0ad unsupported usecmap fails closed', () {
+    const cmap = 'begincmap\n/Other usecmap\n'
+        '1 begincodespacerange\n<00> <FF>\nendcodespacerange\n'
+        '1 beginbfchar\n<31> <0031>\nendbfchar\nendcmap\n';
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(21, cmapBody: cmap),
+        id: 21, generation: 0, verifyMappings: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_UNSUPPORTED_SEMANTICS')),
+    );
+  });
+
+  test('G0ad semantic request without bounded CMap prerequisite rejects', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, includePageContent: true);
+    await expectLater(
+      inspectSynthetic(file, verifyFirstPageCmapSemantics: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_REQUIRES_CMAP_STREAM')),
     );
   });
 
