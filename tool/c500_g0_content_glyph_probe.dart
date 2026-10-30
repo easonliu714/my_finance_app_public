@@ -54,6 +54,11 @@ class C500G0GlyphProbe {
     _C500G0GlyphToken? token;
     while ((token = lexer.next()) != null) {
       final current = token!;
+      // G0z: snapshot nullable look-behind operands before branch validation.
+      // Dart does not promote mutable loop-carried tokens across these checks;
+      // only validated local snapshots may be dereferenced.
+      final prior = previous;
+      final prior2 = beforePrevious;
       if (current.kind == 'word') {
         switch (current.word) {
           case 'BT':
@@ -75,24 +80,24 @@ class C500G0GlyphProbe {
             beforePrevious = null;
             continue;
           case 'Tj':
-            if (!inText || previous == null ||
-                (previous.kind != 'literal' && previous.kind != 'hex')) {
+            if (!inText || prior == null ||
+                (prior.kind != 'literal' && prior.kind != 'hex')) {
               throw const C500G0GlyphException('C500_G0W_TEXT_OPERAND_INVALID');
             }
             if (selectedFont == null) {
               throw const C500G0GlyphException('C500_G0X_FONT_NOT_SELECTED');
             }
-            consume(previous);
+            consume(prior);
             tj++;
             break;
           case 'TJ':
-            if (!inText || previous?.kind != 'array') {
+            if (!inText || prior == null || prior.kind != 'array') {
               throw const C500G0GlyphException('C500_G0W_TEXT_ARRAY_INVALID');
             }
             if (selectedFont == null) {
               throw const C500G0GlyphException('C500_G0X_FONT_NOT_SELECTED');
             }
-            final items = previous.items;
+            final items = prior.items;
             if (items.isEmpty) {
               throw const C500G0GlyphException('C500_G0W_TEXT_ARRAY_INVALID');
             }
@@ -112,19 +117,19 @@ class C500G0GlyphProbe {
             tjArray++;
             break;
           case 'Tf':
-            if (!inText || previous?.kind != 'number' ||
-                beforePrevious?.kind != 'name' ||
-                beforePrevious!.word.isEmpty) {
+            if (!inText || prior == null || prior.kind != 'number' ||
+                prior2 == null || prior2.kind != 'name' ||
+                prior2.word.isEmpty) {
               throw const C500G0GlyphException('C500_G0X_FONT_SELECTION_INVALID');
             }
             // G0y: a syntactically selected font must have a finite,
             // positive, bounded text size. This does not verify /Resources.
-            final fontSize = double.tryParse(previous.word);
+            final fontSize = double.tryParse(prior.word);
             if (fontSize == null || !fontSize.isFinite ||
                 fontSize <= 0 || fontSize > 1000000) {
               throw const C500G0GlyphException('C500_G0Y_FONT_SIZE_INVALID');
             }
-            selectedFont = beforePrevious.word;
+            selectedFont = prior2.word;
             selectedFontNames.add(selectedFont);
             if (selectedFontNames.length > 16) {
               throw const C500G0GlyphException('C500_G0X_FONT_VARIETY_LIMIT');

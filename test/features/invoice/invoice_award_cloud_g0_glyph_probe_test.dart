@@ -73,6 +73,33 @@ void main() {
     )));
   });
 
+  // G0z: compile/runtime regression for nullable look-behind snapshots.
+  // Valid operands remain count-only; invalid look-behind cannot be trusted.
+  test('G0z valid Tf and TJ snapshots preserve untrusted glyph authority', () {
+    final result = probe.inspect(latin1.encode(
+      'BT /F1 12 Tf [(12345678) -4 <31323334>] TJ ET',
+    ));
+    expect(result['first_page_text_font_selection_operators'], 1);
+    expect(result['first_page_tj_array_operators'], 1);
+    expect(result['first_page_raw_ascii_eight_digit_runs_untrusted'], 1);
+    expect(result['first_page_font_cmap'], 'NOT_VERIFIED');
+    expect(result['first_page_text_authority'],
+        'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0z invalid Tf and TJ look-behind fail closed', () {
+    expect(() => probe.inspect(latin1.encode(
+      'BT 12 Tf (12345678) Tj ET',
+    )), throwsA(isA<C500G0GlyphException>().having(
+      (e) => e.code, 'code', 'C500_G0X_FONT_SELECTION_INVALID',
+    )));
+    expect(() => probe.inspect(latin1.encode(
+      'BT /F1 12 Tf (12345678) TJ ET',
+    )), throwsA(isA<C500G0GlyphException>().having(
+      (e) => e.code, 'code', 'C500_G0W_TEXT_ARRAY_INVALID',
+    )));
+  });
+
   test('bounded Tj and TJ recognize raw glyph operands without award proof', () {
     final result = probe.inspect(latin1.encode(
       'BT /F1 10 Tf (12345678) Tj [(AB) -10 <3132333435363738>] TJ ET',

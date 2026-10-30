@@ -10,6 +10,8 @@ on:
       - 'tool/c500_g0_android_renderer_lab_contract_test.sh'
       - 'tool/c500_g0_bounded_xref.dart'
       - 'test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart'
+      - 'tool/c500_g0_content_glyph_probe.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart'
       - 'tool/c500_g0_qpdf_preflight.sh'
       - 'tool/c500_g0_qpdf_preflight_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
@@ -76,7 +78,9 @@ jobs:
       - name: G0l bounded XRef synthetic positive/negative contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         shell: bash
-        run: flutter test test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart --reporter expanded
+        run: |
+          flutter test test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart --reporter expanded
+          flutter test test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart --reporter expanded
 
       - name: G0k synthetic qpdf and pinned-source fail-closed contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
