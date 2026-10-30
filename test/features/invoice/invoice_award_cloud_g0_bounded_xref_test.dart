@@ -42,13 +42,19 @@ Future<File> makeNavigableSynthetic(
   bool forgedOffset = false,
   bool wrongParent = false,
   bool invalidIndex = false,
+  bool wrongMemberId = false,
+  bool badFirst = false,
+  bool badFilter = false,
 }) async {
   const prefix = '%PDF-1.5\n';
-  final compressedObject = zlib.encode(latin1.encode('1 0 << /Type /Catalog >>'));
+  final compressedObject = zlib.encode(latin1.encode(
+    '${wrongMemberId ? 9 : 1} 0 << /Type /Catalog >>',
+  ));
   final objOffset = latin1.encode(prefix).length;
   final objHead = latin1.encode(
-    '2 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Length ' +
-    compressedObject.length.toString() + ' /Filter /FlateDecode >>\nstream\n',
+    '2 0 obj\n<< /Type /ObjStm /N 1 /First ${badFirst ? 5 : 4} '
+    '/Length ${compressedObject.length} '
+    '/Filter ${badFilter ? '/ASCII85Decode' : '/FlateDecode'} >>\nstream\n',
   );
   final objTail = latin1.encode('\nendstream\nendobj\n');
   final xrefOffset = objOffset + objHead.length +
@@ -63,15 +69,14 @@ Future<File> makeNavigableSynthetic(
     1, ...four(xrefOffset), 0, 0,
   ]);
   final xrefHead = latin1.encode(
-    '3 0 obj\n<< /Type /XRef /Size 4 /W [1 4 2] /Index [0 4] /Length ' +
-    xref.length.toString() + ' /Filter /FlateDecode >>\nstream\n',
+    '3 0 obj\n<< /Type /XRef /Size 4 /W [1 4 2] /Index [0 4] '
+    '/Length ${xref.length} /Filter /FlateDecode >>\nstream\n',
   );
   final file = File.fromUri(directory.uri.resolve('navigable.pdf'));
   await file.writeAsBytes(<int>[
     ...latin1.encode(prefix), ...objHead, ...compressedObject, ...objTail,
     ...xrefHead, ...xref,
-    ...latin1.encode('\nendstream\nendobj\nstartxref\n' +
-        xrefOffset.toString() + '\n%%EOF\n'),
+    ...latin1.encode('\nendstream\nendobj\nstartxref\n$xrefOffset\n%%EOF\n'),
   ], flush: true);
   return file;
 }
@@ -81,6 +86,7 @@ Future<Map<String, Object?>> inspectSynthetic(
   C500G0BoundedXrefInspector inspector = const C500G0BoundedXrefInspector(),
   String? overrideSha,
   bool verifyObjectOffsets = false,
+  bool verifyCompressedMembers = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -88,6 +94,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     expectedBytes: source.byteLength,
     expectedSha256: overrideSha ?? source.sha256,
     verifyObjectOffsets: verifyObjectOffsets,
+    verifyCompressedMembers: verifyCompressedMembers,
   );
 }
 
@@ -239,6 +246,55 @@ void main() {
       inspectSynthetic(file, verifyObjectOffsets: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0N_COMPRESSED_INDEX_INVALID',
+      )),
+    );
+  });
+
+
+  // G0o synthetic contracts are not official PDF or global negative proof.
+  test('G0o verifies bounded ObjStm member identity', () async {
+    final file = await makeNavigableSynthetic(directory);
+    final result = await inspectSynthetic(file,
+        verifyObjectOffsets: true, verifyCompressedMembers: true);
+    expect(result['compressed_members_verified'], greaterThan(0));
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0o requires parent-offset verification', () async {
+    final file = await makeNavigableSynthetic(directory);
+    await expectLater(
+      inspectSynthetic(file, verifyCompressedMembers: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0O_REQUIRES_OFFSET_VERIFICATION',
+      )),
+    );
+  });
+  test('G0o rejects forged ObjStm member id', () async {
+    final file = await makeNavigableSynthetic(directory, wrongMemberId: true);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true,
+          verifyCompressedMembers: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0O_MEMBER_ID_MISMATCH',
+      )),
+    );
+  });
+  test('G0o rejects invalid First index boundary', () async {
+    final file = await makeNavigableSynthetic(directory, badFirst: true);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true,
+          verifyCompressedMembers: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0O_INDEX_HEADER_INVALID',
+      )),
+    );
+  });
+  test('G0o rejects unsupported ObjStm filter', () async {
+    final file = await makeNavigableSynthetic(directory, badFilter: true);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true,
+          verifyCompressedMembers: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0O_UNSUPPORTED_STREAM',
       )),
     );
   });
