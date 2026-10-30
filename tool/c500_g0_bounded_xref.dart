@@ -36,6 +36,7 @@ class C500G0BoundedXrefInspector {
     bool verifyObjectOffsets = false,
     bool verifyCompressedMembers = false,
     bool verifyCatalogRoot = false,
+    bool verifyFirstPageChild = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -44,6 +45,10 @@ class C500G0BoundedXrefInspector {
     }
     if (verifyCompressedMembers && !verifyObjectOffsets) {
       throw const C500G0BoundedXrefException('C500_G0O_REQUIRES_OFFSET_VERIFICATION');
+    }
+    // G0t: one first child only; never claim full page-tree coverage.
+    if (verifyFirstPageChild && !verifyCatalogRoot) {
+      throw const C500G0BoundedXrefException('C500_G0T_REQUIRES_ROOT');
     }
     // G0q: Catalog/Pages-root access validates its own direct or compressed
     // object identity. Unrelated global ObjStm samples are NOT a prerequisite:
@@ -178,7 +183,7 @@ class C500G0BoundedXrefInspector {
           : const <String, Object?>{};
       final catalog = verifyCatalogRoot
           ? await _verifyCatalogRoot(handle, source.byteLength, dictionary,
-              decoded, widths, indexes, entryWidth)
+              decoded, widths, indexes, entryWidth, verifyFirstPageChild)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -236,6 +241,7 @@ class C500G0BoundedXrefInspector {
   Future<Map<String, Object?>> _verifyCatalogRoot(
     RandomAccessFile file, int sourceLength, String xrefDictionary,
     List<int> bytes, List<int> widths, List<int> indexes, int stride,
+    bool verifyFirstPageChild,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -323,13 +329,49 @@ class C500G0BoundedXrefInspector {
     if (declared == null || declared <= 0 || declared > 1000000) {
       throw const C500G0BoundedXrefException('C500_G0P_PAGE_COUNT_INVALID');
     }
+    // G0t: inspect exactly one /Kids child through the pinned XRef.
+    // Require the child's /Parent to point back to this Pages root.
+    // This is not recursive traversal, award proof, or global NOT_WIN.
+    final firstChildEvidence = <String, Object?>{};
+    if (verifyFirstPageChild) {
+      final kid = RegExp(r'/Kids\s*\[\s*(\d+)\s+(\d+)\s+R\b')
+          .firstMatch(pagesBody);
+      if (kid == null) {
+        throw const C500G0BoundedXrefException('C500_G0T_KIDS_FORM_UNSUPPORTED');
+      }
+      final childId = int.parse(kid.group(1)!);
+      final childGeneration = int.parse(kid.group(2)!);
+      if (childId == rootId || childId == pagesId) {
+        throw const C500G0BoundedXrefException('C500_G0T_CHILD_CYCLE');
+      }
+      final entry = _lookupXrefEntry(bytes, widths, indexes, stride, childId);
+      if (entry == null || entry['type'] == 0) {
+        throw const C500G0BoundedXrefException('C500_G0T_CHILD_XREF_MISSING');
+      }
+      final childBody = await readObject(childId, childGeneration);
+      if (!RegExp(r'/Type\s*/(?:Pages|Page)\b').hasMatch(childBody)) {
+        throw const C500G0BoundedXrefException('C500_G0T_CHILD_TYPE_INVALID');
+      }
+      final parent = RegExp(r'/Parent\s+(\d+)\s+(\d+)\s+R\b')
+          .firstMatch(childBody);
+      if (parent == null ||
+          int.parse(parent.group(1)!) != pagesId ||
+          int.parse(parent.group(2)!) != int.parse(pages.group(2)!)) {
+        throw const C500G0BoundedXrefException('C500_G0T_PARENT_MISMATCH');
+      }
+      firstChildEvidence['first_root_child_id'] = childId;
+      firstChildEvidence['first_root_child_verified'] = true;
+    }
     return <String, Object?>{
       'catalog_root_id': rootId,
       'catalog_root_verified': true,
       'pages_root_id': pagesId,
       'pages_root_verified': true,
       'declared_page_count_unverified': declared,
-      'page_tree': 'ROOT_ONLY_NOT_TRAVERSED',
+      ...firstChildEvidence,
+      'page_tree': verifyFirstPageChild
+          ? 'FIRST_CHILD_ONLY_NOT_TRAVERSED'
+          : 'ROOT_ONLY_NOT_TRAVERSED',
     };
   }
 
@@ -672,6 +714,7 @@ Future<void> main(List<String> args) async {
         verifyObjectOffsets: false,
         verifyCompressedMembers: false,
         verifyCatalogRoot: true,
+        verifyFirstPageChild: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {

@@ -95,6 +95,8 @@ Future<File> makeCatalogSynthetic(
   bool forgedPages = false,
   bool wrongPagesType = false,
   bool zeroPageCount = false,
+  bool includeFirstChild = false,
+  bool wrongFirstChildParent = false,
 }) async {
   const prefix = '%PDF-1.5\n';
   final catalog = '<< /Type /${wrongCatalogType ? 'Page' : 'Catalog'} '
@@ -111,7 +113,12 @@ Future<File> makeCatalogSynthetic(
     '3 0 obj\n<< /Type /${wrongPagesType ? 'Page' : 'Pages'} '
     '/Count ${zeroPageCount ? 0 : 1} /Kids [5 0 R] >>\nendobj\n',
   );
-  final xrefOffset = obj3Offset + obj3.length;
+  final obj5Offset = obj3Offset + obj3.length;
+  final obj5 = includeFirstChild
+      ? latin1.encode('5 0 obj\n<< /Type /Page /Parent '
+          '${wrongFirstChildParent ? 9 : 3} 0 R >>\nendobj\n')
+      : <int>[];
+  final xrefOffset = obj5Offset + obj5.length;
   List<int> four(int n) => <int>[
     (n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255,
   ];
@@ -121,16 +128,18 @@ Future<File> makeCatalogSynthetic(
     1, ...four(obj2Offset), 0, 0,
     1, ...four(obj3Offset), 0, 0,
     1, ...four(xrefOffset), 0, 0,
+    if (includeFirstChild) ...<int>[1, ...four(obj5Offset), 0, 0],
   ]);
   final xrefHead = latin1.encode(
-    '4 0 obj\n<< /Type /XRef /Size 5 /W [1 4 2] /Index [0 5] '
+    '4 0 obj\n<< /Type /XRef /Size ${includeFirstChild ? 6 : 5} '
+    '/W [1 4 2] /Index [0 ${includeFirstChild ? 6 : 5}] '
     '${missingRoot ? '' : '/Root ${forgedRoot ? 9 : 1} 0 R'} '
     '/Length ${xref.length} /Filter /FlateDecode >>\nstream\n',
   );
   final file = File.fromUri(directory.uri.resolve('catalog.pdf'));
   await file.writeAsBytes(<int>[
     ...latin1.encode(prefix), ...obj2, ...member, ...obj2Tail,
-    ...obj3, ...xrefHead, ...xref,
+    ...obj3, ...obj5, ...xrefHead, ...xref,
     ...latin1.encode('\nendstream\nendobj\nstartxref\n$xrefOffset\n%%EOF\n'),
   ], flush: true);
   return file;
@@ -200,6 +209,7 @@ Future<Map<String, Object?>> inspectSynthetic(
   bool verifyObjectOffsets = false,
   bool verifyCompressedMembers = false,
   bool verifyCatalogRoot = false,
+  bool verifyFirstPageChild = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -209,6 +219,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     verifyObjectOffsets: verifyObjectOffsets,
     verifyCompressedMembers: verifyCompressedMembers,
     verifyCatalogRoot: verifyCatalogRoot,
+    verifyFirstPageChild: verifyFirstPageChild,
   );
 }
 
@@ -554,6 +565,39 @@ void main() {
         (e) => e.code, 'code', 'C500_G0P_ROOT_XREF_MISSING',
       )),
     );
+  });
+
+
+  // G0t synthetic-only positive/negative first-child contracts.
+  test('G0t first root child and parent verified, no global proof', () async {
+    final file = await makeCatalogSynthetic(directory, includeFirstChild: true);
+    final result = await inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true);
+    expect(result['first_root_child_id'], 5);
+    expect(result['first_root_child_verified'], true);
+    expect(result['page_tree'], 'FIRST_CHILD_ONLY_NOT_TRAVERSED');
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0t missing child XRef fails closed', () async {
+    final file = await makeCatalogSynthetic(directory);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0T_CHILD_XREF_MISSING')));
+  });
+  test('G0t forged child parent fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, wrongFirstChildParent: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0T_PARENT_MISMATCH')));
+  });
+  test('G0t requires root verification', () async {
+    final file = await makeCatalogSynthetic(directory, includeFirstChild: true);
+    await expectLater(inspectSynthetic(file, verifyFirstPageChild: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0T_REQUIRES_ROOT')));
   });
 
 }
