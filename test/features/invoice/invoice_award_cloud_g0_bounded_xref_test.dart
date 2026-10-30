@@ -971,6 +971,58 @@ void main() {
   });
 
 
+  // G0ae: selected-font XRef semantic-flag regression; never award authority.
+  test('G0ae selected font CMap semantic flag counts bounded mappings', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1'],
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      readObject: (id, generation) async {
+        if (generation != 0) throw StateError('generation');
+        if (id == 11) {
+          return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        }
+        if (id == 21) return g0abCmapObject(21, compressed: true);
+        throw StateError('unexpected XRef id');
+      },
+    );
+    expect(result['first_page_tounicode_streams_structure_verified'], 1);
+    expect(result['first_page_tounicode_mapping_codes_syntax_verified'], 1);
+    expect(result['first_page_font_cmap'],
+        'BOUNDED_CMAP_SYNTAX_ONLY_NOT_GLYPH_TEXT');
+    expect(result['first_page_text_authority'],
+        'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0ae selected font CMap semantic flag rejects forged UTF16', () async {
+    const malformed = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <D800>\n'
+        'endbfchar\nendcmap\n';
+    await expectLater(
+      const C500G0FontResourceInspector().inspect(
+        pageTreeObjects: <String>[
+          '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+        ],
+        selectedFontNames: <String>['F1'],
+        verifyCmapStreams: true,
+        verifyCmapSemantics: true,
+        readObject: (id, generation) async {
+          if (generation != 0) throw StateError('generation');
+          if (id == 11) {
+            return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+          }
+          if (id == 21) return g0abCmapObject(21, cmapBody: malformed);
+          throw StateError('unexpected XRef id');
+        },
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_UTF16_INVALID')),
+    );
+  });
+
   // G0ad validates mapping syntax only, not glyph-to-invoice authority.
   test('G0ad bfchar and bfrange sequential plus array syntax accepted', () {
     const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'

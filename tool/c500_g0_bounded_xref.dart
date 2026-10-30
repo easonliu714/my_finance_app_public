@@ -215,7 +215,8 @@ class C500G0BoundedXrefInspector {
               decoded, widths, indexes, entryWidth,
               verifyFirstPageChild, verifyFirstPagePath,
               verifyFirstPageContents, verifyFirstPageGlyphOperands,
-              verifyFirstPageFontResources, verifyFirstPageCmapStreams)
+              verifyFirstPageFontResources, verifyFirstPageCmapStreams,
+              verifyFirstPageCmapSemantics)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -276,6 +277,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageChild, bool verifyFirstPagePath,
     bool verifyFirstPageContents, bool verifyFirstPageGlyphOperands,
     bool verifyFirstPageFontResources, bool verifyFirstPageCmapStreams,
+    bool verifyFirstPageCmapSemantics,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -468,7 +470,7 @@ class C500G0BoundedXrefInspector {
                 selectedFontNames: names,
                 readObject: readObject,
                 verifyCmapStreams: verifyFirstPageCmapStreams,
-              verifyCmapSemantics: verifyFirstPageCmapSemantics,
+                verifyCmapSemantics: verifyFirstPageCmapSemantics,
               ),
             );
           }
