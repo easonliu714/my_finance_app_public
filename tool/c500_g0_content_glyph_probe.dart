@@ -21,7 +21,13 @@ class C500G0GlyphProbe {
     var beginText = 0, endText = 0, tj = 0, tjArray = 0;
     var literal = 0, hex = 0, rawEightDigits = 0;
     var inText = false;
+    // G0x: bind each text-show to an explicit text-state font selection.
+    // A selected font name is NOT proof of a /Resources entry or ToUnicode.
+    String? selectedFont;
+    final selectedFontNames = <String>{};
+    var fontSelections = 0;
     _C500G0GlyphToken? previous;
+    _C500G0GlyphToken? beforePrevious;
 
     void consume(_C500G0GlyphToken value) {
       if (value.kind == 'literal') {
@@ -57,6 +63,7 @@ class C500G0GlyphProbe {
             inText = true;
             beginText++;
             previous = null;
+            beforePrevious = null;
             continue;
           case 'ET':
             if (!inText) {
@@ -65,11 +72,15 @@ class C500G0GlyphProbe {
             inText = false;
             endText++;
             previous = null;
+            beforePrevious = null;
             continue;
           case 'Tj':
             if (!inText || previous == null ||
                 (previous.kind != 'literal' && previous.kind != 'hex')) {
               throw const C500G0GlyphException('C500_G0W_TEXT_OPERAND_INVALID');
+            }
+            if (selectedFont == null) {
+              throw const C500G0GlyphException('C500_G0X_FONT_NOT_SELECTED');
             }
             consume(previous);
             tj++;
@@ -77,6 +88,9 @@ class C500G0GlyphProbe {
           case 'TJ':
             if (!inText || previous?.kind != 'array') {
               throw const C500G0GlyphException('C500_G0W_TEXT_ARRAY_INVALID');
+            }
+            if (selectedFont == null) {
+              throw const C500G0GlyphException('C500_G0X_FONT_NOT_SELECTED');
             }
             final items = previous!.items;
             if (items.isEmpty) {
@@ -91,6 +105,19 @@ class C500G0GlyphProbe {
             }
             tjArray++;
             break;
+          case 'Tf':
+            if (!inText || previous?.kind != 'number' ||
+                beforePrevious?.kind != 'name' ||
+                beforePrevious!.word.isEmpty) {
+              throw const C500G0GlyphException('C500_G0X_FONT_SELECTION_INVALID');
+            }
+            selectedFont = beforePrevious.word;
+            selectedFontNames.add(selectedFont!);
+            if (selectedFontNames.length > 16) {
+              throw const C500G0GlyphException('C500_G0X_FONT_VARIETY_LIMIT');
+            }
+            fontSelections++;
+            break;
           case "'":
           case '"':
             if (inText) {
@@ -102,6 +129,7 @@ class C500G0GlyphProbe {
             throw const C500G0GlyphException('C500_G0W_INLINE_IMAGE_UNSUPPORTED');
         }
       }
+      beforePrevious = previous;
       previous = current;
     }
     if (inText || beginText != endText || beginText == 0 ||
@@ -115,6 +143,9 @@ class C500G0GlyphProbe {
       'first_page_literal_glyph_operands': literal,
       'first_page_hex_glyph_operands': hex,
       'first_page_raw_ascii_eight_digit_runs_untrusted': rawEightDigits,
+      'first_page_text_font_selection_operators': fontSelections,
+      'first_page_text_font_names_unverified': selectedFontNames.toList()..sort(),
+      'first_page_text_font_binding': 'TEXT_STATE_ONLY_NO_RESOURCE_OR_CMAP',
       'first_page_font_cmap': 'NOT_VERIFIED',
       'first_page_text_authority': 'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS',
     };
@@ -285,7 +316,8 @@ class _C500G0GlyphLexer {
       if (offset - start > maxTokenBytes) {
         throw const C500G0GlyphException('C500_G0W_OPERAND_LIMIT');
       }
-      return const _C500G0GlyphToken('name');
+      return _C500G0GlyphToken('name',
+          word: latin1.decode(data.sublist(start, offset)));
     }
     final start = offset - 1;
     while (offset < data.length && !_space(data[offset]) &&

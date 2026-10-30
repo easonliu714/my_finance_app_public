@@ -6,6 +6,42 @@ import '../../../tool/c500_g0_content_glyph_probe.dart';
 void main() {
   const probe = C500G0GlyphProbe();
 
+
+  // G0x: a PDF text-state font name is necessary, never sufficient for
+  // semantic Unicode or invoice-award authority.
+  test('G0x records bounded font selections but never asserts ToUnicode', () {
+    final result = probe.inspect(latin1.encode(
+      'BT /F1 10 Tf (12345678) Tj /F2 9 Tf [<3132> 0 (345678)] TJ ET',
+    ));
+    expect(result['first_page_text_font_selection_operators'], 2);
+    expect(result['first_page_text_font_names_unverified'], ['F1', 'F2']);
+    expect(result['first_page_text_font_binding'],
+        'TEXT_STATE_ONLY_NO_RESOURCE_OR_CMAP');
+    expect(result['first_page_font_cmap'], 'NOT_VERIFIED');
+    expect(result['first_page_text_authority'],
+        'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0x text-show without selected font fails closed', () {
+    expect(() => probe.inspect(latin1.encode('BT (12345678) Tj ET')),
+        throwsA(isA<C500G0GlyphException>().having(
+            (e) => e.code, 'code', 'C500_G0X_FONT_NOT_SELECTED')));
+  });
+
+  test('G0x malformed font selection fails closed', () {
+    expect(() => probe.inspect(latin1.encode('BT /F1 (12) Tf (1) Tj ET')),
+        throwsA(isA<C500G0GlyphException>().having(
+            (e) => e.code, 'code', 'C500_G0X_FONT_SELECTION_INVALID')));
+  });
+
+  test('G0x text-state font persists across separate BT/ET blocks', () {
+    final result = probe.inspect(latin1.encode(
+      'BT /F1 12 Tf (12345678) Tj ET BT (87654321) Tj ET',
+    ));
+    expect(result['first_page_text_font_selection_operators'], 1);
+    expect(result['first_page_tj_operators'], 2);
+  });
+
   test('bounded Tj and TJ recognize raw glyph operands without award proof', () {
     final result = probe.inspect(latin1.encode(
       'BT /F1 10 Tf (12345678) Tj [(AB) -10 <3132333435363738>] TJ ET',
@@ -23,7 +59,7 @@ void main() {
 
   test('escaped octal and PDF comment are parsed, not promoted to text', () {
     final result = probe.inspect(latin1.encode(
-      '% BT (99999999) Tj ET\nBT (\\0612345678) Tj ET',
+      '% BT (99999999) Tj ET\nBT /F1 10 Tf (\\0612345678) Tj ET',
     ));
     expect(result['first_page_bt_et_pairs'], 1);
     expect(result['first_page_raw_ascii_eight_digit_runs_untrusted'], 1);
@@ -60,7 +96,7 @@ void main() {
   });
 
   test('truncated BT/ET structure fails closed', () {
-    expect(() => probe.inspect(latin1.encode('BT (12345678) Tj')),
+    expect(() => probe.inspect(latin1.encode('BT /F1 10 Tf (12345678) Tj')),
         throwsA(isA<C500G0GlyphException>().having(
             (e) => e.code, 'code', 'C500_G0W_TEXT_STRUCTURE_UNVERIFIED')));
   });
