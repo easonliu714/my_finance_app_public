@@ -857,11 +857,15 @@ void main() {
     bool badFilter = false,
     bool badMarkers = false,
     bool badLength = false,
+    bool decodedBomb = false,
   }) {
     const valid = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
         'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
         'endbfchar\nendcmap\n';
-    final content = badMarkers ? 'begincmap\nendcmap\n' : valid;
+    // G0ac: fail closed on highly compressible >256KiB decoded CMap.
+    final content = decodedBomb
+        ? '$valid${List<String>.filled(300000, 'X').join()}'
+        : (badMarkers ? 'begincmap\nendcmap\n' : valid);
     final payload = compressed
         ? zlib.encode(latin1.encode(content))
         : latin1.encode(content);
@@ -870,7 +874,7 @@ void main() {
         : compressed ? ' /Filter /FlateDecode' : '';
     final length = badLength ? payload.length + 5 : payload.length;
     return '$id 0 obj\n<< /Length $length$filter >>\nstream\n'
-        + latin1.decode(payload) + '\nendstream\nendobj';
+        '${latin1.decode(payload)}\nendstream\nendobj';
   }
 
   test('G0ab selected CMap Flate stream lexical structure only', () async {
@@ -900,6 +904,17 @@ void main() {
       object: g0abCmapObject(21),
       id: 21,
       generation: 0,
+    );
+  });
+
+  test('G0ac Flate CMap expansion beyond 256KiB fails closed', () {
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(21, compressed: true, decodedBomb: true),
+        id: 21, generation: 0,
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AB_STREAM_DECODE_FAILED')),
     );
   });
 
