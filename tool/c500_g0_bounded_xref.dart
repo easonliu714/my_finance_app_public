@@ -1196,7 +1196,36 @@ class C500G0CmapStreamProbe {
 class C500G0CmapSemanticProbe {
   const C500G0CmapSemanticProbe();
 
-  int verify(String body) {
+  // G0af: bounded one-glyph ToUnicode lookup after validating the ENTIRE
+  // selected CMap. This is a lab-only code-unit experiment, not a PDF invoice,
+  // complete-page, sorting, or NOT_WIN decision.
+  String decodeOneGlyph({
+    required String body,
+    required List<int> codeBytes,
+  }) {
+    if (codeBytes.isEmpty || codeBytes.length > 4 ||
+        codeBytes.any((byte) => byte < 0 || byte > 255)) {
+      throw const C500G0BoundedXrefException('C500_G0AF_GLYPH_CODE_INVALID');
+    }
+    var sourceCode = 0;
+    for (final byte in codeBytes) {
+      sourceCode = (sourceCode << 8) | byte;
+    }
+    List<int>? matchedUnits;
+    verify(body, onMapping: (width, code, utf16Units) {
+      if (width == codeBytes.length && code == sourceCode) {
+        matchedUnits = List<int>.of(utf16Units);
+      }
+    });
+    if (matchedUnits == null) {
+      throw const C500G0BoundedXrefException('C500_G0AF_GLYPH_UNMAPPED');
+    }
+    return String.fromCharCodes(matchedUnits!);
+  }
+
+  int verify(String body, {
+    void Function(int width, int code, List<int> utf16Units)? onMapping,
+  }) {
     if (body.length > 256 * 1024 ||
         RegExp(r'\busecmap\b|\b(?:begin|end)(?:cidchar|cidrange|notdefchar|notdefrange)\b')
             .hasMatch(body)) {
@@ -1248,8 +1277,9 @@ class C500G0CmapSemanticProbe {
           }
           _requireCodespace(low, codespaces);
           if (kind == 'bfchar') {
-            _utf16(highOrTarget);
+            final units = _utf16(highOrTarget);
             _record(low.$1, low.$2, seen);
+            onMapping?.call(low.$1, low.$2, units);
             mapped++;
             continue;
           }
@@ -1263,12 +1293,13 @@ class C500G0CmapSemanticProbe {
             throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
           }
           final destination = entries[index++];
+          final mappedUnits = <List<int>>[];
           if (destination == '[') {
             for (var offset = 0; offset < span; offset++) {
               if (index >= entries.length) {
                 throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
               }
-              _utf16(entries[index++]);
+              mappedUnits.add(_utf16(entries[index++]));
             }
             if (index >= entries.length || entries[index++] != ']') {
               throw const C500G0BoundedXrefException('C500_G0AD_BLOCK_GRAMMAR');
@@ -1283,11 +1314,13 @@ class C500G0CmapSemanticProbe {
               if (unit > 0xffff || (unit >= 0xd800 && unit <= 0xdfff)) {
                 throw const C500G0BoundedXrefException('C500_G0AD_UTF16_INVALID');
               }
+              mappedUnits.add(<int>[unit]);
             }
           }
           for (var offset = 0; offset < span; offset++) {
             _requireCodespace((low.$1, low.$2 + offset), codespaces);
             _record(low.$1, low.$2 + offset, seen);
+            onMapping?.call(low.$1, low.$2 + offset, mappedUnits[offset]);
           }
           mapped += span;
           if (mapped > 8192) {

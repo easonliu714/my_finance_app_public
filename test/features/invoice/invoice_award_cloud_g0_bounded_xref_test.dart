@@ -1089,6 +1089,79 @@ void main() {
     );
   });
 
+  // G0af: synthetic one-code lookup exercises actual ToUnicode output,
+  // but never uses official PDF glyphs or asserts winning/NOT_WIN authority.
+  test('G0af bounded bfchar and both bfrange forms decode one glyph', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\nendbfchar\n'
+        '1 beginbfrange\n<40> <42> <0041>\nendbfrange\n'
+        '1 beginbfrange\n<50> <51> [<0061> <0062>]\n'
+        'endbfrange\nendcmap\n';
+    const probe = C500G0CmapSemanticProbe();
+    expect(probe.decodeOneGlyph(body: cmap, codeBytes: <int>[0x31]), '1');
+    expect(probe.decodeOneGlyph(body: cmap, codeBytes: <int>[0x41]), 'B');
+    expect(probe.decodeOneGlyph(body: cmap, codeBytes: <int>[0x51]), 'b');
+  });
+
+  test('G0af two-byte source code is width-sensitive', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<0000> <00FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<0031> <0032>\n'
+        'endbfchar\nendcmap\n';
+    const probe = C500G0CmapSemanticProbe();
+    expect(probe.decodeOneGlyph(body: cmap, codeBytes: <int>[0, 0x31]), '2');
+    expect(
+      () => probe.decodeOneGlyph(body: cmap, codeBytes: <int>[0x31]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AF_GLYPH_UNMAPPED')),
+    );
+  });
+
+  test('G0af missing or invalid glyph source fails closed', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
+        'endbfchar\nendcmap\n';
+    const probe = C500G0CmapSemanticProbe();
+    expect(
+      () => probe.decodeOneGlyph(body: cmap, codeBytes: <int>[0x32]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AF_GLYPH_UNMAPPED')),
+    );
+    expect(
+      () => probe.decodeOneGlyph(body: cmap, codeBytes: <int>[256]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AF_GLYPH_CODE_INVALID')),
+    );
+    expect(
+      () => probe.decodeOneGlyph(body: cmap, codeBytes: <int>[]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AF_GLYPH_CODE_INVALID')),
+    );
+  });
+
+  test('G0af selected glyph cannot hide unrelated forged UTF16', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n2 beginbfchar\n<31> <0031>\n'
+        '<32> <D800>\nendbfchar\nendcmap\n';
+    expect(
+      () => const C500G0CmapSemanticProbe().decodeOneGlyph(
+        body: cmap, codeBytes: <int>[0x31]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_UTF16_INVALID')),
+    );
+  });
+
+  test('G0af selected glyph cannot hide duplicate source mapping', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n2 beginbfchar\n<31> <0031>\n'
+        '<31> <0032>\nendbfchar\nendcmap\n';
+    expect(
+      () => const C500G0CmapSemanticProbe().decodeOneGlyph(
+        body: cmap, codeBytes: <int>[0x31]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_DUPLICATE_OR_BUDGET')),
+    );
+  });
+
   test('G0ad semantic request without bounded CMap prerequisite rejects', () async {
     final file = await makeCatalogSynthetic(directory,
         includeFirstChild: true, includePageContent: true);
