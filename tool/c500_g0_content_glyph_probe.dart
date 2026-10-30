@@ -92,16 +92,22 @@ class C500G0GlyphProbe {
             if (selectedFont == null) {
               throw const C500G0GlyphException('C500_G0X_FONT_NOT_SELECTED');
             }
-            final items = previous!.items;
+            final items = previous.items;
             if (items.isEmpty) {
               throw const C500G0GlyphException('C500_G0W_TEXT_ARRAY_INVALID');
             }
+            // G0y: a positioning-only TJ array is not text evidence.
+            var glyphItemCount = 0;
             for (final item in items) {
               if (item.kind == 'literal' || item.kind == 'hex') {
                 consume(item);
+                glyphItemCount++;
               } else if (item.kind != 'number') {
                 throw const C500G0GlyphException('C500_G0W_TEXT_ARRAY_INVALID');
               }
+            }
+            if (glyphItemCount == 0) {
+              throw const C500G0GlyphException('C500_G0Y_TJ_NO_GLYPHS');
             }
             tjArray++;
             break;
@@ -111,8 +117,15 @@ class C500G0GlyphProbe {
                 beforePrevious!.word.isEmpty) {
               throw const C500G0GlyphException('C500_G0X_FONT_SELECTION_INVALID');
             }
+            // G0y: a syntactically selected font must have a finite,
+            // positive, bounded text size. This does not verify /Resources.
+            final fontSize = double.tryParse(previous.word);
+            if (fontSize == null || !fontSize.isFinite ||
+                fontSize <= 0 || fontSize > 1000000) {
+              throw const C500G0GlyphException('C500_G0Y_FONT_SIZE_INVALID');
+            }
             selectedFont = beforePrevious.word;
-            selectedFontNames.add(selectedFont!);
+            selectedFontNames.add(selectedFont);
             if (selectedFontNames.length > 16) {
               throw const C500G0GlyphException('C500_G0X_FONT_VARIETY_LIMIT');
             }

@@ -42,6 +42,37 @@ void main() {
     expect(result['first_page_tj_operators'], 2);
   });
 
+
+  // G0y: these are real grammar/security contracts, not extra telemetry.
+  // Invalid font size or empty TJ must never produce apparent glyph evidence.
+  test('G0y rejects non-positive and over-budget font sizes', () {
+    for (final size in <String>['0', '-1', '1000001']) {
+      expect(() => probe.inspect(latin1.encode(
+        'BT /F1 $size Tf (12345678) Tj ET',
+      )), throwsA(isA<C500G0GlyphException>().having(
+        (e) => e.code, 'code', 'C500_G0Y_FONT_SIZE_INVALID',
+      )));
+    }
+  });
+
+  test('G0y accepts finite fractional Tf but preserves untrusted authority', () {
+    final result = probe.inspect(latin1.encode(
+      'BT /F1 12.5 Tf (12345678) Tj ET',
+    ));
+    expect(result['first_page_text_font_selection_operators'], 1);
+    expect(result['first_page_font_cmap'], 'NOT_VERIFIED');
+    expect(result['first_page_text_authority'],
+        'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0y rejects positioning-only TJ array as text evidence', () {
+    expect(() => probe.inspect(latin1.encode(
+      'BT /F1 12 Tf [0 -12 4] TJ ET',
+    )), throwsA(isA<C500G0GlyphException>().having(
+      (e) => e.code, 'code', 'C500_G0Y_TJ_NO_GLYPHS',
+    )));
+  });
+
   test('bounded Tj and TJ recognize raw glyph operands without award proof', () {
     final result = probe.inspect(latin1.encode(
       'BT /F1 10 Tf (12345678) Tj [(AB) -10 <3132333435363738>] TJ ET',
