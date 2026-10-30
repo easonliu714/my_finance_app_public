@@ -8,6 +8,8 @@ on:
       - 'test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart'
       - 'tool/c500_g0_android_renderer_lab.sh'
       - 'tool/c500_g0_android_renderer_lab_contract_test.sh'
+      - 'tool/c500_g0_bounded_xref.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart'
       - 'tool/c500_g0_qpdf_preflight.sh'
       - 'tool/c500_g0_qpdf_preflight_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
@@ -70,6 +72,11 @@ jobs:
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         shell: bash
         run: bash tool/c500_g0_android_renderer_lab_contract_test.sh
+
+      - name: G0l bounded XRef synthetic positive/negative contract
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: flutter test test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart --reporter expanded
 
       - name: G0k synthetic qpdf and pinned-source fail-closed contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -154,6 +161,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq qpdf
           bash tool/c500_g0_qpdf_preflight.sh
+
+      # G0l runs even after qpdf fails: independent bounded object-access
+      # evidence must not mask qpdf's original failed status or promote LKG.
+      - name: G0l pinned official XRef-stream bounded access (NOT page proof)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart
 
       # G0d/e/f: separate API35 emulator; official binaries never leave runner.
       # PdfRenderer samples 3 pages; PDFium/PDFBox OPEN ONLY in independent PIDs.
