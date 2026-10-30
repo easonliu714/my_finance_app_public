@@ -17,7 +17,7 @@ class C500G0BoundedXrefException implements Exception {
 
 class C500G0BoundedXrefInspector {
   const C500G0BoundedXrefInspector({
-    this.maxHeaderBytes = 64 * 1024,
+    this.maxHeaderBytes = 1024 * 1024,
     this.maxCompressedBytes = 32 * 1024 * 1024,
     this.maxDecodedBytes = 64 * 1024 * 1024,
   });
@@ -58,12 +58,16 @@ class C500G0BoundedXrefInspector {
       if (!RegExp(r'^\s*\d+\s+\d+\s+obj\b').hasMatch(header)) {
         throw const C500G0BoundedXrefException('C500_G0L_XREF_OBJECT_MISSING');
       }
-      final streamMarker =
-          RegExp(r'(?:\r\n|\r|\n)stream(?:\r\n|\r|\n)').firstMatch(header);
+      // G0m: real pinned XRef streams did not match the old 64 KiB,
+      // newline-before-stream assumption. Only accept a bounded dictionary
+      // terminator and stream token, never scan arbitrary PDF content.
+      final streamMarker = RegExp(
+        r'>>[ \t]*(?:\r\n|\r|\n)?stream(?:\r\n|\r|\n)',
+      ).firstMatch(header);
       if (streamMarker == null) {
         throw const C500G0BoundedXrefException('C500_G0L_STREAM_HEADER_MISSING');
       }
-      final dictionary = header.substring(0, streamMarker.start).trimRight();
+      final dictionary = header.substring(0, streamMarker.start + 2);
       if (!dictionary.endsWith('>>') ||
           !RegExp(r'/Type\s*/XRef\b').hasMatch(dictionary)) {
         throw const C500G0BoundedXrefException('C500_G0L_NOT_XREF_STREAM');
@@ -77,7 +81,7 @@ class C500G0BoundedXrefInspector {
         throw const C500G0BoundedXrefException('C500_G0L_UNSUPPORTED_FILTER');
       }
       int requiredNumber(String key) {
-        final match = RegExp('/' + key + r'\s+(\d+)\b').firstMatch(dictionary);
+        final match = RegExp('/$key' r'\s+(\d+)\b').firstMatch(dictionary);
         if (match == null) {
           throw const C500G0BoundedXrefException('C500_G0L_REQUIRED_NUMBER_MISSING');
         }

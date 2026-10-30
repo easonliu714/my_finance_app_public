@@ -10,20 +10,21 @@ Future<File> makeSyntheticXref(
   Directory directory, {
   String filter = '/FlateDecode',
   String widths = '[1 2 1]',
+  int headerPaddingBytes = 0,
+  String streamSeparator = '\n',
 }) async {
   // Two entries: object 0 free, object 1 uncompressed at offset 10.
   final compressed = zlib.encode(<int>[0, 0, 0, 0, 1, 0, 10, 0]);
   const prefix = '%PDF-1.5\n';
-  final dictionary = '1 0 obj\n<< /Type /XRef /Size 2 /W ' +
-      widths +
-      ' /Index [0 2] /Length ' +
-      compressed.length.toString() +
-      ' /Filter ' +
-      filter +
-      ' >>\nstream\n';
-  final suffix = '\nendstream\nendobj\nstartxref\n' +
-      latin1.encode(prefix).length.toString() +
-      '\n%%EOF\n';
+  // G0m: long synthetic dictionaries and EOL variants test bounded access;
+  // synthetic PDFs are not official source or global page evidence.
+  final headerPadding = List<String>.filled(headerPaddingBytes, ' ').join();
+  final dictionary =
+      '1 0 obj\n<< /Type /XRef /Size 2 /W $widths /Index [0 2] '
+      '/Length ${compressed.length} /Filter $filter$headerPadding '
+      '>>${streamSeparator}stream\n';
+  final suffix =
+      '\nendstream\nendobj\nstartxref\n${latin1.encode(prefix).length}\n%%EOF\n';
   final file = File.fromUri(directory.uri.resolve('synthetic.pdf'));
   await file.writeAsBytes(<int>[
     ...latin1.encode(prefix),
@@ -134,4 +135,33 @@ void main() {
       )),
     );
   });
+  test('bounded long XRef dictionary does not require whole-document load', () async {
+    final file = await makeSyntheticXref(directory, headerPaddingBytes: 70 * 1024);
+    final result = await inspectSynthetic(file);
+    expect(result['xref_entries'], 2);
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+
+  test('XRef dictionary immediately followed by stream is accepted', () async {
+    final file = await makeSyntheticXref(directory, streamSeparator: '');
+    final result = await inspectSynthetic(file);
+    expect(result['xref_entries'], 2);
+    expect(result['award_authority'], 'HOLD');
+  });
+
+  test('insufficient header budget fails closed before stream access', () async {
+    final file = await makeSyntheticXref(directory, headerPaddingBytes: 4096);
+    await expectLater(
+      inspectSynthetic(
+        file,
+        inspector: const C500G0BoundedXrefInspector(maxHeaderBytes: 256),
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (error) => error.code,
+        'code',
+        'C500_G0L_STREAM_HEADER_MISSING',
+      )),
+    );
+  });
+
 }
