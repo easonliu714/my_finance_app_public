@@ -243,6 +243,7 @@ Future<Map<String, Object?>> inspectSynthetic(
   bool verifyFirstPageChild = false,
   bool verifyFirstPagePath = false,
   bool verifyFirstPageContents = false,
+  bool verifyFirstPageFontResources = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -255,6 +256,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     verifyFirstPageChild: verifyFirstPageChild,
     verifyFirstPagePath: verifyFirstPagePath,
     verifyFirstPageContents: verifyFirstPageContents,
+    verifyFirstPageFontResources: verifyFirstPageFontResources,
   );
 }
 
@@ -747,6 +749,103 @@ void main() {
         verifyFirstPageContents: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0V_REQUIRES_LEAF_PATH')));
+  });
+
+
+  // G0aa: synthetic resource/XRef binding is not a real CMap or award proof.
+  test('G0aa binds selected inherited fonts through bounded object reader', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Type /Pages /Resources << /Font << /F1 11 0 R /F2 12 0 R >> >> >>',
+        '<< /Type /Page /Parent 3 0 R >>',
+      ],
+      selectedFontNames: <String>['F1', 'F2'],
+      readObject: (id, generation) async {
+        if (generation != 0) throw StateError('unexpected generation');
+        if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        if (id == 12) return '12 0 obj << /Type /Font >> endobj';
+        throw const C500G0BoundedXrefException('C500_G0P_ROOT_XREF_MISSING');
+      },
+    );
+    expect(result['first_page_font_objects_verified'], 2);
+    expect(result['first_page_tounicode_references_unverified'], 1);
+    expect(result['first_page_font_cmap'], 'NOT_VERIFIED');
+    expect(result['first_page_text_authority'], 'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0aa nearest leaf Resources overrides inherited mapping', () async {
+    final readIds = <int>[];
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+        '<< /Resources << /Font << /F1 12 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1'],
+      readObject: (id, generation) async {
+        readIds.add(id);
+        return '$id $generation obj << /Type /Font >> endobj';
+      },
+    );
+    expect(readIds, <int>[12]);
+    expect(result['first_page_font_objects_verified'], 1);
+  });
+
+  test('G0aa unbound selected font fails closed', () async {
+    await expectLater(
+      const C500G0FontResourceInspector().inspect(
+        pageTreeObjects: <String>[
+          '<< /Resources << /Font << /F2 12 0 R >> >> >>',
+        ],
+        selectedFontNames: <String>['F1'],
+        readObject: (id, generation) async => '<< /Type /Font >>',
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AA_SELECTED_FONT_UNBOUND',
+      )),
+    );
+  });
+
+  test('G0aa forged font XRef is not swallowed', () async {
+    await expectLater(
+      const C500G0FontResourceInspector().inspect(
+        pageTreeObjects: <String>[
+          '<< /Resources << /Font << /F1 99 0 R >> >> >>',
+        ],
+        selectedFontNames: <String>['F1'],
+        readObject: (id, generation) async =>
+            throw const C500G0BoundedXrefException('C500_G0P_ROOT_XREF_MISSING'),
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0P_ROOT_XREF_MISSING',
+      )),
+    );
+  });
+
+  test('G0aa unsupported ToUnicode form fails closed', () async {
+    await expectLater(
+      const C500G0FontResourceInspector().inspect(
+        pageTreeObjects: <String>[
+          '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+        ],
+        selectedFontNames: <String>['F1'],
+        readObject: (id, generation) async =>
+            '11 0 obj << /Type /Font /ToUnicode << /Fake true >> >> endobj',
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AA_CMAP_REFERENCE_INVALID',
+      )),
+    );
+  });
+
+  test('G0aa requires first-leaf glyph evidence', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, includePageContent: true);
+    await expectLater(
+      inspectSynthetic(file, verifyFirstPageFontResources: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AA_REQUIRES_GLYPH_STATE',
+      )),
+    );
   });
 
 }

@@ -42,6 +42,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPagePath = false,
     bool verifyFirstPageContents = false,
     bool verifyFirstPageGlyphOperands = false,
+    bool verifyFirstPageFontResources = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -54,6 +55,10 @@ class C500G0BoundedXrefInspector {
     // G0t: one first child only; never claim full page-tree coverage.
     if (verifyFirstPagePath && !verifyFirstPageChild) {
       throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_FIRST_CHILD');
+    }
+    // G0aa: resource-to-font XRef binding requires proven first-leaf glyph state.
+    if (verifyFirstPageFontResources && !verifyFirstPageGlyphOperands) {
+      throw const C500G0BoundedXrefException('C500_G0AA_REQUIRES_GLYPH_STATE');
     }
     if (verifyFirstPageGlyphOperands && !verifyFirstPageContents) {
       throw const C500G0BoundedXrefException('C500_G0W_REQUIRES_CONTENT');
@@ -199,7 +204,8 @@ class C500G0BoundedXrefInspector {
           ? await _verifyCatalogRoot(handle, source.byteLength, dictionary,
               decoded, widths, indexes, entryWidth,
               verifyFirstPageChild, verifyFirstPagePath,
-              verifyFirstPageContents, verifyFirstPageGlyphOperands)
+              verifyFirstPageContents, verifyFirstPageGlyphOperands,
+              verifyFirstPageFontResources)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -259,6 +265,7 @@ class C500G0BoundedXrefInspector {
     List<int> bytes, List<int> widths, List<int> indexes, int stride,
     bool verifyFirstPageChild, bool verifyFirstPagePath,
     bool verifyFirstPageContents, bool verifyFirstPageGlyphOperands,
+    bool verifyFirstPageFontResources,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -385,6 +392,8 @@ class C500G0BoundedXrefInspector {
         var nodeId = childId;
         var nodeGeneration = childGeneration;
         var nodeBody = childBody;
+        // Resources are inheritable: retain only this bounded leftmost path.
+        final resourcePath = <String>[pagesBody, childBody];
         var parentCount = declared;
         var depth = 1;
         while (RegExp(r'/Type\s*/Pages\b').hasMatch(nodeBody)) {
@@ -408,6 +417,7 @@ class C500G0BoundedXrefInspector {
             throw const C500G0BoundedXrefException('C500_G0U_CHILD_CYCLE');
           }
           final nextBody = await readObject(nextId, nextGeneration);
+          resourcePath.add(nextBody);
           if (!RegExp(r'/Type\s*/(?:Pages|Page)\b').hasMatch(nextBody)) {
             throw const C500G0BoundedXrefException('C500_G0U_CHILD_TYPE_INVALID');
           }
@@ -435,6 +445,21 @@ class C500G0BoundedXrefInspector {
             file, sourceLength, bytes, widths, indexes, stride, nodeBody,
             verifyFirstPageGlyphOperands,
           ));
+          if (verifyFirstPageFontResources) {
+            final names =
+                firstChildEvidence['first_page_text_font_names_unverified'];
+            if (names is! List<String>) {
+              throw const C500G0BoundedXrefException(
+                  'C500_G0AA_FONT_STATE_MISSING');
+            }
+            firstChildEvidence.addAll(
+              await const C500G0FontResourceInspector().inspect(
+                pageTreeObjects: resourcePath,
+                selectedFontNames: names,
+                readObject: readObject,
+              ),
+            );
+          }
         }
       }
       firstChildEvidence['first_root_child_id'] = childId;
@@ -901,6 +926,7 @@ Future<void> main(List<String> args) async {
         verifyFirstPagePath: true,
         verifyFirstPageContents: true,
         verifyFirstPageGlyphOperands: true,
+        verifyFirstPageFontResources: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {
@@ -915,4 +941,132 @@ Future<void> main(List<String> args) async {
     }
   }
   if (failures != 0) exitCode = 1;
+}
+
+
+// G0aa: bounded FIRST-LEAF inherited /Resources -> /Font XRef binding.
+// Resolves only selected font objects. No CMap decoding, award numbers,
+// sibling pages, full page-tree traversal, or global NOT_WIN authority.
+typedef C500G0ReadObject = Future<String> Function(int id, int generation);
+
+class C500G0FontResourceInspector {
+  const C500G0FontResourceInspector();
+
+  Future<Map<String, Object?>> inspect({
+    required List<String> pageTreeObjects,
+    required List<String> selectedFontNames,
+    required C500G0ReadObject readObject,
+  }) async {
+    if (pageTreeObjects.isEmpty || pageTreeObjects.length > 9 ||
+        selectedFontNames.isEmpty || selectedFontNames.length > 16 ||
+        selectedFontNames.toSet().length != selectedFontNames.length) {
+      throw const C500G0BoundedXrefException('C500_G0AA_RESOURCE_BUDGET');
+    }
+    String? resources;
+    for (final object in pageTreeObjects) {
+      final keys = RegExp(r'/Resources\b').allMatches(object).toList();
+      if (keys.length > 1) {
+        throw const C500G0BoundedXrefException('C500_G0AA_DUPLICATE_RESOURCES');
+      }
+      if (keys.isNotEmpty) {
+        // The nearest page/ancestor definition replaces an inherited one.
+        resources = await _resolveDictionary(
+          object.substring(keys.single.end), readObject);
+      }
+    }
+    if (resources == null) {
+      throw const C500G0BoundedXrefException('C500_G0AA_RESOURCES_MISSING');
+    }
+    final fontKeys = RegExp(r'/Font\b').allMatches(resources).toList();
+    if (fontKeys.length != 1) {
+      throw const C500G0BoundedXrefException('C500_G0AA_FONT_DICTIONARY_MISSING');
+    }
+    final fontDictionary = await _resolveDictionary(
+      resources.substring(fontKeys.single.end), readObject);
+    final refs = RegExp(r'/([A-Za-z0-9_.-]{1,64})\s+(\d+)\s+(\d+)\s+R\b')
+        .allMatches(fontDictionary);
+    final bindings = <String, List<int>>{};
+    for (final ref in refs) {
+      final name = ref.group(1)!;
+      if (bindings.containsKey(name) || bindings.length >= 64) {
+        throw const C500G0BoundedXrefException('C500_G0AA_FONT_BINDING_DUPLICATE_OR_LIMIT');
+      }
+      bindings[name] = <int>[
+        int.parse(ref.group(2)!), int.parse(ref.group(3)!),
+      ];
+    }
+    var cmapReferences = 0;
+    for (final name in selectedFontNames) {
+      final ref = bindings[name];
+      if (ref == null) {
+        throw const C500G0BoundedXrefException('C500_G0AA_SELECTED_FONT_UNBOUND');
+      }
+      final font = await readObject(ref[0], ref[1]);
+      if (!RegExp(r'/Type\s*/Font\b').hasMatch(font)) {
+        throw const C500G0BoundedXrefException('C500_G0AA_FONT_OBJECT_INVALID');
+      }
+      final cmapKeys = RegExp(r'/ToUnicode\b').allMatches(font).toList();
+      if (cmapKeys.length > 1) {
+        throw const C500G0BoundedXrefException('C500_G0AA_CMAP_REFERENCE_INVALID');
+      }
+      if (cmapKeys.isNotEmpty) {
+        final tail = font.substring(cmapKeys.single.end).trimLeft();
+        if (!RegExp(r'^\d+\s+\d+\s+R\b').hasMatch(tail)) {
+          throw const C500G0BoundedXrefException('C500_G0AA_CMAP_REFERENCE_INVALID');
+        }
+        // A reference is NOT a validated CMap or Unicode mapping.
+        cmapReferences++;
+      }
+    }
+    return <String, Object?>{
+      'first_page_font_resource_binding': 'SELECTED_FONT_XREF_OBJECTS_ONLY',
+      'first_page_font_objects_verified': selectedFontNames.length,
+      'first_page_tounicode_references_unverified': cmapReferences,
+      'first_page_font_cmap': 'NOT_VERIFIED',
+      'first_page_text_authority': 'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS',
+    };
+  }
+
+  Future<String> _resolveDictionary(
+    String value, C500G0ReadObject readObject,
+  ) async {
+    final tail = value.trimLeft();
+    if (tail.startsWith('<<')) return _boundedDictionary(tail);
+    final reference = RegExp(r'^(\d+)\s+(\d+)\s+R\b').firstMatch(tail);
+    if (reference == null) {
+      throw const C500G0BoundedXrefException('C500_G0AA_DICTIONARY_FORM_UNSUPPORTED');
+    }
+    final object = await readObject(
+      int.parse(reference.group(1)!), int.parse(reference.group(2)!));
+    final start = object.indexOf('<<');
+    if (start < 0) {
+      throw const C500G0BoundedXrefException('C500_G0AA_DICTIONARY_FORM_UNSUPPORTED');
+    }
+    return _boundedDictionary(object.substring(start));
+  }
+
+  String _boundedDictionary(String text) {
+    if (!text.startsWith('<<') || text.length > 64 * 1024) {
+      throw const C500G0BoundedXrefException('C500_G0AA_DICTIONARY_BUDGET');
+    }
+    var depth = 0;
+    for (var i = 0; i < text.length - 1; i++) {
+      final a = text.codeUnitAt(i), b = text.codeUnitAt(i + 1);
+      if (a == 60 && b == 60) {
+        depth++;
+        if (depth > 16) {
+          throw const C500G0BoundedXrefException('C500_G0AA_DICTIONARY_DEPTH');
+        }
+        i++;
+      } else if (a == 62 && b == 62) {
+        depth--;
+        i++;
+        if (depth == 0) return text.substring(2, i - 1);
+        if (depth < 0) {
+          throw const C500G0BoundedXrefException('C500_G0AA_DICTIONARY_UNBALANCED');
+        }
+      }
+    }
+    throw const C500G0BoundedXrefException('C500_G0AA_DICTIONARY_UNBALANCED');
+  }
 }
