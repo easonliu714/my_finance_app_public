@@ -20,11 +20,14 @@ class C500G0BoundedXrefInspector {
     this.maxHeaderBytes = 1024 * 1024,
     this.maxCompressedBytes = 32 * 1024 * 1024,
     this.maxDecodedBytes = 64 * 1024 * 1024,
+    this.maxRootDecodedBytes = 512 * 1024 * 1024,
   });
 
   final int maxHeaderBytes;
   final int maxCompressedBytes;
   final int maxDecodedBytes;
+  // Lab-only total decompressed-byte budget; never a heap or product limit.
+  final int maxRootDecodedBytes;
 
   Future<Map<String, Object?>> inspect({
     required File file,
@@ -36,7 +39,7 @@ class C500G0BoundedXrefInspector {
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
-        maxDecodedBytes <= 0) {
+        maxDecodedBytes <= 0 || maxRootDecodedBytes < 1024 * 1024) {
       throw const C500G0BoundedXrefException('C500_G0L_INVALID_LIMITS');
     }
     if (verifyCompressedMembers && !verifyObjectOffsets) {
@@ -470,7 +473,7 @@ class C500G0BoundedXrefInspector {
       throw const C500G0BoundedXrefException('C500_G0O_STREAM_TRUNCATED');
     }
     if (allowLargeRootSpool && compressedLength > 2 * 1024 * 1024) {
-      return _readRootMemberViaBoundedSpool(
+      return _readRootMemberViaBoundedStream(
         file, offset, compressedLength, count, first, sample,
       );
     }
@@ -516,97 +519,118 @@ class C500G0BoundedXrefInspector {
     return latin1.decode(decoded.sublist(start, end), allowInvalid: true);
   }
 
-  // G0r: root-only, bounded-memory access. This disposable spool has a
-  // 64 MiB disk budget, 1 MiB index and 64 KiB selected-member ceiling.
-  // It never writes an official PDF, app DB, LKG, or product authority.
-  Future<String> _readRootMemberViaBoundedSpool(
+  // G0s: root-only, bounded-memory selective stream extraction. The prior
+  // 64 MiB disposable spool failed for BOTH pinned genuine MOF PDFs. Do not
+  // increase heap/disk allocation to match an untrusted ObjStm: retain only
+  // <=1 MiB index + <=64 KiB selected member, while validating the ENTIRE
+  // Flate stream and Adler32 under a 512 MiB total-output/32 MiB input cap.
+  // This is NOT page-tree traversal, a PDFBox fix, or global NOT_WIN proof.
+  Future<String> _readRootMemberViaBoundedStream(
     RandomAccessFile source, int offset, int compressedLength,
     int count, int first, Map<String, int> sample,
   ) async {
-    const maxDisk = 64 * 1024 * 1024, maxMember = 64 * 1024;
-    final directory = await Directory.systemTemp.createTemp('c500_g0r_objstm_');
-    final spool = File.fromUri(directory.uri.resolve('decoded.bin'));
+    const maxMember = 64 * 1024, maxChunk = 1024 * 1024;
+    final indexBytes = <int>[];
+    final memberBytes = <int>[];
+    List<int>? starts;
+    int? begin, end;
+    var decodedBytes = 0, adlerA = 1, adlerB = 0;
     try {
-      final writer = await spool.open(mode: FileMode.write);
-      var decodedBytes = 0, adlerA = 1, adlerB = 0;
-      try {
-        await for (final chunk in ZLibDecoder().bind(
-          File(source.path).openRead(offset, offset + compressedLength),
-        )) {
-          if (decodedBytes + chunk.length > maxDisk) {
-            throw const C500G0BoundedXrefException('C500_G0R_DECODED_DISK_LIMIT');
+      await for (final chunk in ZLibDecoder().bind(
+        File(source.path).openRead(offset, offset + compressedLength),
+      )) {
+        if (chunk.length > maxChunk) {
+          throw const C500G0BoundedXrefException('C500_G0S_CHUNK_LIMIT');
+        }
+        if (chunk.length > maxRootDecodedBytes - decodedBytes) {
+          throw const C500G0BoundedXrefException('C500_G0S_TOTAL_DECODED_LIMIT');
+        }
+        final chunkStart = decodedBytes;
+        final chunkEnd = chunkStart + chunk.length;
+        if (indexBytes.length < first) {
+          final take = min(first - indexBytes.length, chunk.length);
+          indexBytes.addAll(chunk.take(take));
+          if (indexBytes.length == first) {
+            final words = latin1.decode(indexBytes).trim().split(RegExp(r'\s+'));
+            if (words.length != count * 2 ||
+                words.any((word) => !RegExp(r'^\d+$').hasMatch(word))) {
+              throw const C500G0BoundedXrefException('C500_G0O_INDEX_HEADER_INVALID');
+            }
+            final index = sample['index']!;
+            if (index < 0 || index >= count ||
+                int.parse(words[index * 2]) != sample['id']) {
+              throw const C500G0BoundedXrefException('C500_G0O_MEMBER_ID_MISMATCH');
+            }
+            starts = <int>[];
+            var previous = -1;
+            for (var i = 0; i < count; i++) {
+              final start = int.parse(words[i * 2 + 1]);
+              if (start <= previous) {
+                throw const C500G0BoundedXrefException('C500_G0O_MEMBER_OFFSET_INVALID');
+              }
+              starts.add(start);
+              previous = start;
+            }
+            begin = first + starts[index];
+            if (index + 1 < count) {
+              end = first + starts[index + 1];
+              if (end <= begin || end - begin > maxMember) {
+                throw const C500G0BoundedXrefException('C500_G0R_SELECTED_MEMBER_LIMIT');
+              }
+            }
           }
-          for (final value in chunk) {
-            adlerA = (adlerA + value) % 65521;
-            adlerB = (adlerB + adlerA) % 65521;
+        }
+        if (begin != null) {
+          final overlapStart = max(chunkStart, begin);
+          final overlapEnd = min(chunkEnd, end ?? chunkEnd);
+          if (overlapEnd > overlapStart) {
+            if (overlapEnd - overlapStart > maxMember - memberBytes.length) {
+              throw const C500G0BoundedXrefException('C500_G0R_SELECTED_MEMBER_LIMIT');
+            }
+            memberBytes.addAll(chunk.sublist(
+              overlapStart - chunkStart, overlapEnd - chunkStart,
+            ));
           }
-          await writer.writeFrom(chunk);
-          decodedBytes += chunk.length;
         }
-      } on C500G0BoundedXrefException {
-        rethrow;
-      } catch (_) {
-        throw const C500G0BoundedXrefException('C500_G0R_STREAM_DECODE_FAILED');
-      } finally {
-        await writer.close();
+        for (final value in chunk) {
+          adlerA = (adlerA + value) % 65521;
+          adlerB = (adlerB + adlerA) % 65521;
+        }
+        decodedBytes = chunkEnd;
       }
-      // Independent RFC1950 trailer verification, fail closed on corruption.
-      await source.setPosition(offset + compressedLength - 4);
-      final trailer = await source.read(4);
-      if (trailer.length != 4) {
-        throw const C500G0BoundedXrefException('C500_G0R_STREAM_TRUNCATED');
-      }
-      final expected = (trailer[0] << 24) | (trailer[1] << 16) |
-          (trailer[2] << 8) | trailer[3];
-      if (((adlerB << 16) | adlerA) != expected) {
-        throw const C500G0BoundedXrefException('C500_G0R_ADLER_MISMATCH');
-      }
-      if (first >= decodedBytes) {
-        throw const C500G0BoundedXrefException('C500_G0O_FIRST_INVALID');
-      }
-      final reader = await spool.open(mode: FileMode.read);
-      try {
-        final header = await reader.read(first);
-        if (header.length != first) {
-          throw const C500G0BoundedXrefException('C500_G0R_INDEX_TRUNCATED');
-        }
-        final words = latin1.decode(header).trim().split(RegExp(r'\s+'));
-        if (words.length != count * 2 ||
-            words.any((word) => !RegExp(r'^\d+$').hasMatch(word))) {
-          throw const C500G0BoundedXrefException('C500_G0O_INDEX_HEADER_INVALID');
-        }
-        final index = sample['index']!;
-        if (index < 0 || index >= count ||
-            int.parse(words[index * 2]) != sample['id']) {
-          throw const C500G0BoundedXrefException('C500_G0O_MEMBER_ID_MISMATCH');
-        }
-        var previous = -1;
-        for (var i = 0; i < count; i++) {
-          final start = int.parse(words[i * 2 + 1]);
-          if (start <= previous || start >= decodedBytes - first) {
-            throw const C500G0BoundedXrefException('C500_G0O_MEMBER_OFFSET_INVALID');
-          }
-          previous = start;
-        }
-        final begin = first + int.parse(words[index * 2 + 1]);
-        final end = index + 1 == count
-            ? decodedBytes
-            : first + int.parse(words[(index + 1) * 2 + 1]);
-        if (end <= begin || end - begin > maxMember) {
-          throw const C500G0BoundedXrefException('C500_G0R_SELECTED_MEMBER_LIMIT');
-        }
-        await reader.setPosition(begin);
-        final member = await reader.read(end - begin);
-        if (member.length != end - begin || member.every((b) => b <= 32)) {
-          throw const C500G0BoundedXrefException('C500_G0O_EMPTY_MEMBER');
-        }
-        return latin1.decode(member, allowInvalid: true);
-      } finally {
-        await reader.close();
-      }
-    } finally {
-      if (await directory.exists()) await directory.delete(recursive: true);
+    } on C500G0BoundedXrefException {
+      rethrow;
+    } catch (_) {
+      throw const C500G0BoundedXrefException('C500_G0R_STREAM_DECODE_FAILED');
     }
+    // Independently compare the RFC1950 trailer even when zlib accepts it.
+    await source.setPosition(offset + compressedLength - 4);
+    final trailer = await source.read(4);
+    if (trailer.length != 4) {
+      throw const C500G0BoundedXrefException('C500_G0R_STREAM_TRUNCATED');
+    }
+    final expected = (trailer[0] << 24) | (trailer[1] << 16) |
+        (trailer[2] << 8) | trailer[3];
+    if (((adlerB << 16) | adlerA) != expected) {
+      throw const C500G0BoundedXrefException('C500_G0R_ADLER_MISMATCH');
+    }
+    if (starts == null || first >= decodedBytes || begin == null) {
+      throw const C500G0BoundedXrefException('C500_G0O_FIRST_INVALID');
+    }
+    for (final start in starts) {
+      if (start >= decodedBytes - first) {
+        throw const C500G0BoundedXrefException('C500_G0O_MEMBER_OFFSET_INVALID');
+      }
+    }
+    final selectedEnd = end ?? decodedBytes;
+    if (selectedEnd <= begin || selectedEnd - begin > maxMember) {
+      throw const C500G0BoundedXrefException('C500_G0R_SELECTED_MEMBER_LIMIT');
+    }
+    if (memberBytes.length != selectedEnd - begin ||
+        memberBytes.every((b) => b <= 32)) {
+      throw const C500G0BoundedXrefException('C500_G0O_EMPTY_MEMBER');
+    }
+    return latin1.decode(memberBytes, allowInvalid: true);
   }
 
 }

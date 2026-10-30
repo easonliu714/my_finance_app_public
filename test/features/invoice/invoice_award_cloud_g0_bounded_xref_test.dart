@@ -141,6 +141,7 @@ Future<File> makeCatalogSynthetic(
    /Length > 2 MiB while the Catalog remains a tiny first member. */
 Future<File> makeLargeRootSynthetic(Directory directory, {
   bool corruptTrailer = false,
+  int decodedPaddingBytes = 0,
 }) async {
   const prefix = '%PDF-1.5\n';
   final catalog = latin1.encode('<< /Type /Catalog /Pages 3 0 R >>');
@@ -153,7 +154,10 @@ Future<File> makeLargeRootSynthetic(Directory directory, {
     random[i] = state & 255;
   }
   final indexHeader = latin1.encode('1 0 5 ${catalog.length} ');
-  final compressed = zlib.encode(<int>[...indexHeader, ...catalog, ...random]);
+  final compressed = zlib.encode(<int>[
+    ...indexHeader, ...catalog, ...random,
+    ...List<int>.filled(decodedPaddingBytes, 0),
+  ]);
   if (compressed.length <= 2 * 1024 * 1024) {
     throw StateError('G0R_FIXTURE_NOT_LARGE_ENOUGH');
   }
@@ -226,6 +230,33 @@ void main() {
       inspectSynthetic(file, verifyCatalogRoot: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0R_STREAM_DECODE_FAILED',
+      )),
+    );
+  });
+
+  // G0s synthetic >64 MiB regression: verify selective streaming without
+  // spooling all decoded bytes; never claim official page-tree coverage.
+  test('G0s extracts selected root across old 64 MiB spool ceiling', () async {
+    final file = await makeLargeRootSynthetic(
+      directory, decodedPaddingBytes: 65 * 1024 * 1024,
+    );
+    final result = await inspectSynthetic(file, verifyCatalogRoot: true);
+    expect(result['catalog_root_verified'], true);
+    expect(result['pages_root_verified'], true);
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+
+  test('G0s total decoded budget rejects before unbounded expansion', () async {
+    final file = await makeLargeRootSynthetic(directory);
+    await expectLater(
+      inspectSynthetic(file,
+        inspector: const C500G0BoundedXrefInspector(
+          maxRootDecodedBytes: 2 * 1024 * 1024,
+        ),
+        verifyCatalogRoot: true,
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0S_TOTAL_DECODED_LIMIT',
       )),
     );
   });
