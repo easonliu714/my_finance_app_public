@@ -35,16 +35,59 @@ Future<File> makeSyntheticXref(
   return file;
 }
 
+
+// G0n: hermetic PDF object addresses, never official evidence.
+Future<File> makeNavigableSynthetic(
+  Directory directory, {
+  bool forgedOffset = false,
+  bool wrongParent = false,
+  bool invalidIndex = false,
+}) async {
+  const prefix = '%PDF-1.5\n';
+  final compressedObject = zlib.encode(latin1.encode('1 0 << /Type /Catalog >>'));
+  final objOffset = latin1.encode(prefix).length;
+  final objHead = latin1.encode(
+    '2 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Length ' +
+    compressedObject.length.toString() + ' /Filter /FlateDecode >>\nstream\n',
+  );
+  final objTail = latin1.encode('\nendstream\nendobj\n');
+  final xrefOffset = objOffset + objHead.length +
+      compressedObject.length + objTail.length;
+  List<int> four(int n) => <int>[
+    (n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255,
+  ];
+  final xref = zlib.encode(<int>[
+    0, ...four(0), 0, 0,
+    2, ...four(wrongParent ? 3 : 2), 0, invalidIndex ? 1 : 0,
+    1, ...four(objOffset + (forgedOffset ? 1 : 0)), 0, 0,
+    1, ...four(xrefOffset), 0, 0,
+  ]);
+  final xrefHead = latin1.encode(
+    '3 0 obj\n<< /Type /XRef /Size 4 /W [1 4 2] /Index [0 4] /Length ' +
+    xref.length.toString() + ' /Filter /FlateDecode >>\nstream\n',
+  );
+  final file = File.fromUri(directory.uri.resolve('navigable.pdf'));
+  await file.writeAsBytes(<int>[
+    ...latin1.encode(prefix), ...objHead, ...compressedObject, ...objTail,
+    ...xrefHead, ...xref,
+    ...latin1.encode('\nendstream\nendobj\nstartxref\n' +
+        xrefOffset.toString() + '\n%%EOF\n'),
+  ], flush: true);
+  return file;
+}
+
 Future<Map<String, Object?>> inspectSynthetic(
   File file, {
   C500G0BoundedXrefInspector inspector = const C500G0BoundedXrefInspector(),
   String? overrideSha,
+  bool verifyObjectOffsets = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
     file: file,
     expectedBytes: source.byteLength,
     expectedSha256: overrideSha ?? source.sha256,
+    verifyObjectOffsets: verifyObjectOffsets,
   );
 }
 
@@ -160,6 +203,42 @@ void main() {
         (error) => error.code,
         'code',
         'C500_G0L_STREAM_HEADER_MISSING',
+      )),
+    );
+  });
+
+  test('G0n validates sampled direct and ObjStm parent headers', () async {
+    final file = await makeNavigableSynthetic(directory);
+    final result = await inspectSynthetic(file, verifyObjectOffsets: true);
+    expect(result['direct_headers_verified'], greaterThan(0));
+    expect(result['objstm_parent_headers_verified'], greaterThan(0));
+    expect(result['page_tree'], 'NOT_TRAVERSED');
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0n forged direct offset fails closed', () async {
+    final file = await makeNavigableSynthetic(directory, forgedOffset: true);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0N_OBJECT_HEADER_MISMATCH',
+      )),
+    );
+  });
+  test('G0n non-ObjStm parent fails closed', () async {
+    final file = await makeNavigableSynthetic(directory, wrongParent: true);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0N_PARENT_NOT_OBJSTM',
+      )),
+    );
+  });
+  test('G0n compressed index beyond N fails closed', () async {
+    final file = await makeNavigableSynthetic(directory, invalidIndex: true);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0N_COMPRESSED_INDEX_INVALID',
       )),
     );
   });

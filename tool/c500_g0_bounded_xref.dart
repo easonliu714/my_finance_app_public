@@ -30,6 +30,7 @@ class C500G0BoundedXrefInspector {
     required File file,
     required int expectedBytes,
     required String expectedSha256,
+    bool verifyObjectOffsets = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -160,8 +161,13 @@ class C500G0BoundedXrefInspector {
         }
         types[type] = types[type]! + 1;
       }
+      final navigation = verifyObjectOffsets
+          ? await _sampleAddresses(handle, source.byteLength, decoded,
+              widths, indexes, entryWidth, size)
+          : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
+        ...navigation,
         'sha256': source.sha256,
         'bytes': source.byteLength,
         'startxref': source.startXrefOffset,
@@ -180,6 +186,98 @@ class C500G0BoundedXrefInspector {
     } finally {
       await handle.close();
     }
+  }
+
+  // G0n: at most five direct and five compressed-parent address samples.
+  // Header samples are not a page-tree traversal or a NOT_WIN proof.
+  Future<Map<String, Object?>> _sampleAddresses(
+    RandomAccessFile file, int length, List<int> bytes,
+    List<int> widths, List<int> indexes, int stride, int size,
+  ) async {
+    int field(int offset, int count) {
+      var result = 0;
+      for (var i = 0; i < count; i++) {
+        result = (result << 8) | bytes[offset + i];
+      }
+      return result;
+    }
+    Map<String, int>? lookup(int id) {
+      var base = 0;
+      for (var i = 0; i < indexes.length; i += 2) {
+        final start = indexes[i], count = indexes[i + 1];
+        if (id >= start && id < start + count) {
+          final offset = (base + id - start) * stride;
+          return <String, int>{
+            'type': widths[0] == 0 ? 1 : field(offset, widths[0]),
+            'second': field(offset + widths[0], widths[1]),
+            'third': field(offset + widths[0] + widths[1], widths[2]),
+          };
+        }
+        base += count;
+      }
+      return null;
+    }
+    final targets = <int>[0, size ~/ 4, size ~/ 2, size * 3 ~/ 4, size - 1];
+    final direct = <Map<String, int>>[], compressed = <Map<String, int>>[];
+    var d = 0, c = 0, base = 0;
+    for (var i = 0; i < indexes.length; i += 2) {
+      for (var j = 0; j < indexes[i + 1]; j++) {
+        final id = indexes[i] + j, offset = (base + j) * stride;
+        final type = widths[0] == 0 ? 1 : field(offset, widths[0]);
+        if (type == 1 && d < targets.length && id >= targets[d]) {
+          direct.add(<String, int>{
+            'id': id,
+            'offset': field(offset + widths[0], widths[1]),
+            'generation': field(offset + widths[0] + widths[1], widths[2]),
+          });
+          d++;
+        } else if (type == 2 && c < targets.length && id >= targets[c]) {
+          compressed.add(<String, int>{
+            'parent': field(offset + widths[0], widths[1]),
+            'index': field(offset + widths[0] + widths[1], widths[2]),
+          });
+          c++;
+        }
+      }
+      base += indexes[i + 1];
+    }
+    Future<String> header(int id, int generation, int offset) async {
+      if (offset < 0 || offset >= length) {
+        throw const C500G0BoundedXrefException('C500_G0N_OBJECT_OFFSET_INVALID');
+      }
+      await file.setPosition(offset);
+      final content = latin1.decode(
+        await file.read(min(4096, length - offset)), allowInvalid: true,
+      );
+      if (!RegExp('^$id\\s+$generation\\s+obj\\b').hasMatch(content)) {
+        throw const C500G0BoundedXrefException('C500_G0N_OBJECT_HEADER_MISMATCH');
+      }
+      return content;
+    }
+    for (final sample in direct) {
+      await header(sample['id']!, sample['generation']!, sample['offset']!);
+    }
+    for (final sample in compressed) {
+      final id = sample['parent']!, parent = lookup(sample['parent']!);
+      if (parent == null || parent['type'] != 1) {
+        throw const C500G0BoundedXrefException('C500_G0N_PARENT_NOT_DIRECT');
+      }
+      final content = await header(id, parent['third']!, parent['second']!);
+      if (!RegExp(r'/Type\s*/ObjStm\b').hasMatch(content)) {
+        throw const C500G0BoundedXrefException('C500_G0N_PARENT_NOT_OBJSTM');
+      }
+      final match = RegExp(r'/N\s+(\d+)\b').firstMatch(content);
+      final count = int.tryParse(match?.group(1) ?? '');
+      if (count == null || count <= 0 || sample['index']! >= count) {
+        throw const C500G0BoundedXrefException('C500_G0N_COMPRESSED_INDEX_INVALID');
+      }
+    }
+    return <String, Object?>{
+      'object_navigation': 'BOUNDED_HEADER_SAMPLES_ONLY',
+      'direct_headers_verified': direct.length,
+      'objstm_parent_headers_verified': compressed.length,
+      'page_tree': 'NOT_TRAVERSED',
+    };
   }
 }
 
@@ -215,6 +313,7 @@ Future<void> main(List<String> args) async {
         file: File(path),
         expectedBytes: source['bytes']! as int,
         expectedSha256: source['sha']! as String,
+        verifyObjectOffsets: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {
