@@ -45,15 +45,18 @@ Future<File> makeNavigableSynthetic(
   bool wrongMemberId = false,
   bool badFirst = false,
   bool badFilter = false,
+  bool oversizedLength = false,
+  bool outOfBoundsMemberOffset = false,
 }) async {
   const prefix = '%PDF-1.5\n';
   final compressedObject = zlib.encode(latin1.encode(
-    '${wrongMemberId ? 9 : 1} 0 << /Type /Catalog >>',
+    '${wrongMemberId ? 9 : 1} ${outOfBoundsMemberOffset ? 999999 : 0} '
+    '<< /Type /Catalog >>',
   ));
   final objOffset = latin1.encode(prefix).length;
   final objHead = latin1.encode(
-    '2 0 obj\n<< /Type /ObjStm /N 1 /First ${badFirst ? 5 : 4} '
-    '/Length ${compressedObject.length} '
+    '2 0 obj\n<< /Type /ObjStm /N 1 /First ${badFirst ? 5 : outOfBoundsMemberOffset ? 9 : 4} '
+    '/Length ${oversizedLength ? 2097153 : compressedObject.length} '
     '/Filter ${badFilter ? '/ASCII85Decode' : '/FlateDecode'} >>\nstream\n',
   );
   final objTail = latin1.encode('\nendstream\nendobj\n');
@@ -295,6 +298,29 @@ void main() {
           verifyCompressedMembers: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0O_UNSUPPORTED_STREAM',
+      )),
+    );
+  });
+
+
+  test('G0o oversized ObjStm declared Length fails before read', () async {
+    final file = await makeNavigableSynthetic(directory, oversizedLength: true);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true,
+          verifyCompressedMembers: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0O_STREAM_LIMIT',
+      )),
+    );
+  });
+  test('G0o out-of-bounds ObjStm member offset fails closed', () async {
+    final file = await makeNavigableSynthetic(
+        directory, outOfBoundsMemberOffset: true);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true,
+          verifyCompressedMembers: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0O_MEMBER_OFFSET_INVALID',
       )),
     );
   });
