@@ -38,6 +38,7 @@ class C500G0BoundedXrefInspector {
     bool verifyCatalogRoot = false,
     bool verifyFirstPageChild = false,
     bool verifyFirstPagePath = false,
+    bool verifyFirstPageContents = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -50,6 +51,9 @@ class C500G0BoundedXrefInspector {
     // G0t: one first child only; never claim full page-tree coverage.
     if (verifyFirstPagePath && !verifyFirstPageChild) {
       throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_FIRST_CHILD');
+    }
+    if (verifyFirstPageContents && !verifyFirstPagePath) {
+      throw const C500G0BoundedXrefException('C500_G0V_REQUIRES_LEAF_PATH');
     }
     if (verifyFirstPageChild && !verifyCatalogRoot) {
       throw const C500G0BoundedXrefException('C500_G0T_REQUIRES_ROOT');
@@ -188,7 +192,8 @@ class C500G0BoundedXrefInspector {
       final catalog = verifyCatalogRoot
           ? await _verifyCatalogRoot(handle, source.byteLength, dictionary,
               decoded, widths, indexes, entryWidth,
-              verifyFirstPageChild, verifyFirstPagePath)
+              verifyFirstPageChild, verifyFirstPagePath,
+              verifyFirstPageContents)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -247,6 +252,7 @@ class C500G0BoundedXrefInspector {
     RandomAccessFile file, int sourceLength, String xrefDictionary,
     List<int> bytes, List<int> widths, List<int> indexes, int stride,
     bool verifyFirstPageChild, bool verifyFirstPagePath,
+    bool verifyFirstPageContents,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -418,6 +424,11 @@ class C500G0BoundedXrefInspector {
         firstChildEvidence['leftmost_page_id'] = nodeId;
         firstChildEvidence['leftmost_path_depth'] = depth;
         firstChildEvidence['leftmost_path_verified'] = true;
+        if (verifyFirstPageContents) {
+          firstChildEvidence.addAll(await _verifyFirstPageContents(
+            file, sourceLength, bytes, widths, indexes, stride, nodeBody,
+          ));
+        }
       }
       firstChildEvidence['first_root_child_id'] = childId;
       firstChildEvidence['first_root_child_verified'] = true;
@@ -434,6 +445,103 @@ class C500G0BoundedXrefInspector {
           : verifyFirstPageChild
           ? 'FIRST_CHILD_ONLY_NOT_TRAVERSED'
           : 'ROOT_ONLY_NOT_TRAVERSED',
+    };
+  }
+
+
+  // G0v: bounded access to ONE first-page /Contents stream; lexical evidence
+  // only. Not PDF text/award parsing, all-page proof or NOT_WIN authority.
+  Future<Map<String, Object?>> _verifyFirstPageContents(
+    RandomAccessFile file, int sourceLength, List<int> xref,
+    List<int> widths, List<int> indexes, int stride, String leaf,
+  ) async {
+    if (RegExp(r'/Contents\s*\[').hasMatch(leaf)) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_ARRAY_UNSUPPORTED');
+    }
+    final refs = RegExp(r'/Contents\s+(\d+)\s+(\d+)\s+R\b').allMatches(leaf).toList();
+    if (refs.length != 1) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_REFERENCE_MISSING');
+    }
+    final id = int.parse(refs.single.group(1)!);
+    final generation = int.parse(refs.single.group(2)!);
+    final entry = _lookupXrefEntry(xref, widths, indexes, stride, id);
+    if (entry == null || entry['type'] != 1 || entry['third'] != generation) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_XREF_INVALID');
+    }
+    final objectOffset = entry['second']!;
+    if (objectOffset <= 0 || objectOffset >= sourceLength) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_OFFSET_INVALID');
+    }
+    await file.setPosition(objectOffset);
+    final header = latin1.decode(
+      await file.read(min(4096, sourceLength - objectOffset)),
+      allowInvalid: true,
+    );
+    if (!RegExp('^$id\\s+$generation\\s+obj\\b').hasMatch(header)) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_HEADER_MISMATCH');
+    }
+    final marker = RegExp(
+      r'>>[ \t]*(?:\r\n|\r|\n)?stream(?:\r\n|\r|\n)',
+    ).firstMatch(header);
+    if (marker == null) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_STREAM_MISSING');
+    }
+    final dictionary = header.substring(0, marker.start + 2);
+    if (dictionary.contains('/DecodeParms') ||
+        RegExp(r'/Length\s+\d+\s+\d+\s+R\b').hasMatch(dictionary)) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_UNSUPPORTED');
+    }
+    final lengthMatch = RegExp(r'/Length\s+(\d+)\b').firstMatch(dictionary);
+    if (lengthMatch == null) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_LENGTH_MISSING');
+    }
+    final length = int.parse(lengthMatch.group(1)!);
+    const maxCompressed = 2 * 1024 * 1024;
+    if (length <= 0 || length > maxCompressed) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_LENGTH_LIMIT');
+    }
+    final hasFilter = dictionary.contains('/Filter');
+    if (hasFilter &&
+        !RegExp(r'/Filter\s*(?:/FlateDecode\b|\[\s*/FlateDecode\s*\])')
+            .hasMatch(dictionary)) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_FILTER_UNSUPPORTED');
+    }
+    final streamOffset = objectOffset + marker.end;
+    if (streamOffset > sourceLength || length > sourceLength - streamOffset) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_TRUNCATED');
+    }
+    await file.setPosition(streamOffset);
+    final compressed = await file.read(length);
+    if (compressed.length != length) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_TRUNCATED');
+    }
+    final suffix = await file.read(min(32, sourceLength - streamOffset - length));
+    if (!RegExp(r'^(?:\r\n|\r|\n)?endstream\b')
+        .hasMatch(latin1.decode(suffix, allowInvalid: true))) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_ENDSTREAM_MISMATCH');
+    }
+    List<int> decoded;
+    try {
+      decoded = hasFilter
+          ? const CloudAwardPdfBoundedStreamDecoder(
+              maxCompressedBytes: maxCompressed,
+              maxDecodedBytes: 8 * 1024 * 1024,
+            ).decode(bytes: compressed, filters: const <String>['FlateDecode'])
+          : compressed;
+    } catch (_) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_DECODE_FAILED');
+    }
+    final body = latin1.decode(decoded, allowInvalid: true);
+    if (!RegExp(r'(?:^|\s)BT(?:\s|$)').hasMatch(body) ||
+        !RegExp(r'(?:^|\s)ET(?:\s|$)').hasMatch(body)) {
+      throw const C500G0BoundedXrefException('C500_G0V_CONTENT_TEXT_MARKERS_MISSING');
+    }
+    return <String, Object?>{
+      'leftmost_content_object_id': id,
+      'leftmost_content_compressed_bytes': length,
+      'leftmost_content_decoded_bytes': decoded.length,
+      'leftmost_content_stream_verified': true,
+      'content_semantics': 'UNPARSED_ONE_PAGE_ONLY',
     };
   }
 
@@ -778,6 +886,7 @@ Future<void> main(List<String> args) async {
         verifyCatalogRoot: true,
         verifyFirstPageChild: true,
         verifyFirstPagePath: true,
+        verifyFirstPageContents: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {

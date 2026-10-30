@@ -101,7 +101,14 @@ Future<File> makeCatalogSynthetic(
   bool wrongNestedParent = false,
   bool nestedCycle = false,
   bool nestedExcessCount = false,
+  bool includePageContent = false,
+  bool badContentFilter = false,
+  bool badContentLength = false,
+  bool forgedContentReference = false,
 }) async {
+  if (includePageContent && (!includeFirstChild || nestedFirstChild)) {
+    throw StateError('G0V_FIXTURE_REQUIRES_DIRECT_LEAF');
+  }
   const prefix = '%PDF-1.5\n';
   final catalog = '<< /Type /${wrongCatalogType ? 'Page' : 'Catalog'} '
       '${missingPages ? '' : '/Pages ${forgedPages ? 9 : 3} 0 R'} >>';
@@ -121,14 +128,23 @@ Future<File> makeCatalogSynthetic(
   final obj5 = includeFirstChild
       ? latin1.encode('5 0 obj\n<< /Type /${nestedFirstChild ? 'Pages' : 'Page'} /Parent '
           '${wrongFirstChildParent ? 9 : 3} 0 R '
-          '${nestedFirstChild ? '/Count ${nestedExcessCount ? 2 : 1} /Kids [${nestedCycle ? 3 : 6} 0 R]' : ''} >>\nendobj\n')
+          '${nestedFirstChild ? '/Count ${nestedExcessCount ? 2 : 1} /Kids [${nestedCycle ? 3 : 6} 0 R]' : ''}'
+          '${includePageContent ? '/Contents ${forgedContentReference ? 9 : 7} 0 R' : ''} >>\nendobj\n')
       : <int>[];
   final obj6Offset = obj5Offset + obj5.length;
   final obj6 = nestedFirstChild
       ? latin1.encode('6 0 obj\n<< /Type /Page /Parent '
           '${wrongNestedParent ? 9 : 5} 0 R >>\nendobj\n')
       : <int>[];
-  final xrefOffset = obj6Offset + obj6.length;
+  final contentCompressed = zlib.encode(latin1.encode('BT /F1 12 Tf (TEST) Tj ET'));
+  final obj7Offset = obj6Offset + obj6.length;
+  final obj7 = includePageContent ? <int>[
+    ...latin1.encode('7 0 obj\n<< /Length ${badContentLength ? 2097153 : contentCompressed.length} '
+        '/Filter ${badContentFilter ? '/ASCII85Decode' : '/FlateDecode'} >>\nstream\n'),
+    ...contentCompressed,
+    ...latin1.encode('\nendstream\nendobj\n'),
+  ] : <int>[];
+  final xrefOffset = obj7Offset + obj7.length;
   List<int> four(int n) => <int>[
     (n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255,
   ];
@@ -140,17 +156,21 @@ Future<File> makeCatalogSynthetic(
     1, ...four(xrefOffset), 0, 0,
     if (includeFirstChild) ...<int>[1, ...four(obj5Offset), 0, 0],
     if (nestedFirstChild) ...<int>[1, ...four(obj6Offset), 0, 0],
+    if (includePageContent) ...<int>[
+      0, ...four(0), 0, 0,
+      1, ...four(obj7Offset), 0, 0,
+    ],
   ]);
   final xrefHead = latin1.encode(
-    '4 0 obj\n<< /Type /XRef /Size ${nestedFirstChild ? 7 : includeFirstChild ? 6 : 5} '
-    '/W [1 4 2] /Index [0 ${nestedFirstChild ? 7 : includeFirstChild ? 6 : 5}] '
+    '4 0 obj\n<< /Type /XRef /Size ${includePageContent ? 8 : nestedFirstChild ? 7 : includeFirstChild ? 6 : 5} '
+    '/W [1 4 2] /Index [0 ${includePageContent ? 8 : nestedFirstChild ? 7 : includeFirstChild ? 6 : 5}] '
     '${missingRoot ? '' : '/Root ${forgedRoot ? 9 : 1} 0 R'} '
     '/Length ${xref.length} /Filter /FlateDecode >>\nstream\n',
   );
   final file = File.fromUri(directory.uri.resolve('catalog.pdf'));
   await file.writeAsBytes(<int>[
     ...latin1.encode(prefix), ...obj2, ...member, ...obj2Tail,
-    ...obj3, ...obj5, ...obj6, ...xrefHead, ...xref,
+    ...obj3, ...obj5, ...obj6, ...obj7, ...xrefHead, ...xref,
     ...latin1.encode('\nendstream\nendobj\nstartxref\n$xrefOffset\n%%EOF\n'),
   ], flush: true);
   return file;
@@ -222,6 +242,7 @@ Future<Map<String, Object?>> inspectSynthetic(
   bool verifyCatalogRoot = false,
   bool verifyFirstPageChild = false,
   bool verifyFirstPagePath = false,
+  bool verifyFirstPageContents = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -233,6 +254,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     verifyCatalogRoot: verifyCatalogRoot,
     verifyFirstPageChild: verifyFirstPageChild,
     verifyFirstPagePath: verifyFirstPagePath,
+    verifyFirstPageContents: verifyFirstPageContents,
   );
 }
 
@@ -664,6 +686,67 @@ void main() {
         verifyCatalogRoot: true, verifyFirstPagePath: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0U_REQUIRES_FIRST_CHILD')));
+  });
+
+
+  // G0v is one leaf stream, not text parsing or all-page coverage.
+  test('G0v decodes bounded first-leaf stream without award authority', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, includePageContent: true);
+    final result = await inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true, verifyFirstPageContents: true);
+    expect(result['leftmost_content_object_id'], 7);
+    expect(result['leftmost_content_stream_verified'], true);
+    expect(result['content_semantics'], 'UNPARSED_ONE_PAGE_ONLY');
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0v missing content reference fails closed', () async {
+    final file = await makeCatalogSynthetic(directory, includeFirstChild: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true, verifyFirstPageContents: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0V_CONTENT_REFERENCE_MISSING')));
+  });
+  test('G0v forged content XRef fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, includePageContent: true,
+        forgedContentReference: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true, verifyFirstPageContents: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0V_CONTENT_XREF_INVALID')));
+  });
+  test('G0v oversized stream fails before allocation', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, includePageContent: true,
+        badContentLength: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true, verifyFirstPageContents: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0V_CONTENT_LENGTH_LIMIT')));
+  });
+  test('G0v unsupported content filter fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, includePageContent: true,
+        badContentFilter: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true, verifyFirstPageContents: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0V_CONTENT_FILTER_UNSUPPORTED')));
+  });
+  test('G0v requires verified leftmost leaf', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, includePageContent: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPageContents: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0V_REQUIRES_LEAF_PATH')));
   });
 
 }
