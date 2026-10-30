@@ -232,6 +232,59 @@ void main() {
     expect(await scratch.list().toList(), isEmpty);
   });
 
+  // G0q official-lab transport recovery: synthetic bytes are NOT MOF proof.
+  test('G0q retries a disconnected official header once, then pins output',
+      () async {
+    final bytes = _syntheticPdf();
+    final client = _SyntheticClient(bytes, transientHeaderDisconnects: 1);
+    final report = await acquireC500G0SourcesIndependently(
+      sources: <C500G0Source>[
+        C500G0Source(
+          period: '115-07-08',
+          uriText: c500G0Sources.last.uriText,
+          expectedBytes: bytes.length,
+        ),
+      ],
+      labDirectory: scratch,
+      client: client,
+    );
+    expect(client.requests, 2);
+    expect(report['gate'], 'C500_G0A_SOURCE_ACQUIRED_STRUCTURE_ONLY');
+    expect(report['failures'], isEmpty);
+    final acquired = report['sources'] as List<Map<String, Object?>>;
+    expect(acquired, hasLength(1));
+    expect(acquired.single['lab_transport_attempts'], 2);
+    expect(acquired.single['award_authority'], 'HOLD');
+    expect(await scratch.list().toList(), hasLength(1));
+  });
+
+  test('G0q repeated header disconnect exhausts two attempts and fails closed',
+      () async {
+    final bytes = _syntheticPdf();
+    final client = _SyntheticClient(bytes, transientHeaderDisconnects: 3);
+    final report = await acquireC500G0SourcesIndependently(
+      sources: <C500G0Source>[
+        C500G0Source(
+          period: '115-07-08',
+          uriText: c500G0Sources.last.uriText,
+          expectedBytes: bytes.length,
+        ),
+      ],
+      labDirectory: scratch,
+      client: client,
+    );
+    expect(client.requests, 2);
+    expect(report['gate'],
+        'C500_G0A_HOLD_SOURCE_BINARY_UNAVAILABLE_OR_PIN_MISMATCH');
+    expect(report['sources'], isEmpty);
+    final failures = report['failures'] as List<Map<String, Object?>>;
+    expect(failures, hasLength(1));
+    expect(failures.single['transport_attempts'], 2);
+    expect(failures.single['failure'],
+        contains('Connection closed before full header was received'));
+    expect(await scratch.list().toList(), isEmpty);
+  });
+
 }
 
 List<int> _syntheticPdf() {
@@ -246,15 +299,26 @@ List<int> _syntheticPdf() {
 }
 
 class _SyntheticClient extends http.BaseClient {
-  _SyntheticClient(this.bytes, {this.statusCode = HttpStatus.ok});
+  _SyntheticClient(
+    this.bytes, {
+    this.statusCode = HttpStatus.ok,
+    this.transientHeaderDisconnects = 0,
+  });
 
   final List<int> bytes;
   final int statusCode;
+  final int transientHeaderDisconnects;
   int requests = 0;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     requests += 1;
+    if (requests <= transientHeaderDisconnects) {
+      throw http.ClientException(
+        'Connection closed before full header was received',
+        request.url,
+      );
+    }
     return http.StreamedResponse(
       Stream<List<int>>.fromIterable(<List<int>>[
         bytes.sublist(0, 5), bytes.sublist(5),

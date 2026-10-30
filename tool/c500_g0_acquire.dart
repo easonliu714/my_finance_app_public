@@ -213,19 +213,42 @@ Future<Map<String, Object?>> acquireC500G0SourcesIndependently({
   final acquired = <Map<String, Object?>>[];
   final failures = <Map<String, Object?>>[];
   for (final source in sources) {
-    try {
-      acquired.add(await acquireC500G0Source(
-        source: source,
-        labDirectory: labDirectory,
-        client: client,
-      ));
-    } catch (error) {
-      failures.add(<String, Object?>{
-        'period': source.period,
-        'source_uri': source.uri.toString(),
-        'failure': error.toString(),
-        'verified_official_binary': false,
-      });
+    // G0q recovery: the real 115-07-08 lab disconnected before HTTP headers.
+    // Retry that exact transient transport failure ONCE with a fresh request.
+    // Pin/size/hash, HTTP status, body, parser and timeout failures are never
+    // retried or promoted. acquireC500G0Source deletes partial files on error.
+    const maxHeaderAttempts = 2;
+    for (var attempt = 1; attempt <= maxHeaderAttempts; attempt++) {
+      try {
+        final verified = await acquireC500G0Source(
+          source: source,
+          labDirectory: labDirectory,
+          client: client,
+        );
+        acquired.add(<String, Object?>{
+          ...verified,
+          'lab_transport_attempts': attempt,
+        });
+        break;
+      } catch (error) {
+        final transientHeaderDisconnect =
+            error is http.ClientException &&
+            error.message.contains(
+              'Connection closed before full header was received',
+            );
+        if (transientHeaderDisconnect && attempt < maxHeaderAttempts) {
+          await Future<void>.delayed(const Duration(seconds: 2));
+          continue;
+        }
+        failures.add(<String, Object?>{
+          'period': source.period,
+          'source_uri': source.uri.toString(),
+          'failure': error.toString(),
+          'transport_attempts': attempt,
+          'verified_official_binary': false,
+        });
+        break;
+      }
     }
   }
   final allVerified = failures.isEmpty && acquired.length == sources.length;
