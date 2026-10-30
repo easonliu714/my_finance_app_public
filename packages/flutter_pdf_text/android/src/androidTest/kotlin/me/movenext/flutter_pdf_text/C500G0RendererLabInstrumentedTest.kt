@@ -75,13 +75,21 @@ class C500G0RendererLabInstrumentedTest {
     println("C500_G0D " + message)
   }
 
-  // C500-G0h: lab-only bounded heap trajectory during PDFBox object-graph
-  // construction. A native crash can bypass finally; periodic logs survive.
+  // C500-G0j: the G0i old-period sampler itself crashed at ~192 MiB.
+  // Keep the hot loop allocation-free above 75% of the Java heap and
+  // never allow diagnostic telemetry to mask the primary PDFBox failure.
   private class BoundedPdfBoxHeapSampler(
     private val period: String,
     private val engine: String
   ) {
+    companion object {
+      // Keep >=25% headroom before constructing any log message.
+      fun canLog(used: Long, max: Long): Boolean =
+        max > 0L && used <= max - max / 4L
+    }
+
     private val running = AtomicBoolean(false)
+    private val telemetryOom = AtomicBoolean(false)
     private val count = AtomicInteger(0)
     private val peakBytes = AtomicLong(0)
     private var worker: Thread? = null
@@ -89,35 +97,53 @@ class C500G0RendererLabInstrumentedTest {
     fun start() {
       check(running.compareAndSet(false, true)) { "C500_G0H_SAMPLER_ALREADY_RUNNING" }
       worker = Thread({
-        while (running.get() && count.get() < 720) {
-          val runtime = Runtime.getRuntime()
-          val used = runtime.totalMemory() - runtime.freeMemory()
-          // Single-writer peak; no retained sample history or page data.
-          val peak = maxOf(peakBytes.get(), used)
-          peakBytes.set(peak)
-          val number = count.incrementAndGet()
-          if (number == 1 || number % 4 == 0) {
-            Log.i("C500_G0H",
-              "period=$period engine=$engine sample=$number" +
-              " java_used_bytes=$used java_peak_bytes=$peak" +
-              " java_max_bytes=${runtime.maxMemory()}" +
-              " interval_ms=250 max_samples=720")
+        try {
+          while (running.get() && count.get() < 720) {
+            val runtime = Runtime.getRuntime()
+            val used = runtime.totalMemory() - runtime.freeMemory()
+            // Primitive-only peak tracking; never retain samples or page data.
+            val peak = maxOf(peakBytes.get(), used)
+            peakBytes.set(peak)
+            val number = count.incrementAndGet()
+            if (canLog(used, runtime.maxMemory()) && (number == 1 || number % 2 == 0)) {
+              Log.i("C500_G0H",
+                "period=$period engine=$engine sample=$number" +
+                " java_used_bytes=$used java_peak_bytes=$peak" +
+                " java_max_bytes=${runtime.maxMemory()}" +
+                " interval_ms=250 max_samples=720")
+            }
+            try {
+              Thread.sleep(250L)
+            } catch (_: InterruptedException) {
+              break
+            }
           }
-          try {
-            Thread.sleep(250L)
-          } catch (_: InterruptedException) {
-            break
-          }
+        } catch (_: OutOfMemoryError) {
+          // No logging or string allocation on this path. The successful
+          // OPEN path checks this flag and fails closed if telemetry OOMed.
+          telemetryOom.set(true)
+          running.set(false)
         }
       }, "c500-g0h-pdfbox-heap")
       worker?.isDaemon = true
       worker?.start()
     }
 
-    fun stop(): Pair<Int, Long> {
+    fun stopQuietly() {
       running.set(false)
       worker?.interrupt()
-      worker?.join(1000L)
+      try {
+        worker?.join(1000L)
+      } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+      }
+    }
+
+    fun hasTelemetryOom(): Boolean = telemetryOom.get()
+
+    // Only the tiny synthetic lifecycle test uses this allocating report.
+    fun stop(): Pair<Int, Long> {
+      stopQuietly()
       val result = Pair(count.get(), peakBytes.get())
       Log.i("C500_G0H",
         "period=$period engine=$engine stage=SAMPLER_STOP" +
@@ -142,6 +168,14 @@ class C500G0RendererLabInstrumentedTest {
       fake.delete()
     }
     assertNotNull("Lab path must be app-specific", targetContext.getExternalFilesDir("c500_g0_lab"))
+    // G0j: deterministic positive/negative telemetry-ceiling contract.
+    // Synthetic numeric inputs only: no large allocations or official files.
+    assertTrue("C500_G0J_LOW_HEAP_TELEMETRY_ALLOWED",
+      BoundedPdfBoxHeapSampler.canLog(150L, 200L))
+    assertFalse("C500_G0J_HIGH_HEAP_TELEMETRY_SUPPRESSED",
+      BoundedPdfBoxHeapSampler.canLog(151L, 200L))
+    assertFalse("C500_G0J_INVALID_HEAP_LIMIT_REJECTED",
+      BoundedPdfBoxHeapSampler.canLog(1L, 0L))
     // Synthetic lifecycle check only; no official PDF is opened here.
     val sampler = BoundedPdfBoxHeapSampler("SYNTHETIC", "LAB_ONLY")
     sampler.start()
@@ -208,18 +242,28 @@ class C500G0RendererLabInstrumentedTest {
       sampler.start()
       val setting = MemoryUsageSetting.setupTempFileOnly().setTempDir(scratch)
       PDDocument.load(source, "", setting).use { document ->
+        // Stop the sampler before success reporting; a telemetry OOM must
+        // never become a false PDFBox OPEN PASS.
+        sampler.stopQuietly()
+        assertFalse("C500_G0J_TELEMETRY_OOM_INVALIDATES_OPEN", sampler.hasTelemetryOom())
         val pageCount = document.numberOfPages
         assertTrue("C500_G0F_PAGE_COUNT_INVALID", pageCount > 0)
         emit(period, "OPEN_OK", started, "page_count=" + pageCount, engine)
       }
       emit(period, "OPEN_ONLY_PASS_NOT_GLOBAL_NEGATIVE", started, engine = engine)
     } catch (failure: Throwable) {
-      emit(period, "ENGINE_FAILED", started,
-        "failure_class=" + failure.javaClass.simpleName, engine)
+      // The instrumentation host already records the primary Java OOM.
+      // Avoid allocating a formatted failure log inside an exhausted heap.
+      if (failure !is OutOfMemoryError) {
+        emit(period, "ENGINE_FAILED", started,
+          "failure_class=" + failure.javaClass.simpleName, engine)
+      }
       throw failure
     } finally {
-      sampler.stop()
-      scratch.deleteRecursively()
+      sampler.stopQuietly()
+      // Scratch is lab-only and ephemeral; cleanup must not mask the
+      // original OOM if the runtime cannot allocate a traversal list.
+      try { scratch.deleteRecursively() } catch (_: OutOfMemoryError) {}
     }
   }
 
