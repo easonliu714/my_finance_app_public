@@ -97,6 +97,10 @@ Future<File> makeCatalogSynthetic(
   bool zeroPageCount = false,
   bool includeFirstChild = false,
   bool wrongFirstChildParent = false,
+  bool nestedFirstChild = false,
+  bool wrongNestedParent = false,
+  bool nestedCycle = false,
+  bool nestedExcessCount = false,
 }) async {
   const prefix = '%PDF-1.5\n';
   final catalog = '<< /Type /${wrongCatalogType ? 'Page' : 'Catalog'} '
@@ -115,10 +119,16 @@ Future<File> makeCatalogSynthetic(
   );
   final obj5Offset = obj3Offset + obj3.length;
   final obj5 = includeFirstChild
-      ? latin1.encode('5 0 obj\n<< /Type /Page /Parent '
-          '${wrongFirstChildParent ? 9 : 3} 0 R >>\nendobj\n')
+      ? latin1.encode('5 0 obj\n<< /Type /${nestedFirstChild ? 'Pages' : 'Page'} /Parent '
+          '${wrongFirstChildParent ? 9 : 3} 0 R '
+          '${nestedFirstChild ? '/Count ${nestedExcessCount ? 2 : 1} /Kids [${nestedCycle ? 3 : 6} 0 R]' : ''} >>\nendobj\n')
       : <int>[];
-  final xrefOffset = obj5Offset + obj5.length;
+  final obj6Offset = obj5Offset + obj5.length;
+  final obj6 = nestedFirstChild
+      ? latin1.encode('6 0 obj\n<< /Type /Page /Parent '
+          '${wrongNestedParent ? 9 : 5} 0 R >>\nendobj\n')
+      : <int>[];
+  final xrefOffset = obj6Offset + obj6.length;
   List<int> four(int n) => <int>[
     (n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255,
   ];
@@ -129,17 +139,18 @@ Future<File> makeCatalogSynthetic(
     1, ...four(obj3Offset), 0, 0,
     1, ...four(xrefOffset), 0, 0,
     if (includeFirstChild) ...<int>[1, ...four(obj5Offset), 0, 0],
+    if (nestedFirstChild) ...<int>[1, ...four(obj6Offset), 0, 0],
   ]);
   final xrefHead = latin1.encode(
-    '4 0 obj\n<< /Type /XRef /Size ${includeFirstChild ? 6 : 5} '
-    '/W [1 4 2] /Index [0 ${includeFirstChild ? 6 : 5}] '
+    '4 0 obj\n<< /Type /XRef /Size ${nestedFirstChild ? 7 : includeFirstChild ? 6 : 5} '
+    '/W [1 4 2] /Index [0 ${nestedFirstChild ? 7 : includeFirstChild ? 6 : 5}] '
     '${missingRoot ? '' : '/Root ${forgedRoot ? 9 : 1} 0 R'} '
     '/Length ${xref.length} /Filter /FlateDecode >>\nstream\n',
   );
   final file = File.fromUri(directory.uri.resolve('catalog.pdf'));
   await file.writeAsBytes(<int>[
     ...latin1.encode(prefix), ...obj2, ...member, ...obj2Tail,
-    ...obj3, ...obj5, ...xrefHead, ...xref,
+    ...obj3, ...obj5, ...obj6, ...xrefHead, ...xref,
     ...latin1.encode('\nendstream\nendobj\nstartxref\n$xrefOffset\n%%EOF\n'),
   ], flush: true);
   return file;
@@ -210,6 +221,7 @@ Future<Map<String, Object?>> inspectSynthetic(
   bool verifyCompressedMembers = false,
   bool verifyCatalogRoot = false,
   bool verifyFirstPageChild = false,
+  bool verifyFirstPagePath = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -220,6 +232,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     verifyCompressedMembers: verifyCompressedMembers,
     verifyCatalogRoot: verifyCatalogRoot,
     verifyFirstPageChild: verifyFirstPageChild,
+    verifyFirstPagePath: verifyFirstPagePath,
   );
 }
 
@@ -598,6 +611,59 @@ void main() {
     await expectLater(inspectSynthetic(file, verifyFirstPageChild: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0T_REQUIRES_ROOT')));
+  });
+
+
+  // G0u lab-only: a bounded leftmost path does not validate any siblings.
+  test('G0u nested leftmost path reaches a Page leaf, not global proof', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, nestedFirstChild: true);
+    final result = await inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true);
+    expect(result['leftmost_page_id'], 6);
+    expect(result['leftmost_path_depth'], 2);
+    expect(result['leftmost_path_verified'], true);
+    expect(result['page_tree'], 'LEFTMOST_PATH_ONLY_NOT_TRAVERSED');
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0u nested forged Parent fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, nestedFirstChild: true,
+        wrongNestedParent: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0U_PARENT_MISMATCH')));
+  });
+  test('G0u nested cycle fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, nestedFirstChild: true,
+        nestedCycle: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0U_CHILD_CYCLE')));
+  });
+  test('G0u subtree Count larger than parent fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, nestedFirstChild: true,
+        nestedExcessCount: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0U_SUBTREE_COUNT_INVALID')));
+  });
+  test('G0u path requires first-child verification', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPagePath: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0U_REQUIRES_FIRST_CHILD')));
   });
 
 }

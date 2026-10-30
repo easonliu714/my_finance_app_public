@@ -37,6 +37,7 @@ class C500G0BoundedXrefInspector {
     bool verifyCompressedMembers = false,
     bool verifyCatalogRoot = false,
     bool verifyFirstPageChild = false,
+    bool verifyFirstPagePath = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -47,6 +48,9 @@ class C500G0BoundedXrefInspector {
       throw const C500G0BoundedXrefException('C500_G0O_REQUIRES_OFFSET_VERIFICATION');
     }
     // G0t: one first child only; never claim full page-tree coverage.
+    if (verifyFirstPagePath && !verifyFirstPageChild) {
+      throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_FIRST_CHILD');
+    }
     if (verifyFirstPageChild && !verifyCatalogRoot) {
       throw const C500G0BoundedXrefException('C500_G0T_REQUIRES_ROOT');
     }
@@ -183,7 +187,8 @@ class C500G0BoundedXrefInspector {
           : const <String, Object?>{};
       final catalog = verifyCatalogRoot
           ? await _verifyCatalogRoot(handle, source.byteLength, dictionary,
-              decoded, widths, indexes, entryWidth, verifyFirstPageChild)
+              decoded, widths, indexes, entryWidth,
+              verifyFirstPageChild, verifyFirstPagePath)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -241,7 +246,7 @@ class C500G0BoundedXrefInspector {
   Future<Map<String, Object?>> _verifyCatalogRoot(
     RandomAccessFile file, int sourceLength, String xrefDictionary,
     List<int> bytes, List<int> widths, List<int> indexes, int stride,
-    bool verifyFirstPageChild,
+    bool verifyFirstPageChild, bool verifyFirstPagePath,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -359,6 +364,61 @@ class C500G0BoundedXrefInspector {
           int.parse(parent.group(2)!) != int.parse(pages.group(2)!)) {
         throw const C500G0BoundedXrefException('C500_G0T_PARENT_MISMATCH');
       }
+      // G0u: only the leftmost bounded path to one Page leaf.
+      // Each object uses the pinned XRef and capped direct/ObjStm reader.
+      // Siblings, whole tree, sorted awards and NOT_WIN remain unverified.
+      if (verifyFirstPagePath) {
+        const maxDepth = 8;
+        final seen = <int>{pagesId, childId};
+        var nodeId = childId;
+        var nodeGeneration = childGeneration;
+        var nodeBody = childBody;
+        var parentCount = declared;
+        var depth = 1;
+        while (RegExp(r'/Type\s*/Pages\b').hasMatch(nodeBody)) {
+          if (depth >= maxDepth) {
+            throw const C500G0BoundedXrefException('C500_G0U_PATH_DEPTH_LIMIT');
+          }
+          final countMatch = RegExp(r'/Count\s+(\d+)\b').firstMatch(nodeBody);
+          final childCount = int.tryParse(countMatch?.group(1) ?? '');
+          if (childCount == null || childCount <= 0 ||
+              childCount > parentCount) {
+            throw const C500G0BoundedXrefException('C500_G0U_SUBTREE_COUNT_INVALID');
+          }
+          final next = RegExp(r'/Kids\s*\[\s*(\d+)\s+(\d+)\s+R\b')
+              .firstMatch(nodeBody);
+          if (next == null) {
+            throw const C500G0BoundedXrefException('C500_G0U_KIDS_FORM_UNSUPPORTED');
+          }
+          final nextId = int.parse(next.group(1)!);
+          final nextGeneration = int.parse(next.group(2)!);
+          if (nextId == rootId || !seen.add(nextId)) {
+            throw const C500G0BoundedXrefException('C500_G0U_CHILD_CYCLE');
+          }
+          final nextBody = await readObject(nextId, nextGeneration);
+          if (!RegExp(r'/Type\s*/(?:Pages|Page)\b').hasMatch(nextBody)) {
+            throw const C500G0BoundedXrefException('C500_G0U_CHILD_TYPE_INVALID');
+          }
+          final parentRef = RegExp(r'/Parent\s+(\d+)\s+(\d+)\s+R\b')
+              .firstMatch(nextBody);
+          if (parentRef == null ||
+              int.parse(parentRef.group(1)!) != nodeId ||
+              int.parse(parentRef.group(2)!) != nodeGeneration) {
+            throw const C500G0BoundedXrefException('C500_G0U_PARENT_MISMATCH');
+          }
+          parentCount = childCount;
+          nodeId = nextId;
+          nodeGeneration = nextGeneration;
+          nodeBody = nextBody;
+          depth++;
+        }
+        if (!RegExp(r'/Type\s*/Page\b').hasMatch(nodeBody)) {
+          throw const C500G0BoundedXrefException('C500_G0U_LEAF_TYPE_INVALID');
+        }
+        firstChildEvidence['leftmost_page_id'] = nodeId;
+        firstChildEvidence['leftmost_path_depth'] = depth;
+        firstChildEvidence['leftmost_path_verified'] = true;
+      }
       firstChildEvidence['first_root_child_id'] = childId;
       firstChildEvidence['first_root_child_verified'] = true;
     }
@@ -369,7 +429,9 @@ class C500G0BoundedXrefInspector {
       'pages_root_verified': true,
       'declared_page_count_unverified': declared,
       ...firstChildEvidence,
-      'page_tree': verifyFirstPageChild
+      'page_tree': verifyFirstPagePath
+          ? 'LEFTMOST_PATH_ONLY_NOT_TRAVERSED'
+          : verifyFirstPageChild
           ? 'FIRST_CHILD_ONLY_NOT_TRAVERSED'
           : 'ROOT_ONLY_NOT_TRAVERSED',
     };
@@ -715,6 +777,7 @@ Future<void> main(List<String> args) async {
         verifyCompressedMembers: false,
         verifyCatalogRoot: true,
         verifyFirstPageChild: true,
+        verifyFirstPagePath: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {
