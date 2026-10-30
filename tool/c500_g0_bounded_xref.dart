@@ -32,6 +32,7 @@ class C500G0BoundedXrefInspector {
     required String expectedSha256,
     bool verifyObjectOffsets = false,
     bool verifyCompressedMembers = false,
+    bool verifyCatalogRoot = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -40,6 +41,9 @@ class C500G0BoundedXrefInspector {
     }
     if (verifyCompressedMembers && !verifyObjectOffsets) {
       throw const C500G0BoundedXrefException('C500_G0O_REQUIRES_OFFSET_VERIFICATION');
+    }
+    if (verifyCatalogRoot && !verifyCompressedMembers) {
+      throw const C500G0BoundedXrefException('C500_G0P_REQUIRES_MEMBER_VERIFICATION');
     }
     // Reuse the existing fixed-window SHA/topology probe, not PDFBox/qpdf.
     final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
@@ -169,9 +173,14 @@ class C500G0BoundedXrefInspector {
           ? await _sampleAddresses(handle, source.byteLength, decoded,
               widths, indexes, entryWidth, size, verifyCompressedMembers)
           : const <String, Object?>{};
+      final catalog = verifyCatalogRoot
+          ? await _verifyCatalogRoot(handle, source.byteLength, dictionary,
+              decoded, widths, indexes, entryWidth)
+          : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         ...navigation,
+        ...catalog,
         'sha256': source.sha256,
         'bytes': source.byteLength,
         'startxref': source.startXrefOffset,
@@ -192,6 +201,134 @@ class C500G0BoundedXrefInspector {
     }
   }
 
+
+  // G0p: reuse the pinned, bounded XRef for exactly two references.
+  // Catalog and Pages-root validation is not page traversal or NOT_WIN.
+  Map<String, int>? _lookupXrefEntry(
+    List<int> bytes, List<int> widths, List<int> indexes, int stride, int id,
+  ) {
+    int field(int offset, int count) {
+      var value = 0;
+      for (var i = 0; i < count; i++) {
+        value = (value << 8) | bytes[offset + i];
+      }
+      return value;
+    }
+    var base = 0;
+    for (var i = 0; i < indexes.length; i += 2) {
+      final start = indexes[i], count = indexes[i + 1];
+      if (id >= start && id < start + count) {
+        final offset = (base + id - start) * stride;
+        return <String, int>{
+          'type': widths[0] == 0 ? 1 : field(offset, widths[0]),
+          'second': field(offset + widths[0], widths[1]),
+          'third': field(offset + widths[0] + widths[1], widths[2]),
+        };
+      }
+      base += count;
+    }
+    return null;
+  }
+
+  Future<Map<String, Object?>> _verifyCatalogRoot(
+    RandomAccessFile file, int sourceLength, String xrefDictionary,
+    List<int> bytes, List<int> widths, List<int> indexes, int stride,
+  ) async {
+    final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
+        .firstMatch(xrefDictionary);
+    if (root == null) {
+      throw const C500G0BoundedXrefException('C500_G0P_ROOT_REFERENCE_MISSING');
+    }
+    final rootId = int.parse(root.group(1)!);
+    final rootGeneration = int.parse(root.group(2)!);
+
+    Future<String> readObject(int id, int generation) async {
+      final entry = _lookupXrefEntry(bytes, widths, indexes, stride, id);
+      if (entry == null || entry['type'] == 0) {
+        throw const C500G0BoundedXrefException('C500_G0P_ROOT_XREF_MISSING');
+      }
+      if (entry['type'] == 1) {
+        if (entry['third'] != generation) {
+          throw const C500G0BoundedXrefException('C500_G0P_GENERATION_MISMATCH');
+        }
+        final offset = entry['second']!;
+        if (offset <= 0 || offset >= sourceLength) {
+          throw const C500G0BoundedXrefException('C500_G0P_OBJECT_OFFSET_INVALID');
+        }
+        await file.setPosition(offset);
+        final content = latin1.decode(
+          await file.read(min(64 * 1024, sourceLength - offset)),
+          allowInvalid: true,
+        );
+        if (!RegExp('^$id\\s+$generation\\s+obj\\b').hasMatch(content)) {
+          throw const C500G0BoundedXrefException('C500_G0P_OBJECT_HEADER_MISMATCH');
+        }
+        final end = RegExp(r'\bendobj\b').firstMatch(content);
+        if (end == null) {
+          throw const C500G0BoundedXrefException('C500_G0P_OBJECT_BUDGET_EXCEEDED');
+        }
+        return content.substring(0, end.start);
+      }
+      if (entry['type'] == 2) {
+        if (generation != 0) {
+          throw const C500G0BoundedXrefException('C500_G0P_GENERATION_MISMATCH');
+        }
+        final parentId = entry['second']!;
+        final parent = _lookupXrefEntry(bytes, widths, indexes, stride, parentId);
+        if (parent == null || parent['type'] != 1) {
+          throw const C500G0BoundedXrefException('C500_G0P_PARENT_NOT_DIRECT');
+        }
+        final offset = parent['second']!;
+        final parentGeneration = parent['third']!;
+        if (offset <= 0 || offset >= sourceLength) {
+          throw const C500G0BoundedXrefException('C500_G0P_OBJECT_OFFSET_INVALID');
+        }
+        await file.setPosition(offset);
+        final header = latin1.decode(
+          await file.read(min(4096, sourceLength - offset)),
+          allowInvalid: true,
+        );
+        if (!RegExp('^$parentId\\s+$parentGeneration\\s+obj\\b')
+                .hasMatch(header) ||
+            !RegExp(r'/Type\s*/ObjStm\b').hasMatch(header)) {
+          throw const C500G0BoundedXrefException('C500_G0P_PARENT_HEADER_MISMATCH');
+        }
+        return _verifyCompressedMember(file, sourceLength, offset, header,
+            <String, int>{'id': id, 'index': entry['third']!});
+      }
+      throw const C500G0BoundedXrefException('C500_G0P_UNSUPPORTED_ENTRY_TYPE');
+    }
+
+    final catalog = await readObject(rootId, rootGeneration);
+    if (!RegExp(r'/Type\s*/Catalog\b').hasMatch(catalog)) {
+      throw const C500G0BoundedXrefException('C500_G0P_CATALOG_TYPE_INVALID');
+    }
+    final pages = RegExp(r'/Pages\s+(\d+)\s+(\d+)\s+R\b')
+        .firstMatch(catalog);
+    if (pages == null) {
+      throw const C500G0BoundedXrefException('C500_G0P_PAGES_REFERENCE_MISSING');
+    }
+    final pagesId = int.parse(pages.group(1)!);
+    final pagesBody = await readObject(pagesId, int.parse(pages.group(2)!));
+    if (!RegExp(r'/Type\s*/Pages\b').hasMatch(pagesBody) ||
+        !RegExp(r'/Kids\s*\[').hasMatch(pagesBody)) {
+      throw const C500G0BoundedXrefException('C500_G0P_PAGES_TYPE_INVALID');
+    }
+    final count = RegExp(r'/Count\s+(\d+)\b').firstMatch(pagesBody);
+    final declared = int.tryParse(count?.group(1) ?? '');
+    if (declared == null || declared <= 0 || declared > 1000000) {
+      throw const C500G0BoundedXrefException('C500_G0P_PAGE_COUNT_INVALID');
+    }
+    return <String, Object?>{
+      'catalog_root_id': rootId,
+      'catalog_root_verified': true,
+      'pages_root_id': pagesId,
+      'pages_root_verified': true,
+      'declared_page_count_unverified': declared,
+      'page_tree': 'ROOT_ONLY_NOT_TRAVERSED',
+    };
+  }
+
   // G0n: at most five direct and five compressed-parent address samples.
   // Header samples are not a page-tree traversal or a NOT_WIN proof.
   Future<Map<String, Object?>> _sampleAddresses(
@@ -206,22 +343,8 @@ class C500G0BoundedXrefInspector {
       }
       return result;
     }
-    Map<String, int>? lookup(int id) {
-      var base = 0;
-      for (var i = 0; i < indexes.length; i += 2) {
-        final start = indexes[i], count = indexes[i + 1];
-        if (id >= start && id < start + count) {
-          final offset = (base + id - start) * stride;
-          return <String, int>{
-            'type': widths[0] == 0 ? 1 : field(offset, widths[0]),
-            'second': field(offset + widths[0], widths[1]),
-            'third': field(offset + widths[0] + widths[1], widths[2]),
-          };
-        }
-        base += count;
-      }
-      return null;
-    }
+    Map<String, int>? lookup(int id) =>
+        _lookupXrefEntry(bytes, widths, indexes, stride, id);
     final targets = <int>[0, size ~/ 4, size ~/ 2, size * 3 ~/ 4, size - 1];
     final direct = <Map<String, int>>[], compressed = <Map<String, int>>[];
     var d = 0, c = 0, base = 0;
@@ -296,7 +419,7 @@ class C500G0BoundedXrefInspector {
 
   // G0o: decode only a selected size-capped ObjStm and prove that its
   // XRef compressed member id/index pair matches. Not full-page evidence.
-  Future<void> _verifyCompressedMember(
+  Future<String> _verifyCompressedMember(
     RandomAccessFile file, int sourceLength, int parentOffset,
     String header, Map<String, int> sample,
   ) async {
@@ -372,6 +495,7 @@ class C500G0BoundedXrefInspector {
     if (end <= start || decoded.sublist(start, end).every((b) => b <= 32)) {
       throw const C500G0BoundedXrefException('C500_G0O_EMPTY_MEMBER');
     }
+    return latin1.decode(decoded.sublist(start, end), allowInvalid: true);
   }
 }
 
@@ -409,6 +533,7 @@ Future<void> main(List<String> args) async {
         expectedSha256: source['sha']! as String,
         verifyObjectOffsets: true,
         verifyCompressedMembers: true,
+        verifyCatalogRoot: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {

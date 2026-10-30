@@ -84,12 +84,65 @@ Future<File> makeNavigableSynthetic(
   return file;
 }
 
+
+// G0p: hermetic Catalog -> Pages-root fixture; no complete page evidence.
+Future<File> makeCatalogSynthetic(
+  Directory directory, {
+  bool missingRoot = false,
+  bool forgedRoot = false,
+  bool wrongCatalogType = false,
+  bool missingPages = false,
+  bool forgedPages = false,
+  bool wrongPagesType = false,
+  bool zeroPageCount = false,
+}) async {
+  const prefix = '%PDF-1.5\n';
+  final catalog = '<< /Type /${wrongCatalogType ? 'Page' : 'Catalog'} '
+      '${missingPages ? '' : '/Pages ${forgedPages ? 9 : 3} 0 R'} >>';
+  final member = zlib.encode(latin1.encode('1 0 $catalog'));
+  final obj2Offset = latin1.encode(prefix).length;
+  final obj2 = latin1.encode(
+    '2 0 obj\n<< /Type /ObjStm /N 1 /First 4 '
+    '/Length ${member.length} /Filter /FlateDecode >>\nstream\n',
+  );
+  final obj2Tail = latin1.encode('\nendstream\nendobj\n');
+  final obj3Offset = obj2Offset + obj2.length + member.length + obj2Tail.length;
+  final obj3 = latin1.encode(
+    '3 0 obj\n<< /Type /${wrongPagesType ? 'Page' : 'Pages'} '
+    '/Count ${zeroPageCount ? 0 : 1} /Kids [5 0 R] >>\nendobj\n',
+  );
+  final xrefOffset = obj3Offset + obj3.length;
+  List<int> four(int n) => <int>[
+    (n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255,
+  ];
+  final xref = zlib.encode(<int>[
+    0, ...four(0), 0, 0,
+    2, ...four(2), 0, 0,
+    1, ...four(obj2Offset), 0, 0,
+    1, ...four(obj3Offset), 0, 0,
+    1, ...four(xrefOffset), 0, 0,
+  ]);
+  final xrefHead = latin1.encode(
+    '4 0 obj\n<< /Type /XRef /Size 5 /W [1 4 2] /Index [0 5] '
+    '${missingRoot ? '' : '/Root ${forgedRoot ? 9 : 1} 0 R'} '
+    '/Length ${xref.length} /Filter /FlateDecode >>\nstream\n',
+  );
+  final file = File.fromUri(directory.uri.resolve('catalog.pdf'));
+  await file.writeAsBytes(<int>[
+    ...latin1.encode(prefix), ...obj2, ...member, ...obj2Tail,
+    ...obj3, ...xrefHead, ...xref,
+    ...latin1.encode('\nendstream\nendobj\nstartxref\n$xrefOffset\n%%EOF\n'),
+  ], flush: true);
+  return file;
+}
+
 Future<Map<String, Object?>> inspectSynthetic(
   File file, {
   C500G0BoundedXrefInspector inspector = const C500G0BoundedXrefInspector(),
   String? overrideSha,
   bool verifyObjectOffsets = false,
   bool verifyCompressedMembers = false,
+  bool verifyCatalogRoot = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -98,6 +151,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     expectedSha256: overrideSha ?? source.sha256,
     verifyObjectOffsets: verifyObjectOffsets,
     verifyCompressedMembers: verifyCompressedMembers,
+    verifyCatalogRoot: verifyCatalogRoot,
   );
 }
 
@@ -321,6 +375,69 @@ void main() {
           verifyCompressedMembers: true),
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0O_MEMBER_OFFSET_INVALID',
+      )),
+    );
+  });
+
+
+  // G0p tests are synthetic; page traversal and NOT_WIN remain unproven.
+  test('G0p verifies bounded Catalog and Pages root only', () async {
+    final file = await makeCatalogSynthetic(directory);
+    final result = await inspectSynthetic(file,
+        verifyObjectOffsets: true, verifyCompressedMembers: true,
+        verifyCatalogRoot: true);
+    expect(result['catalog_root_verified'], true);
+    expect(result['pages_root_verified'], true);
+    expect(result['declared_page_count_unverified'], 1);
+    expect(result['page_tree'], 'ROOT_ONLY_NOT_TRAVERSED');
+    expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+  Future<void> rejectsCatalog(
+      String expected, Future<File> Function() make) async {
+    final file = await make();
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true,
+          verifyCompressedMembers: true, verifyCatalogRoot: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', expected,
+      )),
+    );
+  }
+  test('G0p missing Root reference fails closed', () async {
+    await rejectsCatalog('C500_G0P_ROOT_REFERENCE_MISSING',
+        () => makeCatalogSynthetic(directory, missingRoot: true));
+  });
+  test('G0p forged Root XRef reference fails closed', () async {
+    await rejectsCatalog('C500_G0P_ROOT_XREF_MISSING',
+        () => makeCatalogSynthetic(directory, forgedRoot: true));
+  });
+  test('G0p Catalog type mismatch fails closed', () async {
+    await rejectsCatalog('C500_G0P_CATALOG_TYPE_INVALID',
+        () => makeCatalogSynthetic(directory, wrongCatalogType: true));
+  });
+  test('G0p missing Pages reference fails closed', () async {
+    await rejectsCatalog('C500_G0P_PAGES_REFERENCE_MISSING',
+        () => makeCatalogSynthetic(directory, missingPages: true));
+  });
+  test('G0p forged Pages reference fails closed', () async {
+    await rejectsCatalog('C500_G0P_ROOT_XREF_MISSING',
+        () => makeCatalogSynthetic(directory, forgedPages: true));
+  });
+  test('G0p wrong Pages root type fails closed', () async {
+    await rejectsCatalog('C500_G0P_PAGES_TYPE_INVALID',
+        () => makeCatalogSynthetic(directory, wrongPagesType: true));
+  });
+  test('G0p zero declared page count fails closed', () async {
+    await rejectsCatalog('C500_G0P_PAGE_COUNT_INVALID',
+        () => makeCatalogSynthetic(directory, zeroPageCount: true));
+  });
+  test('G0p requires prior ObjStm member verification', () async {
+    final file = await makeCatalogSynthetic(directory);
+    await expectLater(
+      inspectSynthetic(file, verifyObjectOffsets: true,
+          verifyCatalogRoot: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0P_REQUIRES_MEMBER_VERIFICATION',
       )),
     );
   });
