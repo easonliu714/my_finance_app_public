@@ -1172,4 +1172,49 @@ void main() {
     );
   });
 
+
+  // G0ag: a real first text-show operand is attached only to its selected
+  // font and verified CMap reference. No glyph bytes or Unicode are emitted.
+  test('G0ag binds one selected-font operand to bounded CMap object', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1'],
+      selectedFirstOperands: <String, List<int>>{'F1': <int>[0x31]},
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      readObject: (id, generation) async {
+        if (generation != 0) throw StateError('generation');
+        if (id == 11) {
+          return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        }
+        if (id == 21) return g0abCmapObject(21, compressed: true);
+        throw StateError('unexpected object');
+      },
+    );
+    expect(result['first_page_font_operand_cmap_candidates_bound'], 1);
+    expect(result['first_page_font_operand_cmap_status'],
+        'OPERAND_FONT_CMAP_OBJECT_ONLY_NOT_DECODED');
+    expect(result['first_page_text_authority'],
+        'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0ag missing first operand for selected font fails closed', () async {
+    await expectLater(
+      const C500G0FontResourceInspector().inspect(
+        pageTreeObjects: <String>[
+          '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+        ],
+        selectedFontNames: <String>['F1'],
+        selectedFirstOperands: <String, List<int>>{},
+        readObject: (id, generation) async =>
+            '11 0 obj << /Type /Font >> endobj',
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AG_FIRST_OPERAND_MISSING',
+      )),
+    );
+  });
+
 }

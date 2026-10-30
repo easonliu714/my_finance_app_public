@@ -457,7 +457,14 @@ class C500G0BoundedXrefInspector {
             file, sourceLength, bytes, widths, indexes, stride, nodeBody,
             verifyFirstPageGlyphOperands,
           ));
+          // G0ag: the raw candidate is internal and must never reach JSON.
+          final firstOperands =
+              firstChildEvidence.remove('__g0ag_first_font_operands');
           if (verifyFirstPageFontResources) {
+            if (firstOperands is! Map<String, List<int>>) {
+              throw const C500G0BoundedXrefException(
+                  'C500_G0AG_FIRST_OPERAND_MISSING');
+            }
             final names =
                 firstChildEvidence['first_page_text_font_names_unverified'];
             if (names is! List<String>) {
@@ -468,6 +475,7 @@ class C500G0BoundedXrefInspector {
               await const C500G0FontResourceInspector().inspect(
                 pageTreeObjects: resourcePath,
                 selectedFontNames: names,
+                selectedFirstOperands: firstOperands,
                 readObject: readObject,
                 verifyCmapStreams: verifyFirstPageCmapStreams,
                 verifyCmapSemantics: verifyFirstPageCmapSemantics,
@@ -583,14 +591,20 @@ class C500G0BoundedXrefInspector {
         !RegExp(r'(?:^|\s)ET(?:\s|$)').hasMatch(body)) {
       throw const C500G0BoundedXrefException('C500_G0V_CONTENT_TEXT_MARKERS_MISSING');
     }
+    final firstOperands = <String, List<int>>{};
+    final glyphEvidence = verifyFirstPageGlyphOperands
+        ? const C500G0GlyphProbe().inspect(decoded,
+            onFirstFontOperand: (font, bytes) {
+              firstOperands[font] = bytes;
+            })
+        : const <String, Object?>{};
     return <String, Object?>{
       'leftmost_content_object_id': id,
       'leftmost_content_compressed_bytes': length,
       'leftmost_content_decoded_bytes': decoded.length,
       'leftmost_content_stream_verified': true,
-      ...verifyFirstPageGlyphOperands
-          ? const C500G0GlyphProbe().inspect(decoded)
-          : const <String, Object?>{},
+      ...glyphEvidence,
+      '__g0ag_first_font_operands': firstOperands,
       'content_semantics': verifyFirstPageGlyphOperands
           ? 'GLYPH_OPERANDS_ONE_PAGE_ONLY'
           : 'UNPARSED_ONE_PAGE_ONLY',
@@ -972,6 +986,7 @@ class C500G0FontResourceInspector {
     required List<String> pageTreeObjects,
     required List<String> selectedFontNames,
     required C500G0ReadObject readObject,
+    Map<String, List<int>>? selectedFirstOperands,
     bool verifyCmapStreams = false,
     bool verifyCmapSemantics = false,
   }) async {
@@ -1017,10 +1032,17 @@ class C500G0FontResourceInspector {
       throw const C500G0BoundedXrefException('C500_G0AD_REQUIRES_CMAP_STREAM');
     }
     var cmapReferences = 0, cmapStreams = 0, cmapMappedCodes = 0;
+    var cmapBoundOperands = 0;
     for (final name in selectedFontNames) {
       final ref = bindings[name];
       if (ref == null) {
         throw const C500G0BoundedXrefException('C500_G0AA_SELECTED_FONT_UNBOUND');
+      }
+      final candidate = selectedFirstOperands?[name];
+      if (selectedFirstOperands != null &&
+          (candidate == null || candidate.isEmpty || candidate.length > 64 * 1024)) {
+        throw const C500G0BoundedXrefException(
+            'C500_G0AG_FIRST_OPERAND_MISSING');
       }
       final font = await readObject(ref[0], ref[1]);
       if (!RegExp(r'/Type\s*/Font\b').hasMatch(font)) {
@@ -1051,6 +1073,9 @@ class C500G0FontResourceInspector {
             verifyMappings: verifyCmapSemantics,
           );
           cmapStreams++;
+          if (verifyCmapSemantics && candidate != null) {
+            cmapBoundOperands++;
+          }
         }
       }
     }
@@ -1063,6 +1088,12 @@ class C500G0FontResourceInspector {
       'first_page_tounicode_references_unverified': cmapReferences - cmapStreams,
       'first_page_tounicode_streams_structure_verified': cmapStreams,
       'first_page_tounicode_mapping_codes_syntax_verified': cmapMappedCodes,
+      // Only the real first-page operand's font-to-CMap object relationship.
+      // No code-space segmentation or glyph-to-Unicode decoding is claimed.
+      'first_page_font_operand_cmap_candidates_bound': cmapBoundOperands,
+      'first_page_font_operand_cmap_status': cmapBoundOperands > 0
+          ? 'OPERAND_FONT_CMAP_OBJECT_ONLY_NOT_DECODED'
+          : 'NOT_VERIFIED',
       'first_page_font_cmap': verifyCmapSemantics && cmapMappedCodes > 0
           ? 'BOUNDED_CMAP_SYNTAX_ONLY_NOT_GLYPH_TEXT'
           : cmapStreams > 0

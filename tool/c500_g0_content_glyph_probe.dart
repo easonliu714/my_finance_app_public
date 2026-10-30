@@ -13,7 +13,9 @@ class C500G0GlyphException implements Exception {
 class C500G0GlyphProbe {
   const C500G0GlyphProbe();
 
-  Map<String, Object?> inspect(List<int> decoded) {
+  Map<String, Object?> inspect(List<int> decoded, {
+    void Function(String fontName, List<int> bytes)? onFirstFontOperand,
+  }) {
     if (decoded.isEmpty || decoded.length > 8 * 1024 * 1024) {
       throw const C500G0GlyphException('C500_G0W_CONTENT_BUDGET');
     }
@@ -26,6 +28,7 @@ class C500G0GlyphProbe {
     String? selectedFont;
     final selectedFontNames = <String>{};
     var fontSelections = 0;
+    final sampledFonts = <String>{};
     _C500G0GlyphToken? previous;
     _C500G0GlyphToken? beforePrevious;
 
@@ -49,6 +52,12 @@ class C500G0GlyphProbe {
         }
       }
       if (run == 8) rawEightDigits++;
+      // G0ag: capture only the first bounded text-show operand for each
+      // selected font, privately for downstream XRef binding. Never emit bytes.
+      final font = selectedFont;
+      if (font != null && value.bytes.isNotEmpty && sampledFonts.add(font)) {
+        onFirstFontOperand?.call(font, List<int>.of(value.bytes));
+      }
     }
 
     _C500G0GlyphToken? token;
