@@ -136,6 +136,59 @@ Future<File> makeCatalogSynthetic(
   return file;
 }
 
+
+/* G0r synthetic-only: a 2.3 MiB incompressible second member forces
+   /Length > 2 MiB while the Catalog remains a tiny first member. */
+Future<File> makeLargeRootSynthetic(Directory directory, {
+  bool corruptTrailer = false,
+}) async {
+  const prefix = '%PDF-1.5\n';
+  final catalog = latin1.encode('<< /Type /Catalog /Pages 3 0 R >>');
+  final random = List<int>.filled(2300000, 0);
+  var state = 0x12345678;
+  for (var i = 0; i < random.length; i++) {
+    state ^= (state << 13) & 0xffffffff;
+    state ^= state >> 17;
+    state ^= (state << 5) & 0xffffffff;
+    random[i] = state & 255;
+  }
+  final indexHeader = latin1.encode('1 0 5 ${catalog.length} ');
+  final compressed = zlib.encode(<int>[...indexHeader, ...catalog, ...random]);
+  if (compressed.length <= 2 * 1024 * 1024) {
+    throw StateError('G0R_FIXTURE_NOT_LARGE_ENOUGH');
+  }
+  if (corruptTrailer) compressed[compressed.length - 1] ^= 1;
+  final objOffset = latin1.encode(prefix).length;
+  final objHead = latin1.encode('2 0 obj\n<< /Type /ObjStm /N 2 '
+      '/First ${indexHeader.length} /Length ${compressed.length} '
+      '/Filter /FlateDecode >>\nstream\n');
+  final objTail = latin1.encode('\nendstream\nendobj\n');
+  final pagesOffset = objOffset + objHead.length + compressed.length + objTail.length;
+  const pages = '3 0 obj\n<< /Type /Pages /Count 1 /Kids [6 0 R] >>\nendobj\n';
+  final xrefOffset = pagesOffset + latin1.encode(pages).length;
+  List<int> four(int n) => <int>[
+    (n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255,
+  ];
+  final xref = zlib.encode(<int>[
+    0, ...four(0), 0, 0,
+    2, ...four(2), 0, 0,
+    1, ...four(objOffset), 0, 0,
+    1, ...four(pagesOffset), 0, 0,
+    1, ...four(xrefOffset), 0, 0,
+    2, ...four(2), 0, 1,
+  ]);
+  final xrefHead = latin1.encode('4 0 obj\n<< /Type /XRef /Size 6 '
+      '/W [1 4 2] /Index [0 6] /Root 1 0 R '
+      '/Length ${xref.length} /Filter /FlateDecode >>\nstream\n');
+  final file = File.fromUri(directory.uri.resolve('large-root.pdf'));
+  await file.writeAsBytes(<int>[
+    ...latin1.encode(prefix), ...objHead, ...compressed, ...objTail,
+    ...latin1.encode(pages), ...xrefHead, ...xref,
+    ...latin1.encode('\nendstream\nendobj\nstartxref\n$xrefOffset\n%%EOF\n'),
+  ], flush: true);
+  return file;
+}
+
 Future<Map<String, Object?>> inspectSynthetic(
   File file, {
   C500G0BoundedXrefInspector inspector = const C500G0BoundedXrefInspector(),
@@ -157,6 +210,26 @@ Future<Map<String, Object?>> inspectSynthetic(
 
 void main() {
   late Directory directory;
+
+  test('G0r streams >2 MiB root ObjStm with bounded memory', () async {
+    final file = await makeLargeRootSynthetic(directory);
+    final result = await inspectSynthetic(file, verifyCatalogRoot: true);
+    expect(result['catalog_root_verified'], isTrue);
+    expect(result['pages_root_verified'], isTrue);
+    expect(result['global_not_win'], 'NOT_PROVEN');
+    expect(result['award_authority'], 'HOLD');
+  });
+
+  test('G0r corrupted large zlib trailer fails closed', () async {
+    final file = await makeLargeRootSynthetic(directory, corruptTrailer: true);
+    await expectLater(
+      inspectSynthetic(file, verifyCatalogRoot: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0R_STREAM_DECODE_FAILED',
+      )),
+    );
+  });
+
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('c500_g0l_synthetic_');
   });

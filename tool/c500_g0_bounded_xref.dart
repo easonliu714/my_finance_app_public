@@ -294,7 +294,8 @@ class C500G0BoundedXrefInspector {
           throw const C500G0BoundedXrefException('C500_G0P_PARENT_HEADER_MISMATCH');
         }
         return _verifyCompressedMember(file, sourceLength, offset, header,
-            <String, int>{'id': id, 'index': entry['third']!});
+            <String, int>{'id': id, 'index': entry['third']!},
+            allowLargeRootSpool: true);
       }
       throw const C500G0BoundedXrefException('C500_G0P_UNSUPPORTED_ENTRY_TYPE');
     }
@@ -421,8 +422,9 @@ class C500G0BoundedXrefInspector {
   // XRef compressed member id/index pair matches. Not full-page evidence.
   Future<String> _verifyCompressedMember(
     RandomAccessFile file, int sourceLength, int parentOffset,
-    String header, Map<String, int> sample,
-  ) async {
+    String header, Map<String, int> sample, {
+    bool allowLargeRootSpool = false,
+  }) async {
     final marker = RegExp(
       r'>>[ \t]*(?:\r\n|\r|\n)?stream(?:\r\n|\r|\n)',
     ).firstMatch(header);
@@ -454,13 +456,23 @@ class C500G0BoundedXrefInspector {
     if (first <= 0 || first > 1024 * 1024) {
       throw const C500G0BoundedXrefException('C500_G0O_FIRST_LIMIT');
     }
-    if (compressedLength <= 0 || compressedLength > 2 * 1024 * 1024) {
+    if (compressedLength <= 0 ||
+        (!allowLargeRootSpool && compressedLength > 2 * 1024 * 1024)) {
       throw const C500G0BoundedXrefException('C500_G0O_COMPRESSED_LIMIT');
+    }
+    // G0r: root-only disk-spool experiment, not an in-memory cap increase.
+    if (allowLargeRootSpool && compressedLength > 32 * 1024 * 1024) {
+      throw const C500G0BoundedXrefException('C500_G0R_COMPRESSED_LIMIT');
     }
     final offset = parentOffset + marker.end;
     if (offset < 0 || offset > sourceLength ||
         compressedLength > sourceLength - offset) {
       throw const C500G0BoundedXrefException('C500_G0O_STREAM_TRUNCATED');
+    }
+    if (allowLargeRootSpool && compressedLength > 2 * 1024 * 1024) {
+      return _readRootMemberViaBoundedSpool(
+        file, offset, compressedLength, count, first, sample,
+      );
     }
     await file.setPosition(offset);
     final compressed = await file.read(compressedLength);
@@ -503,6 +515,152 @@ class C500G0BoundedXrefInspector {
     }
     return latin1.decode(decoded.sublist(start, end), allowInvalid: true);
   }
+
+  // G0r: root-only, bounded-memory access. This disposable spool has a
+  // 64 MiB disk budget, 1 MiB index and 64 KiB selected-member ceiling.
+  // It never writes an official PDF, app DB, LKG, or product authority.
+  Future<String> _readRootMemberViaBoundedSpool(
+    RandomAccessFile source, int offset, int compressedLength,
+    int count, int first, Map<String, int> sample,
+  ) async {
+    const maxDisk = 64 * 1024 * 1024, maxMember = 64 * 1024;
+    final directory = await Directory.systemTemp.createTemp('c500_g0r_objstm_');
+    final spool = File.fromUri(directory.uri.resolve('decoded.bin'));
+    try {
+      final writer = await spool.open(mode: FileMode.write);
+      var decodedBytes = 0, adlerA = 1, adlerB = 0;
+      try {
+        await for (final chunk in ZLibDecoder().bind(
+          File(source.path).openRead(offset, offset + compressedLength),
+        )) {
+          if (decodedBytes + chunk.length > maxDisk) {
+            throw const C500G0BoundedXrefException('C500_G0R_DECODED_DISK_LIMIT');
+          }
+          for (final value in chunk) {
+            adlerA = (adlerA + value) % 65521;
+            adlerB = (adlerB + adlerA) % 65521;
+          }
+          await writer.writeFrom(chunk);
+          decodedBytes += chunk.length;
+        }
+      } on C500G0BoundedXrefException {
+        rethrow;
+      } catch (_) {
+        throw const C500G0BoundedXrefException('C500_G0R_STREAM_DECODE_FAILED');
+      } finally {
+        await writer.close();
+      }
+      // Independent RFC1950 trailer verification, fail closed on corruption.
+      await source.setPosition(offset + compressedLength - 4);
+      final trailer = await source.read(4);
+      if (trailer.length != 4) {
+        throw const C500G0BoundedXrefException('C500_G0R_STREAM_TRUNCATED');
+      }
+      final expected = (trailer[0] << 24) | (trailer[1] << 16) |
+          (trailer[2] << 8) | trailer[3];
+      if (((adlerB << 16) | adlerA) != expected) {
+        throw const C500G0BoundedXrefException('C500_G0R_ADLER_MISMATCH');
+      }
+      if (first >= decodedBytes) {
+        throw const C500G0BoundedXrefException('C500_G0O_FIRST_INVALID');
+      }
+      final reader = await spool.open(mode: FileMode.read);
+      try {
+        final header = await reader.read(first);
+        if (header.length != first) {
+          throw const C500G0BoundedXrefException('C500_G0R_INDEX_TRUNCATED');
+        }
+        final words = latin1.decode(header).trim().split(RegExp(r'\s+'));
+        if (words.length != count * 2 ||
+            words.any((word) => !RegExp(r'^\d+
+  if (args.isNotEmpty) {
+    stderr.writeln('C500_G0L_USAGE_NO_ARGUMENTS');
+    exitCode = 64;
+    return;
+  }
+  const sources = <Map<String, Object>>[
+    <String, Object>{
+      'period': '115-05-06',
+      'env': 'G0_OLD_PDF',
+      'bytes': 119769589,
+      'sha': '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe',
+    },
+    <String, Object>{
+      'period': '115-07-08',
+      'env': 'G0_NEW_PDF',
+      'bytes': 135200798,
+      'sha': 'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571',
+    },
+  ];
+  var failures = 0;
+  for (final source in sources) {
+    final period = source['period']! as String;
+    final path = Platform.environment[source['env']! as String];
+    try {
+      if (path == null || path.isEmpty) {
+        throw const C500G0BoundedXrefException('C500_G0L_SOURCE_UNAVAILABLE');
+      }
+      final result = await const C500G0BoundedXrefInspector().inspect(
+        file: File(path),
+        expectedBytes: source['bytes']! as int,
+        expectedSha256: source['sha']! as String,
+        // G0q official experiment: isolate exactly the pinned Catalog and
+        // Pages root; never run unrelated sampled ObjStm scans in this mode.
+        verifyObjectOffsets: false,
+        verifyCompressedMembers: false,
+        verifyCatalogRoot: true,
+      );
+      stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
+    } catch (error) {
+      failures++;
+      stdout.writeln(jsonEncode(<String, Object?>{
+        'period': period,
+        'gate': 'C500_G0L_HOLD_BOUNDED_XREF',
+        'failure': error.toString(),
+        'global_not_win': 'NOT_PROVEN',
+        'award_authority': 'HOLD',
+      }));
+    }
+  }
+  if (failures != 0) exitCode = 1;
+}
+).hasMatch(word))) {
+          throw const C500G0BoundedXrefException('C500_G0O_INDEX_HEADER_INVALID');
+        }
+        final index = sample['index']!;
+        if (index < 0 || index >= count ||
+            int.parse(words[index * 2]) != sample['id']) {
+          throw const C500G0BoundedXrefException('C500_G0O_MEMBER_ID_MISMATCH');
+        }
+        var previous = -1;
+        for (var i = 0; i < count; i++) {
+          final start = int.parse(words[i * 2 + 1]);
+          if (start <= previous || start >= decodedBytes - first) {
+            throw const C500G0BoundedXrefException('C500_G0O_MEMBER_OFFSET_INVALID');
+          }
+          previous = start;
+        }
+        final begin = first + int.parse(words[index * 2 + 1]);
+        final end = index + 1 == count
+            ? decodedBytes
+            : first + int.parse(words[(index + 1) * 2 + 1]);
+        if (end <= begin || end - begin > maxMember) {
+          throw const C500G0BoundedXrefException('C500_G0R_SELECTED_MEMBER_LIMIT');
+        }
+        await reader.setPosition(begin);
+        final member = await reader.read(end - begin);
+        if (member.length != end - begin || member.every((b) => b <= 32)) {
+          throw const C500G0BoundedXrefException('C500_G0O_EMPTY_MEMBER');
+        }
+        return latin1.decode(member, allowInvalid: true);
+      } finally {
+        await reader.close();
+      }
+    } finally {
+      if (await directory.exists()) await directory.delete(recursive: true);
+    }
+  }
+
 }
 
 Future<void> main(List<String> args) async {
