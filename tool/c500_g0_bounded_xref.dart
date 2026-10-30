@@ -43,6 +43,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageContents = false,
     bool verifyFirstPageGlyphOperands = false,
     bool verifyFirstPageFontResources = false,
+    bool verifyFirstPageCmapStreams = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -55,6 +56,10 @@ class C500G0BoundedXrefInspector {
     // G0t: one first child only; never claim full page-tree coverage.
     if (verifyFirstPagePath && !verifyFirstPageChild) {
       throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_FIRST_CHILD');
+    }
+    // G0ab: CMap access requires verified font bindings.
+    if (verifyFirstPageCmapStreams && !verifyFirstPageFontResources) {
+      throw const C500G0BoundedXrefException('C500_G0AB_REQUIRES_FONT_BINDING');
     }
     // G0aa: resource-to-font XRef binding requires proven first-leaf glyph state.
     if (verifyFirstPageFontResources && !verifyFirstPageGlyphOperands) {
@@ -205,7 +210,7 @@ class C500G0BoundedXrefInspector {
               decoded, widths, indexes, entryWidth,
               verifyFirstPageChild, verifyFirstPagePath,
               verifyFirstPageContents, verifyFirstPageGlyphOperands,
-              verifyFirstPageFontResources)
+              verifyFirstPageFontResources, verifyFirstPageCmapStreams)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -265,7 +270,7 @@ class C500G0BoundedXrefInspector {
     List<int> bytes, List<int> widths, List<int> indexes, int stride,
     bool verifyFirstPageChild, bool verifyFirstPagePath,
     bool verifyFirstPageContents, bool verifyFirstPageGlyphOperands,
-    bool verifyFirstPageFontResources,
+    bool verifyFirstPageFontResources, bool verifyFirstPageCmapStreams,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -457,6 +462,7 @@ class C500G0BoundedXrefInspector {
                 pageTreeObjects: resourcePath,
                 selectedFontNames: names,
                 readObject: readObject,
+                verifyCmapStreams: verifyFirstPageCmapStreams,
               ),
             );
           }
@@ -927,6 +933,7 @@ Future<void> main(List<String> args) async {
         verifyFirstPageContents: true,
         verifyFirstPageGlyphOperands: true,
         verifyFirstPageFontResources: true,
+        verifyFirstPageCmapStreams: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {
@@ -956,6 +963,7 @@ class C500G0FontResourceInspector {
     required List<String> pageTreeObjects,
     required List<String> selectedFontNames,
     required C500G0ReadObject readObject,
+    bool verifyCmapStreams = false,
   }) async {
     if (pageTreeObjects.isEmpty || pageTreeObjects.length > 9 ||
         selectedFontNames.isEmpty || selectedFontNames.length > 16 ||
@@ -995,7 +1003,7 @@ class C500G0FontResourceInspector {
         int.parse(ref.group(2)!), int.parse(ref.group(3)!),
       ];
     }
-    var cmapReferences = 0;
+    var cmapReferences = 0, cmapStreams = 0;
     for (final name in selectedFontNames) {
       final ref = bindings[name];
       if (ref == null) {
@@ -1014,15 +1022,35 @@ class C500G0FontResourceInspector {
         if (!RegExp(r'^\d+\s+\d+\s+R\b').hasMatch(tail)) {
           throw const C500G0BoundedXrefException('C500_G0AA_CMAP_REFERENCE_INVALID');
         }
-        // A reference is NOT a validated CMap or Unicode mapping.
+        // G0ab: only selected font CMap objects via pinned XRef.
+        final reference = RegExp(r'^(\d+)\s+(\d+)\s+R\b').firstMatch(tail);
+        if (reference == null) {
+          throw const C500G0BoundedXrefException('C500_G0AA_CMAP_REFERENCE_INVALID');
+        }
         cmapReferences++;
+        if (verifyCmapStreams) {
+          final id = int.parse(reference.group(1)!);
+          final generation = int.parse(reference.group(2)!);
+          const C500G0CmapStreamProbe().verify(
+            object: await readObject(id, generation),
+            id: id,
+            generation: generation,
+          );
+          cmapStreams++;
+        }
       }
+    }
+    if (verifyCmapStreams && cmapStreams == 0) {
+      throw const C500G0BoundedXrefException('C500_G0AB_CMAP_REFERENCE_MISSING');
     }
     return <String, Object?>{
       'first_page_font_resource_binding': 'SELECTED_FONT_XREF_OBJECTS_ONLY',
       'first_page_font_objects_verified': selectedFontNames.length,
-      'first_page_tounicode_references_unverified': cmapReferences,
-      'first_page_font_cmap': 'NOT_VERIFIED',
+      'first_page_tounicode_references_unverified': cmapReferences - cmapStreams,
+      'first_page_tounicode_streams_structure_verified': cmapStreams,
+      'first_page_font_cmap': cmapStreams > 0
+          ? 'BOUNDED_STREAM_LEXICAL_STRUCTURE_ONLY_NOT_MAPPING'
+          : 'NOT_VERIFIED',
       'first_page_text_authority': 'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS',
     };
   }
@@ -1068,5 +1096,76 @@ class C500G0FontResourceInspector {
       }
     }
     throw const C500G0BoundedXrefException('C500_G0AA_DICTIONARY_UNBALANCED');
+  }
+}
+
+
+// G0ab: one SHA-pinned XRef-resolved /ToUnicode stream at a time.
+// This validates only bounded CMap lexical structure, never Unicode mapping,
+// invoice numbers, all pages, or global NOT_WIN.
+class C500G0CmapStreamProbe {
+  const C500G0CmapStreamProbe();
+
+  void verify({
+    required String object,
+    required int id,
+    required int generation,
+  }) {
+    if (object.length > 64 * 1024 ||
+        !RegExp('^$id\\s+$generation\\s+obj\\b').hasMatch(object)) {
+      throw const C500G0BoundedXrefException('C500_G0AB_OBJECT_IDENTITY_OR_BUDGET');
+    }
+    final marker = RegExp(
+      r'>>[ \t]*(?:\r\n|\r|\n)?stream(?:\r\n|\r|\n)',
+    ).firstMatch(object);
+    if (marker == null) {
+      throw const C500G0BoundedXrefException('C500_G0AB_STREAM_HEADER_MISSING');
+    }
+    final dictionary = object.substring(0, marker.start + 2);
+    final lengths = RegExp(r'/Length\s+(\d+)\b').allMatches(dictionary).toList();
+    if (lengths.length != 1 ||
+        RegExp(r'/Length\s+\d+\s+\d+\s+R\b').hasMatch(dictionary) ||
+        dictionary.contains('/DecodeParms')) {
+      throw const C500G0BoundedXrefException('C500_G0AB_UNSUPPORTED_DICTIONARY');
+    }
+    final length = int.parse(lengths.single.group(1)!);
+    if (length <= 0 || length > 32 * 1024) {
+      throw const C500G0BoundedXrefException('C500_G0AB_COMPRESSED_LENGTH_LIMIT');
+    }
+    final filters = RegExp(r'/Filter\b').allMatches(dictionary).length;
+    if (filters > 1 ||
+        (filters == 1 &&
+            !RegExp(r'/Filter\s*(?:/FlateDecode\b|\[\s*/FlateDecode\s*\])')
+                .hasMatch(dictionary))) {
+      throw const C500G0BoundedXrefException('C500_G0AB_FILTER_UNSUPPORTED');
+    }
+    if (length > object.length - marker.end) {
+      throw const C500G0BoundedXrefException('C500_G0AB_STREAM_TRUNCATED');
+    }
+    final suffix = object.substring(marker.end + length);
+    if (!RegExp(r'^(?:\r\n|\r|\n)?endstream\b').hasMatch(suffix)) {
+      throw const C500G0BoundedXrefException('C500_G0AB_ENDSTREAM_MISMATCH');
+    }
+    final bytes = latin1.encode(object.substring(marker.end, marker.end + length));
+    List<int> decoded;
+    try {
+      decoded = filters == 1
+          ? const CloudAwardPdfBoundedStreamDecoder(
+              maxCompressedBytes: 32 * 1024,
+              maxDecodedBytes: 256 * 1024,
+            ).decode(bytes: bytes, filters: const <String>['FlateDecode'])
+          : bytes;
+    } catch (_) {
+      throw const C500G0BoundedXrefException('C500_G0AB_STREAM_DECODE_FAILED');
+    }
+    final body = latin1.decode(decoded, allowInvalid: true);
+    if (RegExp(r'\bbegincmap\b').allMatches(body).length != 1 ||
+        RegExp(r'\bendcmap\b').allMatches(body).length != 1 ||
+        !RegExp(r'\bbegincodespacerange\b').hasMatch(body) ||
+        !RegExp(r'\bendcodespacerange\b').hasMatch(body) ||
+        !(RegExp(r'\bbeginbfchar\b').hasMatch(body) ||
+            RegExp(r'\bbeginbfrange\b').hasMatch(body))) {
+      throw const C500G0BoundedXrefException('C500_G0AB_CMAP_LEXICAL_MARKERS_MISSING');
+    }
   }
 }

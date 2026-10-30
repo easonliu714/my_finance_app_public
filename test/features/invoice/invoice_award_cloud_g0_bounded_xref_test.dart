@@ -848,4 +848,106 @@ void main() {
     );
   });
 
+
+  // G0ab synthetic CMap streams are NOT official or Unicode mapping proof.
+  String g0abCmapObject(int id, {
+    bool compressed = false,
+    bool badFilter = false,
+    bool badMarkers = false,
+    bool badLength = false,
+  }) {
+    const valid = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
+        'endbfchar\nendcmap\n';
+    final content = badMarkers ? 'begincmap\nendcmap\n' : valid;
+    final payload = compressed
+        ? zlib.encode(latin1.encode(content))
+        : latin1.encode(content);
+    final filter = badFilter
+        ? ' /Filter /LZWDecode'
+        : compressed ? ' /Filter /FlateDecode' : '';
+    final length = badLength ? payload.length + 5 : payload.length;
+    return '$id 0 obj\n<< /Length $length$filter >>\nstream\n'
+        + latin1.decode(payload) + '\nendstream\nendobj';
+  }
+
+  test('G0ab selected CMap Flate stream lexical structure only', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1'],
+      verifyCmapStreams: true,
+      readObject: (id, generation) async {
+        if (generation != 0) throw StateError('generation');
+        if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        if (id == 21) return g0abCmapObject(21, compressed: true);
+        throw StateError('unexpected XRef id');
+      },
+    );
+    expect(result['first_page_tounicode_streams_structure_verified'], 1);
+    expect(result['first_page_tounicode_references_unverified'], 0);
+    expect(result['first_page_font_cmap'],
+        'BOUNDED_STREAM_LEXICAL_STRUCTURE_ONLY_NOT_MAPPING');
+    expect(result['first_page_text_authority'],
+        'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0ab uncompressed bounded CMap structure accepted', () {
+    const C500G0CmapStreamProbe().verify(
+      object: g0abCmapObject(21),
+      id: 21,
+      generation: 0,
+    );
+  });
+
+  test('G0ab forged CMap object identity fails closed', () {
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(22), id: 21, generation: 0),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AB_OBJECT_IDENTITY_OR_BUDGET')),
+    );
+  });
+
+  test('G0ab unsupported filter fails closed', () {
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(21, badFilter: true),
+        id: 21, generation: 0),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AB_FILTER_UNSUPPORTED')),
+    );
+  });
+
+  test('G0ab mismatched stream length fails closed', () {
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(21, badLength: true),
+        id: 21, generation: 0),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AB_ENDSTREAM_MISMATCH')),
+    );
+  });
+
+  test('G0ab missing CMap lexical sections fails closed', () {
+    expect(
+      () => const C500G0CmapStreamProbe().verify(
+        object: g0abCmapObject(21, badMarkers: true),
+        id: 21, generation: 0),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AB_CMAP_LEXICAL_MARKERS_MISSING')),
+    );
+  });
+
+  test('G0ab CMap stream requires selected font binding', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, includePageContent: true);
+    await expectLater(
+      inspectSynthetic(file, verifyFirstPageCmapStreams: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AB_REQUIRES_FONT_BINDING')),
+    );
+  });
+
 }
