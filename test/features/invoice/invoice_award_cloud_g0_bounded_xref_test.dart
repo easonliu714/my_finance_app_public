@@ -244,6 +244,7 @@ Future<Map<String, Object?>> inspectSynthetic(
   bool verifyFirstPagePath = false,
   bool verifyFirstPageContents = false,
   bool verifyFirstPageFontResources = false,
+  bool verifyFirstPageCmapStreams = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -257,6 +258,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     verifyFirstPagePath: verifyFirstPagePath,
     verifyFirstPageContents: verifyFirstPageContents,
     verifyFirstPageFontResources: verifyFirstPageFontResources,
+    verifyFirstPageCmapStreams: verifyFirstPageCmapStreams,
   );
 }
 
