@@ -1,5 +1,35 @@
 # 記帳軟體 UI／功能／外部 API／SQLite 資料架構樹與完成驗證矩陣
 
+## CURRENT PARALLEL GATE CROSSWALK — 2026-10-31 · Owner approved
+
+**唯一正式優先序與 PR/Issue 結案條件：** [Roadmap `CURRENT PROJECT EXECUTION QUEUE`](PROJECT_ROADMAP_PR_ISSUE_CLOSURE_AUDIT.md)；本架構文件只記跨功能既有實體與 UI/Service/API/SQLite 的 Crosswalk，不建立第二套 Roadmap，原 C500-D0/G0～G6 均維持獨立追蹤。Owner 2026-10-31 15:56 Asia/Taipei 同意在 C500 主線不停擺時依序推進下表，既有正式 SQLite、POSTED NT$700、官方快取、已驗收 4.20.29/30/31/32 皆凍結。
+
+| Gate order | Issue | 既有 UI／Route／Service／Repository／SQLite Authority（禁止重做） | 第一個可獨立實作、驗證 Sub-Gate；目前證據 |
+|---|---|---|---|
+| A0 P0 active | #13 / PR45 | `InvoiceAwardProductionPage`, Official MOF downloader/XRef lab, invoice award Native Worker/IPC, LKG; 正式 SQLite 是唯一帳務權威 | C500-G0 source-backed bounded PDF glyph→Unicode/完整負向；C17/C18 RED，CI/Signed/Device HOLD |
+| B1 P0 | #4 | `lib/features/account/account_detail_page.dart`, `account_page.dart`; existing `accountDetailProvider.summaryFor(year,month)`, canonical account/transaction Repository | first-visible YYYY-MM/年度 card atomically same anchor、同月長列表/反向/跨年/360px/各帳戶類型 Widget tests；4.20.29/30/32 accepted slices不重作、不得新餘額 Provider |
+| B2 P1 | #19 | `taiwan_business_calendar_package_service`, `taiwan_business_calendar_days` (v17) | 官方 365/366 continuity/ revision/SHA，錯期及低版本拒絕，CSV fallback、LKG/transactional rollback；CODE existing, E2E HOLD |
+| B3 P1 | #18 | `FullBackupScope V9`, `FullBackupService`, `FullRestoreServiceV8`, canonical `ProductionDatabaseCoordinator`, SQLite v24 + `expense_categories` | 用隔離 DB 測試 V2–V9、FK/count/restore rollback；4.20.31 Scope V9 Owner PASS 不重作。SQLCipher/real-encryption/schema-freeze 此階段**不得**實作，需另等 Issue #18 Start Gate |
+| B4 P1 | #6 | `debit_card_*`, v17–19 settlement/profile/audit | pending ≠ posted、confirm once、cancel/fail release，餘額與可用額獨立 |
+| B5 P1 | #9 | `wallet_top_up_*`, v20–21 profiles/suggestions/audits/executions | source→destination transfer 僅明確 Save 一次，建議值不自動入帳 |
+| B6 P1 | #15 | `.github/workflows/*`, CI Artifact/cache/retention，GitHub exact HEAD workflow | 先唯讀稽核重複執行成本，再做非削弱型 workflow 優化；Native C17/C18 不可 skip |
+| B7 P2 | #5 | canonical account/merchant pickers, account/merchant repositories | favorites/recent 只排版，不重複 ID；轉帳 selector 回歸 |
+| B8 P2 | #10 | existing transaction entry draft + canonical account/merchant/category stores | quick-create explicit confirmation；回到原 draft 保留 amount/date/notes |
+| B9 P2 | #14 | dashboard/home shortcuts + SharedPreferences local preference | bounded reorder/replace/reset/restart；gated route 隱藏 |
+| B10 P2 | #16 + #17 | product capture + Gemini consent + editable draft, local image file staging | crop/rotation/lifecycle/retention；AI output candidate-only，正式 Save exactly once；#29 accepted 不重做 |
+| B11 P2 | #28 | `voice_transaction_entry_page`, OS speech transcription + draft | mic deny/cancel/offline fallback、editable parse，不建立正式交易直到 Save |
+| B12 P2 | #8 + #12 | My Settings, notification/preferences, existing secure Gemini BYOK | 一個 settings source，通知不覆蓋重要操作，無明文密鑰、保留 upload consent |
+| B13 P3 | #22 | Frozen invoice review/Local OCR/Gemini client | standing opt-in 預設 OFF，一 Frozen capture 最多一筆網路請求，不自動採用 AI／入帳 |
+| B14 P3 | #7 | loan/repayment plans and governed SQLite | two prepayment simulation formulas；未確認不覆寫正式計畫 |
+| B15 P3 | #11 | expense-category selector + canonical category master | fixed clock suggestions only，缺類別不建立 master、user override always |
+
+**執行與同步 Gate：** 只有一個 Primary GitHub Writer 按 A0/B queue 執行最小可完成 Sub-Gate，其他實驗只讀；每輪 fresh HEAD/changed files/CI/Owner、同 PR 受控提交及兩正式治理文件一致。禁止直接寫 `main`、搶寫同一 branch、Force Push、Auto Merge；沒有簽章/實機/必要 Owner 合併授權不可將 Draft PR 列 `MERGED_MAIN`。Issue 完整 DoD（正反／回歸／必要 Signed／Owner）均證實，並在 GitHub 關閉後 readback，才標 `ISSUE_CLOSED`。目前僅 PR#45 OPEN/DRAFT、18 Open Issues，沒有可安全立即關閉的 PR/Issue；原 #46 CLOSED_NOT_MERGED、#20/#29/#32 CLOSED 子成果不得重做。
+
+**下個並行 Gate：** B1.0 帳戶可見交易年月錨點與跨年／多帳戶 Widget/regression 測試的 read-only Crosswalk，不更動交易／正式 SQLite／`summaryFor`。A0 C500 仍繼續，官方來源完整性與 C17/C18 嚴格安全阻塞照常稽核。
+
+---
+
+
 ## CURRENT OWNER DECISION — 2026-10-29 · C500-D0
 
 **C500-G0an exact-head official Lab activation and TJ zero-glyph fail-closed guard (2026-10-31 15:22 Asia/Taipei; enabled official Lab/CI PENDING):** Prior substantive HEAD `763994e09bc24728998fb248351695649b6c37ce` passed branch ref/changed-file/two-CURRENT-doc readback, but [Lab #50](https://github.com/easonliu714/my_finance_app_public/actions/runs/41180279000) completed with **all source steps SKIPPED** because the one-shot commit message omitted required `[G0-SOURCE-LAB]`; it is **NOT** a real-source PASS. CI #1224 still running at readback. This new code/test commit makes empty-string-only `TJ` arrays fail closed as positioning-only rather than counting them as glyph-bearing, and adds mixed empty/nonempty TJ and all-empty TJ positive/negative contracts; the lab-only zero-glyph Tj/TJ treatment remains opt-in, does not change production, and never asserts full first-leaf or award/global NOT_WIN. The commit explicitly requests the existing one-shot official lab through the required marker. Both pinned PDF SHA/bytes, C17/C18/C13 strict security HOLD, G0 HOLD, G1 examined-source conditional NO_GO, G2-G4 HOLD, G5 Owner-choice HOLD, G6 BLOCKED, Signed/Owner-device/merge HOLD, production SQLite/LKG/POSTED NT$700/main/120MiB dispatcher unchanged. **Next:** inspect enabled exact-head Lab's source-pinned zero-glyph count, contiguous decoded operand count, and first omitted nonempty reason; if source steps do not execute, report precise gate blocker, never infer success from synthetic tests.
