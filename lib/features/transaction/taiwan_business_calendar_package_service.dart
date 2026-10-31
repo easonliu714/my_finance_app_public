@@ -99,7 +99,7 @@ class TaiwanBusinessCalendarPackageService {
       tableName,
       columns: <String>['calendar_date', 'is_business_day'],
       where: 'source_year = ? AND calendar_date >= ? AND calendar_date <= ?',
-      whereArgs: <Object?>[year, '${year}-12-01', '${year}-12-31'],
+      whereArgs: <Object?>[year, '$year-12-01', '$year-12-31'],
       orderBy: 'calendar_date ASC',
     );
     if (december.length != 31) {
