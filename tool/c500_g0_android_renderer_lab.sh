@@ -50,9 +50,9 @@ run_case() {
     local crash_evidence failure_kind
     crash_evidence="$(timeout 15s adb logcat -b crash -d -t 500 || true)"
     failure_kind=INSTRUMENTATION_FAILURE
-    if grep -Fq 'OutOfMemoryError' "$output" || printf '%s\n' "$crash_evidence" | grep -Fq 'pending exception java.lang.OutOfMemoryError'; then
+    if grep -Fq 'OutOfMemoryError' "$output" || [[ "$crash_evidence" == *'pending exception java.lang.OutOfMemoryError'* ]]; then
       failure_kind=JAVA_HEAP_OOM
-    elif printf '%s\n' "$crash_evidence" | grep -Fq 'Fatal signal 5 (SIGTRAP)'; then
+    elif [[ "$crash_evidence" == *'Fatal signal 5 (SIGTRAP)'* ]]; then
       failure_kind=NATIVE_SIGTRAP
     elif grep -Fq 'java.io.IOException:' "$output"; then
       failure_kind=PDF_OPEN_IOEXCEPTION
@@ -68,11 +68,11 @@ run_case() {
       fi
       # G0g: this crash ring belongs to the current case after pre-case clear.
       printf '%s\n' "$crash_evidence" | grep -E 'Fatal signal|Abort message|backtrace:|#0[0-9] pc|#1[0-9] pc' | tail -n 65 || true
-      if grep -Fq 'OutOfMemoryError' "$output" || printf '%s\n' "$crash_evidence" | grep -Fq 'pending exception java.lang.OutOfMemoryError'; then
+      if grep -Fq 'OutOfMemoryError' "$output" || [[ "$crash_evidence" == *'pending exception java.lang.OutOfMemoryError'* ]]; then
         echo "C500_G0G_JAVA_HEAP_OOM_EVIDENCE=$method"
       fi
-      if printf '%s\n' "$crash_evidence" | grep -Fq 'Fatal signal 6 (SIGABRT)' &&
-         printf '%s\n' "$crash_evidence" | grep -Fq 'pending exception java.lang.OutOfMemoryError'; then
+      if [[ "$crash_evidence" == *'Fatal signal 6 (SIGABRT)'* ]] &&
+         [[ "$crash_evidence" == *'pending exception java.lang.OutOfMemoryError'* ]]; then
         echo "C500_G0G_JNI_ABORT_WITH_PENDING_OOM=$method"
       fi
     fi

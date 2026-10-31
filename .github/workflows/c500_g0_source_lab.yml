@@ -70,8 +70,8 @@ jobs:
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         run: flutter test test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart
 
-      - name: G0g per-case crash isolation and OOM/abort contract (synthetic mock)
-        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+      - name: G0i per-case crash classifier and long-ring regression (synthetic only)
+        if: ${{ github.event_name == 'pull_request' || steps.gate.outputs.run_lab == 'true' }}
         shell: bash
         run: |
           bash tool/c500_g0_android_renderer_lab_contract_test.sh

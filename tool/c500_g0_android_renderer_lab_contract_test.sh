@@ -39,6 +39,17 @@ if [[ "$1" == shell && "$2" == am ]]; then
     echo 'FAILURES!!!'
     exit 0
   fi
+  # G0i: source-backed Android crash rings can exceed a pipe buffer.
+  # Early grep -q must not turn SIGTRAP detection into SIGPIPE/141.
+  if [[ "${C500_TEST_PDFIUM_LONG_CRASH:-0}" == 1 && "$*" == *newOfficialPdfiumOpenOnly* ]]; then
+    {
+      awk 'BEGIN {for (i=1; i<=200; i++) printf "pre_%05d_%0500d\n", i, i}'
+      printf 'Fatal signal 5 (SIGTRAP), code 128 (SI_KERNEL)\n'
+      awk 'BEGIN {for (i=1; i<=300; i++) printf "post_%05d_%0500d\n", i, i}'
+    } > "$C500_TEST_CRASH_FILE"
+    echo 'INSTRUMENTATION_RESULT: shortMsg=Process crashed.'
+    exit 0
+  fi
   if [[ "${C500_TEST_PDFIUM_NEW_SIGTRAP:-0}" == 1 && "$*" == *newOfficialPdfiumOpenOnly* ]]; then
     echo 'Fatal signal 5 (SIGTRAP)' > "$C500_TEST_CRASH_FILE"
     echo 'INSTRUMENTATION_RESULT: shortMsg=Process crashed.'
@@ -68,7 +79,7 @@ if [[ "$1" == logcat && "$2" == -b && "$3" == crash && "$4" == -c ]]; then
   exit 0
 fi
 if [[ "$1" == logcat && "$2" == -b && "$3" == crash && "$4" == -d ]]; then
-  cat "$C500_TEST_CRASH_FILE"
+  tail -n 500 "$C500_TEST_CRASH_FILE"
   exit 0
 fi
 if [[ "$1" == logcat ]]; then exit 0; fi
@@ -114,6 +125,18 @@ if (cd "$tmp/android" && C500_TEST_PDFIUM_NEW_SIGTRAP=1 PATH="$tmp/fakebin:$PATH
 fi
 grep -Fq 'C500_G0G_FIRST_FAILURE=newOfficialPdfiumOpenOnly kind=NATIVE_SIGTRAP adb_exit=0' "$tmp/pdfium-sigtrap-output"
 grep -Fq 'C500_G0F_CASE_PASS=oldOfficialPdfBoxOpenOnly' "$tmp/pdfium-sigtrap-output"
+# G0i: the last 500 current-case crash lines contain >150KiB after SIGTRAP.
+# A long crash ring must not be misclassified under set -o pipefail.
+if (cd "$tmp/android" && C500_TEST_PDFIUM_LONG_CRASH=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/pdfium-long-crash-output" 2>&1; then
+  echo 'C500_G0I_CONTRACT_EXPECTED_LONG_RING_NATIVE_SIGTRAP_FAILURE' >&2
+  exit 81
+fi
+grep -Fq 'C500_G0G_FIRST_FAILURE=newOfficialPdfiumOpenOnly kind=NATIVE_SIGTRAP adb_exit=0' "$tmp/pdfium-long-crash-output"
+grep -Fq 'C500_G0F_CASE_PASS=newOfficialPdfBoxOpenOnly' "$tmp/pdfium-long-crash-output"
+if grep -Fq 'C500_G0G_FIRST_FAILURE=newOfficialPdfiumOpenOnly kind=INSTRUMENTATION_FAILURE' "$tmp/pdfium-long-crash-output"; then
+  echo 'C500_G0I_NATIVE_SIGTRAP_MISCLASSIFIED' >&2
+  exit 82
+fi
 # A PDFium instrumentation failure must not mask the next period, and must
 # produce a failing overall gate even when adb itself returns exit 0.
 if (cd "$tmp/android" && C500_TEST_PDFIUM_OLD_FAIL=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/pdfium-failure-output" 2>&1; then
@@ -149,4 +172,4 @@ if (cd "$tmp/android" && C500_TEST_NO_APK=1 PATH="$tmp/fakebin:$PATH" bash ../to
   exit 74
 fi
 grep -Fq 'C500_G0D_ANDROIDTEST_APK_MISSING_OR_AMBIGUOUS' "$tmp/no-apk-output"
-echo 'PASS C500_G0H_MOCK_IO_SIGTRAP_OOM_FIRST_FAILURE_CRASH_ISOLATION_AND_MISSING_APK_FAIL_CLOSED'
+echo 'PASS C500_G0I_LONG_CRASH_RING_SIGTRAP_PIPEFAIL_SAFE_AND_G0H_REGRESSIONS'
