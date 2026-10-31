@@ -176,12 +176,13 @@ void main() {
   });
 
   test('G0aj oversized or excessive private operand capture fails closed', () {
+    final oversized = List<String>.filled(257, 'A').join();
     expect(() => probe.inspect(
-      latin1.encode('BT /F1 10 Tf (' + List<String>.filled(257, 'A').join() + ') Tj ET'),
+      latin1.encode('BT /F1 10 Tf ($oversized) Tj ET'),
       onEveryFontOperand: (font, bytes) {},
     ), throwsA(isA<C500G0GlyphException>().having(
       (e) => e.code, 'code', 'C500_G0AJ_CAPTURE_BUDGET')));
-    final many = 'BT /F1 10 Tf ' + List<String>.filled(129, '(A) Tj').join(' ') + ' ET';
+    final many = "BT /F1 10 Tf ${List<String>.filled(129, '(A) Tj').join(' ')} ET";
     expect(() => probe.inspect(
       latin1.encode(many),
       onEveryFontOperand: (font, bytes) {},
