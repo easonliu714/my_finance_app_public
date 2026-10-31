@@ -509,6 +509,10 @@ class C500G0BoundedXrefInspector {
                 verifyFirstGlyphUnicode: verifyFirstPageGlyphUnicode,
                 verifyFirstOperandUnicodeRun: verifyFirstPageOperandUnicodeRun,
                 verifyAllFirstPageOperandsUnicode: verifyFirstPageAllOperandsUnicode,
+                firstLeafOperandCaptureTruncated:
+                    firstChildEvidence['first_page_first_leaf_operand_capture_truncated'] == true,
+                firstLeafUncapturedOperandsUnknown:
+                    firstChildEvidence['first_page_first_leaf_uncaptured_operands_unknown'] as int? ?? 0,
               ),
             );
           }
@@ -1067,7 +1071,16 @@ class C500G0FontResourceInspector {
     bool verifyFirstGlyphUnicode = false,
     bool verifyFirstOperandUnicodeRun = false,
     bool verifyAllFirstPageOperandsUnicode = false,
+    // G0ak: a captured prefix is never whole-leaf Unicode authority.
+    bool firstLeafOperandCaptureTruncated = false,
+    int firstLeafUncapturedOperandsUnknown = 0,
   }) async {
+    if (firstLeafUncapturedOperandsUnknown < 0 ||
+        firstLeafOperandCaptureTruncated !=
+            (firstLeafUncapturedOperandsUnknown > 0)) {
+      throw const C500G0BoundedXrefException(
+          'C500_G0AK_PREFIX_EVIDENCE_INCONSISTENT');
+    }
     if (pageTreeObjects.isEmpty || pageTreeObjects.length > 9 ||
         selectedFontNames.isEmpty || selectedFontNames.length > 16 ||
         selectedFontNames.toSet().length != selectedFontNames.length) {
@@ -1133,12 +1146,12 @@ class C500G0FontResourceInspector {
       final candidate = selectedFirstOperands?[name];
       final allForFont = selectedAllOperands?[name];
       if (verifyAllFirstPageOperandsUnicode) {
-        if (allForFont == null || allForFont.isEmpty ||
-            allForFont.length > 128) {
+        // Fonts first encountered beyond the prefix remain UNKNOWN.
+        if (allForFont != null && allForFont.length > 128) {
           throw const C500G0BoundedXrefException(
-              'C500_G0AJ_SELECTED_FONT_OPERANDS_MISSING');
+              'C500_G0AJ_CAPTURE_BUDGET');
         }
-        allCapturedOperands += allForFont.length;
+        allCapturedOperands += allForFont?.length ?? 0;
         if (allCapturedOperands > 128) {
           throw const C500G0BoundedXrefException(
               'C500_G0AJ_CAPTURE_BUDGET');
@@ -1181,7 +1194,8 @@ class C500G0FontResourceInspector {
             verifyMappings: verifyCmapSemantics,
             firstOperand: verifyFirstGlyphUnicode ? candidate : null,
             verifyFullOperand: verifyFirstOperandUnicodeRun,
-            allOperands: verifyAllFirstPageOperandsUnicode
+            allOperands: verifyAllFirstPageOperandsUnicode &&
+                    allForFont != null && allForFont.isNotEmpty
                 ? allForFont
                 : null,
             onAllOperandsDecoded: (operandCount, glyphCount) {
@@ -1202,7 +1216,7 @@ class C500G0FontResourceInspector {
       } else if (verifyAllFirstPageOperandsUnicode) {
         // A selected font without ToUnicode is explicitly UNKNOWN; never
         // silently count its glyph operands as decoded or NOT_WIN evidence.
-        allUnmappedFontOperands += allForFont!.length;
+        allUnmappedFontOperands += allForFont?.length ?? 0;
       }
     }
     if (verifyCmapStreams && cmapStreams == 0) {
@@ -1227,9 +1241,13 @@ class C500G0FontResourceInspector {
       'first_page_first_leaf_tounicode_glyphs_verified': allVerifiedGlyphs,
       'first_page_first_leaf_no_tounicode_operands_unknown':
           allUnmappedFontOperands,
+      'first_page_first_leaf_uncaptured_operands_unknown':
+          firstLeafUncapturedOperandsUnknown,
       'first_page_first_leaf_unicode_coverage_status':
           !verifyAllFirstPageOperandsUnicode ? 'NOT_RUN'
-          : allCapturedOperands == allVerifiedOperands &&
+          : !firstLeafOperandCaptureTruncated &&
+              firstLeafUncapturedOperandsUnknown == 0 &&
+              allCapturedOperands == allVerifiedOperands &&
               allUnmappedFontOperands == 0
               ? 'FIRST_LEAF_ONLY_DECODED_NOT_AWARD_OR_GLOBAL_PROOF'
               : 'PARTIAL_FIRST_LEAF_COVERAGE_UNKNOWN_NOT_AWARD_PROOF',

@@ -1488,6 +1488,49 @@ void main() {
     );
   });
 
+  test('G0ak mapped bounded prefix cannot assert whole-leaf authority', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1'],
+      selectedFirstOperands: <String, List<int>>{'F1': <int>[0x31]},
+      selectedAllOperands: <String, List<List<int>>>{
+        'F1': <List<int>>[<int>[0x31]],
+      },
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      verifyFirstGlyphUnicode: true,
+      verifyFirstOperandUnicodeRun: true,
+      verifyAllFirstPageOperandsUnicode: true,
+      firstLeafOperandCaptureTruncated: true,
+      firstLeafUncapturedOperandsUnknown: 1,
+      readObject: (id, generation) async {
+        if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        if (id == 21) return g0abCmapObject(21);
+        throw StateError('unexpected object');
+      },
+    );
+    expect(result['first_page_first_leaf_tounicode_operands_verified'], 1);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 1);
+    expect(result['first_page_first_leaf_unicode_coverage_status'],
+        'PARTIAL_FIRST_LEAF_COVERAGE_UNKNOWN_NOT_AWARD_PROOF');
+  });
+
+  test('G0ak inconsistent prefix evidence fails closed', () async {
+    await expectLater(
+      const C500G0FontResourceInspector().inspect(
+        pageTreeObjects: <String>['<< /Resources << /Font << /F1 11 0 R >> >> >>'],
+        selectedFontNames: <String>['F1'],
+        firstLeafOperandCaptureTruncated: false,
+        firstLeafUncapturedOperandsUnknown: 1,
+        readObject: (id, generation) async => '',
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AK_PREFIX_EVIDENCE_INCONSISTENT')),
+    );
+  });
+
   test('G0aj top-level all-operand request cannot skip first run', () async {
     await expectLater(
       const C500G0BoundedXrefInspector().inspect(

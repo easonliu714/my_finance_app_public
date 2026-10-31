@@ -175,19 +175,46 @@ void main() {
         'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
   });
 
-  test('G0aj oversized or excessive private operand capture fails closed', () {
+  test('G0ak oversized individual operand still fails closed', () {
     final oversized = List<String>.filled(257, 'A').join();
     expect(() => probe.inspect(
       latin1.encode('BT /F1 10 Tf ($oversized) Tj ET'),
       onEveryFontOperand: (font, bytes) {},
     ), throwsA(isA<C500G0GlyphException>().having(
       (e) => e.code, 'code', 'C500_G0AJ_CAPTURE_BUDGET')));
-    final many = "BT /F1 10 Tf ${List<String>.filled(129, '(A) Tj').join(' ')} ET";
-    expect(() => probe.inspect(
-      latin1.encode(many),
-      onEveryFontOperand: (font, bytes) {},
-    ), throwsA(isA<C500G0GlyphException>().having(
-      (e) => e.code, 'code', 'C500_G0AJ_CAPTURE_BUDGET')));
+  });
+
+  test('G0ak 128/129 operand prefix preserves explicit unknown suffix', () {
+    for (final count in <int>[128, 129]) {
+      var captured = 0;
+      final many = 'BT /F1 10 Tf ${List<String>.filled(count, '(A) Tj').join(' ')} ET';
+      final result = probe.inspect(latin1.encode(many),
+        onEveryFontOperand: (font, bytes) {
+          captured++;
+          bytes.fillRange(0, bytes.length, 0);
+        },
+      );
+      expect(captured, 128);
+      expect(result['first_page_first_leaf_uncaptured_operands_unknown'],
+          count - 128);
+      expect(result['first_page_first_leaf_operand_capture_truncated'],
+          count > 128);
+    }
+  });
+
+  test('G0ak 16KiB aggregate cap reports omitted operand', () {
+    var captured = 0;
+    final operand = List<String>.filled(256, 'A').join();
+    final many = 'BT /F1 10 Tf ${List<String>.filled(65, '($operand) Tj').join(' ')} ET';
+    final result = probe.inspect(latin1.encode(many),
+      onEveryFontOperand: (font, bytes) {
+        captured++;
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(captured, 64);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 1);
+    expect(result['first_page_first_leaf_operand_capture_truncated'], true);
   });
 
 }

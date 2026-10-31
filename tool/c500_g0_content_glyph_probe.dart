@@ -15,7 +15,7 @@ class C500G0GlyphProbe {
 
   Map<String, Object?> inspect(List<int> decoded, {
     void Function(String fontName, List<int> bytes)? onFirstFontOperand,
-    // G0aj: private, bounded capture of every first-leaf text-show operand.
+    // G0ak: private bounded prefix; uncaptured suffix remains UNKNOWN.
     void Function(String fontName, List<int> bytes)? onEveryFontOperand,
   }) {
     if (decoded.isEmpty || decoded.length > 8 * 1024 * 1024) {
@@ -32,6 +32,7 @@ class C500G0GlyphProbe {
     var fontSelections = 0;
     final sampledFonts = <String>{};
     var capturedOperandCount = 0, capturedOperandBytes = 0;
+    var uncapturedOperandCount = 0;
     _C500G0GlyphToken? previous;
     _C500G0GlyphToken? beforePrevious;
 
@@ -61,17 +62,21 @@ class C500G0GlyphProbe {
       if (font != null && value.bytes.isNotEmpty && sampledFonts.add(font)) {
         onFirstFontOperand?.call(font, List<int>.of(value.bytes));
       }
-      // G0aj: reject oversized/unbounded first-leaf capture before copying.
-      // Neither raw glyph bytes nor decoded Unicode enter the result map.
+      // G0ak: retain a strict 128-operand / 16KiB prefix. Count omitted
+      // operands as UNKNOWN; never promote a prefix to full-leaf evidence.
+      // Invalid individual operands still fail closed before any copy.
       if (font != null && onEveryFontOperand != null) {
-        if (value.bytes.isEmpty || value.bytes.length > 256 ||
-            capturedOperandCount >= 128 ||
-            value.bytes.length > 16384 - capturedOperandBytes) {
+        if (value.bytes.isEmpty || value.bytes.length > 256) {
           throw const C500G0GlyphException('C500_G0AJ_CAPTURE_BUDGET');
         }
-        onEveryFontOperand(font, List<int>.of(value.bytes));
-        capturedOperandCount++;
-        capturedOperandBytes += value.bytes.length;
+        if (capturedOperandCount >= 128 ||
+            value.bytes.length > 16384 - capturedOperandBytes) {
+          uncapturedOperandCount++;
+        } else {
+          onEveryFontOperand(font, List<int>.of(value.bytes));
+          capturedOperandCount++;
+          capturedOperandBytes += value.bytes.length;
+        }
       }
     }
 
@@ -186,6 +191,9 @@ class C500G0GlyphProbe {
       'first_page_hex_glyph_operands': hex,
       'first_page_raw_ascii_eight_digit_runs_untrusted': rawEightDigits,
       'first_page_text_font_selection_operators': fontSelections,
+      'first_page_first_leaf_uncaptured_operands_unknown': uncapturedOperandCount,
+      'first_page_first_leaf_operand_capture_truncated':
+          uncapturedOperandCount > 0,
       'first_page_text_font_names_unverified': selectedFontNames.toList()..sort(),
       'first_page_text_font_binding': 'TEXT_STATE_ONLY_NO_RESOURCE_OR_CMAP',
       'first_page_font_cmap': 'NOT_VERIFIED',
