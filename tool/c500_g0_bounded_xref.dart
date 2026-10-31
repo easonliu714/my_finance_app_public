@@ -470,6 +470,7 @@ class C500G0BoundedXrefInspector {
           // G0ag: the raw candidate is internal and must never reach JSON.
           final firstOperands =
               firstChildEvidence.remove('__g0ag_first_font_operands');
+          try {
           if (verifyFirstPageFontResources) {
             if (firstOperands is! Map<String, List<int>>) {
               throw const C500G0BoundedXrefException(
@@ -493,6 +494,16 @@ class C500G0BoundedXrefInspector {
                 verifyFirstOperandUnicodeRun: verifyFirstPageOperandUnicodeRun,
               ),
             );
+          }
+          } finally {
+            // G0ai: never retain privately captured glyph operands after
+            // bounded font/CMap inspection, including fail-closed exceptions.
+            if (firstOperands is Map<String, List<int>>) {
+              for (final bytes in firstOperands.values) {
+                bytes.fillRange(0, bytes.length, 0);
+              }
+              firstOperands.clear();
+            }
           }
         }
       }
@@ -1305,13 +1316,14 @@ class C500G0CmapSemanticProbe {
       throw const C500G0BoundedXrefException('C500_G0AI_OPERAND_BUDGET');
     }
     final codespaces = <List<int>>[];
-    final mappings = <int, List<int>>{};
+    // Retain only mapping membership, never private Unicode code units.
+    final mappings = <int>{};
     verify(body,
       onCodespace: (width, low, high) {
         codespaces.add(<int>[width, low, high]);
       },
       onMapping: (width, source, units) {
-        mappings[(width << 32) | source] = List<int>.of(units);
+        mappings.add((width << 32) | source);
       },
     );
     var position = 0;
@@ -1341,7 +1353,7 @@ class C500G0CmapSemanticProbe {
       for (var i = 0; i < width; i++) {
         source = (source << 8) | operand[position + i];
       }
-      if (!mappings.containsKey((width << 32) | source)) {
+      if (!mappings.contains((width << 32) | source)) {
         throw const C500G0BoundedXrefException(
             'C500_G0AI_OPERAND_GLYPH_UNMAPPED');
       }
