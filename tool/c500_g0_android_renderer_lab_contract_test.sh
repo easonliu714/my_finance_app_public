@@ -34,6 +34,16 @@ if [[ "$1" == shell && "$2" == pm ]]; then
   exit 0
 fi
 if [[ "$1" == shell && "$2" == am ]]; then
+  if [[ "${C500_TEST_RENDERER_NEW_IO:-0}" == 1 && "$*" == *newOfficialPdfRendererOpenAndBoundedPages* ]]; then
+    echo 'INSTRUMENTATION_STATUS: stack=java.io.IOException: Unable to load the document!'
+    echo 'FAILURES!!!'
+    exit 0
+  fi
+  if [[ "${C500_TEST_PDFIUM_NEW_SIGTRAP:-0}" == 1 && "$*" == *newOfficialPdfiumOpenOnly* ]]; then
+    echo 'Fatal signal 5 (SIGTRAP)' > "$C500_TEST_CRASH_FILE"
+    echo 'INSTRUMENTATION_RESULT: shortMsg=Process crashed.'
+    exit 0
+  fi
   if [[ "${C500_TEST_PDFBOX_NEW_OOM_ABORT:-0}" == 1 && "$*" == *oldOfficialPdfiumOpenOnly* ]]; then
     printf 'STALE_PDFIUM_CRASH_MUST_NOT_LEAK\n' > "$C500_TEST_CRASH_FILE"
   fi
@@ -86,9 +96,24 @@ grep -Fq 'C500_G0F_CASE_PASS=newOfficialPdfBoxOpenOnly' "$tmp/output"
 [[ "$(grep -c '^push ' "$tmp/trace")" == 2 ]]
 [[ "$(grep -c '^shell am instrument ' "$tmp/trace")" == 6 ]]
 [[ "$(grep -c '^logcat -b crash -c$' "$tmp/trace")" == 6 ]]
+[[ "$(grep -c '^logcat -b main -c$' "$tmp/trace")" == 6 ]]
 # G0i: all six independent PID runs must capture the heap trajectory.
 # Exact-match the full command: missing tag or missing invocation fails closed.
 [[ "$(grep -Fxc 'logcat -d -s C500_G0D:I C500_G0H:I AndroidRuntime:E libc:E' "$tmp/trace")" == 6 ]]
+# G0h real-failure analogs: transport exit=0 must not hide PdfRenderer
+# IOException or a native PDFium SIGTRAP; all six independent cases still run.
+if (cd "$tmp/android" && C500_TEST_RENDERER_NEW_IO=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/renderer-io-output" 2>&1; then
+  echo 'C500_G0H_CONTRACT_EXPECTED_RENDERER_IO_FAILURE' >&2
+  exit 79
+fi
+grep -Fq 'C500_G0G_FIRST_FAILURE=newOfficialPdfRendererOpenAndBoundedPages kind=PDF_OPEN_IOEXCEPTION adb_exit=0' "$tmp/renderer-io-output"
+grep -Fq 'C500_G0E_CASE_PASS=oldOfficialPdfiumOpenOnly' "$tmp/renderer-io-output"
+if (cd "$tmp/android" && C500_TEST_PDFIUM_NEW_SIGTRAP=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/pdfium-sigtrap-output" 2>&1; then
+  echo 'C500_G0H_CONTRACT_EXPECTED_PDFIUM_SIGTRAP_FAILURE' >&2
+  exit 80
+fi
+grep -Fq 'C500_G0G_FIRST_FAILURE=newOfficialPdfiumOpenOnly kind=NATIVE_SIGTRAP adb_exit=0' "$tmp/pdfium-sigtrap-output"
+grep -Fq 'C500_G0F_CASE_PASS=oldOfficialPdfBoxOpenOnly' "$tmp/pdfium-sigtrap-output"
 # A PDFium instrumentation failure must not mask the next period, and must
 # produce a failing overall gate even when adb itself returns exit 0.
 if (cd "$tmp/android" && C500_TEST_PDFIUM_OLD_FAIL=1 PATH="$tmp/fakebin:$PATH" bash ../tool/c500_g0_android_renderer_lab.sh) > "$tmp/pdfium-failure-output" 2>&1; then
@@ -111,6 +136,7 @@ if (cd "$tmp/android" && C500_TEST_PDFBOX_NEW_OOM_ABORT=1 PATH="$tmp/fakebin:$PA
   exit 77
 fi
 grep -Fq 'C500_G0G_JAVA_HEAP_OOM_EVIDENCE=newOfficialPdfBoxOpenOnly' "$tmp/oom-abort-output"
+grep -Fq 'C500_G0G_FIRST_FAILURE=newOfficialPdfBoxOpenOnly kind=JAVA_HEAP_OOM adb_exit=0' "$tmp/oom-abort-output"
 grep -Fq 'C500_G0G_JNI_ABORT_WITH_PENDING_OOM=newOfficialPdfBoxOpenOnly' "$tmp/oom-abort-output"
 grep -Fq 'C500_G0F_CASE_PASS=oldOfficialPdfBoxOpenOnly' "$tmp/oom-abort-output"
 if grep -Fq 'STALE_PDFIUM_CRASH_MUST_NOT_LEAK' "$tmp/oom-abort-output"; then
@@ -123,4 +149,4 @@ if (cd "$tmp/android" && C500_TEST_NO_APK=1 PATH="$tmp/fakebin:$PATH" bash ../to
   exit 74
 fi
 grep -Fq 'C500_G0D_ANDROIDTEST_APK_MISSING_OR_AMBIGUOUS' "$tmp/no-apk-output"
-echo 'PASS C500_G0G_MOCK_PER_CASE_CRASH_ISOLATION_JAVA_OOM_JNI_ABORT_AND_MISSING_APK_FAIL_CLOSED'
+echo 'PASS C500_G0H_MOCK_IO_SIGTRAP_OOM_FIRST_FAILURE_CRASH_ISOLATION_AND_MISSING_APK_FAIL_CLOSED'
