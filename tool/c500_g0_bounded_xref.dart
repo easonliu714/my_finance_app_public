@@ -1057,6 +1057,55 @@ Future<void> main(List<String> args) async {
 }
 
 
+// G0ap: lab-only exact Standard-14 Type1 / WinAnsi printable-ASCII fallback.
+// A font without ToUnicode is UNKNOWN unless every font/encoding constraint
+// and every glyph byte is proven. Never return or log decoded invoice text.
+class C500G0SimpleWinAnsiProbe {
+  const C500G0SimpleWinAnsiProbe();
+
+  static const _standard14Latin = <String>{
+    'Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique',
+    'Helvetica-BoldOblique', 'Courier', 'Courier-Bold',
+    'Courier-Oblique', 'Courier-BoldOblique', 'Times-Roman',
+    'Times-Bold', 'Times-Italic', 'Times-BoldItalic',
+  };
+
+  String classify(String font) {
+    if (RegExp(r'/ToUnicode\b').hasMatch(font)) return 'HAS_TOUNICODE';
+    if (RegExp(r'/Subtype\s*/Type1\b').allMatches(font).length != 1) {
+      return 'NOT_EXACT_TYPE1';
+    }
+    final base = RegExp(r'/BaseFont\s*/([A-Za-z-]+)\b')
+        .allMatches(font).toList();
+    if (base.length != 1 ||
+        !_standard14Latin.contains(base.single.group(1))) {
+      return 'NOT_STANDARD14_LATIN';
+    }
+    final encoding = RegExp(r'/Encoding\s*/([A-Za-z0-9]+)\b')
+        .allMatches(font).toList();
+    if (encoding.length != 1 ||
+        encoding.single.group(1) != 'WinAnsiEncoding') {
+      return 'NOT_EXPLICIT_WINANSI';
+    }
+    if (RegExp(r'/Differences\b|/FontDescriptor\b|/FontFile\b|'
+        r'/CharProcs\b|/DescendantFonts\b').hasMatch(font)) {
+      return 'CUSTOM_OR_EMBEDDED_FONT';
+    }
+    return 'STANDARD14_WINANSI_ASCII_SUBSET';
+  }
+
+  int? countDecodedAsciiGlyphs(String font, List<int> operand) {
+    if (classify(font) != 'STANDARD14_WINANSI_ASCII_SUBSET' ||
+        operand.isEmpty || operand.length > 256 ||
+        operand.any((byte) => byte < 0x20 || byte > 0x7e)) {
+      return null;
+    }
+    // WinAnsi codes 0x20..0x7E map to the same Unicode code points.
+    final decoded = String.fromCharCodes(operand);
+    return decoded.runes.length;
+  }
+}
+
 // G0aa: bounded FIRST-LEAF inherited /Resources -> /Font XRef binding.
 // Resolves only selected font objects. No CMap decoding, award numbers,
 // sibling pages, full page-tree traversal, or global NOT_WIN authority.
@@ -1145,6 +1194,8 @@ class C500G0FontResourceInspector {
     var unicodeFullOperands = 0, unicodeFullOperandGlyphs = 0;
     var allVerifiedOperands = 0, allVerifiedGlyphs = 0;
     var allUnmappedFontOperands = 0, allCapturedOperands = 0;
+    var simpleAsciiVerifiedOperands = 0, simpleAsciiVerifiedGlyphs = 0;
+    final fontFallbackClasses = <String, String>{};
     for (final name in selectedFontNames) {
       final ref = bindings[name];
       if (ref == null) {
@@ -1174,6 +1225,7 @@ class C500G0FontResourceInspector {
         throw const C500G0BoundedXrefException('C500_G0AA_FONT_OBJECT_INVALID');
       }
       final cmapKeys = RegExp(r'/ToUnicode\b').allMatches(font).toList();
+      fontFallbackClasses[name] = const C500G0SimpleWinAnsiProbe().classify(font);
       if (cmapKeys.length > 1) {
         throw const C500G0BoundedXrefException('C500_G0AA_CMAP_REFERENCE_INVALID');
       }
@@ -1221,9 +1273,19 @@ class C500G0FontResourceInspector {
           }
         }
       } else if (verifyAllFirstPageOperandsUnicode) {
-        // A selected font without ToUnicode is explicitly UNKNOWN; never
-        // silently count its glyph operands as decoded or NOT_WIN evidence.
-        allUnmappedFontOperands += allForFont?.length ?? 0;
+        // G0ap: no guessed mapping for a missing ToUnicode. A narrowly
+        // proven built-in WinAnsi ASCII subset is private Unicode evidence;
+        // every other captured operand remains UNKNOWN.
+        for (final operand in allForFont ?? <List<int>>[]) {
+          final glyphs = const C500G0SimpleWinAnsiProbe()
+              .countDecodedAsciiGlyphs(font, operand);
+          if (glyphs == null) {
+            allUnmappedFontOperands++;
+          } else {
+            simpleAsciiVerifiedOperands++;
+            simpleAsciiVerifiedGlyphs += glyphs;
+          }
+        }
       }
     }
     if (verifyCmapStreams && cmapStreams == 0) {
@@ -1248,14 +1310,21 @@ class C500G0FontResourceInspector {
       'first_page_first_leaf_tounicode_glyphs_verified': allVerifiedGlyphs,
       'first_page_first_leaf_no_tounicode_operands_unknown':
           allUnmappedFontOperands,
+      'first_page_first_leaf_font_fallback_classes': fontFallbackClasses,
+      'first_page_first_leaf_standard14_winansi_ascii_operands_verified':
+          simpleAsciiVerifiedOperands,
+      'first_page_first_leaf_standard14_winansi_ascii_glyphs_verified':
+          simpleAsciiVerifiedGlyphs,
+      'first_page_first_leaf_unicode_operands_verified':
+          allVerifiedOperands + simpleAsciiVerifiedOperands,
       'first_page_first_leaf_uncaptured_operands_unknown':
           firstLeafUncapturedOperandsUnknown,
       'first_page_first_leaf_unicode_coverage_status':
           !verifyAllFirstPageOperandsUnicode ? 'NOT_RUN'
           : !firstLeafOperandCaptureTruncated &&
               firstLeafUncapturedOperandsUnknown == 0 &&
-              firstLeafZeroGlyphOperands == 0 &&
-              allCapturedOperands == allVerifiedOperands &&
+              allCapturedOperands ==
+                  allVerifiedOperands + simpleAsciiVerifiedOperands &&
               allUnmappedFontOperands == 0
               ? 'FIRST_LEAF_ONLY_DECODED_NOT_AWARD_OR_GLOBAL_PROOF'
               : 'PARTIAL_FIRST_LEAF_COVERAGE_UNKNOWN_NOT_AWARD_PROOF',

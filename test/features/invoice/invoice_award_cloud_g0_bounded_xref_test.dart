@@ -1544,4 +1544,111 @@ void main() {
     );
   });
 
+  // G0ap synthetic positive/negative contracts, never official award evidence.
+  test('G0ap exact Standard14 WinAnsi adds bounded private Unicode coverage',
+      () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R /F2 12 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1', 'F2'],
+      selectedFirstOperands: <String, List<int>>{
+        'F1': <int>[0x31], 'F2': <int>[0x41, 0x42],
+      },
+      selectedAllOperands: <String, List<List<int>>>{
+        'F1': <List<int>>[<int>[0x31]],
+        'F2': <List<int>>[<int>[0x41, 0x42], <int>[0x33]],
+      },
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      verifyFirstGlyphUnicode: true,
+      verifyFirstOperandUnicodeRun: true,
+      verifyAllFirstPageOperandsUnicode: true,
+      readObject: (id, generation) async {
+        if (generation != 0) throw StateError('generation');
+        if (id == 11) {
+          return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        }
+        if (id == 12) {
+          return '12 0 obj << /Type /Font /Subtype /Type1 '
+              '/BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj';
+        }
+        if (id == 21) return g0abCmapObject(21);
+        throw StateError('unexpected object');
+      },
+    );
+    expect(result['first_page_first_leaf_tounicode_operands_verified'], 1);
+    expect(result['first_page_first_leaf_standard14_winansi_ascii_operands_verified'], 2);
+    expect(result['first_page_first_leaf_standard14_winansi_ascii_glyphs_verified'], 3);
+    expect(result['first_page_first_leaf_unicode_operands_verified'], 3);
+    expect(result['first_page_first_leaf_no_tounicode_operands_unknown'], 0);
+    expect(result['first_page_first_leaf_unicode_coverage_status'],
+        'FIRST_LEAF_ONLY_DECODED_NOT_AWARD_OR_GLOBAL_PROOF');
+    expect(result.toString().contains('Helvetica /Encoding'), false);
+  });
+
+  test('G0ap unsupported fonts and non-ASCII glyphs stay UNKNOWN', () {
+    const probe = C500G0SimpleWinAnsiProbe();
+    const trusted = '<< /Type /Font /Subtype /Type1 '
+        '/BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    expect(probe.classify(trusted), 'STANDARD14_WINANSI_ASCII_SUBSET');
+    expect(probe.countDecodedAsciiGlyphs(trusted, <int>[0x20, 0x7e]), 2);
+    expect(probe.countDecodedAsciiGlyphs(trusted, <int>[0x80]), isNull);
+    expect(probe.countDecodedAsciiGlyphs(trusted, <int>[]), isNull);
+    expect(probe.countDecodedAsciiGlyphs(
+        trusted, List<int>.filled(257, 0x31)), isNull);
+    for (final invalid in <String>[
+      '<< /Type /Font /Subtype /Type0 /BaseFont /Helvetica '
+          '/Encoding /WinAnsiEncoding >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Symbol '
+          '/Encoding /WinAnsiEncoding >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+          '/Encoding /Identity-H >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+          '/Encoding /WinAnsiEncoding /Differences [65 /X] >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+          '/Encoding /WinAnsiEncoding /FontDescriptor 22 0 R >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+          '/Encoding /WinAnsiEncoding /Encoding /WinAnsiEncoding >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /HelveticaSubset '
+          '/Encoding /WinAnsiEncoding >>',
+    ]) {
+      expect(probe.countDecodedAsciiGlyphs(invalid, <int>[0x31]), isNull);
+    }
+  });
+
+  test('G0ap unsupported source font cannot certify whole first leaf',
+      () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R /F2 12 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1', 'F2'],
+      selectedFirstOperands: <String, List<int>>{
+        'F1': <int>[0x31], 'F2': <int>[0x80],
+      },
+      selectedAllOperands: <String, List<List<int>>>{
+        'F1': <List<int>>[<int>[0x31]],
+        'F2': <List<int>>[<int>[0x80]],
+      },
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      verifyFirstGlyphUnicode: true,
+      verifyFirstOperandUnicodeRun: true,
+      verifyAllFirstPageOperandsUnicode: true,
+      readObject: (id, generation) async {
+        if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        if (id == 12) return '12 0 obj << /Type /Font /Subtype /Type1 '
+            '/BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj';
+        if (id == 21) return g0abCmapObject(21);
+        throw StateError('unexpected object');
+      },
+    );
+    expect(result['first_page_first_leaf_unicode_operands_verified'], 1);
+    expect(result['first_page_first_leaf_no_tounicode_operands_unknown'], 1);
+    expect(result['first_page_first_leaf_unicode_coverage_status'],
+        'PARTIAL_FIRST_LEAF_COVERAGE_UNKNOWN_NOT_AWARD_PROOF');
+  });
+
 }
