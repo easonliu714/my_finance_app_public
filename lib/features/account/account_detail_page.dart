@@ -994,7 +994,10 @@ class _AccountLedgerTileState extends State<_AccountLedgerTile> {
                   _revealed = _dragOffset.abs() > _actionWidth * 0.35;
                   _dragOffset = 0;
                 }),
-                child: ColoredBox(
+                // B1: the swipe foreground must own the ListTile ink layer.
+                // A ColoredBox between ListTile and Card's Material hides ink
+                // and triggers Flutter's framework assertion on real ledger rows.
+                child: Material(
                   color: Theme.of(context).cardColor,
                   child: _LedgerContent(
                     item: widget.item,

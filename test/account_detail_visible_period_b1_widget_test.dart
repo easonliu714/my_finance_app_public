@@ -46,6 +46,7 @@ void main() {
     );
     await _pump(tester, account, _FixtureStore(account), 1.3);
     _expectPeriod('2027年', '01月');
+    _expectLedgerInkSurface(tester);
     await tester.drag(find.byType(CustomScrollView), const Offset(0, -250));
     await tester.pumpAndSettle();
     _expectPeriod('2027年', '01月');
@@ -82,6 +83,23 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+}
+
+// The first real ledger tile must find an ink-owning Material before the
+// swipe GestureDetector; Card's outer Material is too far away for ListTile.
+void _expectLedgerInkSurface(WidgetTester tester) {
+  final tile = tester.element(find.byType(ExpansionTile).first);
+  var materialInsideSwipe = false;
+  tile.visitAncestorElements((ancestor) {
+    if (ancestor.widget is Material) {
+      materialInsideSwipe = true;
+      return false;
+    }
+    if (ancestor.widget is GestureDetector) return false;
+    return true;
+  });
+  expect(materialInsideSwipe, isTrue,
+      reason: 'Ledger tile ink surface must be inside the swipe layer');
 }
 
 void _expectPeriod(String year, String month) {
