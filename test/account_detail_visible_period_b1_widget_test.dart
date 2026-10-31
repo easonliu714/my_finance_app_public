@@ -70,6 +70,35 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('B1 reused route clears old period when next account is empty',
+      (tester) async {
+    const populated = AccountRecord(
+      id: 'populated', name: 'Populated', type: AccountType.eWallet,
+      initialBalance: 0, sortOrder: 0,
+    );
+    const empty = AccountRecord(
+      id: 'empty', name: 'Empty', type: AccountType.bank,
+      initialBalance: 0, sortOrder: 0,
+    );
+    final selected = ValueNotifier<AccountRecord>(populated);
+    addTearDown(selected.dispose);
+    await _pump(
+      tester, populated, _FixtureStore(populated), 1.3,
+      accountNotifier: selected,
+    );
+    _expectPeriod('2027年', '01月');
+    selected.value = empty;
+    await tester.pumpAndSettle();
+    expect(find.text('尚無帳戶明細。'), findsOneWidget);
+    final now = DateTime.now();
+    _expectPeriod(
+      '${now.year}年', '${now.month.toString().padLeft(2, '0')}月',
+    );
+    expect(find.text('2027年'), findsNothing,
+        reason: 'An empty account must not inherit the prior account period');
+    expect(tester.takeException(), isNull);
+  });
+
   for (final type in AccountType.values) {
     testWidgets('B1 paired summary for account type ${type.name}', (tester) async {
       final account = AccountRecord(
@@ -117,7 +146,7 @@ class _FixtureStore implements AccountStore {
 
   @override
   Future<List<AccountEventRecord>> listAccountEvents(String accountName) async =>
-      <AccountEventRecord>[
+      accountName != account.displayName ? <AccountEventRecord>[] : <AccountEventRecord>[
         for (var i = 0; i < 10; i++)
           _event(i, DateTime(2027, 1, 10 - i, 8), 1),
         for (var i = 0; i < 28; i++)
@@ -165,8 +194,9 @@ class _ReadOnlyLedgerController extends TransactionLedgerController {
 
 Future<void> _pump(
   WidgetTester tester, AccountRecord account, _FixtureStore store,
-  double textScale,
-) async {
+  double textScale, {
+  ValueNotifier<AccountRecord>? accountNotifier,
+}) async {
   await tester.binding.setSurfaceSize(const Size(360, 800));
   addTearDown(() async => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(ProviderScope(
@@ -190,7 +220,13 @@ Future<void> _pump(
         data: const MediaQueryData(size: Size(360, 800)).copyWith(
           textScaler: TextScaler.linear(textScale),
         ),
-        child: AccountDetailPage(account: account),
+        child: accountNotifier == null
+            ? AccountDetailPage(account: account)
+            : ValueListenableBuilder<AccountRecord>(
+                valueListenable: accountNotifier,
+                builder: (context, selected, child) =>
+                    AccountDetailPage(account: selected),
+              ),
       ),
     ),
   ));

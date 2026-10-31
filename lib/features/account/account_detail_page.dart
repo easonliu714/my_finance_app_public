@@ -45,6 +45,18 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
     _scrollController.addListener(_scheduleAnchorSync);
   }
 
+  // B1: a reused detail route must never carry a different account's
+  // visible-month anchor into the next account, including an empty ledger.
+  @override
+  void didUpdateWidget(covariant AccountDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.account.id != widget.account.id) {
+      _anchorDate = null;
+      _visibleOrderItems = const [];
+      _scheduleAnchorSync();
+    }
+  }
+
   @override
   void dispose() {
     _scrollController.removeListener(_scheduleAnchorSync);
