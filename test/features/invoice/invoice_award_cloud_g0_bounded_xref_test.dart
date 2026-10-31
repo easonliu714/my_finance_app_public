@@ -1638,10 +1638,18 @@ void main() {
       verifyFirstOperandUnicodeRun: true,
       verifyAllFirstPageOperandsUnicode: true,
       readObject: (id, generation) async {
-        if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
-        if (id == 12) return '12 0 obj << /Type /Font /Subtype /Type1 '
-            '/BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj';
-        if (id == 21) return g0abCmapObject(21);
+        // G0ap first CI failure: satisfy strict Dart brace lint without
+        // changing the isolated synthetic font fixture or its assertions.
+        if (id == 11) {
+          return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        }
+        if (id == 12) {
+          return '12 0 obj << /Type /Font /Subtype /Type1 '
+              '/BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj';
+        }
+        if (id == 21) {
+          return g0abCmapObject(21);
+        }
         throw StateError('unexpected object');
       },
     );
