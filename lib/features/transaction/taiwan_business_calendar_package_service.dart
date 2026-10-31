@@ -123,8 +123,6 @@ class TaiwanBusinessCalendarPackageService {
     final metadata = _metadata(rows);
     final start = rows.first['calendar_date'] as String;
     final end = rows.last['calendar_date'] as String;
-    final expected =
-        DateTime.parse(end).difference(DateTime.parse(start)).inDays + 1;
     return CalendarPackageStatus(
       year: year,
       start: start,
@@ -136,7 +134,7 @@ class TaiwanBusinessCalendarPackageService {
       digest: metadata?.digest ?? '',
       sourceUrl: rows.first['source_url'] as String,
       importedAt: rows.first['updated_at'] as String,
-      isContiguous: rows.length == expected,
+      isContiguous: metadata != null || _isConsistentLegacy(rows),
     );
   }
 
@@ -161,10 +159,56 @@ class TaiwanBusinessCalendarPackageService {
     final metadata = TaiwanBusinessCalendarStoredMetadata.tryDecode(
       values.single! as String,
     );
-    if (metadata == null || metadata.rowCount != rows.length) return null;
-    if (metadata.coverageStart != rows.first['calendar_date'] ||
-        metadata.coverageEnd != rows.last['calendar_date']) {
+    // B2.1: a parseable metadata envelope alone is not an installed-year
+    // authority. Require full-year row/metadata coherence before allowing a
+    // higher revision to replace it. This is structural validation, NOT a
+    // recomputation of the source package SHA-256 from SQLite rows.
+    if (metadata == null ||
+        metadata.formatVersion !=
+            TaiwanBusinessCalendarYearPackage.currentFormatVersion ||
+        metadata.sourceYear < 1900 ||
+        metadata.sourceYear > 9999 ||
+        metadata.sourceYear != rows.first['source_year'] ||
+        metadata.revisionSequence < 1 ||
+        metadata.sourceRevision.trim().isEmpty ||
+        DateTime.tryParse(metadata.sourcePublishedAt) == null ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(metadata.digest)) {
       return null;
+    }
+    final firstDay = DateTime.utc(metadata.sourceYear, 1, 1);
+    final expectedCount = DateTime.utc(metadata.sourceYear + 1, 1, 1)
+        .difference(firstDay)
+        .inDays;
+    if (rows.length != expectedCount ||
+        metadata.rowCount != expectedCount ||
+        metadata.coverageStart !=
+            firstDay.toIso8601String().substring(0, 10) ||
+        metadata.coverageEnd !=
+            DateTime.utc(metadata.sourceYear, 12, 31)
+                .toIso8601String()
+                .substring(0, 10)) {
+      return null;
+    }
+    final url = rows.first['source_url'];
+    if (url is! String ||
+        Uri.tryParse(url)?.scheme != 'https' ||
+        Uri.tryParse(url)?.host.isEmpty != false) {
+      return null;
+    }
+    for (var index = 0; index < rows.length; index++) {
+      final row = rows[index];
+      final expectedDate = firstDay
+          .add(Duration(days: index))
+          .toIso8601String()
+          .substring(0, 10);
+      if (row['source_year'] != metadata.sourceYear ||
+          row['calendar_date'] != expectedDate ||
+          row['source_url'] != url ||
+          row['source_revision'] != rows.first['source_revision'] ||
+          row['is_business_day'] is! int ||
+          (row['is_business_day'] != 0 && row['is_business_day'] != 1)) {
+        return null;
+      }
     }
     return metadata;
   }

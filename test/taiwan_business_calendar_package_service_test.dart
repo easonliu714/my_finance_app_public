@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package_service.dart';
@@ -163,6 +165,61 @@ void main() {
     expect(rows, hasLength(1));
     expect(rows.single['calendar_date'], '2028-07-01');
     expect(rows.single['source_revision'], 'DGPA-legacy-2028');
+  });
+
+  test('B2.1 structurally forged stored metadata cannot replace a year',
+      () async {
+    for (final corruption in <String, Object?>{
+      'source_year': 2027,
+      'sha256': 'invalid-digest',
+      'revision_sequence': 0,
+    }.entries) {
+      final db = await _openCalendarDatabase();
+      final original = await _package(codec, year: 2028, sequence: 1);
+      final newer = await _package(codec, year: 2028, sequence: 2);
+      await service.install(db, original);
+      final rowsBefore = await db.query('taiwan_business_calendar_days',
+          where: 'source_year = ?', whereArgs: <Object?>[2028]);
+      final metadata = Map<String, Object?>.from(jsonDecode(
+        rowsBefore.first['source_revision']! as String,
+      ) as Map);
+      metadata[corruption.key] = corruption.value;
+      final damaged = jsonEncode(metadata);
+      await db.update(
+        'taiwan_business_calendar_days',
+        <String, Object?>{'source_revision': damaged},
+        where: 'source_year = ?',
+        whereArgs: <Object?>[2028],
+      );
+
+      await expectLater(
+        service.install(db, newer),
+        throwsA(isA<CalendarPackageConflictException>()),
+        reason: 'Corrupt ${corruption.key} must not be promoted to legacy.',
+      );
+      final retained = await db.query('taiwan_business_calendar_days',
+          where: 'source_year = ?', whereArgs: <Object?>[2028]);
+      expect(retained, hasLength(366));
+      expect(retained.every((row) => row['source_revision'] == damaged),
+          isTrue);
+      expect(retained.every((row) => row['source_url'] == original.sourceUrl),
+          isTrue);
+      await db.close();
+    }
+  });
+
+  test('B2.1 partial legacy status is not a complete annual coverage',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await _insertLegacyDay(db, year: 2028, date: '2028-07-01');
+
+    final status = await service.status(db, 2028);
+
+    expect(status, isNotNull);
+    expect(status!.rowCount, 1);
+    expect(status.isContiguous, isFalse);
+    expect(status.sequence, 0);
   });
 
   test('failed replacement rolls back the original year', () async {
