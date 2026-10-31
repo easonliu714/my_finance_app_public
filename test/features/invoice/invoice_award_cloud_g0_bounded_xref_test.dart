@@ -1307,6 +1307,21 @@ void main() {
         (e) => e.code, 'code', 'C500_G0AH_REQUIRES_SEMANTIC_CMAP')));
   });
 
+  // G0ai: the public inspect entry must fail closed before any file access
+  // when a full-operand request omits its required first-glyph proof.
+  test('G0ai top-level full-operand flag requires first-glyph custody', () async {
+    await expectLater(
+      const C500G0BoundedXrefInspector().inspect(
+        file: File('not-a-source-pdf'),
+        expectedBytes: 0,
+        expectedSha256: 'not-a-source-sha',
+        verifyFirstPageOperandUnicodeRun: true,
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AI_REQUIRES_FIRST_GLYPH')),
+    );
+  });
+
   // G0ai: bounded full-operand counts are not award numbers or full-page proof.
   test('G0ai multi-glyph one-byte and two-byte runs count privately', () {
     const cmap = 'begincmap\n2 begincodespacerange\n<20> <7F>\n'
@@ -1348,7 +1363,7 @@ void main() {
     const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
         'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
         'endbfchar\nendcmap\n';
-    final probe = const C500G0CmapSemanticProbe();
+    const probe = C500G0CmapSemanticProbe();
     expect(() => probe.countFullyDecodedOperandGlyphs(
       body: cmap, operand: List<int>.filled(257, 0x31)),
       throwsA(isA<C500G0BoundedXrefException>().having(

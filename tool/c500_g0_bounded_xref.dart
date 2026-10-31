@@ -226,7 +226,8 @@ class C500G0BoundedXrefInspector {
               verifyFirstPageChild, verifyFirstPagePath,
               verifyFirstPageContents, verifyFirstPageGlyphOperands,
               verifyFirstPageFontResources, verifyFirstPageCmapStreams,
-              verifyFirstPageCmapSemantics, verifyFirstPageGlyphUnicode)
+              verifyFirstPageCmapSemantics, verifyFirstPageGlyphUnicode,
+              verifyFirstPageOperandUnicodeRun)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -288,6 +289,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageContents, bool verifyFirstPageGlyphOperands,
     bool verifyFirstPageFontResources, bool verifyFirstPageCmapStreams,
     bool verifyFirstPageCmapSemantics, bool verifyFirstPageGlyphUnicode,
+    bool verifyFirstPageOperandUnicodeRun,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -471,7 +473,7 @@ class C500G0BoundedXrefInspector {
           final firstOperands =
               firstChildEvidence.remove('__g0ag_first_font_operands');
           try {
-          if (verifyFirstPageFontResources) {
+            if (verifyFirstPageFontResources) {
             if (firstOperands is! Map<String, List<int>>) {
               throw const C500G0BoundedXrefException(
                   'C500_G0AG_FIRST_OPERAND_MISSING');
