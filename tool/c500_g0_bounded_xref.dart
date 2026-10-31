@@ -46,6 +46,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageCmapStreams = false,
     bool verifyFirstPageCmapSemantics = false,
     bool verifyFirstPageGlyphUnicode = false,
+    bool verifyFirstPageOperandUnicodeRun = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -58,6 +59,10 @@ class C500G0BoundedXrefInspector {
     // G0t: one first child only; never claim full page-tree coverage.
     if (verifyFirstPagePath && !verifyFirstPageChild) {
       throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_FIRST_CHILD');
+    }
+    // G0ai: full first operand must retain the proven first-glyph custody.
+    if (verifyFirstPageOperandUnicodeRun && !verifyFirstPageGlyphUnicode) {
+      throw const C500G0BoundedXrefException('C500_G0AI_REQUIRES_FIRST_GLYPH');
     }
     // G0ah: real glyph Unicode requires bounded CMap semantics first.
     if (verifyFirstPageGlyphUnicode && !verifyFirstPageCmapSemantics) {
@@ -485,6 +490,7 @@ class C500G0BoundedXrefInspector {
                 verifyCmapStreams: verifyFirstPageCmapStreams,
                 verifyCmapSemantics: verifyFirstPageCmapSemantics,
                 verifyFirstGlyphUnicode: verifyFirstPageGlyphUnicode,
+                verifyFirstOperandUnicodeRun: verifyFirstPageOperandUnicodeRun,
               ),
             );
           }
@@ -964,6 +970,7 @@ Future<void> main(List<String> args) async {
         verifyFirstPageCmapStreams: true,
         verifyFirstPageCmapSemantics: true,
         verifyFirstPageGlyphUnicode: true,
+        verifyFirstPageOperandUnicodeRun: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {
@@ -997,6 +1004,7 @@ class C500G0FontResourceInspector {
     bool verifyCmapStreams = false,
     bool verifyCmapSemantics = false,
     bool verifyFirstGlyphUnicode = false,
+    bool verifyFirstOperandUnicodeRun = false,
   }) async {
     if (pageTreeObjects.isEmpty || pageTreeObjects.length > 9 ||
         selectedFontNames.isEmpty || selectedFontNames.length > 16 ||
@@ -1036,6 +1044,9 @@ class C500G0FontResourceInspector {
         int.parse(ref.group(2)!), int.parse(ref.group(3)!),
       ];
     }
+    if (verifyFirstOperandUnicodeRun && !verifyFirstGlyphUnicode) {
+      throw const C500G0BoundedXrefException('C500_G0AI_REQUIRES_FIRST_GLYPH');
+    }
     if (verifyFirstGlyphUnicode && !verifyCmapSemantics) {
       throw const C500G0BoundedXrefException('C500_G0AH_REQUIRES_SEMANTIC_CMAP');
     }
@@ -1044,6 +1055,7 @@ class C500G0FontResourceInspector {
     }
     var cmapReferences = 0, cmapStreams = 0, cmapMappedCodes = 0;
     var cmapBoundOperands = 0, unicodeFirstGlyphs = 0;
+    var unicodeFullOperands = 0, unicodeFullOperandGlyphs = 0;
     for (final name in selectedFontNames) {
       final ref = bindings[name];
       if (ref == null) {
@@ -1086,6 +1098,11 @@ class C500G0FontResourceInspector {
             generation: generation,
             verifyMappings: verifyCmapSemantics,
             firstOperand: verifyFirstGlyphUnicode ? candidate : null,
+            verifyFullOperand: verifyFirstOperandUnicodeRun,
+            onFullOperandDecoded: (count) {
+              unicodeFullOperands++;
+              unicodeFullOperandGlyphs += count;
+            },
           );
           cmapStreams++;
           if (verifyCmapSemantics && candidate != null) {
@@ -1111,6 +1128,11 @@ class C500G0FontResourceInspector {
       // No code-space segmentation or glyph-to-Unicode decoding is claimed.
       'first_page_font_operand_cmap_candidates_bound': cmapBoundOperands,
       'first_page_font_operand_cmap_unicode_single_glyph_verified': unicodeFirstGlyphs,
+      'first_page_font_operand_unicode_full_runs_verified': unicodeFullOperands,
+      'first_page_font_operand_unicode_full_run_glyphs_verified': unicodeFullOperandGlyphs,
+      'first_page_font_operand_unicode_full_run_status': unicodeFullOperands > 0
+          ? 'ONE_BOUNDED_OPERAND_PER_FONT_PRIVATELY_DECODED_NOT_AWARD_PROOF'
+          : 'NOT_VERIFIED',
       'first_page_font_operand_cmap_unicode_status': unicodeFirstGlyphs > 0
           ? 'ONE_GLYPH_DECODED_PRIVATELY_NOT_AWARD_NUMBER'
           : 'NOT_VERIFIED',
@@ -1183,6 +1205,8 @@ class C500G0CmapStreamProbe {
     required int generation,
     bool verifyMappings = false,
     List<int>? firstOperand,
+    bool verifyFullOperand = false,
+    void Function(int glyphCount)? onFullOperandDecoded,
   }) {
     if (object.length > 64 * 1024 ||
         !RegExp('^$id\\s+$generation\\s+obj\\b').hasMatch(object)) {
@@ -1250,6 +1274,14 @@ class C500G0CmapStreamProbe {
         body: body, operand: firstOperand,
       );
     }
+    if (verifyFullOperand) {
+      if (firstOperand == null || !verifyMappings) {
+        throw const C500G0BoundedXrefException('C500_G0AI_REQUIRES_FIRST_GLYPH');
+      }
+      final count = const C500G0CmapSemanticProbe()
+          .countFullyDecodedOperandGlyphs(body: body, operand: firstOperand);
+      onFullOperandDecoded?.call(count);
+    }
     return mapped;
   }
 }
@@ -1260,6 +1292,64 @@ class C500G0CmapStreamProbe {
 // remaining pages, global ordering, or NOT_WIN. Unsupported syntax fails closed.
 class C500G0CmapSemanticProbe {
   const C500G0CmapSemanticProbe();
+
+  // G0ai: decode every code in ONE bounded first text-show operand only.
+  // Full CMap validation precedes segmentation; Unicode never leaves memory.
+  // This is neither a page-level nor an invoice-level authority decision.
+  int countFullyDecodedOperandGlyphs({
+    required String body,
+    required List<int> operand,
+  }) {
+    if (operand.isEmpty || operand.length > 256 ||
+        operand.any((byte) => byte < 0 || byte > 255)) {
+      throw const C500G0BoundedXrefException('C500_G0AI_OPERAND_BUDGET');
+    }
+    final codespaces = <List<int>>[];
+    final mappings = <int, List<int>>{};
+    verify(body,
+      onCodespace: (width, low, high) {
+        codespaces.add(<int>[width, low, high]);
+      },
+      onMapping: (width, source, units) {
+        mappings[(width << 32) | source] = List<int>.of(units);
+      },
+    );
+    var position = 0;
+    var glyphCount = 0;
+    while (position < operand.length) {
+      if (glyphCount >= 64) {
+        throw const C500G0BoundedXrefException('C500_G0AI_GLYPH_BUDGET');
+      }
+      final matches = <int>[];
+      var prefix = 0;
+      for (var width = 1; width <= 4 &&
+          position + width <= operand.length; width++) {
+        prefix = (prefix << 8) | operand[position + width - 1];
+        for (final range in codespaces) {
+          if (range[0] == width && range[1] <= prefix &&
+              prefix <= range[2]) {
+            matches.add(width);
+          }
+        }
+      }
+      if (matches.length != 1) {
+        throw const C500G0BoundedXrefException(
+            'C500_G0AI_CODESPACE_AMBIGUOUS_OR_TRUNCATED');
+      }
+      final width = matches.single;
+      var source = 0;
+      for (var i = 0; i < width; i++) {
+        source = (source << 8) | operand[position + i];
+      }
+      if (!mappings.containsKey((width << 32) | source)) {
+        throw const C500G0BoundedXrefException(
+            'C500_G0AI_OPERAND_GLYPH_UNMAPPED');
+      }
+      position += width;
+      glyphCount++;
+    }
+    return glyphCount;
+  }
 
   // G0ah: first code-space-delimited glyph in a verified text-show operand.
   // Entire CMap is validated before decoding; ambiguous/missing fails closed.

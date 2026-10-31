@@ -1306,4 +1306,80 @@ void main() {
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0AH_REQUIRES_SEMANTIC_CMAP')));
   });
+
+  // G0ai: bounded full-operand counts are not award numbers or full-page proof.
+  test('G0ai multi-glyph one-byte and two-byte runs count privately', () {
+    const cmap = 'begincmap\n2 begincodespacerange\n<20> <7F>\n'
+        '<8100> <81FF>\nendcodespacerange\n3 beginbfchar\n'
+        '<31> <0031>\n<32> <0032>\n<8133> <0033>\n'
+        'endbfchar\nendcmap\n';
+    expect(const C500G0CmapSemanticProbe().countFullyDecodedOperandGlyphs(
+      body: cmap, operand: <int>[0x31, 0x81, 0x33, 0x32]), 3);
+  });
+
+  test('G0ai unmapped later glyph is not hidden by valid first glyph', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
+        'endbfchar\nendcmap\n';
+    expect(() => const C500G0CmapSemanticProbe().countFullyDecodedOperandGlyphs(
+      body: cmap, operand: <int>[0x31, 0x32]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AI_OPERAND_GLYPH_UNMAPPED')));
+  });
+
+  test('G0ai truncated multi-byte and ambiguous codespace reject', () {
+    const two = 'begincmap\n1 begincodespacerange\n<8100> <81FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<8133> <0033>\n'
+        'endbfchar\nendcmap\n';
+    expect(() => const C500G0CmapSemanticProbe().countFullyDecodedOperandGlyphs(
+      body: two, operand: <int>[0x81]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AI_CODESPACE_AMBIGUOUS_OR_TRUNCATED')));
+    const ambiguous = 'begincmap\n2 begincodespacerange\n<00> <FF>\n'
+        '<0000> <00FF>\nendcodespacerange\n2 beginbfchar\n'
+        '<00> <0030>\n<0031> <0031>\nendbfchar\nendcmap\n';
+    expect(() => const C500G0CmapSemanticProbe().countFullyDecodedOperandGlyphs(
+      body: ambiguous, operand: <int>[0, 0x31]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AI_CODESPACE_AMBIGUOUS_OR_TRUNCATED')));
+  });
+
+  test('G0ai operand length and glyph count budgets fail closed', () {
+    const cmap = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
+        'endbfchar\nendcmap\n';
+    final probe = const C500G0CmapSemanticProbe();
+    expect(() => probe.countFullyDecodedOperandGlyphs(
+      body: cmap, operand: List<int>.filled(257, 0x31)),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AI_OPERAND_BUDGET')));
+    expect(() => probe.countFullyDecodedOperandGlyphs(
+      body: cmap, operand: List<int>.filled(65, 0x31)),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AI_GLYPH_BUDGET')));
+  });
+
+  test('G0ai source-bound full operand records counts, never text', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1'],
+      selectedFirstOperands: <String, List<int>>{'F1': <int>[0x31]},
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      verifyFirstGlyphUnicode: true,
+      verifyFirstOperandUnicodeRun: true,
+      readObject: (id, generation) async {
+        if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        if (id == 21) return g0abCmapObject(21);
+        throw StateError('unexpected XRef id');
+      },
+    );
+    expect(result['first_page_font_operand_unicode_full_runs_verified'], 1);
+    expect(result['first_page_font_operand_unicode_full_run_glyphs_verified'], 1);
+    expect(result.toString().contains('0031'), false);
+    expect(result['first_page_text_authority'],
+        'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS');
+  });
 }
