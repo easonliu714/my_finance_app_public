@@ -222,6 +222,70 @@ void main() {
     expect(status.sequence, 0);
   });
 
+
+  test('B2.3 corrupted stored official URL rejects replacement and status',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    final newer = await _package(codec, year: 2028, sequence: 2);
+    await service.install(db, original);
+    const attackerUrl = 'https://www.dgpa.gov.tw.attacker.example/calendar.csv';
+    await db.update(
+      'taiwan_business_calendar_days',
+      <String, Object?>{'source_url': attackerUrl},
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+
+    final status = await service.status(db, 2028);
+    expect(status, isNotNull);
+    expect(status!.isContiguous, isFalse);
+    await expectLater(
+      service.install(db, newer),
+      throwsA(isA<CalendarPackageConflictException>()),
+    );
+    final retained = await db.query(
+      'taiwan_business_calendar_days',
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    expect(retained, hasLength(366));
+    expect(retained.every((row) => row['source_url'] == attackerUrl), isTrue);
+    expect(retained.every((row) =>
+        row['source_revision'] == original.storedMetadata.encode()), isTrue);
+  });
+
+  test('B2.3 complete legacy year with unapproved URL cannot be promoted',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await _insertLegacyYear(db, 2028);
+    const attackerUrl = 'https://attacker.example/calendar.csv';
+    await db.update(
+      'taiwan_business_calendar_days',
+      <String, Object?>{'source_url': attackerUrl},
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    final replacement = await _package(codec, year: 2028, sequence: 1);
+
+    expect((await service.status(db, 2028))!.isContiguous, isFalse);
+    await expectLater(
+      service.install(db, replacement),
+      throwsA(isA<CalendarPackageConflictException>()),
+    );
+    final retained = await db.query(
+      'taiwan_business_calendar_days',
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    expect(retained, hasLength(366));
+    expect(retained.every((row) => row['source_url'] == attackerUrl), isTrue);
+    expect(retained.every((row) =>
+        row['source_revision'] == 'DGPA-legacy-2028'), isTrue);
+  });
+
   test('failed replacement rolls back the original year', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);

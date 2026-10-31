@@ -190,9 +190,10 @@ class TaiwanBusinessCalendarPackageService {
       return null;
     }
     final url = rows.first['source_url'];
+    // B2.3: installed metadata must retain the same official-host authority
+    // as the incoming package; a replaced SQLite source URL is not LKG.
     if (url is! String ||
-        Uri.tryParse(url)?.scheme != 'https' ||
-        Uri.tryParse(url)?.host.isEmpty != false) {
+        !TaiwanBusinessCalendarPackageCodec.isApprovedOfficialSourceUrl(url)) {
       return null;
     }
     for (var index = 0; index < rows.length; index++) {
@@ -222,6 +223,15 @@ class TaiwanBusinessCalendarPackageService {
     final urls = rows.map((row) => row['source_url']).toSet();
     if (revisions.length != 1 || urls.length != 1) return false;
     final revision = revisions.single;
+    final legacyUrl = urls.single;
+    // A complete historical row set with an unapproved source is not an
+    // authoritative legacy year and must not be silently upgraded.
+    if (legacyUrl is! String ||
+        !TaiwanBusinessCalendarPackageCodec.isApprovedOfficialSourceUrl(
+          legacyUrl,
+        )) {
+      return false;
+    }
     if (revision is! String || revision.trim().isEmpty ||
         revision.trimLeft().startsWith('{') ||
         revision.trimLeft().startsWith('[')) {
