@@ -658,7 +658,10 @@ class C500G0BoundedXrefInspector {
                   ? (font, bytes) {
                       (allOperands[font] ??= <List<int>>[]).add(bytes);
                     }
-                  : null)
+                  : null,
+              // G0am: lab only. Empty text-show remains UNKNOWN and stops
+              // the contiguous verified prefix; never award authority.
+              emptyOperandIsUnknownForLab: verifyFirstPageAllOperandsUnicode)
           : const <String, Object?>{};
     } catch (_) {
       // G0aj: fail-closed lexer exceptions must also wipe private operands.

@@ -17,6 +17,9 @@ class C500G0GlyphProbe {
     void Function(String fontName, List<int> bytes)? onFirstFontOperand,
     // G0ak: private bounded prefix; uncaptured suffix remains UNKNOWN.
     void Function(String fontName, List<int> bytes)? onEveryFontOperand,
+    // G0am: lab-only classification. Empty glyph strings remain UNKNOWN and
+    // permanently terminate the verified prefix; strict default still throws.
+    bool emptyOperandIsUnknownForLab = false,
   }) {
     if (decoded.isEmpty || decoded.length > 8 * 1024 * 1024) {
       throw const C500G0GlyphException('C500_G0W_CONTENT_BUDGET');
@@ -67,7 +70,14 @@ class C500G0GlyphProbe {
       // Invalid individual operands still fail closed before any copy.
       if (font != null && onEveryFontOperand != null) {
         if (value.bytes.isEmpty) {
-          throw const C500G0GlyphException('C500_G0AJ_CAPTURE_BUDGET');
+          if (!emptyOperandIsUnknownForLab) {
+            throw const C500G0GlyphException('C500_G0AJ_CAPTURE_BUDGET');
+          }
+          // A zero-glyph Tj/TJ item is not evidence of decoded text.
+          // Fail closed as UNKNOWN, including all later operands; never
+          // reclassify the full leaf or a prize result as verified.
+          uncapturedOperandCount++;
+          return;
         }
         // G0al: a >256-byte text-show is not a corrupt PDF. Its full
         // glyph bytes cannot fit the verified bounded capture. Mark this

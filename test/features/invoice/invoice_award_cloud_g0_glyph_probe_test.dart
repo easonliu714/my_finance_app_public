@@ -200,6 +200,41 @@ void main() {
       (e) => e.code, 'code', 'C500_G0AJ_CAPTURE_BUDGET')));
   });
 
+  // G0am: strict default negative remains red. Only the isolated source
+  // lab may retain a complete prefix preceding an empty text-show.
+  test('G0am lab empty operand is UNKNOWN and stops the contiguous prefix', () {
+    final captured = <int>[];
+    final result = probe.inspect(
+      latin1.encode('BT /F1 10 Tf (A) Tj () Tj (B) Tj ET'),
+      emptyOperandIsUnknownForLab: true,
+      onEveryFontOperand: (font, bytes) {
+        captured.add(bytes.length);
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(captured, <int>[1]);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 2);
+    expect(result['first_page_first_leaf_operand_capture_truncated'], true);
+    expect(result.containsKey('first_page_first_leaf_unicode_coverage_status'), false);
+    expect(result['first_page_text_authority'],
+        'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0am lab leading empty leaves zero verified operands', () {
+    var captured = 0;
+    final result = probe.inspect(
+      latin1.encode('BT /F1 10 Tf () Tj (A) Tj ET'),
+      emptyOperandIsUnknownForLab: true,
+      onEveryFontOperand: (font, bytes) {
+        captured++;
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(captured, 0);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 2);
+    expect(result['first_page_first_leaf_operand_capture_truncated'], true);
+  });
+
   test('G0al 256-byte exact boundary is captured, 257-byte is UNKNOWN', () {
     for (final size in <int>[256, 257]) {
       var captured = 0;
