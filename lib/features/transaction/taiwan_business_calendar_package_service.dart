@@ -136,39 +136,42 @@ class TaiwanBusinessCalendarPackageService {
     return CalendarAnnualUpdateDecision.checkOfficialSource;
   }
 
+  // B2.5: revision reads and replacement writes must share the same
+  // transaction. Otherwise concurrent refreshes can both accept a stale
+  // pre-transaction revision and silently downgrade the verified year LKG.
   Future<CalendarPackageInstallResult> install(
     Database db,
     TaiwanBusinessCalendarYearPackage package, {
     DateTime? importedAt,
-  }) async {
-    final current = await _rows(db, package.sourceYear);
-    final metadata = _metadata(current);
-    if (metadata != null) {
-      if (metadata.revisionSequence > package.revisionSequence) {
-        throw CalendarPackageConflictException(
-          'Year ${package.sourceYear} already has newer revision '
-          '${metadata.revisionSequence}.',
-        );
-      }
-      if (metadata.revisionSequence == package.revisionSequence) {
-        if (_matches(current, package)) {
-          return _result(CalendarPackageInstallDisposition.unchanged, package);
+  }) {
+    return db.transaction((txn) async {
+      final current = await _rows(txn, package.sourceYear);
+      final metadata = _metadata(current);
+      if (metadata != null) {
+        if (metadata.revisionSequence > package.revisionSequence) {
+          throw CalendarPackageConflictException(
+            'Year ${package.sourceYear} already has newer revision '
+            '${metadata.revisionSequence}.',
+          );
         }
+        if (metadata.revisionSequence == package.revisionSequence) {
+          if (_matches(current, package)) {
+            return _result(CalendarPackageInstallDisposition.unchanged, package);
+          }
+          throw CalendarPackageConflictException(
+            'Year ${package.sourceYear} sequence ${package.revisionSequence} '
+            'already exists with different content.',
+          );
+        }
+      } else if (current.isNotEmpty && !_isConsistentLegacy(current)) {
         throw CalendarPackageConflictException(
-          'Year ${package.sourceYear} sequence ${package.revisionSequence} '
-          'already exists with different content.',
+          'Year ${package.sourceYear} contains inconsistent calendar metadata.',
         );
       }
-    } else if (current.isNotEmpty && !_isConsistentLegacy(current)) {
-      throw CalendarPackageConflictException(
-        'Year ${package.sourceYear} contains inconsistent calendar metadata.',
-      );
-    }
 
-    final timestamp = (importedAt ?? DateTime.now().toUtc())
-        .toUtc()
-        .toIso8601String();
-    await db.transaction((txn) async {
+      final timestamp = (importedAt ?? DateTime.now().toUtc())
+          .toUtc()
+          .toIso8601String();
       await txn.delete(
         tableName,
         where: 'source_year = ?',
@@ -188,8 +191,8 @@ class TaiwanBusinessCalendarPackageService {
         });
       }
       await batch.commit(noResult: true);
+      return _result(CalendarPackageInstallDisposition.installed, package);
     });
-    return _result(CalendarPackageInstallDisposition.installed, package);
   }
 
   Future<CalendarPackageStatus?> status(

@@ -286,6 +286,53 @@ void main() {
         row['source_revision'] == 'DGPA-legacy-2028'), isTrue);
   });
 
+  test('B2.5 concurrent annual refreshes cannot downgrade verified LKG',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final baseline = await _package(codec, year: 2028, sequence: 1);
+    final latest = await _package(
+      codec, year: 2028, sequence: 3, closedDate: '2028-07-03',
+    );
+    final stale = await _package(
+      codec, year: 2028, sequence: 2, closedDate: '2028-07-04',
+    );
+    await service.install(db, baseline);
+
+    // Queue a newer and stale writer concurrently. The second writer must
+    // observe the first committed revision inside its own transaction.
+    final outcomes = await Future.wait<Object>(<Future<Object>>[
+      service.install(db, latest).then<Object>(
+        (value) => value, onError: (Object error) => error,
+      ),
+      service.install(db, stale).then<Object>(
+        (value) => value, onError: (Object error) => error,
+      ),
+    ]);
+    expect(outcomes.first, isA<CalendarPackageInstallResult>());
+    expect(
+      (outcomes.first as CalendarPackageInstallResult).disposition,
+      CalendarPackageInstallDisposition.installed,
+    );
+    expect(outcomes.last, isA<CalendarPackageConflictException>());
+
+    final status = await service.status(db, 2028);
+    expect(status, isNotNull);
+    expect(status!.isContiguous, isTrue);
+    expect(status.sequence, 3);
+    expect(status.digest, latest.digest);
+    expect(status.rowCount, 366);
+    final rows = await db.query('taiwan_business_calendar_days',
+        where: 'source_year = ?', whereArgs: <Object?>[2028]);
+    expect(rows, hasLength(366));
+    expect(rows.every((row) =>
+        row['source_revision'] == latest.storedMetadata.encode()), isTrue);
+    expect(rows.singleWhere((row) => row['calendar_date'] == '2028-07-03')
+        ['is_business_day'], 0);
+    expect(rows.singleWhere((row) => row['calendar_date'] == '2028-07-04')
+        ['is_business_day'], 1);
+  });
+
   test('failed replacement rolls back the original year', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);
