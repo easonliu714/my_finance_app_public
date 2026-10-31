@@ -246,6 +246,7 @@ Future<Map<String, Object?>> inspectSynthetic(
   bool verifyFirstPageFontResources = false,
   bool verifyFirstPageCmapStreams = false,
   bool verifyFirstPageCmapSemantics = false,
+  bool verifyFirstPageGlyphUnicode = false,
 }) async {
   final source = await const CloudAwardPdfStructureProbe().inspect(file: file);
   return inspector.inspect(
@@ -261,6 +262,7 @@ Future<Map<String, Object?>> inspectSynthetic(
     verifyFirstPageFontResources: verifyFirstPageFontResources,
     verifyFirstPageCmapStreams: verifyFirstPageCmapStreams,
     verifyFirstPageCmapSemantics: verifyFirstPageCmapSemantics,
+    verifyFirstPageGlyphUnicode: verifyFirstPageGlyphUnicode,
   );
 }
 
@@ -1217,4 +1219,91 @@ void main() {
     );
   });
 
+
+  // G0ah: source-backed flow is exercised on official PDFs only in the lab.
+  // Synthetic Unicode here is never official prize data.
+  test('G0ah first bound operand decodes one private glyph only', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1'],
+      selectedFirstOperands: <String, List<int>>{'F1': <int>[0x31, 0x32]},
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      verifyFirstGlyphUnicode: true,
+      readObject: (id, generation) async {
+        if (generation != 0) throw StateError('generation');
+        if (id == 11) {
+          return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        }
+        if (id == 21) return g0abCmapObject(21, compressed: true);
+        throw StateError('unexpected object');
+      },
+    );
+    expect(result['first_page_font_operand_cmap_unicode_single_glyph_verified'], 1);
+    expect(result['first_page_font_operand_cmap_unicode_status'],
+        'ONE_GLYPH_DECODED_PRIVATELY_NOT_AWARD_NUMBER');
+    expect(result['first_page_text_authority'],
+        'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0ah two-byte codespace consumes only the first glyph', () {
+    const body = 'begincmap\n1 begincodespacerange\n<0000> <00FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<0031> <0032>\n'
+        'endbfchar\nendcmap\n';
+    expect(const C500G0CmapSemanticProbe().decodeFirstOperandGlyph(
+      body: body, operand: <int>[0, 0x31, 0x39]), '2');
+  });
+
+  test('G0ah ambiguous one- and two-byte codespaces fail closed', () {
+    const body = 'begincmap\n2 begincodespacerange\n<00> <FF>\n'
+        '<0000> <00FF>\nendcodespacerange\n2 beginbfchar\n'
+        '<00> <0030>\n<0031> <0031>\nendbfchar\nendcmap\n';
+    expect(() => const C500G0CmapSemanticProbe().decodeFirstOperandGlyph(
+      body: body, operand: <int>[0, 0x31]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AH_CODESPACE_AMBIGUOUS_OR_MISSING')));
+  });
+
+  test('G0ah unmapped first code cannot skip ahead to a mapped code', () {
+    const body = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
+        'endbfchar\nendcmap\n';
+    expect(() => const C500G0CmapSemanticProbe().decodeFirstOperandGlyph(
+      body: body, operand: <int>[0x32, 0x31]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AH_FIRST_GLYPH_UNMAPPED')));
+  });
+
+  test('G0ah unrelated forged UTF16 cannot hide behind first glyph', () {
+    const body = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n2 beginbfchar\n<31> <0031>\n'
+        '<32> <D800>\nendbfchar\nendcmap\n';
+    expect(() => const C500G0CmapSemanticProbe().decodeFirstOperandGlyph(
+      body: body, operand: <int>[0x31]),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AD_UTF16_INVALID')));
+  });
+
+  test('G0ah empty and oversized operands reject before CMap work', () {
+    const body = 'begincmap\n1 begincodespacerange\n<00> <FF>\n'
+        'endcodespacerange\n1 beginbfchar\n<31> <0031>\n'
+        'endbfchar\nendcmap\n';
+    for (final operand in <List<int>>[<int>[], List<int>.filled(65537, 0x31)]) {
+      expect(() => const C500G0CmapSemanticProbe().decodeFirstOperandGlyph(
+        body: body, operand: operand),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+          (e) => e.code, 'code', 'C500_G0AH_OPERAND_BUDGET')));
+    }
+  });
+
+  test('G0ah semantic prerequisite is mandatory', () async {
+    final directory = await Directory.systemTemp.createTemp('g0ah-prereq-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = await makeSyntheticXref(directory);
+    await expectLater(inspectSynthetic(file, verifyFirstPageGlyphUnicode: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AH_REQUIRES_SEMANTIC_CMAP')));
+  });
 }
