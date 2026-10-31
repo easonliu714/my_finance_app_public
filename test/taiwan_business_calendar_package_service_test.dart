@@ -115,6 +115,56 @@ void main() {
     expect((await service.status(db, 2028))!.sequence, 1);
   });
 
+  test('B2 damaged package metadata is not silently treated as legacy', () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    final newer = await _package(codec, year: 2028, sequence: 2);
+    await service.install(db, original);
+    // Simulate a damaged metadata envelope in every row. A single shared
+    // invalid JSON-shaped revision previously passed the legacy heuristic.
+    const damaged = '{"format_version":1,"broken":true}';
+    await db.update(
+      'taiwan_business_calendar_days',
+      <String, Object?>{'source_revision': damaged},
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+
+    await expectLater(
+      service.install(db, newer),
+      throwsA(isA<CalendarPackageConflictException>()),
+    );
+    final rows = await db.query(
+      'taiwan_business_calendar_days',
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    expect(rows, hasLength(366));
+    expect(rows.every((row) => row['source_revision'] == damaged), isTrue);
+    expect(rows.every((row) => row['source_url'] == original.sourceUrl), isTrue);
+  });
+
+  test('B2 incomplete legacy year is not upgraded or overwritten', () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await _insertLegacyDay(db, year: 2028, date: '2028-07-01');
+    final replacement = await _package(codec, year: 2028, sequence: 1);
+
+    await expectLater(
+      service.install(db, replacement),
+      throwsA(isA<CalendarPackageConflictException>()),
+    );
+    final rows = await db.query(
+      'taiwan_business_calendar_days',
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single['calendar_date'], '2028-07-01');
+    expect(rows.single['source_revision'], 'DGPA-legacy-2028');
+  });
+
   test('failed replacement rolls back the original year', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);

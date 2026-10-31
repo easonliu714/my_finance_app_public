@@ -169,15 +169,39 @@ class TaiwanBusinessCalendarPackageService {
     return metadata;
   }
 
+  // B2: only a *complete* legacy calendar may be upgraded. A damaged
+  // package-metadata string is not legacy, even if its dates are contiguous.
+  // Never replace an incomplete or ambiguous installed year with new data.
   bool _isConsistentLegacy(List<Map<String, Object?>> rows) {
+    if (rows.isEmpty) return false;
     final revisions = rows.map((row) => row['source_revision']).toSet();
     final urls = rows.map((row) => row['source_url']).toSet();
     if (revisions.length != 1 || urls.length != 1) return false;
-    final start = DateTime.tryParse(rows.first['calendar_date'] as String);
-    final end = DateTime.tryParse(rows.last['calendar_date'] as String);
-    return start != null &&
-        end != null &&
-        rows.length == end.difference(start).inDays + 1;
+    final revision = revisions.single;
+    if (revision is! String || revision.trim().isEmpty ||
+        revision.trimLeft().startsWith('{') ||
+        revision.trimLeft().startsWith('[')) {
+      return false;
+    }
+    final sourceYear = rows.first['source_year'];
+    if (sourceYear is! int || sourceYear < 1900 || sourceYear > 9999) {
+      return false;
+    }
+    final firstDay = DateTime.utc(sourceYear, 1, 1);
+    final expectedCount =
+        DateTime.utc(sourceYear + 1, 1, 1).difference(firstDay).inDays;
+    if (rows.length != expectedCount) return false;
+    for (var index = 0; index < rows.length; index++) {
+      final expectedDate = firstDay
+          .add(Duration(days: index))
+          .toIso8601String()
+          .substring(0, 10);
+      if (rows[index]['source_year'] != sourceYear ||
+          rows[index]['calendar_date'] != expectedDate) {
+        return false;
+      }
+    }
+    return true;
   }
 
   bool _matches(
