@@ -9,6 +9,9 @@ import re
 import sys
 
 workflow = Path(sys.argv[1]).read_text(encoding='utf-8')
+# G0j: no newer PR commit may cancel an in-flight pinned official lab.
+assert 'group: c500-g0-source-${{ github.event.pull_request.head.sha || github.sha }}' in workflow
+assert 'cancel-in-progress: false' in workflow
 def step(name):
     match = re.search(
         r'^      - name: ' + re.escape(name) +

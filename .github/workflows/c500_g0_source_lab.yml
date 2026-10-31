@@ -21,9 +21,11 @@ on:
 permissions:
   contents: read
 
+# G0j: source-backed SHA-pinned labs must survive a later unrelated PR
+# commit. A later source-disabled mock run must not cancel in-flight evidence.
 concurrency:
-  group: c500-g0-source-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: c500-g0-source-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 
 jobs:
   official-source-only-lab:
