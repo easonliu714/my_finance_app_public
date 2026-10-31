@@ -202,6 +202,24 @@ void main() {
     }
   });
 
+  test('G0ak first skipped operand prevents discontiguous resumption', () {
+    var captured = 0;
+    final large = List<String>.filled(256, 'A').join();
+    final almost = List<String>.filled(250, 'B').join();
+    final tooLarge = List<String>.filled(7, 'C').join();
+    final many = 'BT /F1 10 Tf ${List<String>.filled(63, '($large) Tj').join(' ')} '
+        '($almost) Tj ($tooLarge) Tj (D) Tj ET';
+    final result = probe.inspect(latin1.encode(many),
+      onEveryFontOperand: (font, bytes) {
+        captured++;
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(captured, 64);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 2);
+    expect(result['first_page_first_leaf_operand_capture_truncated'], true);
+  });
+
   test('G0ak 16KiB aggregate cap reports omitted operand', () {
     var captured = 0;
     final operand = List<String>.filled(256, 'A').join();

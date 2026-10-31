@@ -69,7 +69,10 @@ class C500G0GlyphProbe {
         if (value.bytes.isEmpty || value.bytes.length > 256) {
           throw const C500G0GlyphException('C500_G0AJ_CAPTURE_BUDGET');
         }
-        if (capturedOperandCount >= 128 ||
+        // Once an operand is omitted, never resume capture with a smaller
+        // later operand: a discontiguous sample is not a verified prefix.
+        if (uncapturedOperandCount > 0 ||
+            capturedOperandCount >= 128 ||
             value.bytes.length > 16384 - capturedOperandBytes) {
           uncapturedOperandCount++;
         } else {
