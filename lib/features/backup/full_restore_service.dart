@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/production_schema_v20_wallet_top_up_tables.dart';
+import '../category/expense_category_schema.dart';
 
 import 'full_backup_scope.dart';
 import 'full_backup_service.dart';
@@ -66,6 +67,10 @@ class FullRestoreService {
     ReferentialIntegrityAudit? audit;
     await db.transaction((txn) async {
       await _assertRequiredTablesExist(txn);
+      // The category table is lazy-created on some installations. Materialize
+      // it only inside the destructive restore transaction, so a V9 category
+      // payload can never be silently skipped and any failure rolls back DDL.
+      await ensureExpenseCategorySchema(txn);
       final hasWalletTopUpAudits =
           await _tableExists(txn, 'wallet_top_up_audits');
       if (hasWalletTopUpAudits) {
@@ -462,6 +467,9 @@ class FullRestoreService {
       3 => FullBackupScope.legacyScopeV3TableNames,
       4 => FullBackupScope.legacyScopeV4TableNames,
       5 => FullBackupScope.legacyScopeV5TableNames,
+      6 => FullBackupScope.legacyScopeV6TableNames,
+      7 => FullBackupScope.legacyScopeV7TableNames,
+      8 => FullBackupScope.legacyScopeV8TableNames,
       _ => FullBackupService.backupTableNames,
     };
     final includedNames = includedTables.whereType<String>().toSet();

@@ -1,0 +1,227 @@
+name: C500 G0 Official PDF Source Lab
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/c500_g0_acquire.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart'
+      - 'tool/c500_g0_android_renderer_lab.sh'
+      - 'tool/c500_g0_android_renderer_lab_contract_test.sh'
+      - 'tool/c500_g0_workflow_gate_contract_test.sh'
+      - 'tool/c500_g0_bounded_xref.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart'
+      - 'tool/c500_g0_content_glyph_probe.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart'
+      - 'tool/c500_g0_qpdf_preflight.sh'
+      - 'tool/c500_g0_qpdf_preflight_contract_test.sh'
+      - '.github/workflows/c500_g0_source_lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c500-g0-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  official-source-only-lab:
+    name: Pinned MOF binary acquisition and bounded structure (NOT G0 PASS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 48
+    steps:
+      - name: Checkout exact PR source HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Gate one-shot PR diagnostic or explicit manual dispatch
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_lab=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            run_lab=true
+          elif [[ "${{ github.event_name }}" == "pull_request" ]] && \
+               [[ "$(git log -1 --format=%s)" == *"[G0-SOURCE-LAB]"* ]]; then
+            run_lab=true
+          fi
+          echo "run_lab=$run_lab" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)"
+          echo "LAB_ENABLED=$run_lab"
+          if [[ "$run_lab" != "true" ]]; then
+            echo "One-shot G0 source lab not requested on this commit; no binary fetch." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Setup Flutter/Dart (lab only)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve existing dependencies (lab only)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        run: flutter pub get
+
+      - name: G0a synthetic source/timeout regressions (not official evidence)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        run: flutter test test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart
+
+      - name: G0i per-case crash classifier and long-ring regression (synthetic only)
+        if: ${{ github.event_name == 'pull_request' || steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: |
+          bash tool/c500_g0_android_renderer_lab_contract_test.sh
+          bash tool/c500_g0_workflow_gate_contract_test.sh
+
+      - name: G0l bounded XRef synthetic positive/negative contract
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: |
+          flutter test test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart --reporter expanded
+          flutter test test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart --reporter expanded
+
+      - name: G0k synthetic qpdf and pinned-source fail-closed contract
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: bash tool/c500_g0_qpdf_preflight_contract_test.sh
+
+      - name: Attempt BOTH exact MOF PDFs with bounded stream and structure probe
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          echo "G0_SOURCE_LAB_HEAD=$(git rev-parse HEAD)"
+          echo "No official PDFs are uploaded, committed, signed or promoted."
+          set +e
+          dart run tool/c500_g0_acquire.dart 2>&1 | tee c500-g0-source-lab.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if (( rc != 0 )); then
+            echo "C500-G0: HOLD — source binary unavailable or pin/probe mismatch. Inspect exact error in job log." >> "$GITHUB_STEP_SUMMARY"
+            echo "Native engines, Android PSS, root cause and global negative proof: NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+            exit "$rc"
+          fi
+          # G0c: promote only validated ephemeral paths into a same-run
+          # structure regression; never upload/commit either official PDF.
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = Path('c500-g0-source-lab.log').read_text(encoding='utf-8')
+          marker = '{"gate":"C500_G0A_SOURCE_ACQUIRED_STRUCTURE_ONLY"'
+          pos = raw.find(marker)
+          if pos < 0:
+              raise SystemExit('G0C_VERIFIED_SOURCE_REPORT_MISSING')
+          report = json.loads(raw[pos:].splitlines()[0])
+          if report.get('failures') or len(report.get('sources', [])) != 2:
+              raise SystemExit('G0C_OFFICIAL_PAIR_NOT_VERIFIED')
+          expected = {
+              '115-05-06': (119769589, '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe', 'G0_OLD_PDF'),
+              '115-07-08': (135200798, 'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571', 'G0_NEW_PDF'),
+          }
+          observed = set()
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              for source in report['sources']:
+                  period = source['period']
+                  if period not in expected or period in observed:
+                      raise SystemExit('G0C_PERIOD_DUPLICATE_OR_UNKNOWN')
+                  observed.add(period)
+                  size, digest, name = expected[period]
+                  path = Path(source['lab_file'])
+                  if (source['bytes'] != size or source['sha256'] != digest or
+                      not path.is_absolute() or path.is_symlink() or
+                      not path.is_file() or
+                      not path.resolve().parent.name.startswith('c500_g0_lab_')):
+                      raise SystemExit('G0C_SOURCE_IDENTITY_OR_PATH_INVALID')
+                  env.write(f'{name}={path}\n')
+          if observed != set(expected):
+              raise SystemExit('G0C_OFFICIAL_PERIOD_MISSING')
+          print('G0C_OFFICIAL_PAIR_PINNED_AND_MOUNTED_EPHEMERALLY')
+          PY
+          echo "C500-G0a: both binaries acquired and bounded structure inspected ONLY." >> "$GITHUB_STEP_SUMMARY"
+          echo "G0 root cause, Android engine/PSS and global negative proof: NOT_PROVEN/NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: G0c actual official pair same-probe regression (NOT Android OOM proof)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          : "${G0_OLD_PDF:?G0C_OLD_OFFICIAL_BINARY_MISSING}"
+          : "${G0_NEW_PDF:?G0C_NEW_OFFICIAL_BINARY_MISSING}"
+          timeout 300s flutter test test/features/invoice/invoice_award_cloud_g0_lab_test.dart --reporter expanded
+          echo "G0c: real official source hashes and same bounded structure probe PASS only; Android PDF engines, PSS and original OOM root cause NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: G0k bounded independent qpdf structural crosscheck (NOT Android proof)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qpdf
+          bash tool/c500_g0_qpdf_preflight.sh
+
+      # G0l runs even after qpdf fails: independent bounded object-access
+      # evidence must not mask qpdf's original failed status or promote LKG.
+      - name: G0l pinned official XRef-stream bounded access (NOT page proof)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart
+
+      # G0j: second root subtree only, separate pinned-source failure domain.
+      # This does NOT prove the second document page or any global NOT_WIN.
+      - name: G0j pinned second root-child leftmost leaf Unicode coverage
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --second-root-child
+
+      # G0d/e/f: independent failure domain. qpdf bad_alloc and bounded-XRef
+      # failures must remain FAIL, but must NOT implicitly skip the pinned
+      # source-backed Android first-failure experiment. Only the verified
+      # ephemeral pair and successful isolated-host preparation authorize it.
+      # Separate API35 emulator; official binaries never leave runner.
+      # PdfRenderer samples 3 pages; PDFium/PDFBox OPEN ONLY in independent PIDs.
+      # Native crash/failure is evidence, never a safe NOT_WIN or G0 PASS.
+      - name: Setup Java 17 for G0d Android renderer lab
+        id: g0d_java
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare isolated Android test host
+        id: g0d_host
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' && steps.g0d_java.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android .
+          flutter pub get
+          test -c /dev/kvm || { echo 'G0D_ANDROID_KVM_UNAVAILABLE' >&2; exit 60; }
+          sudo chmod a+rw /dev/kvm
+
+      - name: G0g Android API35 official pair three-engine OOM and crash attribution lab
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' && steps.g0d_host.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          working-directory: ./android
+          script: bash ../tool/c500_g0_android_renderer_lab.sh

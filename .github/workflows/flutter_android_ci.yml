@@ -82,9 +82,13 @@ jobs:
             if [[ ! -s changed_files.txt ]]; then
               run_heavy=true
               reason="changed file list unavailable"
-            elif grep -Ev '^(docs/|.*\.md$|\.gitignore$)' changed_files.txt | grep -q .; then
-              run_heavy=true
-              reason="non-docs files changed"
+            else
+              grep -Ev '^(docs/|.*\.md$|\.gitignore$)' changed_files.txt \
+                > non_docs_changed_files.txt || true
+              if [[ -s non_docs_changed_files.txt ]]; then
+                run_heavy=true
+                reason="non-docs files changed"
+              fi
             fi
           fi
 
@@ -226,12 +230,24 @@ jobs:
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         run: flutter analyze
 
+      - name: Focused source custody Flutter contract regressions
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test \
+            test/features/invoice/invoice_award_cloud_lifecycle_contract_test.dart \
+            test/features/invoice/invoice_award_cloud_pdfium_successor_routing_contract_test.dart \
+            test/issue_13_cloud500_pdfium_successor_contract_test.dart \
+            test/issue_13_owner_4_20_14_followup_contract_test.dart \
+            2>&1 | tee flutter-test.log
+
       - name: Run tests
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         shell: bash
         run: |
           set -o pipefail
-          flutter test 2>&1 | tee flutter-test.log
+          flutter test 2>&1 | tee -a flutter-test.log
 
       - name: Summarize failed test evidence
         if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' }}
@@ -247,8 +263,20 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload failed full-test log
+      - name: Check failed full-test log availability
         if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' }}
+        id: failed_test_log
+        shell: bash
+        run: |
+          if [[ -f flutter-test.log ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No flutter-test.log: failure occurred before the test step." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload failed full-test log
+        if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' && steps.failed_test_log.outputs.available == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: flutter-full-test-failure-${{ github.event.pull_request.head.sha || github.sha }}
@@ -274,6 +302,38 @@ jobs:
           flutter build apk --debug
           --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB="$ENABLE_PRIVATE_CLOUD_INVOICE_LAB"
 
+      # Native JVM contract gate: a RED result is a real HOLD, never skipped or masked.
+      - name: Android Platform Worker channel, heartbeat, atomic-result, foreground, OS-lock, terminal and source-FD custody native regressions
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :flutter_pdf_text:testDebugUnitTest \
+            --tests "me.movenext.flutter_pdf_text.PlatformPdfCandidateWorkerServiceNotificationChannelTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformOpenHeartbeatJoinTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultAtomicWriterTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformWorkerStartLeaseTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultProcessLeaseTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultParentCustodyTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultTerminalFenceTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultWorkerEpochTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultTerminalProvenanceTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformSourceSnapshotCustodyTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformSourceSnapshotOrphanCleanupTest" \
+            --no-daemon --stacktrace
+
+      # Compiles an Android API35 two-process RED witness. It does NOT run
+      # instrumentation or assert a device PASS; no emulator is provisioned.
+      - name: Compile Android API35 two-process lease instrumentation (not executed)
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :flutter_pdf_text:assembleDebugAndroidTest --no-daemon --stacktrace
+          echo "ANDROID_NATIVE_REAL_DEVICE_PROOF_HOLD=1 (compile-only)"
+
       - name: Record debug APK SHA256
         if: >-
           ${{ steps.changes.outputs.run_heavy == 'true' &&
@@ -297,3 +357,92 @@ jobs:
             app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 1
+
+  android-api35-two-process-lease:
+    name: Android API35 independent-process lease runtime (RED witness)
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 45 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact PR HEAD (not synthetic merge ref)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify exact HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          echo "ANDROID_API35_SOURCE_HEAD=$(git rev-parse HEAD)"
+      - name: Enable hardware accelerated Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -c /dev/kvm ]]; then
+            echo 'ANDROID_API35_KVM_DEVICE_MISSING' >&2
+            exit 60
+          fi
+          sudo chmod a+rw /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android host and resolve dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android .
+          flutter pub get
+      # Actual Android API35 emulator execution. The sidecar-swap negative
+      # is expected RED until kernel ownership is repaired; do not mask it.
+      - name: Execute Android API35 independent PID/UID lease instrumentation
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          working-directory: ./android
+          script: |
+            # The emulator runner executes EACH script line through /usr/bin/sh -c.
+            # Keep Gradle and its arguments on ONE line: trailing backslash is
+            # passed as a literal task name (Task '\\' not found), not a shell continuation.
+            adb shell getprop ro.build.version.sdk
+            # Capture logcat while the emulator is alive, including on a real RED.
+            # Preserve Gradle's original exit status: no masking or skip.
+            ./gradlew :flutter_pdf_text:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=me.movenext.flutter_pdf_text.PlatformResultProcessLeaseInstrumentedTest --no-daemon --stacktrace; native_status=$?; mkdir -p ../android-api35-evidence; (timeout 20s adb -e logcat -d -v threadtime > ../android-api35-evidence/logcat.txt || true); (timeout 10s adb -e shell getprop ro.build.version.sdk > ../android-api35-evidence/api-level.txt || true); (timeout 10s adb -e shell getenforce > ../android-api35-evidence/selinux-mode.txt || true); exit "$native_status"
+            test -n "$(find ../build -path '*/androidTest-results/*' -name '*.xml' -print -quit)" || { echo 'ANDROID_API35_JUNIT_XML_MISSING' >&2; exit 61; }
+            echo 'ANDROID_API35_TWO_PROCESS_LEASE_TESTS_EXECUTED=PASS'
+      - name: Preserve Android API35 native JUnit and device evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p android-api35-evidence
+          # Bound evidence collection if emulator launch fails before ADB.
+          if command -v adb >/dev/null 2>&1 && timeout 8s adb devices | grep -Eq '^emulator-[0-9]+[[:space:]]+device$'; then
+            (timeout 20s adb -e logcat -d -v threadtime > android-api35-evidence/logcat.txt) || true
+            (timeout 10s adb -e shell getprop ro.build.version.sdk > android-api35-evidence/api-level.txt) || true
+            (timeout 10s adb -e shell getenforce > android-api35-evidence/selinux-mode.txt) || true
+          else
+            echo 'ANDROID_API35_ADB_DEVICE_UNAVAILABLE' > android-api35-evidence/device-status.txt
+          fi
+          find build -path '*/androidTest-results/*' -type f -name '*.xml' -exec cp --parents '{}' android-api35-evidence/ \; 2>/dev/null || true
+          find build -path '*/reports/androidTests/*' -type f -exec cp --parents '{}' android-api35-evidence/ \; 2>/dev/null || true
+      - name: Upload Android API35 JUnit and logcat evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr45-android-api35-lease-${{ github.event.pull_request.head.sha }}
+          path: android-api35-evidence/
+          if-no-files-found: warn
+          retention-days: 7

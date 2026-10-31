@@ -53,10 +53,88 @@ class CalendarPackageStatus {
   final bool isContiguous;
 }
 
+
+enum CalendarAnnualUpdateDecision {
+  outsideDecember,
+  currentYearNotVerified,
+  beforeFirstBusinessDay,
+  nextYearUntrusted,
+  nextYearInstalled,
+  checkedToday,
+  checkOfficialSource,
+}
+
 class TaiwanBusinessCalendarPackageService {
   const TaiwanBusinessCalendarPackageService();
 
   static const tableName = 'taiwan_business_calendar_days';
+
+
+  // B2.4: read-only foreground eligibility, never an authority to download,
+  // install or infer holidays. Taiwan is UTC+08:00 with no DST.
+  // A verified current-year package supplies the *actual* first December
+  // business day; a weekend heuristic or incomplete legacy rows cannot.
+  // The caller must persist lastCheckedAt after a real attempted check.
+  Future<CalendarAnnualUpdateDecision> annualUpdateDecision(
+    DatabaseExecutor db,
+    DateTime now, {
+    DateTime? lastCheckedAt,
+  }) async {
+    DateTime taipei(DateTime value) =>
+        value.toUtc().add(const Duration(hours: 8));
+    final local = taipei(now);
+    if (local.month != DateTime.december) {
+      return CalendarAnnualUpdateDecision.outsideDecember;
+    }
+    final year = local.year;
+    final current = await status(db, year);
+    if (current == null ||
+        !current.isContiguous ||
+        current.sequence < 1 ||
+        current.digest.isEmpty) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+
+    final december = await db.query(
+      tableName,
+      columns: <String>['calendar_date', 'is_business_day'],
+      where: 'source_year = ? AND calendar_date >= ? AND calendar_date <= ?',
+      whereArgs: <Object?>[year, '$year-12-01', '$year-12-31'],
+      orderBy: 'calendar_date ASC',
+    );
+    if (december.length != 31) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+    String? firstBusinessDay;
+    for (final row in december) {
+      if (row['is_business_day'] == 1) {
+        firstBusinessDay = row['calendar_date'] as String;
+        break;
+      }
+    }
+    if (firstBusinessDay == null) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+    final today = local.toIso8601String().substring(0, 10);
+    if (today.compareTo(firstBusinessDay) < 0) {
+      return CalendarAnnualUpdateDecision.beforeFirstBusinessDay;
+    }
+
+    final next = await status(db, year + 1);
+    if (next != null) {
+      if (next.isContiguous && next.sequence > 0 && next.digest.isNotEmpty) {
+        return CalendarAnnualUpdateDecision.nextYearInstalled;
+      }
+      // Never let a foreground trigger overwrite damaged/partial next-year
+      // rows. Existing install() must also reject an inconsistent year.
+      return CalendarAnnualUpdateDecision.nextYearUntrusted;
+    }
+    if (lastCheckedAt != null &&
+        taipei(lastCheckedAt).toIso8601String().substring(0, 10) == today) {
+      return CalendarAnnualUpdateDecision.checkedToday;
+    }
+    return CalendarAnnualUpdateDecision.checkOfficialSource;
+  }
 
   Future<CalendarPackageInstallResult> install(
     Database db,
@@ -123,8 +201,6 @@ class TaiwanBusinessCalendarPackageService {
     final metadata = _metadata(rows);
     final start = rows.first['calendar_date'] as String;
     final end = rows.last['calendar_date'] as String;
-    final expected =
-        DateTime.parse(end).difference(DateTime.parse(start)).inDays + 1;
     return CalendarPackageStatus(
       year: year,
       start: start,
@@ -136,7 +212,7 @@ class TaiwanBusinessCalendarPackageService {
       digest: metadata?.digest ?? '',
       sourceUrl: rows.first['source_url'] as String,
       importedAt: rows.first['updated_at'] as String,
-      isContiguous: rows.length == expected,
+      isContiguous: metadata != null || _isConsistentLegacy(rows),
     );
   }
 
@@ -161,23 +237,103 @@ class TaiwanBusinessCalendarPackageService {
     final metadata = TaiwanBusinessCalendarStoredMetadata.tryDecode(
       values.single! as String,
     );
-    if (metadata == null || metadata.rowCount != rows.length) return null;
-    if (metadata.coverageStart != rows.first['calendar_date'] ||
-        metadata.coverageEnd != rows.last['calendar_date']) {
+    // B2.1: a parseable metadata envelope alone is not an installed-year
+    // authority. Require full-year row/metadata coherence before allowing a
+    // higher revision to replace it. This is structural validation, NOT a
+    // recomputation of the source package SHA-256 from SQLite rows.
+    if (metadata == null ||
+        metadata.formatVersion !=
+            TaiwanBusinessCalendarYearPackage.currentFormatVersion ||
+        metadata.sourceYear < 1900 ||
+        metadata.sourceYear > 9999 ||
+        metadata.sourceYear != rows.first['source_year'] ||
+        metadata.revisionSequence < 1 ||
+        metadata.sourceRevision.trim().isEmpty ||
+        DateTime.tryParse(metadata.sourcePublishedAt) == null ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(metadata.digest)) {
       return null;
+    }
+    final firstDay = DateTime.utc(metadata.sourceYear, 1, 1);
+    final expectedCount = DateTime.utc(metadata.sourceYear + 1, 1, 1)
+        .difference(firstDay)
+        .inDays;
+    if (rows.length != expectedCount ||
+        metadata.rowCount != expectedCount ||
+        metadata.coverageStart !=
+            firstDay.toIso8601String().substring(0, 10) ||
+        metadata.coverageEnd !=
+            DateTime.utc(metadata.sourceYear, 12, 31)
+                .toIso8601String()
+                .substring(0, 10)) {
+      return null;
+    }
+    final url = rows.first['source_url'];
+    // B2.3: installed metadata must retain the same official-host authority
+    // as the incoming package; a replaced SQLite source URL is not LKG.
+    if (url is! String ||
+        !TaiwanBusinessCalendarPackageCodec.isApprovedOfficialSourceUrl(url)) {
+      return null;
+    }
+    for (var index = 0; index < rows.length; index++) {
+      final row = rows[index];
+      final expectedDate = firstDay
+          .add(Duration(days: index))
+          .toIso8601String()
+          .substring(0, 10);
+      if (row['source_year'] != metadata.sourceYear ||
+          row['calendar_date'] != expectedDate ||
+          row['source_url'] != url ||
+          row['source_revision'] != rows.first['source_revision'] ||
+          row['is_business_day'] is! int ||
+          (row['is_business_day'] != 0 && row['is_business_day'] != 1)) {
+        return null;
+      }
     }
     return metadata;
   }
 
+  // B2: only a *complete* legacy calendar may be upgraded. A damaged
+  // package-metadata string is not legacy, even if its dates are contiguous.
+  // Never replace an incomplete or ambiguous installed year with new data.
   bool _isConsistentLegacy(List<Map<String, Object?>> rows) {
+    if (rows.isEmpty) return false;
     final revisions = rows.map((row) => row['source_revision']).toSet();
     final urls = rows.map((row) => row['source_url']).toSet();
     if (revisions.length != 1 || urls.length != 1) return false;
-    final start = DateTime.tryParse(rows.first['calendar_date'] as String);
-    final end = DateTime.tryParse(rows.last['calendar_date'] as String);
-    return start != null &&
-        end != null &&
-        rows.length == end.difference(start).inDays + 1;
+    final revision = revisions.single;
+    final legacyUrl = urls.single;
+    // A complete historical row set with an unapproved source is not an
+    // authoritative legacy year and must not be silently upgraded.
+    if (legacyUrl is! String ||
+        !TaiwanBusinessCalendarPackageCodec.isApprovedOfficialSourceUrl(
+          legacyUrl,
+        )) {
+      return false;
+    }
+    if (revision is! String || revision.trim().isEmpty ||
+        revision.trimLeft().startsWith('{') ||
+        revision.trimLeft().startsWith('[')) {
+      return false;
+    }
+    final sourceYear = rows.first['source_year'];
+    if (sourceYear is! int || sourceYear < 1900 || sourceYear > 9999) {
+      return false;
+    }
+    final firstDay = DateTime.utc(sourceYear, 1, 1);
+    final expectedCount =
+        DateTime.utc(sourceYear + 1, 1, 1).difference(firstDay).inDays;
+    if (rows.length != expectedCount) return false;
+    for (var index = 0; index < rows.length; index++) {
+      final expectedDate = firstDay
+          .add(Duration(days: index))
+          .toIso8601String()
+          .substring(0, 10);
+      if (rows[index]['source_year'] != sourceYear ||
+          rows[index]['calendar_date'] != expectedDate) {
+        return false;
+      }
+    }
+    return true;
   }
 
   bool _matches(

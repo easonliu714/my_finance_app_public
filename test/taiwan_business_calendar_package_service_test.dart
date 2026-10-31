@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package_service.dart';
@@ -115,6 +117,175 @@ void main() {
     expect((await service.status(db, 2028))!.sequence, 1);
   });
 
+  test('B2 damaged package metadata is not silently treated as legacy', () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    final newer = await _package(codec, year: 2028, sequence: 2);
+    await service.install(db, original);
+    // Simulate a damaged metadata envelope in every row. A single shared
+    // invalid JSON-shaped revision previously passed the legacy heuristic.
+    const damaged = '{"format_version":1,"broken":true}';
+    await db.update(
+      'taiwan_business_calendar_days',
+      <String, Object?>{'source_revision': damaged},
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+
+    await expectLater(
+      service.install(db, newer),
+      throwsA(isA<CalendarPackageConflictException>()),
+    );
+    final rows = await db.query(
+      'taiwan_business_calendar_days',
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    expect(rows, hasLength(366));
+    expect(rows.every((row) => row['source_revision'] == damaged), isTrue);
+    expect(rows.every((row) => row['source_url'] == original.sourceUrl), isTrue);
+  });
+
+  test('B2 incomplete legacy year is not upgraded or overwritten', () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await _insertLegacyDay(db, year: 2028, date: '2028-07-01');
+    final replacement = await _package(codec, year: 2028, sequence: 1);
+
+    await expectLater(
+      service.install(db, replacement),
+      throwsA(isA<CalendarPackageConflictException>()),
+    );
+    final rows = await db.query(
+      'taiwan_business_calendar_days',
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single['calendar_date'], '2028-07-01');
+    expect(rows.single['source_revision'], 'DGPA-legacy-2028');
+  });
+
+  test('B2.1 structurally forged stored metadata cannot replace a year',
+      () async {
+    for (final corruption in <String, Object?>{
+      'source_year': 2027,
+      'sha256': 'invalid-digest',
+      'revision_sequence': 0,
+    }.entries) {
+      final db = await _openCalendarDatabase();
+      final original = await _package(codec, year: 2028, sequence: 1);
+      final newer = await _package(codec, year: 2028, sequence: 2);
+      await service.install(db, original);
+      final rowsBefore = await db.query('taiwan_business_calendar_days',
+          where: 'source_year = ?', whereArgs: <Object?>[2028]);
+      final metadata = Map<String, Object?>.from(jsonDecode(
+        rowsBefore.first['source_revision']! as String,
+      ) as Map);
+      metadata[corruption.key] = corruption.value;
+      final damaged = jsonEncode(metadata);
+      await db.update(
+        'taiwan_business_calendar_days',
+        <String, Object?>{'source_revision': damaged},
+        where: 'source_year = ?',
+        whereArgs: <Object?>[2028],
+      );
+
+      await expectLater(
+        service.install(db, newer),
+        throwsA(isA<CalendarPackageConflictException>()),
+        reason: 'Corrupt ${corruption.key} must not be promoted to legacy.',
+      );
+      final retained = await db.query('taiwan_business_calendar_days',
+          where: 'source_year = ?', whereArgs: <Object?>[2028]);
+      expect(retained, hasLength(366));
+      expect(retained.every((row) => row['source_revision'] == damaged),
+          isTrue);
+      expect(retained.every((row) => row['source_url'] == original.sourceUrl),
+          isTrue);
+      await db.close();
+    }
+  });
+
+  test('B2.1 partial legacy status is not a complete annual coverage',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await _insertLegacyDay(db, year: 2028, date: '2028-07-01');
+
+    final status = await service.status(db, 2028);
+
+    expect(status, isNotNull);
+    expect(status!.rowCount, 1);
+    expect(status.isContiguous, isFalse);
+    expect(status.sequence, 0);
+  });
+
+
+  test('B2.3 corrupted stored official URL rejects replacement and status',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    final newer = await _package(codec, year: 2028, sequence: 2);
+    await service.install(db, original);
+    const attackerUrl = 'https://www.dgpa.gov.tw.attacker.example/calendar.csv';
+    await db.update(
+      'taiwan_business_calendar_days',
+      <String, Object?>{'source_url': attackerUrl},
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+
+    final status = await service.status(db, 2028);
+    expect(status, isNotNull);
+    expect(status!.isContiguous, isFalse);
+    await expectLater(
+      service.install(db, newer),
+      throwsA(isA<CalendarPackageConflictException>()),
+    );
+    final retained = await db.query(
+      'taiwan_business_calendar_days',
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    expect(retained, hasLength(366));
+    expect(retained.every((row) => row['source_url'] == attackerUrl), isTrue);
+    expect(retained.every((row) =>
+        row['source_revision'] == original.storedMetadata.encode()), isTrue);
+  });
+
+  test('B2.3 complete legacy year with unapproved URL cannot be promoted',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await _insertLegacyYear(db, 2028);
+    const attackerUrl = 'https://attacker.example/calendar.csv';
+    await db.update(
+      'taiwan_business_calendar_days',
+      <String, Object?>{'source_url': attackerUrl},
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    final replacement = await _package(codec, year: 2028, sequence: 1);
+
+    expect((await service.status(db, 2028))!.isContiguous, isFalse);
+    await expectLater(
+      service.install(db, replacement),
+      throwsA(isA<CalendarPackageConflictException>()),
+    );
+    final retained = await db.query(
+      'taiwan_business_calendar_days',
+      where: 'source_year = ?',
+      whereArgs: <Object?>[2028],
+    );
+    expect(retained, hasLength(366));
+    expect(retained.every((row) => row['source_url'] == attackerUrl), isTrue);
+    expect(retained.every((row) =>
+        row['source_revision'] == 'DGPA-legacy-2028'), isTrue);
+  });
+
   test('failed replacement rolls back the original year', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);
@@ -145,6 +316,71 @@ void main() {
     expect(status.digest, first.digest);
     expect(status.rowCount, 366);
   });
+
+  test('B2.4 official December trigger uses installed workday, not weekends',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    // Synthetic fixture: Friday Dec 1 is an official-style holiday, so the
+    // first workday is Monday Dec 4. No real DGPA data is asserted here.
+    await service.install(db, await _package(
+      codec, year: 2028, sequence: 1, closedDate: '2028-12-01',
+    ));
+    final before = await db.query('taiwan_business_calendar_days');
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 11, 30, 15, 59)),
+      CalendarAnnualUpdateDecision.outsideDecember,
+    );
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 3, 15, 59)),
+      CalendarAnnualUpdateDecision.beforeFirstBusinessDay,
+    );
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 3, 16)),
+      CalendarAnnualUpdateDecision.checkOfficialSource,
+    );
+    expect(
+      await service.annualUpdateDecision(
+        db, DateTime.utc(2028, 12, 4),
+        lastCheckedAt: DateTime.utc(2028, 12, 3, 16, 1),
+      ),
+      CalendarAnnualUpdateDecision.checkedToday,
+    );
+    expect(await db.query('taiwan_business_calendar_days'), before,
+        reason: 'A foreground eligibility check must not mutate SQLite.');
+  });
+
+  test('B2.4 missing, legacy or corrupt years never authorize update',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final now = DateTime.utc(2028, 12, 4);
+    expect(await service.annualUpdateDecision(db, now),
+        CalendarAnnualUpdateDecision.currentYearNotVerified);
+    await _insertLegacyYear(db, 2028);
+    expect(await service.annualUpdateDecision(db, now),
+        CalendarAnnualUpdateDecision.currentYearNotVerified);
+    await service.install(db, await _package(codec, year: 2028, sequence: 1));
+    await _insertLegacyDay(db, year: 2029, date: '2029-01-01');
+    expect(await service.annualUpdateDecision(db, now),
+        CalendarAnnualUpdateDecision.nextYearUntrusted);
+    expect(await db.query('taiwan_business_calendar_days',
+        where: 'source_year = ?', whereArgs: <Object?>[2029]), hasLength(1));
+  });
+
+  test('B2.4 fully installed next year suppresses duplicate source checks',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await service.install(db, await _package(codec, year: 2028, sequence: 1));
+    await service.install(db, await _package(codec, year: 2029, sequence: 1));
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.nextYearInstalled,
+    );
+    expect((await service.status(db, 2029))!.rowCount, 365);
+  });
+
 }
 
 Future<Database> _openCalendarDatabase() async {

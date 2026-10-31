@@ -51,4 +51,35 @@ void main() {
       contains('ContextAwareOfficialMobileSelectorCapabilityReportParser'),
     );
   });
+  test('official detail and export share governed preparation without obsolete desktop pre-gate', () {
+    final source = File(
+      'lib/features/invoice/lab/flutter_landing_webview_session_runtime.dart',
+    ).readAsStringSync();
+
+    expect(
+      source,
+      contains(
+        'prepareCurrentPageForExport() {\n'
+        '    return _prepareCurrentQueryPage(prepareExportSelection: true);',
+      ),
+    );
+    expect(
+      source,
+      contains(
+        'prepareCurrentPageForOfficialDetail() {\n'
+        '    return _prepareCurrentQueryPage(prepareExportSelection: false);',
+      ),
+    );
+    expect(
+      source,
+      contains(
+        'buildOfficialQueryPagePreparationScript(\n'
+        '          prepareExportSelection: prepareExportSelection,',
+      ),
+    );
+    expect(source, isNot(contains('DESKTOP_RESULT_LAYOUT_NOT_READY')));
+    expect(source, isNot(contains('_buildDesktopResultStructureGateScript')));
+    expect(source, isNot(contains("mode: 'detail'")));
+  });
+
 }

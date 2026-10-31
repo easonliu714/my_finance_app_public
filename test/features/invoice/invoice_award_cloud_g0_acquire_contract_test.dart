@@ -1,0 +1,363 @@
+// C500-G0a: synthetic acquisition regressions. No official binary is
+// substituted, and these tests do not assert an Android parser/OOM result.
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import '../../../tool/c500_g0_acquire.dart';
+
+void main() {
+  late Directory scratch;
+  setUp(() async {
+    scratch = await Directory.systemTemp.createTemp('c500_g0_acquire_test_');
+  });
+  tearDown(() async {
+    if (await scratch.exists()) await scratch.delete(recursive: true);
+  });
+
+  test('official fixed periods and both observed/archived SHA pins are stable', () {
+    expect(c500G0Sources, hasLength(2));
+    expect(c500G0Sources.first.period, '115-05-06');
+    expect(c500G0Sources.first.expectedBytes, 119769589);
+    expect(c500G0Sources.first.expectedSha256,
+        '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe');
+    expect(c500G0Sources.last.period, '115-07-08');
+    expect(c500G0Sources.last.expectedBytes, 135200798);
+    expect(c500G0Sources.last.expectedSha256,
+        'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571');
+    for (final source in c500G0Sources) {
+      expect(source.reference.isApprovedOfficialSource, isTrue);
+      expect(source.reference.tierCode, 'cloud-500');
+      expect(source.artifactId, endsWith('_sorted_AI_D.pdf'));
+    }
+  });
+
+  test('bounded synthetic stream reuses downloader and structure probe',
+      () async {
+    final bytes = _syntheticPdf();
+    final source = C500G0Source(
+      period: '115-05-06',
+      uriText: c500G0Sources.first.uriText,
+      expectedBytes: bytes.length,
+    );
+    final client = _SyntheticClient(bytes);
+    final result = await acquireC500G0Source(
+      source: source, labDirectory: scratch, client: client,
+    );
+    expect(client.requests, 1);
+    expect(result['bytes'], bytes.length);
+    expect(result['pdf_version'], '1.7');
+    expect(result['xref_type'], 'classicTable');
+    expect(result['sha_pin'], 'UNPINNED_SYNTHETIC_OR_EXPERIMENTAL_SOURCE');
+    expect(result['pdfbox_pdfium_pdfrenderer'], 'NOT_RUN');
+    expect(result['global_negative_proof'], 'NOT_RUN');
+    expect(result['award_authority'], 'HOLD');
+    expect(await File(result['lab_file'] as String).readAsBytes(), bytes);
+  });
+
+  test('size mismatch removes partial and never creates final lab file',
+      () async {
+    final bytes = _syntheticPdf();
+    final source = C500G0Source(
+      period: '115-05-06',
+      uriText: c500G0Sources.first.uriText,
+      expectedBytes: bytes.length + 1,
+    );
+    await expectLater(
+      acquireC500G0Source(
+        source: source, labDirectory: scratch,
+        client: _SyntheticClient(bytes),
+      ),
+      throwsA(isA<StateError>().having(
+        (error) => error.message, 'code', 'G0_SOURCE_BYTES_MISMATCH',
+      )),
+    );
+    expect(await scratch.list().toList(), isEmpty);
+  });
+
+  test('wrong archived SHA is rejected without retaining a PDF', () async {
+    final bytes = _syntheticPdf();
+    final source = C500G0Source(
+      period: '115-07-08',
+      uriText: c500G0Sources.last.uriText,
+      expectedBytes: bytes.length,
+      expectedSha256: List<String>.filled(64, '0').join(),
+    );
+    await expectLater(
+      acquireC500G0Source(
+        source: source, labDirectory: scratch,
+        client: _SyntheticClient(bytes),
+      ),
+      throwsA(isA<StateError>().having(
+        (error) => error.message, 'code', 'G0_SOURCE_SHA256_MISMATCH',
+      )),
+    );
+    expect(await scratch.list().toList(), isEmpty);
+  });
+
+  test('HTTP redirect is not an official binary and leaves no file',
+      () async {
+    final bytes = _syntheticPdf();
+    final source = C500G0Source(
+      period: '115-05-06',
+      uriText: c500G0Sources.first.uriText,
+      expectedBytes: bytes.length,
+    );
+    await expectLater(
+      acquireC500G0Source(
+        source: source, labDirectory: scratch,
+        client: _SyntheticClient(bytes, statusCode: HttpStatus.found),
+      ),
+      throwsA(isA<HttpException>()),
+    );
+    expect(await scratch.list().toList(), isEmpty);
+  });
+  test('stalled official response headers fail bounded without a lab file',
+      () async {
+    final client = C500G0PinnedNoRedirectClient(
+      _DelayedHeaderClient(),
+      responseHeaderTimeout: const Duration(milliseconds: 10),
+      bodyIdleTimeout: const Duration(milliseconds: 10),
+    );
+    try {
+      await expectLater(
+        acquireC500G0Source(
+          source: c500G0Sources.first,
+          labDirectory: scratch,
+          client: client,
+        ),
+        throwsA(isA<TimeoutException>().having(
+          (error) => error.message,
+          'code',
+          'G0_LAB_RESPONSE_HEADER_TIMEOUT',
+        )),
+      );
+      expect(await scratch.list().toList(), isEmpty);
+    } finally {
+      client.close();
+    }
+  });
+
+  test('stalled official response body fails bounded and deletes partial',
+      () async {
+    final client = C500G0PinnedNoRedirectClient(
+      _DelayedBodyClient(),
+      responseHeaderTimeout: const Duration(milliseconds: 50),
+      bodyIdleTimeout: const Duration(milliseconds: 10),
+    );
+    try {
+      await expectLater(
+        acquireC500G0Source(
+          source: c500G0Sources.first,
+          labDirectory: scratch,
+          client: client,
+        ),
+        throwsA(isA<TimeoutException>().having(
+          (error) => error.message,
+          'code',
+          'G0_LAB_BODY_IDLE_TIMEOUT',
+        )),
+      );
+      expect(await scratch.list().toList(), isEmpty);
+    } finally {
+      client.close();
+    }
+  });
+
+  test('one failed period cannot mask the other period acquisition', () async {
+    final bytes = _syntheticPdf();
+    final client = _SyntheticClient(bytes);
+    final report = await acquireC500G0SourcesIndependently(
+      sources: <C500G0Source>[
+        C500G0Source(
+          period: '115-05-06',
+          uriText: c500G0Sources.first.uriText,
+          expectedBytes: bytes.length + 1,
+        ),
+        C500G0Source(
+          period: '115-07-08',
+          uriText: c500G0Sources.last.uriText,
+          expectedBytes: bytes.length,
+        ),
+      ],
+      labDirectory: scratch,
+      client: client,
+    );
+    expect(client.requests, 2);
+    expect(report['gate'],
+        'C500_G0A_HOLD_SOURCE_BINARY_UNAVAILABLE_OR_PIN_MISMATCH');
+    final failures = report['failures'] as List<Map<String, Object?>>;
+    expect(failures, hasLength(1));
+    expect(failures.single['period'], '115-05-06');
+    expect(failures.single['failure'], contains('G0_SOURCE_BYTES_MISMATCH'));
+    final acquired = report['sources'] as List<Map<String, Object?>>;
+    expect(acquired, hasLength(1));
+    expect(acquired.single['period'], '115-07-08');
+    expect(acquired.single['award_authority'], 'HOLD');
+    expect(report['g0_root_cause'], 'NOT_PROVEN');
+    expect(await File(acquired.single['lab_file'] as String).exists(), isTrue);
+    expect(await scratch.list().toList(), hasLength(1));
+  });
+
+  test('both failed periods are reported, not silently short-circuited',
+      () async {
+    final bytes = _syntheticPdf();
+    final client = _SyntheticClient(bytes);
+    final report = await acquireC500G0SourcesIndependently(
+      sources: <C500G0Source>[
+        C500G0Source(
+          period: '115-05-06',
+          uriText: c500G0Sources.first.uriText,
+          expectedBytes: bytes.length + 1,
+        ),
+        C500G0Source(
+          period: '115-07-08',
+          uriText: c500G0Sources.last.uriText,
+          expectedBytes: bytes.length + 1,
+        ),
+      ],
+      labDirectory: scratch,
+      client: client,
+    );
+    expect(client.requests, 2);
+    expect(report['gate'],
+        'C500_G0A_HOLD_SOURCE_BINARY_UNAVAILABLE_OR_PIN_MISMATCH');
+    expect(report['sources'], isEmpty);
+    final failures = report['failures'] as List<Map<String, Object?>>;
+    expect(failures.map((entry) => entry['period']).toList(),
+        <String>['115-05-06', '115-07-08']);
+    expect(report['owner_production_authority'], 'HOLD');
+    expect(await scratch.list().toList(), isEmpty);
+  });
+
+  // G0q official-lab transport recovery: synthetic bytes are NOT MOF proof.
+  test('G0q retries a disconnected official header once, then pins output',
+      () async {
+    final bytes = _syntheticPdf();
+    final client = _SyntheticClient(bytes, transientHeaderDisconnects: 1);
+    final report = await acquireC500G0SourcesIndependently(
+      sources: <C500G0Source>[
+        C500G0Source(
+          period: '115-07-08',
+          uriText: c500G0Sources.last.uriText,
+          expectedBytes: bytes.length,
+        ),
+      ],
+      labDirectory: scratch,
+      client: client,
+    );
+    expect(client.requests, 2);
+    expect(report['gate'], 'C500_G0A_SOURCE_ACQUIRED_STRUCTURE_ONLY');
+    expect(report['failures'], isEmpty);
+    final acquired = report['sources'] as List<Map<String, Object?>>;
+    expect(acquired, hasLength(1));
+    expect(acquired.single['lab_transport_attempts'], 2);
+    expect(acquired.single['award_authority'], 'HOLD');
+    expect(await scratch.list().toList(), hasLength(1));
+  });
+
+  test('G0q repeated header disconnect exhausts two attempts and fails closed',
+      () async {
+    final bytes = _syntheticPdf();
+    final client = _SyntheticClient(bytes, transientHeaderDisconnects: 3);
+    final report = await acquireC500G0SourcesIndependently(
+      sources: <C500G0Source>[
+        C500G0Source(
+          period: '115-07-08',
+          uriText: c500G0Sources.last.uriText,
+          expectedBytes: bytes.length,
+        ),
+      ],
+      labDirectory: scratch,
+      client: client,
+    );
+    expect(client.requests, 2);
+    expect(report['gate'],
+        'C500_G0A_HOLD_SOURCE_BINARY_UNAVAILABLE_OR_PIN_MISMATCH');
+    expect(report['sources'], isEmpty);
+    final failures = report['failures'] as List<Map<String, Object?>>;
+    expect(failures, hasLength(1));
+    expect(failures.single['transport_attempts'], 2);
+    expect(failures.single['failure'],
+        contains('Connection closed before full header was received'));
+    expect(await scratch.list().toList(), isEmpty);
+  });
+
+}
+
+List<int> _syntheticPdf() {
+  const body = '%PDF-1.7\n1 0 obj\n<< /Type /Pages /Count 2 >>\nendobj\n';
+  final xrefOffset = latin1.encode(body).length;
+  final text = StringBuffer(body)
+    ..write('xref\n0 1\n0000000000 65535 f \n')
+    ..write('trailer\n<< /Size 1 >>\nstartxref\n')
+    ..write(xrefOffset)
+    ..write('\n%%EOF\n');
+  return latin1.encode(text.toString());
+}
+
+class _SyntheticClient extends http.BaseClient {
+  _SyntheticClient(
+    this.bytes, {
+    this.statusCode = HttpStatus.ok,
+    this.transientHeaderDisconnects = 0,
+  });
+
+  final List<int> bytes;
+  final int statusCode;
+  final int transientHeaderDisconnects;
+  int requests = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    requests += 1;
+    if (requests <= transientHeaderDisconnects) {
+      throw http.ClientException(
+        'Connection closed before full header was received',
+        request.url,
+      );
+    }
+    return http.StreamedResponse(
+      Stream<List<int>>.fromIterable(<List<int>>[
+        bytes.sublist(0, 5), bytes.sublist(5),
+      ]),
+      statusCode,
+      headers: const <String, String>{'content-type': 'application/pdf'},
+      contentLength: bytes.length,
+      request: request,
+    );
+  }
+}
+
+// Synthetic transport stalls only; no real official PDF or Android engine.
+class _DelayedHeaderClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return http.StreamedResponse(
+      const Stream<List<int>>.empty(),
+      HttpStatus.ok,
+      request: request,
+    );
+  }
+}
+
+class _DelayedBodyClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    return http.StreamedResponse(
+      Stream<List<int>>.periodic(
+        const Duration(milliseconds: 150),
+        (_) => <int>[37, 80, 68, 70, 45],
+      ).take(1),
+      HttpStatus.ok,
+      // Pass the production downloader's minimum declared-size preflight
+      // so the body-idle timeout is the actual first failure.
+      contentLength: 100,
+      headers: const <String, String>{'content-type': 'application/pdf'},
+      request: request,
+    );
+  }
+}

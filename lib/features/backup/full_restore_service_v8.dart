@@ -89,17 +89,17 @@ class FullRestoreServiceV8 extends FullRestoreServiceV7 {
     final exportFormat = metadata['export_format_version'];
     final isLegacyV1 = exportFormat == 1;
 
-    if (scopeVersion >= FullBackupScope.backupScopeVersion && !isLegacyV1) {
+    if (scopeVersion >= 8 && !isLegacyV1) {
       return envelope;
     }
 
-    for (final tableName in FullBackupScope.backupTableNames) {
+    for (final tableName in FullBackupScope.legacyScopeV8TableNames) {
       data.putIfAbsent(tableName, () => const <Object?>[]);
     }
     _populateLegacyMerchantIdentityRows(data);
 
-    metadata['backup_scope_version'] = FullBackupScope.backupScopeVersion;
-    metadata['included_tables'] = FullBackupScope.backupTableNames;
+    metadata['backup_scope_version'] = 8;
+    metadata['included_tables'] = FullBackupScope.legacyScopeV8TableNames;
     metadata['unknown_tables'] = const <Object?>[];
     metadata['missing_required_tables'] = const <Object?>[];
     metadata['coverage_complete'] = true;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../backup/backup_migration_actions.dart';
@@ -39,6 +40,7 @@ class MyPage extends StatefulWidget {
     this.scheduledReminderPort,
     this.registryRepository,
     this.registryUpdateService,
+    this.installedAppVersionLoader,
   });
 
   static const routeName = 'my';
@@ -56,6 +58,7 @@ class MyPage extends StatefulWidget {
   final ScheduledBackupReminderPort? scheduledReminderPort;
   final BusinessRegistryRepository? registryRepository;
   final BusinessRegistryUpdateService? registryUpdateService;
+  final Future<String> Function()? installedAppVersionLoader;
 
   @override
   State<MyPage> createState() => _MyPageState();
@@ -72,6 +75,7 @@ class _MyPageState extends State<MyPage> {
   var _registryLoading = true;
   var _registryUpdating = false;
   var _registryStatusMessage = '';
+  var _installedAppVersion = '讀取中…';
 
   BackupNotificationPermissionPort get _permissionPort {
     final explicit = widget.notificationPermissionPort;
@@ -97,6 +101,30 @@ class _MyPageState extends State<MyPage> {
       widget.registryUpdateService?.manifestUri != null ||
       BusinessRegistryUpdateConfiguration.manifestUri != null;
 
+  Future<void> _loadInstalledAppVersion() async {
+    try {
+      final loader = widget.installedAppVersionLoader;
+      final display = loader != null
+          ? await loader()
+          : await _readInstalledPackageVersion();
+      if (!mounted) return;
+      setState(() {
+        _installedAppVersion = display.trim().isEmpty ? '無法讀取' : display.trim();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _installedAppVersion = '無法讀取');
+    }
+  }
+
+  Future<String> _readInstalledPackageVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    final version = info.version.trim();
+    final build = info.buildNumber.trim();
+    if (version.isEmpty) throw StateError('APP_RUNTIME_VERSION_EMPTY');
+    return build.isEmpty ? version : '$version+$build';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -104,6 +132,7 @@ class _MyPageState extends State<MyPage> {
     _loadNotificationSettings();
     _loadRestoreSourceGrant();
     _loadRegistrySnapshot();
+    _loadInstalledAppVersion();
   }
 
   @override
@@ -115,6 +144,7 @@ class _MyPageState extends State<MyPage> {
         notificationSettings: _notificationSettings,
         restoreSourceGrant: _restoreSourceGrant,
         registryUpdateSection: BusinessRegistryUpdateCard(
+          appVersion: _installedAppVersion,
           snapshot: _registrySnapshot,
           loading: _registryLoading,
           updating: _registryUpdating,
@@ -175,11 +205,11 @@ class _MyPageState extends State<MyPage> {
         height: 72,
         selectedIndex: 4,
         onDestinationSelected: (index) {
-          if (index == 0) context.go('/accounts');
-          if (index == 1) context.go('/plans');
+          if (index == 0) context.push('/accounts');
+          if (index == 1) context.push('/plans');
           if (index == 2) context.go('/');
-          if (index == 3) context.go('/ledger');
-          if (index == 4) context.go(MyPage.routePath);
+          if (index == 3) context.push('/ledger');
+          if (index == 4) return;
         },
         destinations: const [
           NavigationDestination(

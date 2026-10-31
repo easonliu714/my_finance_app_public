@@ -376,6 +376,25 @@ class TaiwanBusinessCalendarPackageCodec {
     return package;
   }
 
+  // B2.3: reuse the same allowlist for new packages and existing SQLite
+  // provenance. HTTPS alone does not authenticate an official source.
+  static bool isApprovedOfficialSourceUrl(String sourceUrl) {
+    final uri = Uri.tryParse(sourceUrl.trim());
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasPort) {
+      return false;
+    }
+    const officialHosts = <String>{
+      'dgpa.gov.tw',
+      'www.dgpa.gov.tw',
+      'data.gov.tw',
+    };
+    return officialHosts.contains(uri.host.toLowerCase());
+  }
+
   void _validateMetadata({
     required int formatVersion,
     required int sourceYear,
@@ -415,6 +434,14 @@ class TaiwanBusinessCalendarPackageCodec {
         uri.host.isEmpty) {
       throw const TaiwanBusinessCalendarPackageException(
         'Calendar package source URL must be an absolute HTTPS URL.',
+      );
+    }
+    // B2.2: HTTPS by itself does not establish official calendar provenance.
+    // Only explicitly approved DGPA/data.gov.tw hosts may enter a new package;
+    // source authenticity and full-year data remain separate validation gates.
+    if (!isApprovedOfficialSourceUrl(sourceUrl)) {
+      throw const TaiwanBusinessCalendarPackageException(
+        'Calendar package source URL must name an approved official authority.',
       );
     }
     if (DateTime.tryParse(sourcePublishedAt.trim()) == null) {

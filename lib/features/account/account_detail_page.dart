@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -30,21 +31,35 @@ class AccountDetailPage extends ConsumerStatefulWidget {
 }
 
 class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
-  static const double _ledgerTileApproxHeight = 94;
-
+  // Track the real rendered SliverList children, not a nominal fixed row height.
+  final GlobalKey _ledgerSliverKey = GlobalKey();
+  final GlobalKey _pinnedSummaryKey = GlobalKey();
   final ScrollController _scrollController = ScrollController();
+  bool _anchorCheckQueued = false;
   List<AccountLedgerItem> _visibleOrderItems = const [];
   DateTime? _anchorDate;
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_syncAnchorFromScroll);
+    _scrollController.addListener(_scheduleAnchorSync);
+  }
+
+  // B1: a reused detail route must never carry a different account's
+  // visible-month anchor into the next account, including an empty ledger.
+  @override
+  void didUpdateWidget(covariant AccountDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.account.id != widget.account.id) {
+      _anchorDate = null;
+      _visibleOrderItems = const [];
+      _scheduleAnchorSync();
+    }
   }
 
   @override
   void dispose() {
-    _scrollController.removeListener(_syncAnchorFromScroll);
+    _scrollController.removeListener(_scheduleAnchorSync);
     _scrollController.dispose();
     super.dispose();
   }
@@ -148,19 +163,21 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
         data: (state) {
           final ledgerItems = state.items.reversed.toList(growable: false);
           _visibleOrderItems = ledgerItems;
+          // A refresh or filter change may change the first visible row even
+          // without a scroll event. Re-anchor after that layout completes.
+          _scheduleAnchorSync();
           final defaultAnchor = ledgerItems.isEmpty
               ? DateTime.now()
               : ledgerItems.first.occurredAt;
           final anchor = _anchorDate ?? defaultAnchor;
           final yearSummary = state.summaryFor(
             year: anchor.year,
-            label: '${anchor.year}',
+            label: '${anchor.year}年',
           );
           final monthSummary = state.summaryFor(
             year: anchor.year,
             month: anchor.month,
-            label:
-                '${anchor.year}/${anchor.month.toString().padLeft(2, '0')}',
+            label: '${anchor.month.toString().padLeft(2, '0')}月',
           );
           return RefreshIndicator(
             onRefresh: () => _refreshAccount(account),
@@ -186,11 +203,14 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
                 SliverPersistentHeader(
                   pinned: true,
                   delegate: _AccountSummaryHeaderDelegate(
-                    minExtentValue: 148,
-                    maxExtentValue: 148,
+                    // Two distinct summary heading lines need real layout space,
+                    // including when Android users enlarge their display text.
+                    minExtentValue: MediaQuery.textScalerOf(context).scale(172.0),
+                    maxExtentValue: MediaQuery.textScalerOf(context).scale(172.0),
                     child: ColoredBox(
                       color: Theme.of(context).scaffoldBackgroundColor,
                       child: Padding(
+                        key: _pinnedSummaryKey,
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                         child: Row(
                           children: [
@@ -254,10 +274,12 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
                     sliver: SliverList(
+                      key: _ledgerSliverKey,
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
                           final item = ledgerItems[index];
                           return _AccountLedgerTile(
+                            key: ValueKey<String>(item.id),
                             item: item,
                             currency: account.currency,
                             onEdit: () => _handleEdit(context, ref, item),
@@ -485,17 +507,49 @@ class _AccountDetailPageState extends ConsumerState<AccountDetailPage> {
     ref.invalidate(transactionLedgerProvider);
   }
 
+  // Scroll listeners run before sliver layout. Schedule a single geometry
+  // inspection after layout to track the correct first visible transaction.
+  void _scheduleAnchorSync() {
+    if (_anchorCheckQueued || !mounted) return;
+    _anchorCheckQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _anchorCheckQueued = false;
+      if (mounted) _syncAnchorFromScroll();
+    });
+  }
+
   void _syncAnchorFromScroll() {
-    if (_visibleOrderItems.isEmpty) return;
-    final offset =
-        _scrollController.hasClients ? _scrollController.offset : 0;
-    final rawIndex = (offset / _ledgerTileApproxHeight).floor();
-    final index = rawIndex.clamp(0, _visibleOrderItems.length - 1);
-    final next = _visibleOrderItems[index].occurredAt;
+    if (!mounted || _visibleOrderItems.isEmpty || !_scrollController.hasClients) {
+      return;
+    }
+    // Only the mounted sliver's actual child geometry is authoritative.
+    // This works for variable-height, expanded and text-scaled rows.
+    final sliver = _ledgerSliverKey.currentContext?.findRenderObject();
+    if (sliver is! RenderSliverList || sliver.geometry == null) return;
+    final summary = _pinnedSummaryKey.currentContext?.findRenderObject();
+    if (summary is! RenderBox || !summary.hasSize) return;
+    final visibleTop = summary.localToGlobal(
+      Offset(0, summary.size.height),
+    ).dy;
+    final visibleBottom = MediaQuery.sizeOf(context).height;
+    RenderBox? row = sliver.firstChild;
+    DateTime? next;
+    while (row != null) {
+      final bottom = row.localToGlobal(Offset(0, row.size.height)).dy;
+      final top = row.localToGlobal(Offset.zero).dy;
+      if (bottom > visibleTop + 1 && top < visibleBottom) {
+        final index = sliver.indexOf(row);
+        if (index >= 0 && index < _visibleOrderItems.length) {
+          next = _visibleOrderItems[index].occurredAt;
+        }
+        break;
+      }
+      row = sliver.childAfter(row);
+    }
+    if (next == null) return;
     final current = _anchorDate;
     if (current != null &&
-        current.year == next.year &&
-        current.month == next.month) {
+        current.year == next.year && current.month == next.month) {
       return;
     }
     setState(() => _anchorDate = next);
@@ -819,27 +873,39 @@ class _CompactPeriodSummaryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    summary.label,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+            // Keep the full period title separate from the amount: a long
+            // e-wallet currency/negative balance must not turn '2026年' into
+            // an uninformative '20...' on narrow phones.
+            SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  summary.label,
+                  maxLines: 1,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
-                Text(
+              ),
+            ),
+            const SizedBox(height: 2),
+            SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
                   _compactMoney(summary.net, currency),
+                  maxLines: 1,
                   style: Theme.of(context)
                       .textTheme
                       .titleMedium
                       ?.copyWith(fontWeight: FontWeight.w900),
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
+              ),
             ),
             const SizedBox(height: 6),
             Text(
@@ -869,6 +935,7 @@ class _CompactPeriodSummaryCard extends StatelessWidget {
 
 class _AccountLedgerTile extends StatefulWidget {
   const _AccountLedgerTile({
+    super.key,
     required this.item,
     required this.currency,
     required this.onEdit,
@@ -939,7 +1006,10 @@ class _AccountLedgerTileState extends State<_AccountLedgerTile> {
                   _revealed = _dragOffset.abs() > _actionWidth * 0.35;
                   _dragOffset = 0;
                 }),
-                child: ColoredBox(
+                // B1: the swipe foreground must own the ListTile ink layer.
+                // A ColoredBox between ListTile and Card's Material hides ink
+                // and triggers Flutter's framework assertion on real ledger rows.
+                child: Material(
                   color: Theme.of(context).cardColor,
                   child: _LedgerContent(
                     item: widget.item,
@@ -974,15 +1044,28 @@ class _LedgerContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sign = item.amountForAccount >= 0 ? '+' : '';
-    return ListTile(
-      title: Text(item.title),
-      subtitle: Text(
-        '${DateFormat('yyyy/MM/dd HH:mm').format(item.occurredAt)}・'
-        '${item.subtitle}\n餘額 ${_money(item.runningBalance, currency)}',
-      ),
-      isThreeLine: true,
+    // Preserve the entire source/provenance and per-row balance, but avoid
+    // making unbounded SHA/UUID text the default transaction-list surface.
+    return ExpansionTile(
+      key: PageStorageKey<String>('account-ledger-${item.id}'),
+      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+      title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(DateFormat('yyyy/MM/dd HH:mm').format(item.occurredAt)),
+      leading: Icon(item.amountForAccount >= 0
+          ? Icons.arrow_downward : Icons.arrow_upward),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      expandedAlignment: Alignment.centerLeft,
+      children: [
+        const Text('來源／稽核資訊', style: TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        SelectableText(item.subtitle),
+        const SizedBox(height: 6),
+        Text('該筆後餘額：${_money(item.runningBalance, currency)}'),
+      ],
       trailing: Text(
         '$sign${_money(item.amountForAccount, currency)}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
             ),
