@@ -70,9 +70,9 @@ void main() {
   });
 
   for (final type in AccountType.values) {
-    testWidgets('B1 paired summary for account type ' + type.name, (tester) async {
+    testWidgets('B1 paired summary for account type ${type.name}', (tester) async {
       final account = AccountRecord(
-        id: 'type-' + type.name, name: 'Synthetic ' + type.name,
+        id: 'type-${type.name}', name: 'Synthetic ${type.name}',
         type: type, initialBalance: 0, sortOrder: 0,
         currency: type == AccountType.investment
             ? CurrencyCode.usd : CurrencyCode.twd,
@@ -108,7 +108,7 @@ class _FixtureStore implements AccountStore {
 
   AccountEventRecord _event(int index, DateTime date, double amount) =>
       AccountEventRecord(
-        id: 'synthetic-' + index.toString(), accountId: account.id,
+        id: 'synthetic-$index', accountId: account.id,
         accountName: account.displayName, eventType: 'balance_correction',
         amount: amount, currency: account.currency,
         exchangeRateToBase: account.currency.defaultRateToTwd,

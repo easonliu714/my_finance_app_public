@@ -27,6 +27,8 @@
 
 **B1.0 engineering checkpoint (2026-10-31 16:09 Asia/Taipei; parent `727f994eaa584fd5cb3d7757d6ea985bd875ec90`):** Added isolated read-only `test/account_detail_visible_period_b1_widget_test.dart` for paired 360px/large-text cross-year reverse scroll, all nine account types and summaryFor/balance invariants. TEST/CI=PENDING, Signed/Owner-device=HOLD; production UI/SQLite/LKG/C500 untouched. C500 first-leaf 2/52 Unicode operands per official SHA-pinned period, 50 UNKNOWN; global NOT_WIN and strict C17/C18/C13 HOLD. Issue #4 OPEN.
 
+**B1.0 CI first failure correction (2026-10-31 16:19 Asia/Taipei; parent `8479bc2e82e2635c0f9d94702b4ceb003eaf621e`):** Exact-head [Flutter Android CI #1229](https://github.com/easonliu714/my_finance_app_public/actions/runs/41183628144) `Analyze, Test, Build APK` first failed at `flutter analyze`: four `prefer_interpolation_to_compose_strings` diagnostics in new B1 widget regression (lines 73, 75 twice, 111). Focused/full tests and debug APK were SKIPPED, not PASS; API35 native security job was still running at read. Corrected only the four interpolation occurrences in the read-only synthetic test; no production UI, account/transaction semantics, SQLite, official LKG, C500, signing, or main change. New exact-head Analyze/Widget/CI=PENDING; B1.0 and Issue #4 HOLD until tested, Signed and Owner device remain HOLD. C500 G0 source-backed coverage remains 2/52 first-leaf operands each period, 50 UNKNOWN, global NOT_WIN not proven; C17/C18/C13 HOLD. NEXT: read new exact-head CI; if Analyze PASS, isolate first focused widget failure and repair only proven root cause.**
+
 **下個並行 Gate：** B1.0 帳戶可見交易年月錨點與跨年／多帳戶 Widget/regression 測試的 read-only Crosswalk，不更動交易／正式 SQLite／`summaryFor`。A0 C500 仍繼續，官方來源完整性與 C17/C18 嚴格安全阻塞照常稽核。
 
 ---
