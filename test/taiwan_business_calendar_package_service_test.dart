@@ -316,6 +316,71 @@ void main() {
     expect(status.digest, first.digest);
     expect(status.rowCount, 366);
   });
+
+  test('B2.4 official December trigger uses installed workday, not weekends',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    // Synthetic fixture: Friday Dec 1 is an official-style holiday, so the
+    // first workday is Monday Dec 4. No real DGPA data is asserted here.
+    await service.install(db, await _package(
+      codec, year: 2028, sequence: 1, closedDate: '2028-12-01',
+    ));
+    final before = await db.query('taiwan_business_calendar_days');
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 11, 30, 15, 59)),
+      CalendarAnnualUpdateDecision.outsideDecember,
+    );
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 3, 15, 59)),
+      CalendarAnnualUpdateDecision.beforeFirstBusinessDay,
+    );
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 3, 16)),
+      CalendarAnnualUpdateDecision.checkOfficialSource,
+    );
+    expect(
+      await service.annualUpdateDecision(
+        db, DateTime.utc(2028, 12, 4),
+        lastCheckedAt: DateTime.utc(2028, 12, 3, 16, 1),
+      ),
+      CalendarAnnualUpdateDecision.checkedToday,
+    );
+    expect(await db.query('taiwan_business_calendar_days'), before,
+        reason: 'A foreground eligibility check must not mutate SQLite.');
+  });
+
+  test('B2.4 missing, legacy or corrupt years never authorize update',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final now = DateTime.utc(2028, 12, 4);
+    expect(await service.annualUpdateDecision(db, now),
+        CalendarAnnualUpdateDecision.currentYearNotVerified);
+    await _insertLegacyYear(db, 2028);
+    expect(await service.annualUpdateDecision(db, now),
+        CalendarAnnualUpdateDecision.currentYearNotVerified);
+    await service.install(db, await _package(codec, year: 2028, sequence: 1));
+    await _insertLegacyDay(db, year: 2029, date: '2029-01-01');
+    expect(await service.annualUpdateDecision(db, now),
+        CalendarAnnualUpdateDecision.nextYearUntrusted);
+    expect(await db.query('taiwan_business_calendar_days',
+        where: 'source_year = ?', whereArgs: <Object?>[2029]), hasLength(1));
+  });
+
+  test('B2.4 fully installed next year suppresses duplicate source checks',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await service.install(db, await _package(codec, year: 2028, sequence: 1));
+    await service.install(db, await _package(codec, year: 2029, sequence: 1));
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.nextYearInstalled,
+    );
+    expect((await service.status(db, 2029))!.rowCount, 365);
+  });
+
 }
 
 Future<Database> _openCalendarDatabase() async {

@@ -53,10 +53,88 @@ class CalendarPackageStatus {
   final bool isContiguous;
 }
 
+
+enum CalendarAnnualUpdateDecision {
+  outsideDecember,
+  currentYearNotVerified,
+  beforeFirstBusinessDay,
+  nextYearUntrusted,
+  nextYearInstalled,
+  checkedToday,
+  checkOfficialSource,
+}
+
 class TaiwanBusinessCalendarPackageService {
   const TaiwanBusinessCalendarPackageService();
 
   static const tableName = 'taiwan_business_calendar_days';
+
+
+  // B2.4: read-only foreground eligibility, never an authority to download,
+  // install or infer holidays. Taiwan is UTC+08:00 with no DST.
+  // A verified current-year package supplies the *actual* first December
+  // business day; a weekend heuristic or incomplete legacy rows cannot.
+  // The caller must persist lastCheckedAt after a real attempted check.
+  Future<CalendarAnnualUpdateDecision> annualUpdateDecision(
+    DatabaseExecutor db,
+    DateTime now, {
+    DateTime? lastCheckedAt,
+  }) async {
+    DateTime taipei(DateTime value) =>
+        value.toUtc().add(const Duration(hours: 8));
+    final local = taipei(now);
+    if (local.month != DateTime.december) {
+      return CalendarAnnualUpdateDecision.outsideDecember;
+    }
+    final year = local.year;
+    final current = await status(db, year);
+    if (current == null ||
+        !current.isContiguous ||
+        current.sequence < 1 ||
+        current.digest.isEmpty) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+
+    final december = await db.query(
+      tableName,
+      columns: <String>['calendar_date', 'is_business_day'],
+      where: 'source_year = ? AND calendar_date >= ? AND calendar_date <= ?',
+      whereArgs: <Object?>[year, '${year}-12-01', '${year}-12-31'],
+      orderBy: 'calendar_date ASC',
+    );
+    if (december.length != 31) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+    String? firstBusinessDay;
+    for (final row in december) {
+      if (row['is_business_day'] == 1) {
+        firstBusinessDay = row['calendar_date'] as String;
+        break;
+      }
+    }
+    if (firstBusinessDay == null) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+    final today = local.toIso8601String().substring(0, 10);
+    if (today.compareTo(firstBusinessDay) < 0) {
+      return CalendarAnnualUpdateDecision.beforeFirstBusinessDay;
+    }
+
+    final next = await status(db, year + 1);
+    if (next != null) {
+      if (next.isContiguous && next.sequence > 0 && next.digest.isNotEmpty) {
+        return CalendarAnnualUpdateDecision.nextYearInstalled;
+      }
+      // Never let a foreground trigger overwrite damaged/partial next-year
+      // rows. Existing install() must also reject an inconsistent year.
+      return CalendarAnnualUpdateDecision.nextYearUntrusted;
+    }
+    if (lastCheckedAt != null &&
+        taipei(lastCheckedAt).toIso8601String().substring(0, 10) == today) {
+      return CalendarAnnualUpdateDecision.checkedToday;
+    }
+    return CalendarAnnualUpdateDecision.checkOfficialSource;
+  }
 
   Future<CalendarPackageInstallResult> install(
     Database db,
