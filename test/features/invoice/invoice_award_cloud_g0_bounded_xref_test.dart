@@ -1397,4 +1397,108 @@ void main() {
     expect(result['first_page_text_authority'],
         'FONT_OBJECTS_ONLY_NOT_AWARD_NUMBERS');
   });
+  // G0aj: synthetic coverage proves only bounded per-font operand custody.
+  // The official SHA-pinned two-period source evidence runs separately in Lab.
+  test('G0aj first-leaf selected CMap decodes all bounded font operands', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1'],
+      selectedFirstOperands: <String, List<int>>{'F1': <int>[0x31]},
+      selectedAllOperands: <String, List<List<int>>>{
+        'F1': <List<int>>[<int>[0x31], <int>[0x31]],
+      },
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      verifyFirstGlyphUnicode: true,
+      verifyFirstOperandUnicodeRun: true,
+      verifyAllFirstPageOperandsUnicode: true,
+      readObject: (id, generation) async {
+        if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        if (id == 21) return g0abCmapObject(21);
+        throw StateError('unexpected object');
+      },
+    );
+    expect(result['first_page_first_leaf_text_operands_captured_untrusted'], 2);
+    expect(result['first_page_first_leaf_tounicode_operands_verified'], 2);
+    expect(result['first_page_first_leaf_tounicode_glyphs_verified'], 2);
+    expect(result['first_page_first_leaf_no_tounicode_operands_unknown'], 0);
+    expect(result['first_page_first_leaf_unicode_coverage_status'],
+        'FIRST_LEAF_ONLY_DECODED_NOT_AWARD_OR_GLOBAL_PROOF');
+    expect(result.toString().contains('0031'), false);
+  });
+
+  test('G0aj selected font without ToUnicode is explicitly UNKNOWN', () async {
+    final result = await const C500G0FontResourceInspector().inspect(
+      pageTreeObjects: <String>[
+        '<< /Resources << /Font << /F1 11 0 R /F2 12 0 R >> >> >>',
+      ],
+      selectedFontNames: <String>['F1', 'F2'],
+      selectedFirstOperands: <String, List<int>>{
+        'F1': <int>[0x31], 'F2': <int>[0x31],
+      },
+      selectedAllOperands: <String, List<List<int>>>{
+        'F1': <List<int>>[<int>[0x31], <int>[0x31]],
+        'F2': <List<int>>[<int>[0x31]],
+      },
+      verifyCmapStreams: true,
+      verifyCmapSemantics: true,
+      verifyFirstGlyphUnicode: true,
+      verifyFirstOperandUnicodeRun: true,
+      verifyAllFirstPageOperandsUnicode: true,
+      readObject: (id, generation) async {
+        if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+        if (id == 12) return '12 0 obj << /Type /Font >> endobj';
+        if (id == 21) return g0abCmapObject(21);
+        throw StateError('unexpected object');
+      },
+    );
+    expect(result['first_page_first_leaf_text_operands_captured_untrusted'], 3);
+    expect(result['first_page_first_leaf_tounicode_operands_verified'], 2);
+    expect(result['first_page_first_leaf_no_tounicode_operands_unknown'], 1);
+    expect(result['first_page_first_leaf_unicode_coverage_status'],
+        'PARTIAL_FIRST_LEAF_COVERAGE_UNKNOWN_NOT_AWARD_PROOF');
+  });
+
+  test('G0aj later unmapped glyph fails closed despite first valid operand', () async {
+    await expectLater(
+      const C500G0FontResourceInspector().inspect(
+        pageTreeObjects: <String>[
+          '<< /Resources << /Font << /F1 11 0 R >> >> >>',
+        ],
+        selectedFontNames: <String>['F1'],
+        selectedFirstOperands: <String, List<int>>{'F1': <int>[0x31]},
+        selectedAllOperands: <String, List<List<int>>>{
+          'F1': <List<int>>[<int>[0x31], <int>[0x32]],
+        },
+        verifyCmapStreams: true,
+        verifyCmapSemantics: true,
+        verifyFirstGlyphUnicode: true,
+        verifyFirstOperandUnicodeRun: true,
+        verifyAllFirstPageOperandsUnicode: true,
+        readObject: (id, generation) async {
+          if (id == 11) return '11 0 obj << /Type /Font /ToUnicode 21 0 R >> endobj';
+          if (id == 21) return g0abCmapObject(21);
+          throw StateError('unexpected object');
+        },
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AI_OPERAND_GLYPH_UNMAPPED')),
+    );
+  });
+
+  test('G0aj top-level all-operand request cannot skip first run', () async {
+    await expectLater(
+      const C500G0BoundedXrefInspector().inspect(
+        file: File('not-a-source-pdf'),
+        expectedBytes: 0,
+        expectedSha256: 'not-a-source-sha',
+        verifyFirstPageAllOperandsUnicode: true,
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0AJ_REQUIRES_FIRST_OPERAND')),
+    );
+  });
+
 }

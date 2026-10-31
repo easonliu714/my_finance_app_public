@@ -15,6 +15,8 @@ class C500G0GlyphProbe {
 
   Map<String, Object?> inspect(List<int> decoded, {
     void Function(String fontName, List<int> bytes)? onFirstFontOperand,
+    // G0aj: private, bounded capture of every first-leaf text-show operand.
+    void Function(String fontName, List<int> bytes)? onEveryFontOperand,
   }) {
     if (decoded.isEmpty || decoded.length > 8 * 1024 * 1024) {
       throw const C500G0GlyphException('C500_G0W_CONTENT_BUDGET');
@@ -29,6 +31,7 @@ class C500G0GlyphProbe {
     final selectedFontNames = <String>{};
     var fontSelections = 0;
     final sampledFonts = <String>{};
+    var capturedOperandCount = 0, capturedOperandBytes = 0;
     _C500G0GlyphToken? previous;
     _C500G0GlyphToken? beforePrevious;
 
@@ -57,6 +60,18 @@ class C500G0GlyphProbe {
       final font = selectedFont;
       if (font != null && value.bytes.isNotEmpty && sampledFonts.add(font)) {
         onFirstFontOperand?.call(font, List<int>.of(value.bytes));
+      }
+      // G0aj: reject oversized/unbounded first-leaf capture before copying.
+      // Neither raw glyph bytes nor decoded Unicode enter the result map.
+      if (font != null && onEveryFontOperand != null) {
+        if (value.bytes.isEmpty || value.bytes.length > 256 ||
+            capturedOperandCount >= 128 ||
+            value.bytes.length > 16384 - capturedOperandBytes) {
+          throw const C500G0GlyphException('C500_G0AJ_CAPTURE_BUDGET');
+        }
+        onEveryFontOperand(font, List<int>.of(value.bytes));
+        capturedOperandCount++;
+        capturedOperandBytes += value.bytes.length;
       }
     }
 

@@ -47,6 +47,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageCmapSemantics = false,
     bool verifyFirstPageGlyphUnicode = false,
     bool verifyFirstPageOperandUnicodeRun = false,
+    bool verifyFirstPageAllOperandsUnicode = false,
   }) async {
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
@@ -63,6 +64,12 @@ class C500G0BoundedXrefInspector {
     // G0ai: full first operand must retain the proven first-glyph custody.
     if (verifyFirstPageOperandUnicodeRun && !verifyFirstPageGlyphUnicode) {
       throw const C500G0BoundedXrefException('C500_G0AI_REQUIRES_FIRST_GLYPH');
+    }
+    // G0aj: first-leaf multi-operand coverage cannot skip first-operand proof.
+    if (verifyFirstPageAllOperandsUnicode &&
+        !verifyFirstPageOperandUnicodeRun) {
+      throw const C500G0BoundedXrefException(
+          'C500_G0AJ_REQUIRES_FIRST_OPERAND');
     }
     // G0ah: real glyph Unicode requires bounded CMap semantics first.
     if (verifyFirstPageGlyphUnicode && !verifyFirstPageCmapSemantics) {
@@ -227,7 +234,8 @@ class C500G0BoundedXrefInspector {
               verifyFirstPageContents, verifyFirstPageGlyphOperands,
               verifyFirstPageFontResources, verifyFirstPageCmapStreams,
               verifyFirstPageCmapSemantics, verifyFirstPageGlyphUnicode,
-              verifyFirstPageOperandUnicodeRun)
+              verifyFirstPageOperandUnicodeRun,
+              verifyFirstPageAllOperandsUnicode)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
@@ -290,6 +298,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageFontResources, bool verifyFirstPageCmapStreams,
     bool verifyFirstPageCmapSemantics, bool verifyFirstPageGlyphUnicode,
     bool verifyFirstPageOperandUnicodeRun,
+    bool verifyFirstPageAllOperandsUnicode,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -467,11 +476,13 @@ class C500G0BoundedXrefInspector {
         if (verifyFirstPageContents) {
           firstChildEvidence.addAll(await _verifyFirstPageContents(
             file, sourceLength, bytes, widths, indexes, stride, nodeBody,
-            verifyFirstPageGlyphOperands,
+            verifyFirstPageGlyphOperands, verifyFirstPageAllOperandsUnicode,
           ));
           // G0ag: the raw candidate is internal and must never reach JSON.
           final firstOperands =
               firstChildEvidence.remove('__g0ag_first_font_operands');
+          final allOperands =
+              firstChildEvidence.remove('__g0aj_all_font_operands');
           try {
             if (verifyFirstPageFontResources) {
             if (firstOperands is! Map<String, List<int>>) {
@@ -489,11 +500,15 @@ class C500G0BoundedXrefInspector {
                 pageTreeObjects: resourcePath,
                 selectedFontNames: names,
                 selectedFirstOperands: firstOperands,
+                selectedAllOperands: verifyFirstPageAllOperandsUnicode
+                    ? allOperands as Map<String, List<List<int>>>?
+                    : null,
                 readObject: readObject,
                 verifyCmapStreams: verifyFirstPageCmapStreams,
                 verifyCmapSemantics: verifyFirstPageCmapSemantics,
                 verifyFirstGlyphUnicode: verifyFirstPageGlyphUnicode,
                 verifyFirstOperandUnicodeRun: verifyFirstPageOperandUnicodeRun,
+                verifyAllFirstPageOperandsUnicode: verifyFirstPageAllOperandsUnicode,
               ),
             );
           }
@@ -505,6 +520,15 @@ class C500G0BoundedXrefInspector {
                 bytes.fillRange(0, bytes.length, 0);
               }
               firstOperands.clear();
+            }
+            if (allOperands is Map<String, List<List<int>>>) {
+              for (final operands in allOperands.values) {
+                for (final bytes in operands) {
+                  bytes.fillRange(0, bytes.length, 0);
+                }
+                operands.clear();
+              }
+              allOperands.clear();
             }
           }
         }
@@ -534,6 +558,7 @@ class C500G0BoundedXrefInspector {
     RandomAccessFile file, int sourceLength, List<int> xref,
     List<int> widths, List<int> indexes, int stride, String leaf,
     bool verifyFirstPageGlyphOperands,
+    bool verifyFirstPageAllOperandsUnicode,
   ) async {
     if (RegExp(r'/Contents\s*\[').hasMatch(leaf)) {
       throw const C500G0BoundedXrefException('C500_G0V_CONTENT_ARRAY_UNSUPPORTED');
@@ -617,12 +642,32 @@ class C500G0BoundedXrefInspector {
       throw const C500G0BoundedXrefException('C500_G0V_CONTENT_TEXT_MARKERS_MISSING');
     }
     final firstOperands = <String, List<int>>{};
-    final glyphEvidence = verifyFirstPageGlyphOperands
-        ? const C500G0GlyphProbe().inspect(decoded,
-            onFirstFontOperand: (font, bytes) {
-              firstOperands[font] = bytes;
-            })
-        : const <String, Object?>{};
+    final allOperands = <String, List<List<int>>>{};
+    Map<String, Object?> glyphEvidence;
+    try {
+      glyphEvidence = verifyFirstPageGlyphOperands
+          ? const C500G0GlyphProbe().inspect(decoded,
+              onFirstFontOperand: (font, bytes) {
+                firstOperands[font] = bytes;
+              },
+              onEveryFontOperand: verifyFirstPageAllOperandsUnicode
+                  ? (font, bytes) {
+                      (allOperands[font] ??= <List<int>>[]).add(bytes);
+                    }
+                  : null)
+          : const <String, Object?>{};
+    } catch (_) {
+      // G0aj: fail-closed lexer exceptions must also wipe private operands.
+      for (final bytes in firstOperands.values) {
+        bytes.fillRange(0, bytes.length, 0);
+      }
+      for (final operands in allOperands.values) {
+        for (final bytes in operands) {
+          bytes.fillRange(0, bytes.length, 0);
+        }
+      }
+      rethrow;
+    }
     return <String, Object?>{
       'leftmost_content_object_id': id,
       'leftmost_content_compressed_bytes': length,
@@ -630,6 +675,7 @@ class C500G0BoundedXrefInspector {
       'leftmost_content_stream_verified': true,
       ...glyphEvidence,
       '__g0ag_first_font_operands': firstOperands,
+      '__g0aj_all_font_operands': allOperands,
       'content_semantics': verifyFirstPageGlyphOperands
           ? 'GLYPH_OPERANDS_ONE_PAGE_ONLY'
           : 'UNPARSED_ONE_PAGE_ONLY',
@@ -984,6 +1030,7 @@ Future<void> main(List<String> args) async {
         verifyFirstPageCmapSemantics: true,
         verifyFirstPageGlyphUnicode: true,
         verifyFirstPageOperandUnicodeRun: true,
+        verifyFirstPageAllOperandsUnicode: true,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {
@@ -1014,10 +1061,12 @@ class C500G0FontResourceInspector {
     required List<String> selectedFontNames,
     required C500G0ReadObject readObject,
     Map<String, List<int>>? selectedFirstOperands,
+    Map<String, List<List<int>>>? selectedAllOperands,
     bool verifyCmapStreams = false,
     bool verifyCmapSemantics = false,
     bool verifyFirstGlyphUnicode = false,
     bool verifyFirstOperandUnicodeRun = false,
+    bool verifyAllFirstPageOperandsUnicode = false,
   }) async {
     if (pageTreeObjects.isEmpty || pageTreeObjects.length > 9 ||
         selectedFontNames.isEmpty || selectedFontNames.length > 16 ||
@@ -1057,6 +1106,11 @@ class C500G0FontResourceInspector {
         int.parse(ref.group(2)!), int.parse(ref.group(3)!),
       ];
     }
+    if (verifyAllFirstPageOperandsUnicode &&
+        !verifyFirstOperandUnicodeRun) {
+      throw const C500G0BoundedXrefException(
+          'C500_G0AJ_REQUIRES_FIRST_OPERAND');
+    }
     if (verifyFirstOperandUnicodeRun && !verifyFirstGlyphUnicode) {
       throw const C500G0BoundedXrefException('C500_G0AI_REQUIRES_FIRST_GLYPH');
     }
@@ -1069,12 +1123,27 @@ class C500G0FontResourceInspector {
     var cmapReferences = 0, cmapStreams = 0, cmapMappedCodes = 0;
     var cmapBoundOperands = 0, unicodeFirstGlyphs = 0;
     var unicodeFullOperands = 0, unicodeFullOperandGlyphs = 0;
+    var allVerifiedOperands = 0, allVerifiedGlyphs = 0;
+    var allUnmappedFontOperands = 0, allCapturedOperands = 0;
     for (final name in selectedFontNames) {
       final ref = bindings[name];
       if (ref == null) {
         throw const C500G0BoundedXrefException('C500_G0AA_SELECTED_FONT_UNBOUND');
       }
       final candidate = selectedFirstOperands?[name];
+      final allForFont = selectedAllOperands?[name];
+      if (verifyAllFirstPageOperandsUnicode) {
+        if (allForFont == null || allForFont.isEmpty ||
+            allForFont.length > 128) {
+          throw const C500G0BoundedXrefException(
+              'C500_G0AJ_SELECTED_FONT_OPERANDS_MISSING');
+        }
+        allCapturedOperands += allForFont.length;
+        if (allCapturedOperands > 128) {
+          throw const C500G0BoundedXrefException(
+              'C500_G0AJ_CAPTURE_BUDGET');
+        }
+      }
       if (selectedFirstOperands != null &&
           (candidate == null || candidate.isEmpty || candidate.length > 64 * 1024)) {
         throw const C500G0BoundedXrefException(
@@ -1112,6 +1181,13 @@ class C500G0FontResourceInspector {
             verifyMappings: verifyCmapSemantics,
             firstOperand: verifyFirstGlyphUnicode ? candidate : null,
             verifyFullOperand: verifyFirstOperandUnicodeRun,
+            allOperands: verifyAllFirstPageOperandsUnicode
+                ? allForFont
+                : null,
+            onAllOperandsDecoded: (operandCount, glyphCount) {
+              allVerifiedOperands += operandCount;
+              allVerifiedGlyphs += glyphCount;
+            },
             onFullOperandDecoded: (count) {
               unicodeFullOperands++;
               unicodeFullOperandGlyphs += count;
@@ -1123,6 +1199,10 @@ class C500G0FontResourceInspector {
             if (verifyFirstGlyphUnicode) unicodeFirstGlyphs++;
           }
         }
+      } else if (verifyAllFirstPageOperandsUnicode) {
+        // A selected font without ToUnicode is explicitly UNKNOWN; never
+        // silently count its glyph operands as decoded or NOT_WIN evidence.
+        allUnmappedFontOperands += allForFont!.length;
       }
     }
     if (verifyCmapStreams && cmapStreams == 0) {
@@ -1142,6 +1222,17 @@ class C500G0FontResourceInspector {
       'first_page_font_operand_cmap_candidates_bound': cmapBoundOperands,
       'first_page_font_operand_cmap_unicode_single_glyph_verified': unicodeFirstGlyphs,
       'first_page_font_operand_unicode_full_runs_verified': unicodeFullOperands,
+      'first_page_first_leaf_text_operands_captured_untrusted': allCapturedOperands,
+      'first_page_first_leaf_tounicode_operands_verified': allVerifiedOperands,
+      'first_page_first_leaf_tounicode_glyphs_verified': allVerifiedGlyphs,
+      'first_page_first_leaf_no_tounicode_operands_unknown':
+          allUnmappedFontOperands,
+      'first_page_first_leaf_unicode_coverage_status':
+          !verifyAllFirstPageOperandsUnicode ? 'NOT_RUN'
+          : allCapturedOperands == allVerifiedOperands &&
+              allUnmappedFontOperands == 0
+              ? 'FIRST_LEAF_ONLY_DECODED_NOT_AWARD_OR_GLOBAL_PROOF'
+              : 'PARTIAL_FIRST_LEAF_COVERAGE_UNKNOWN_NOT_AWARD_PROOF',
       'first_page_font_operand_unicode_full_run_glyphs_verified': unicodeFullOperandGlyphs,
       'first_page_font_operand_unicode_full_run_status': unicodeFullOperands > 0
           ? 'ONE_BOUNDED_OPERAND_PER_FONT_PRIVATELY_DECODED_NOT_AWARD_PROOF'
@@ -1218,8 +1309,10 @@ class C500G0CmapStreamProbe {
     required int generation,
     bool verifyMappings = false,
     List<int>? firstOperand,
+    List<List<int>>? allOperands,
     bool verifyFullOperand = false,
     void Function(int glyphCount)? onFullOperandDecoded,
+    void Function(int operandCount, int glyphCount)? onAllOperandsDecoded,
   }) {
     if (object.length > 64 * 1024 ||
         !RegExp('^$id\\s+$generation\\s+obj\\b').hasMatch(object)) {
@@ -1294,6 +1387,23 @@ class C500G0CmapStreamProbe {
       final count = const C500G0CmapSemanticProbe()
           .countFullyDecodedOperandGlyphs(body: body, operand: firstOperand);
       onFullOperandDecoded?.call(count);
+    }
+    if (allOperands != null) {
+      if (!verifyMappings || allOperands.isEmpty || allOperands.length > 128) {
+        throw const C500G0BoundedXrefException(
+            'C500_G0AJ_OPERANDS_OR_CMAP_INVALID');
+      }
+      var totalBytes = 0, totalGlyphs = 0;
+      for (final operand in allOperands) {
+        totalBytes += operand.length;
+        if (totalBytes > 16384) {
+          throw const C500G0BoundedXrefException(
+              'C500_G0AJ_CAPTURE_BUDGET');
+        }
+        totalGlyphs += const C500G0CmapSemanticProbe()
+            .countFullyDecodedOperandGlyphs(body: body, operand: operand);
+      }
+      onAllOperandsDecoded?.call(allOperands.length, totalGlyphs);
     }
     return mapped;
   }

@@ -158,4 +158,35 @@ void main() {
         throwsA(isA<C500G0GlyphException>().having(
             (e) => e.code, 'code', 'C500_G0W_TEXT_STRUCTURE_UNVERIFIED')));
   });
+  // G0aj: synthetic-only capture boundary; the callback never emits text.
+  test('G0aj captures every first-leaf text-show operand by selected font', () {
+    final observed = <String, int>{};
+    final result = probe.inspect(
+      latin1.encode('BT /F1 10 Tf (1) Tj (2) Tj /F2 9 Tf [(3) -5 (4)] TJ ET'),
+      onEveryFontOperand: (font, bytes) {
+        observed[font] = (observed[font] ?? 0) + 1;
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(observed, <String, int>{'F1': 2, 'F2': 2});
+    expect(result.containsKey('first_page_first_leaf_unicode_coverage_status'),
+        false);
+    expect(result['first_page_text_authority'],
+        'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0aj oversized or excessive private operand capture fails closed', () {
+    expect(() => probe.inspect(
+      latin1.encode('BT /F1 10 Tf (' + List<String>.filled(257, 'A').join() + ') Tj ET'),
+      onEveryFontOperand: (font, bytes) {},
+    ), throwsA(isA<C500G0GlyphException>().having(
+      (e) => e.code, 'code', 'C500_G0AJ_CAPTURE_BUDGET')));
+    final many = 'BT /F1 10 Tf ' + List<String>.filled(129, '(A) Tj').join(' ') + ' ET';
+    expect(() => probe.inspect(
+      latin1.encode(many),
+      onEveryFontOperand: (font, bytes) {},
+    ), throwsA(isA<C500G0GlyphException>().having(
+      (e) => e.code, 'code', 'C500_G0AJ_CAPTURE_BUDGET')));
+  });
+
 }
