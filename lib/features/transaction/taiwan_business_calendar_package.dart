@@ -417,6 +417,21 @@ class TaiwanBusinessCalendarPackageCodec {
         'Calendar package source URL must be an absolute HTTPS URL.',
       );
     }
+    // B2.2: HTTPS by itself does not establish official calendar provenance.
+    // Only explicitly approved DGPA/data.gov.tw hosts may enter a new package;
+    // source authenticity and full-year data remain separate validation gates.
+    const officialHosts = <String>{
+      'dgpa.gov.tw',
+      'www.dgpa.gov.tw',
+      'data.gov.tw',
+    };
+    if (!officialHosts.contains(uri.host.toLowerCase()) ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasPort) {
+      throw const TaiwanBusinessCalendarPackageException(
+        'Calendar package source URL must name an approved official authority.',
+      );
+    }
     if (DateTime.tryParse(sourcePublishedAt.trim()) == null) {
       throw const TaiwanBusinessCalendarPackageException(
         'Calendar package publication date is invalid.',
