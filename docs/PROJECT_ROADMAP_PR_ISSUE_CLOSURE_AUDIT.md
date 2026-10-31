@@ -6,6 +6,8 @@
 
 **Authority/current checkpoint（記錄前基線，後續以 GitHub fresh-read 為準）：** Repo `easonliu714/my_finance_app_public`; `main` `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; sole existing OPEN/DRAFT PR #45 branch `issue-13-invoice-award-official-data` at `9dc0efa4151868ea67f3cd63b85e18e747157a75`; Issue #13 OPEN; 18 pure Issues OPEN。此時兩權威文件存在於 PR #45 Branch，`main` 暫無兩文件；在合併完成之前不可擅自以 `main` 建造矛盾的 Roadmap copy。C500 exact-parent [CI #1225](https://github.com/easonliu714/my_finance_app_public/actions/runs/41180388736) Flutter analyze/full Flutter tests/debug APK PASS，但原生 C17 JVM 與 API35 C18 security FAIL；[official Lab #51](https://github.com/easonliu714/my_finance_app_public/actions/runs/41180388768) source/limited scan 路徑執行、總體 qpdf resource-limit FAIL。**C500 G0、安全、Signed／Owner-device／Merge 仍 HOLD，禁止因平行工作取消。**
 
+**B1.0 engineering checkpoint (2026-10-31 16:09 Asia/Taipei; exact parent `727f994eaa584fd5cb3d7757d6ea985bd875ec90`):** New `test/account_detail_visible_period_b1_widget_test.dart` is an isolated read-only widget+summary regression: 360px/1.3x, same-month scroll, 2027/01→2026/12→2027/01 reverse scroll, paired headings, all nine account types (investment USD), summaryFor/currentBalance invariant, fake stores forbidding writes. CODE=TEST_ONLY, TEST=CI_PENDING, Signed/Owner-device=HOLD; no production/SQLite/LKG/POSTED NT$700 changes. C500 G0 source Lab #51 pinned both official PDFs and independently decoded 2/52 first-leaf text operands per period; 50 UNKNOWN, no global NOT_WIN. C17/C18/C13, merge, Issue #4 closure HOLD. NEXT read exact-head CI first failure and correct only proven B1 defect; do not count authored tests as PASS.
+
 ### 一、正式優先序（P0→P3；每次只做最小可完成 Sub-Gate）
 
 | 順序 | 優先 | Issue / 對應功能與既有實作 | 下一最小 Gate / 正反向 DoD | 結案狀態與限制 |

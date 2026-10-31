@@ -25,6 +25,8 @@
 
 **執行與同步 Gate：** 只有一個 Primary GitHub Writer 按 A0/B queue 執行最小可完成 Sub-Gate，其他實驗只讀；每輪 fresh HEAD/changed files/CI/Owner、同 PR 受控提交及兩正式治理文件一致。禁止直接寫 `main`、搶寫同一 branch、Force Push、Auto Merge；沒有簽章/實機/必要 Owner 合併授權不可將 Draft PR 列 `MERGED_MAIN`。Issue 完整 DoD（正反／回歸／必要 Signed／Owner）均證實，並在 GitHub 關閉後 readback，才標 `ISSUE_CLOSED`。目前僅 PR#45 OPEN/DRAFT、18 Open Issues，沒有可安全立即關閉的 PR/Issue；原 #46 CLOSED_NOT_MERGED、#20/#29/#32 CLOSED 子成果不得重做。
 
+**B1.0 engineering checkpoint (2026-10-31 16:09 Asia/Taipei; parent `727f994eaa584fd5cb3d7757d6ea985bd875ec90`):** Added isolated read-only `test/account_detail_visible_period_b1_widget_test.dart` for paired 360px/large-text cross-year reverse scroll, all nine account types and summaryFor/balance invariants. TEST/CI=PENDING, Signed/Owner-device=HOLD; production UI/SQLite/LKG/C500 untouched. C500 first-leaf 2/52 Unicode operands per official SHA-pinned period, 50 UNKNOWN; global NOT_WIN and strict C17/C18/C13 HOLD. Issue #4 OPEN.
+
 **下個並行 Gate：** B1.0 帳戶可見交易年月錨點與跨年／多帳戶 Widget/regression 測試的 read-only Crosswalk，不更動交易／正式 SQLite／`summaryFor`。A0 C500 仍繼續，官方來源完整性與 C17/C18 嚴格安全阻塞照常稽核。
 
 ---
