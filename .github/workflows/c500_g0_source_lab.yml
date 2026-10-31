@@ -8,6 +8,7 @@ on:
       - 'test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart'
       - 'tool/c500_g0_android_renderer_lab.sh'
       - 'tool/c500_g0_android_renderer_lab_contract_test.sh'
+      - 'tool/c500_g0_workflow_gate_contract_test.sh'
       - 'tool/c500_g0_bounded_xref.dart'
       - 'test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart'
       - 'tool/c500_g0_content_glyph_probe.dart'

@@ -45,7 +45,17 @@ for name, step_id, required_predecessor in (
         assert required_predecessor in condition.group(1)
     assert 'success()' not in condition.group(1)
 assert '[G0-SOURCE-LAB]' in step('Gate one-shot PR diagnostic or explicit manual dispatch')
-assert 'bash tool/c500_g0_workflow_gate_contract_test.sh' in step(
-    'G0g per-case crash isolation and OOM/abort contract (synthetic mock)')
+# G0i: mock-only PR validation is mandatory even when source lab is disabled.
+# It must not grant permission to fetch official PDFs without the commit marker.
+mock = step('G0i per-case crash classifier and long-ring regression (synthetic only)')
+assert 'bash tool/c500_g0_android_renderer_lab_contract_test.sh' in mock
+assert 'bash tool/c500_g0_workflow_gate_contract_test.sh' in mock
+mock_if = re.search(r'^        if: (.+)
+print('PASS C500_G0I_MOCK_PR_ALWAYS_RUN_AND_G0G_PINNED_ANDROID_GATES')
+PY
+, mock, flags=re.MULTILINE)
+assert mock_if, 'G0I_MOCK_IF_MISSING'
+assert "github.event_name == 'pull_request'" in mock_if.group(1), 'G0I_MOCK_PR_NOT_RUN'
+assert "steps.gate.outputs.run_lab == 'true'" in mock_if.group(1), 'G0I_MOCK_DISPATCH_NOT_RUN'
 print('PASS C500_G0G_QPDF_FAILURE_INDEPENDENT_PINNED_ANDROID_EXECUTION_GATES')
 PY
