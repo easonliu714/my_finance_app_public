@@ -73,7 +73,9 @@ jobs:
       - name: G0g per-case crash isolation and OOM/abort contract (synthetic mock)
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
         shell: bash
-        run: bash tool/c500_g0_android_renderer_lab_contract_test.sh
+        run: |
+          bash tool/c500_g0_android_renderer_lab_contract_test.sh
+          bash tool/c500_g0_workflow_gate_contract_test.sh
 
       - name: G0l bounded XRef synthetic positive/negative contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -176,18 +178,24 @@ jobs:
           set -euo pipefail
           timeout 240s dart run tool/c500_g0_bounded_xref.dart
 
-      # G0d/e/f: separate API35 emulator; official binaries never leave runner.
+      # G0d/e/f: independent failure domain. qpdf bad_alloc and bounded-XRef
+      # failures must remain FAIL, but must NOT implicitly skip the pinned
+      # source-backed Android first-failure experiment. Only the verified
+      # ephemeral pair and successful isolated-host preparation authorize it.
+      # Separate API35 emulator; official binaries never leave runner.
       # PdfRenderer samples 3 pages; PDFium/PDFBox OPEN ONLY in independent PIDs.
       # Native crash/failure is evidence, never a safe NOT_WIN or G0 PASS.
       - name: Setup Java 17 for G0d Android renderer lab
-        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        id: g0d_java
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Prepare isolated Android test host
-        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        id: g0d_host
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' && steps.g0d_java.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -197,7 +205,7 @@ jobs:
           sudo chmod a+rw /dev/kvm
 
       - name: G0g Android API35 official pair three-engine OOM and crash attribution lab
-        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' && steps.g0d_host.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
