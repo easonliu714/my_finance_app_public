@@ -172,7 +172,9 @@ class C500G0GlyphProbe {
             for (final item in items) {
               if (item.kind == 'literal' || item.kind == 'hex') {
                 consume(item);
-                glyphItemCount++;
+                // G0an: empty TJ strings are structural no-glyph items,
+                // never sufficient to make a positioning-only TJ text proof.
+                if (item.bytes.isNotEmpty) glyphItemCount++;
               } else if (item.kind != 'number') {
                 throw const C500G0GlyphException('C500_G0W_TEXT_ARRAY_INVALID');
               }

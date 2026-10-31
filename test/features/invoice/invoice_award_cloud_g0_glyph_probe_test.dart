@@ -273,6 +273,34 @@ void main() {
     expect(result['first_page_first_leaf_operand_capture_truncated'], true);
   });
 
+  // G0an: an empty TJ item is not a decoded glyph; a positioning-only
+  // TJ with empty strings must still fail closed.
+  test('G0an mixed TJ empty and nonempty counts only real glyph operands', () {
+    final captured = <int>[];
+    final result = probe.inspect(
+      latin1.encode('BT /F1 10 Tf [() -10 (A)] TJ ET'),
+      emptyOperandIsNoGlyphForLab: true,
+      onEveryFontOperand: (font, bytes) {
+        captured.add(bytes.length);
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(captured, <int>[1]);
+    expect(result['first_page_first_leaf_zero_glyph_operands_structural_only'], 1);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 0);
+    expect(result['first_page_text_authority'],
+        'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0an positioning-only TJ with empty string fails closed', () {
+    expect(() => probe.inspect(
+      latin1.encode('BT /F1 10 Tf [() -10] TJ ET'),
+      emptyOperandIsNoGlyphForLab: true,
+      onEveryFontOperand: (font, bytes) {},
+    ), throwsA(isA<C500G0GlyphException>().having(
+      (e) => e.code, 'code', 'C500_G0Y_TJ_NO_GLYPHS')));
+  });
+
   test('G0al 256-byte exact boundary is captured, 257-byte is UNKNOWN', () {
     for (final size in <int>[256, 257]) {
       var captured = 0;
