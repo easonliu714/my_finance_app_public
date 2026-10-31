@@ -127,7 +127,34 @@ class PlatformResultAtomicWriterTest {
     }
     assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
     assertFalse("Forged result must not be falsely certified by parent fsync", parentSyncCalled)
-    assertEquals("TAMPERED", target.readText())
+    assertFalse("Unverified temp bytes must be quarantined", Files.exists(target.toPath()))
+  }
+
+
+  /**
+   * C17 negative: quarantine removes a forged symlink entry without
+   * following it into an unrelated trusted file. Same-UID recreation
+   * remains an independent security HOLD.
+   */
+  @Test fun failedReadbackQuarantineNeverFollowsResultSymlink() {
+    val dir = folder.newFolder("c17-symlink-quarantine").toPath()
+    val outside = folder.newFile("trusted-outside.txt").toPath()
+    Files.write(outside, "KEEP_TRUSTED".toByteArray(Charsets.UTF_8))
+    val target = dir.resolve("result.json")
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      atomicReplace = { temp, destination ->
+        Files.delete(temp)
+        Files.createSymbolicLink(destination, outside)
+      },
+      syncParent = { throw AssertionError("Unverified symlink must not be fsynced") }
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.toString(), "TRUSTED_RESULT")
+    }
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    assertFalse("Forged result symlink must be removed", Files.exists(target))
+    assertEquals("KEEP_TRUSTED", outside.toFile().readText(Charsets.UTF_8))
   }
 
   @Test fun parentReplacementMustNotReturnSuccessfulPublication() {
@@ -155,9 +182,9 @@ class PlatformResultAtomicWriterTest {
     }
     assertTrue("The parent/temp pathname swap must have been injected", injected)
     assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
-    // Forged file remains visible: this guard detects false success only.
-    // Native same-UID publication integrity and durability remain P0 HOLD.
-    assertEquals("FORGED_RESULT", target.toFile().readText(Charsets.UTF_8))
+    // A failed readback now quarantines the forged public pathname. A
+    // continuously hostile same-UID writer can still recreate it: P0 HOLD.
+    assertFalse("C17_FORGED_RESULT_MUST_BE_QUARANTINED", Files.exists(target))
   }
 
 

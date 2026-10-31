@@ -14,6 +14,7 @@ import java.nio.file.NoSuchFileException
 import java.nio.file.OpenOption
 import java.nio.file.SecureDirectoryStream
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 
 /**
@@ -132,6 +133,31 @@ internal class PlatformResultAtomicWriter(
     }
   }
 
+
+  // A failed readback must not leave a known-unverified pathname available to
+  // a consumer. Open a fresh no-follow-checked directory anchor and delete
+  // only its relative result entry; never follow a result symlink. This is a
+  // bounded best-effort quarantine, NOT same-UID anti-recreation authority.
+  private fun quarantineFailedPublication(parent: Path, name: Path, failure: IOException) {
+    try {
+      val before = Files.readAttributes(
+        parent, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+      if (!before.isDirectory || before.fileKey() == null) return
+      Files.newDirectoryStream(parent).use { directory ->
+        if (directory !is SecureDirectoryStream<*>) return
+        val after = Files.readAttributes(
+          parent, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+        if (!after.isDirectory || before.fileKey() != after.fileKey()) return
+        @Suppress("UNCHECKED_CAST")
+        val anchored = directory as SecureDirectoryStream<Path>
+        try { anchored.deleteFile(name) }
+        catch (_: NoSuchFileException) { /* Already absent: fail closed. */ }
+      }
+    } catch (cleanup: Exception) {
+      failure.addSuppressed(cleanup)
+    }
+  }
+
   @Synchronized
   fun write(path: String, content: String) {
     val target = File(path).absoluteFile.toPath()
@@ -184,7 +210,14 @@ internal class PlatformResultAtomicWriter(
           // renameat against the held directory, not the mutable pathname.
           anchored.move(tempName, anchored, target.fileName)
         }
-        verifyPublishedBytes(target, expectedBytes)
+        try {
+          verifyPublishedBytes(target, expectedBytes)
+        } catch (failure: IOException) {
+          // C17/C18: do not certify or leave known-unverified publication
+          // bytes after a failed readback. Any re-creation remains SECURITY HOLD.
+          quarantineFailedPublication(parent, target.fileName, failure)
+          throw failure
+        }
         syncParent(parent)
       } finally {
         if (created) {
