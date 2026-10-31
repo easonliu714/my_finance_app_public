@@ -84,7 +84,7 @@ void main() {
     addTearDown(selected.dispose);
     await _pump(
       tester, populated, _FixtureStore(populated), 1.3,
-      accountNotifier: selected,
+      accountNotifier: selected, nextAccount: empty,
     );
     _expectPeriod('2027年', '01月');
     selected.value = empty;
@@ -196,6 +196,7 @@ Future<void> _pump(
   WidgetTester tester, AccountRecord account, _FixtureStore store,
   double textScale, {
   ValueNotifier<AccountRecord>? accountNotifier,
+  AccountRecord? nextAccount,
 }) async {
   await tester.binding.setSurfaceSize(const Size(360, 800));
   addTearDown(() async => tester.binding.setSurfaceSize(null));
@@ -214,6 +215,16 @@ Future<void> _pump(
       debitCardSettlementReminderReconciliationProvider.overrideWith(
         (ref) async => 0,
       ),
+      // B1: isolate the *next* account's read-only balance/settlement
+      // providers too; never let a route-switch widget test open real SQLite.
+      if (nextAccount != null) ...[
+        accountAvailableBalancePresentationProvider(nextAccount).overrideWith(
+          (ref) async => null,
+        ),
+        accountDebitCardSettlementPresentationProvider(nextAccount).overrideWith(
+          (ref) async => const [],
+        ),
+      ],
     ],
     child: MaterialApp(
       home: MediaQuery(
