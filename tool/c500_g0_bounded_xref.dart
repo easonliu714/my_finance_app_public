@@ -513,6 +513,8 @@ class C500G0BoundedXrefInspector {
                     firstChildEvidence['first_page_first_leaf_operand_capture_truncated'] == true,
                 firstLeafUncapturedOperandsUnknown:
                     firstChildEvidence['first_page_first_leaf_uncaptured_operands_unknown'] as int? ?? 0,
+                firstLeafZeroGlyphOperands:
+                    firstChildEvidence['first_page_first_leaf_zero_glyph_operands_structural_only'] as int? ?? 0,
               ),
             );
           }
@@ -659,9 +661,9 @@ class C500G0BoundedXrefInspector {
                       (allOperands[font] ??= <List<int>>[]).add(bytes);
                     }
                   : null,
-              // G0am: lab only. Empty text-show remains UNKNOWN and stops
-              // the contiguous verified prefix; never award authority.
-              emptyOperandIsUnknownForLab: verifyFirstPageAllOperandsUnicode)
+              // G0an: lab only. A proven empty glyph string is a no-glyph
+              // structural operator, never a Unicode or award assertion.
+              emptyOperandIsNoGlyphForLab: verifyFirstPageAllOperandsUnicode)
           : const <String, Object?>{};
     } catch (_) {
       // G0aj: fail-closed lexer exceptions must also wipe private operands.
@@ -1077,8 +1079,10 @@ class C500G0FontResourceInspector {
     // G0ak: a captured prefix is never whole-leaf Unicode authority.
     bool firstLeafOperandCaptureTruncated = false,
     int firstLeafUncapturedOperandsUnknown = 0,
+    int firstLeafZeroGlyphOperands = 0,
   }) async {
-    if (firstLeafUncapturedOperandsUnknown < 0 ||
+    if (firstLeafZeroGlyphOperands < 0 ||
+        firstLeafUncapturedOperandsUnknown < 0 ||
         firstLeafOperandCaptureTruncated !=
             (firstLeafUncapturedOperandsUnknown > 0)) {
       throw const C500G0BoundedXrefException(
@@ -1250,6 +1254,7 @@ class C500G0FontResourceInspector {
           !verifyAllFirstPageOperandsUnicode ? 'NOT_RUN'
           : !firstLeafOperandCaptureTruncated &&
               firstLeafUncapturedOperandsUnknown == 0 &&
+              firstLeafZeroGlyphOperands == 0 &&
               allCapturedOperands == allVerifiedOperands &&
               allUnmappedFontOperands == 0
               ? 'FIRST_LEAF_ONLY_DECODED_NOT_AWARD_OR_GLOBAL_PROOF'

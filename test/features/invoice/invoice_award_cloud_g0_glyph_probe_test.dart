@@ -235,6 +235,44 @@ void main() {
     expect(result['first_page_first_leaf_operand_capture_truncated'], true);
   });
 
+  // G0an: zero-length PDF text-show strings have no glyph code to decode.
+  // This opt-in is lab-only; zero glyphs never become Unicode/award evidence.
+  test('G0an empty Tj is a structural no-glyph, next nonempty prefix survives', () {
+    final captured = <int>[];
+    final result = probe.inspect(
+      latin1.encode('BT /F1 10 Tf () Tj (A) Tj () Tj (B) Tj ET'),
+      emptyOperandIsNoGlyphForLab: true,
+      onEveryFontOperand: (font, bytes) {
+        captured.add(bytes.length);
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(captured, <int>[1, 1]);
+    expect(result['first_page_first_leaf_zero_glyph_operands_structural_only'], 2);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 0);
+    expect(result['first_page_first_leaf_first_omission_reason'], 'NONE');
+    expect(result['first_page_text_authority'],
+        'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0an empty Tj never bypasses a later oversized operand', () {
+    final captured = <int>[];
+    final oversized = List<String>.filled(257, 'X').join();
+    final result = probe.inspect(
+      latin1.encode('BT /F1 10 Tf () Tj (A) Tj ($oversized) Tj (B) Tj ET'),
+      emptyOperandIsNoGlyphForLab: true,
+      onEveryFontOperand: (font, bytes) {
+        captured.add(bytes.length);
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(captured, <int>[1]);
+    expect(result['first_page_first_leaf_zero_glyph_operands_structural_only'], 1);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 2);
+    expect(result['first_page_first_leaf_first_omission_reason'], 'PER_OPERAND_256');
+    expect(result['first_page_first_leaf_operand_capture_truncated'], true);
+  });
+
   test('G0al 256-byte exact boundary is captured, 257-byte is UNKNOWN', () {
     for (final size in <int>[256, 257]) {
       var captured = 0;

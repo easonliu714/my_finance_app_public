@@ -20,6 +20,9 @@ class C500G0GlyphProbe {
     // G0am: lab-only classification. Empty glyph strings remain UNKNOWN and
     // permanently terminate the verified prefix; strict default still throws.
     bool emptyOperandIsUnknownForLab = false,
+    // G0an: isolated source lab may prove a syntactically empty Tj/TJ string
+    // contributes zero glyphs. It never counts as decoded Unicode or award.
+    bool emptyOperandIsNoGlyphForLab = false,
   }) {
     if (decoded.isEmpty || decoded.length > 8 * 1024 * 1024) {
       throw const C500G0GlyphException('C500_G0W_CONTENT_BUDGET');
@@ -36,6 +39,8 @@ class C500G0GlyphProbe {
     final sampledFonts = <String>{};
     var capturedOperandCount = 0, capturedOperandBytes = 0;
     var uncapturedOperandCount = 0;
+    var zeroGlyphOperandCount = 0;
+    String firstOmissionReason = 'NONE';
     _C500G0GlyphToken? previous;
     _C500G0GlyphToken? beforePrevious;
 
@@ -70,12 +75,18 @@ class C500G0GlyphProbe {
       // Invalid individual operands still fail closed before any copy.
       if (font != null && onEveryFontOperand != null) {
         if (value.bytes.isEmpty) {
+          if (emptyOperandIsNoGlyphForLab) {
+            // PDF Tj/TJ empty string has no character codes to map. This is
+            // structural evidence only: never increment decoded glyph count.
+            // Continue the contiguous nonempty operand prefix without
+            // pretending that an omitted glyph was verified.
+            zeroGlyphOperandCount++;
+            return;
+          }
           if (!emptyOperandIsUnknownForLab) {
             throw const C500G0GlyphException('C500_G0AJ_CAPTURE_BUDGET');
           }
-          // A zero-glyph Tj/TJ item is not evidence of decoded text.
-          // Fail closed as UNKNOWN, including all later operands; never
-          // reclassify the full leaf or a prize result as verified.
+          if (uncapturedOperandCount == 0) firstOmissionReason = 'EMPTY_GLYPH_UNKNOWN';
           uncapturedOperandCount++;
           return;
         }
@@ -84,6 +95,7 @@ class C500G0GlyphProbe {
         // operand UNKNOWN and permanently stop the contiguous prefix.
         // Never raise the cap, decode a truncated glyph, or claim NOT_WIN.
         if (value.bytes.length > 256) {
+          if (uncapturedOperandCount == 0) firstOmissionReason = 'PER_OPERAND_256';
           uncapturedOperandCount++;
           return;
         }
@@ -92,6 +104,10 @@ class C500G0GlyphProbe {
         if (uncapturedOperandCount > 0 ||
             capturedOperandCount >= 128 ||
             value.bytes.length > 16384 - capturedOperandBytes) {
+          if (uncapturedOperandCount == 0) {
+            firstOmissionReason = capturedOperandCount >= 128
+                ? 'OPERAND_COUNT_128' : 'AGGREGATE_16K';
+          }
           uncapturedOperandCount++;
         } else {
           onEveryFontOperand(font, List<int>.of(value.bytes));
@@ -213,6 +229,8 @@ class C500G0GlyphProbe {
       'first_page_raw_ascii_eight_digit_runs_untrusted': rawEightDigits,
       'first_page_text_font_selection_operators': fontSelections,
       'first_page_first_leaf_uncaptured_operands_unknown': uncapturedOperandCount,
+      'first_page_first_leaf_zero_glyph_operands_structural_only': zeroGlyphOperandCount,
+      'first_page_first_leaf_first_omission_reason': firstOmissionReason,
       'first_page_first_leaf_operand_capture_truncated':
           uncapturedOperandCount > 0,
       'first_page_text_font_names_unverified': selectedFontNames.toList()..sort(),
