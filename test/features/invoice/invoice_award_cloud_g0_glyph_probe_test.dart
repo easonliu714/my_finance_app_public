@@ -175,13 +175,46 @@ void main() {
         'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
   });
 
-  test('G0ak oversized individual operand still fails closed', () {
+  test('G0al oversized operand is UNKNOWN, contiguous prefix stays verified', () {
     final oversized = List<String>.filled(257, 'A').join();
+    var captured = 0;
+    final result = probe.inspect(
+      latin1.encode('BT /F1 10 Tf (B) Tj ($oversized) Tj (C) Tj ET'),
+      onEveryFontOperand: (font, bytes) {
+        captured++;
+        bytes.fillRange(0, bytes.length, 0);
+      },
+    );
+    expect(captured, 1);
+    expect(result['first_page_first_leaf_uncaptured_operands_unknown'], 2);
+    expect(result['first_page_first_leaf_operand_capture_truncated'], true);
+    expect(result['first_page_text_authority'],
+        'GLYPH_OPERANDS_ONLY_NOT_AWARD_NUMBERS');
+  });
+
+  test('G0al empty text-show still fails closed before capture', () {
     expect(() => probe.inspect(
-      latin1.encode('BT /F1 10 Tf ($oversized) Tj ET'),
+      latin1.encode('BT /F1 10 Tf () Tj ET'),
       onEveryFontOperand: (font, bytes) {},
     ), throwsA(isA<C500G0GlyphException>().having(
       (e) => e.code, 'code', 'C500_G0AJ_CAPTURE_BUDGET')));
+  });
+
+  test('G0al 256-byte exact boundary is captured, 257-byte is UNKNOWN', () {
+    for (final size in <int>[256, 257]) {
+      var captured = 0;
+      final operand = List<String>.filled(size, 'A').join();
+      final result = probe.inspect(
+        latin1.encode('BT /F1 10 Tf ($operand) Tj ET'),
+        onEveryFontOperand: (font, bytes) {
+          captured++;
+          bytes.fillRange(0, bytes.length, 0);
+        },
+      );
+      expect(captured, size == 256 ? 1 : 0);
+      expect(result['first_page_first_leaf_uncaptured_operands_unknown'],
+          size == 256 ? 0 : 1);
+    }
   });
 
   test('G0ak 128/129 operand prefix preserves explicit unknown suffix', () {

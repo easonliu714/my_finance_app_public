@@ -66,8 +66,16 @@ class C500G0GlyphProbe {
       // operands as UNKNOWN; never promote a prefix to full-leaf evidence.
       // Invalid individual operands still fail closed before any copy.
       if (font != null && onEveryFontOperand != null) {
-        if (value.bytes.isEmpty || value.bytes.length > 256) {
+        if (value.bytes.isEmpty) {
           throw const C500G0GlyphException('C500_G0AJ_CAPTURE_BUDGET');
+        }
+        // G0al: a >256-byte text-show is not a corrupt PDF. Its full
+        // glyph bytes cannot fit the verified bounded capture. Mark this
+        // operand UNKNOWN and permanently stop the contiguous prefix.
+        // Never raise the cap, decode a truncated glyph, or claim NOT_WIN.
+        if (value.bytes.length > 256) {
+          uncapturedOperandCount++;
+          return;
         }
         // Once an operand is omitted, never resume capture with a smaller
         // later operand: a discontiguous sample is not a verified prefix.
