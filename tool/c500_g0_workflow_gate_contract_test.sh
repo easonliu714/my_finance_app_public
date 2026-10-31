@@ -27,6 +27,12 @@ assert 'continue-on-error: true' not in qpdf
 assert 'bash tool/c500_g0_qpdf_preflight.sh' in qpdf
 xref = step('G0l pinned official XRef-stream bounded access (NOT page proof)')
 assert '!cancelled()' in xref
+# G0j: new independent, SHA-pinned second-root-subtree source experiment.
+second = step('G0j pinned second root-child leftmost leaf Unicode coverage')
+assert '!cancelled()' in second
+assert "steps.gate.outputs.run_lab == 'true'" in second
+assert "env.G0_OLD_PDF != ''" in second and "env.G0_NEW_PDF != ''" in second
+assert 'dart run tool/c500_g0_bounded_xref.dart --second-root-child' in second
 common = ("!cancelled()", "steps.gate.outputs.run_lab == 'true'",
           "env.G0_OLD_PDF != ''", "env.G0_NEW_PDF != ''")
 for name, step_id, required_predecessor in (

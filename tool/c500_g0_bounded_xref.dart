@@ -17,6 +17,40 @@ class C500G0BoundedXrefException implements Exception {
   String toString() => code;
 }
 
+// G0j: bounded, exact /Kids reference selection. Never scan arbitrary siblings
+// or infer complete page-tree / sorted-award coverage from one branch.
+class C500G0RootKidSelector {
+  const C500G0RootKidSelector();
+
+  (int, int) select(String pagesBody, int ordinal) {
+    if (ordinal != 0 && ordinal != 1) {
+      throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
+    }
+    final kids = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
+        .firstMatch(pagesBody)?.group(1);
+    if (kids == null) {
+      throw const C500G0BoundedXrefException('C500_G0T_KIDS_FORM_UNSUPPORTED');
+    }
+    final reference = RegExp(r'(\d+)\s+(\d+)\s+R\b');
+    final matches = reference.allMatches(kids).toList();
+    if (matches.isEmpty || matches.length > 2048 ||
+        kids.replaceAll(reference, '').trim().isNotEmpty) {
+      throw const C500G0BoundedXrefException('C500_G0J_KIDS_GRAMMAR_INVALID');
+    }
+    final seen = <String>{};
+    for (final match in matches) {
+      if (!seen.add('${match.group(1)}:${match.group(2)}')) {
+        throw const C500G0BoundedXrefException('C500_G0J_DUPLICATE_KID');
+      }
+    }
+    if (matches.length <= ordinal) {
+      throw const C500G0BoundedXrefException('C500_G0J_SECOND_ROOT_CHILD_MISSING');
+    }
+    final selected = matches[ordinal];
+    return (int.parse(selected.group(1)!), int.parse(selected.group(2)!));
+  }
+}
+
 class C500G0BoundedXrefInspector {
   const C500G0BoundedXrefInspector({
     this.maxHeaderBytes = 1024 * 1024,
@@ -48,7 +82,16 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageGlyphUnicode = false,
     bool verifyFirstPageOperandUnicodeRun = false,
     bool verifyFirstPageAllOperandsUnicode = false,
+    // G0j: second root-child's leftmost leaf, NOT the document's second page.
+    int rootChildOrdinal = 0,
   }) async {
+    if (rootChildOrdinal != 0 && rootChildOrdinal != 1) {
+      throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
+    }
+    if (rootChildOrdinal == 1 &&
+        (!verifyCatalogRoot || !verifyFirstPageChild || !verifyFirstPagePath)) {
+      throw const C500G0BoundedXrefException('C500_G0J_REQUIRES_PINNED_PATH');
+    }
     if (maxHeaderBytes < 256 ||
         maxCompressedBytes <= 0 ||
         maxDecodedBytes <= 0 || maxRootDecodedBytes < 1024 * 1024) {
@@ -235,10 +278,14 @@ class C500G0BoundedXrefInspector {
               verifyFirstPageFontResources, verifyFirstPageCmapStreams,
               verifyFirstPageCmapSemantics, verifyFirstPageGlyphUnicode,
               verifyFirstPageOperandUnicodeRun,
-              verifyFirstPageAllOperandsUnicode)
+              verifyFirstPageAllOperandsUnicode, rootChildOrdinal)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
+        'root_child_ordinal': rootChildOrdinal,
+        'sample_scope': rootChildOrdinal == 0
+            ? 'DOCUMENT_LEFTMOST_LEAF_ONLY'
+            : 'SECOND_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_SECOND_DOCUMENT_PAGE',
         ...navigation,
         ...catalog,
         'sha256': source.sha256,
@@ -299,6 +346,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageCmapSemantics, bool verifyFirstPageGlyphUnicode,
     bool verifyFirstPageOperandUnicodeRun,
     bool verifyFirstPageAllOperandsUnicode,
+    int rootChildOrdinal,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -391,13 +439,12 @@ class C500G0BoundedXrefInspector {
     // This is not recursive traversal, award proof, or global NOT_WIN.
     final firstChildEvidence = <String, Object?>{};
     if (verifyFirstPageChild) {
-      final kid = RegExp(r'/Kids\s*\[\s*(\d+)\s+(\d+)\s+R\b')
-          .firstMatch(pagesBody);
-      if (kid == null) {
-        throw const C500G0BoundedXrefException('C500_G0T_KIDS_FORM_UNSUPPORTED');
-      }
-      final childId = int.parse(kid.group(1)!);
-      final childGeneration = int.parse(kid.group(2)!);
+      // G0j: one XRef-bound root child per invocation. Ordinal one follows
+      // the leftmost leaf of the second root subtree, not the next page.
+      final selectedKid = const C500G0RootKidSelector()
+          .select(pagesBody, rootChildOrdinal);
+      final childId = selectedKid.$1;
+      final childGeneration = selectedKid.$2;
       if (childId == rootId || childId == pagesId) {
         throw const C500G0BoundedXrefException('C500_G0T_CHILD_CYCLE');
       }
@@ -994,8 +1041,10 @@ class C500G0BoundedXrefInspector {
 }
 
 Future<void> main(List<String> args) async {
-  if (args.isNotEmpty) {
-    stderr.writeln('C500_G0L_USAGE_NO_ARGUMENTS');
+  final rootChildOrdinal = args.isEmpty ? 0
+      : args.length == 1 && args.single == '--second-root-child' ? 1 : -1;
+  if (rootChildOrdinal < 0) {
+    stderr.writeln('C500_G0J_USAGE_OPTIONAL_SECOND_ROOT_CHILD');
     exitCode = 64;
     return;
   }
@@ -1040,6 +1089,7 @@ Future<void> main(List<String> args) async {
         verifyFirstPageGlyphUnicode: true,
         verifyFirstPageOperandUnicodeRun: true,
         verifyFirstPageAllOperandsUnicode: true,
+        rootChildOrdinal: rootChildOrdinal,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
     } catch (error) {

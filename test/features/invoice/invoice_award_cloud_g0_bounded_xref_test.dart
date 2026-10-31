@@ -269,6 +269,30 @@ Future<Map<String, Object?>> inspectSynthetic(
 void main() {
   late Directory directory;
 
+  // G0j: strict bounded second root-child selection; synthetic-only.
+  test('G0j selects distinct first and second root children without global proof', () {
+    const selector = C500G0RootKidSelector();
+    const body = '<< /Type /Pages /Count 77 /Kids [5 0 R 6 0 R] >>';
+    expect(selector.select(body, 0), (5, 0));
+    expect(selector.select(body, 1), (6, 0));
+  });
+
+  test('G0j rejects absent, duplicated, malformed and excessive root kids', () {
+    const selector = C500G0RootKidSelector();
+    for (final input in <String>[
+      '<< /Kids [5 0 R] >>',
+      '<< /Kids [5 0 R 5 0 R] >>',
+      '<< /Kids [5 0 R /Bogus 6 0 R] >>',
+    ]) {
+      expect(() => selector.select(input, 1),
+          throwsA(isA<C500G0BoundedXrefException>()));
+    }
+    expect(() => selector.select('<< /Kids [5 0 R 6 0 R] >>', 2),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+            (e) => e.code, 'code', 'C500_G0J_ORDINAL_INVALID')));
+  });
+
+
   test('G0r streams >2 MiB root ObjStm with bounded memory', () async {
     final file = await makeLargeRootSynthetic(directory);
     final result = await inspectSynthetic(file, verifyCatalogRoot: true);
