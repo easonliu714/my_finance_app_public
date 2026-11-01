@@ -253,6 +253,102 @@ void main() {
     expect(retainedCache.single['official_json'], '{"fixture":"target-only"}');
   });
 
+  // B3 #18: a forged alias foreign key must fail after managed rows have
+  // started restoring, and roll back every user-owned row. The independently
+  // replaceable Registry cache and observation immutability triggers survive.
+  // Only synthetic isolated in-memory databases are used.
+  test('B3 V24 orphan alias restore rolls back and reinstates triggers', () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account',
+      'name': 'source-private-sentinel',
+      'type': 'cash',
+    });
+    await source.insert('merchant_brands', <String, Object?>{
+      'id': 'source-brand',
+      'display_name': 'source-brand-private-sentinel',
+      'created_at': '2026-11-01T00:00:00Z',
+      'updated_at': '2026-11-01T00:00:00Z',
+    });
+    await source.insert('merchant_brand_aliases', <String, Object?>{
+      'id': 'source-alias',
+      'merchant_brand_id': 'source-brand',
+      'literal_alias': 'source alias',
+      'normalized_alias': 'source alias',
+      'source': 'isolated-fixture',
+      'created_at': '2026-11-01T00:00:00Z',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account',
+      'name': 'target-private-sentinel',
+      'type': 'cash',
+    });
+    await target.insert('merchant_brands', <String, Object?>{
+      'id': 'target-brand',
+      'display_name': 'target-brand-private-sentinel',
+      'created_at': '2026-11-01T00:00:00Z',
+      'updated_at': '2026-11-01T00:00:00Z',
+    });
+    await target.insert('business_registry_snapshots', <String, Object?>{
+      'version': 'target-cache',
+      'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'c').join(),
+      'status': 'installed',
+      'created_at': '2026-11-01T00:00:00Z',
+    });
+    await target.insert('business_registry_official_details',
+        <String, Object?>{
+      'snapshot_version': 'target-cache',
+      'jurisdiction': 'TW',
+      'seller_identifier': '87654321',
+      'official_json': '{"fixture":"target-only"}',
+    });
+
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    final corruptedData = Map<String, Object?>.from(
+      envelope['data']! as Map,
+    );
+    final alias = Map<String, Object?>.from(
+      (corruptedData['merchant_brand_aliases']! as List).single as Map,
+    );
+    alias['merchant_brand_id'] = 'nonexistent-brand';
+    corruptedData['merchant_brand_aliases'] = <Object?>[alias];
+    final corruptedEnvelope = <String, Object?>{
+      ...envelope,
+      'data': corruptedData,
+    };
+
+    await expectLater(
+      const FullRestoreServiceV8().restoreFromEnvelope(
+        target,
+        corruptedEnvelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+    expect((await target.query('accounts')).single['id'], 'target-account');
+    expect((await target.query('merchant_brands')).single['id'], 'target-brand');
+    expect(await target.query('merchant_brand_aliases'), isEmpty);
+    final retainedCache =
+        await target.query('business_registry_official_details');
+    expect(retainedCache, hasLength(1));
+    expect(retainedCache.single['snapshot_version'], 'target-cache');
+    expect(retainedCache.single['official_json'], '{"fixture":"target-only"}');
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+    final triggers = await target.query(
+      'sqlite_master',
+      columns: <String>['name'],
+      where: 'type = ? AND name LIKE ?',
+      whereArgs: <Object?>['trigger', 'trg_merchant_identity_observations_%'],
+    );
+    expect(triggers, hasLength(2));
+  });
+
   test('B3 V24 unknown private table blocks complete backup', () async {
     final db = await openIsolatedV24();
     addTearDown(db.close);
