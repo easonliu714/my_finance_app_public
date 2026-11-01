@@ -394,6 +394,76 @@ void main() {
     expect(result.toString().contains('NOT_WIN'), false);
   });
 
+
+  // G0o.2: second distinct root subtree, bounded to one additional level.
+  // This cannot certify unvisited siblings, leaf text or global NOT_WIN.
+  test('G0o.2 verifies second root subtree and preserves first scope', () async {
+    final nodes = <int, String>{
+      11: '<< /Type /Pages /Parent 5 0 R /Count 2 /Kids [21 0 R 22 0 R] >>',
+      12: '<< /Type /Pages /Parent 5 0 R /Count 3 /Kids [31 0 R 32 0 R] >>',
+      21: '<< /Type /Page /Parent 11 0 R >>',
+      22: '<< /Type /Page /Parent 11 0 R >>',
+      31: '<< /Type /Pages /Parent 12 0 R /Count 2 >>',
+      32: '<< /Type /Page /Parent 12 0 R >>',
+    };
+    final result = await const C500G0FirstRootSubtreeCountAuditor().inspect(
+      pagesBody: '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
+      rootId: 5,
+      rootGeneration: 0,
+      declaredPages: 5,
+      rootChildOrdinal: 1,
+      readObject: (id, generation) async {
+        if (generation != 0 || !nodes.containsKey(id)) {
+          throw StateError('unexpected reference');
+        }
+        return nodes[id]!;
+      },
+    );
+    expect(result['root_child_declared_count_sum'], 5);
+    expect(result['second_root_subtree_id'], 12);
+    expect(result['second_root_subtree_child_count'], 2);
+    expect(result['second_root_subtree_child_count_sum'], 3);
+    expect(result.containsKey('first_root_subtree_id'), false);
+    expect(result.toString().contains('NOT_WIN'), false);
+  });
+
+  test('G0o.2 rejects forged second-subtree custody and count', () async {
+    for (final fault in <String>[
+      'wrong_parent', 'duplicate', 'count_mismatch', 'missing_second',
+    ]) {
+      await expectLater(
+        const C500G0FirstRootSubtreeCountAuditor().inspect(
+          pagesBody: fault == 'missing_second'
+              ? '<< /Count 2 /Kids [11 0 R] >>'
+              : '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
+          rootId: 5,
+          rootGeneration: 0,
+          declaredPages: fault == 'missing_second' ? 2 : 5,
+          rootChildOrdinal: 1,
+          readObject: (id, generation) async {
+            if (id == 11) {
+              return '<< /Type /Pages /Parent 5 0 R /Count 2 >>';
+            }
+            if (id == 12) {
+              return '<< /Type /Pages /Parent 5 0 R /Count 3 '
+                  '/Kids [31 0 R ${fault == 'duplicate' ? 31 : 32} 0 R] >>';
+            }
+            if (id == 31) {
+              return '<< /Type /Pages /Parent '
+                  '${fault == 'wrong_parent' ? 99 : 12} 0 R /Count 2 >>';
+            }
+            if (id == 32) {
+              return '<< /Type /Page /Parent 12 0 R '
+                  '${fault == 'count_mismatch' ? '/Count 1' : ''} >>';
+            }
+            throw StateError('unexpected object');
+          },
+        ),
+        throwsA(isA<C500G0BoundedXrefException>()),
+      );
+    }
+  });
+
   test('G0o.1 rejects forged parent, duplicate and second-level count',
       () async {
     for (final fault in <String>[
