@@ -403,6 +403,24 @@ jobs:
           set -euo pipefail
           flutter create --platforms=android .
           flutter pub get
+      # CI #1265 first failure was host disk, not a C18 assertion:
+      # emulator needed 7372.80 MB for default userdata but only 6060.07 MB
+      # remained after SDK provisioning. Preserve the same API35/JUnit witness.
+      - name: API35 bounded host disk preflight before AVD provisioning
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android/avd"
+          available_mb="$(df -Pm "$HOME/.android/avd" | awk 'NR==2 {print $4}')"
+          if [[ ! "$available_mb" =~ ^[0-9]+$ ]]; then
+            echo 'ANDROID_API35_HOST_DISK_PROBE_INVALID' >&2
+            exit 62
+          fi
+          echo "ANDROID_API35_HOST_AVAILABLE_MB=$available_mb"
+          if (( available_mb < 6144 )); then
+            echo "ANDROID_API35_HOST_DISK_INSUFFICIENT_PREBOOT available_mb=$available_mb required_mb=6144" >&2
+            exit 62
+          fi
       # Actual Android API35 emulator execution. The sidecar-swap negative
       # is expected RED until kernel ownership is repaired; do not mask it.
       - name: Execute Android API35 independent PID/UID lease instrumentation
@@ -411,6 +429,9 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
+          # Bound only the disposable AVD userdata partition (not test coverage).
+          # The default 7.37 GB partition failed on CI #1265 at emulator launch.
+          disk-size: 4096M
           disable-animations: true
           working-directory: ./android
           script: |
