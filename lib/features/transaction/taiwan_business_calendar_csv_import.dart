@@ -58,13 +58,12 @@ class TaiwanBusinessCalendarOfficialCsvCodec {
       if (row.length != 4 || row[0].trim() != key.replaceAll('-', '') ||
           row[1].trim() != _weekdays[day.weekday % 7]) {
         throw TaiwanBusinessCalendarPackageException(
-          'Missing, duplicated, wrong-year or wrong-weekday CSV row ' +
-          (i + 2).toString());
+          'Missing, duplicated, wrong-year or wrong-weekday CSV row ${i + 2}');
       }
       final flag = row[2].trim();
       if (flag != '0' && flag != '2') {
         throw TaiwanBusinessCalendarPackageException(
-          'DGPA holiday flag must be 0 or 2 at row ' + (i + 2).toString());
+          'DGPA holiday flag must be 0 or 2 at row ${i + 2}');
       }
       if (row[3].length > 200) {
         throw const TaiwanBusinessCalendarPackageException('CSV note too long.');

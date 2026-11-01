@@ -19,7 +19,7 @@ void main() {
     String url = 'https://www.dgpa.gov.tw/FileConversion?filename=calendar.csv',
   }) => decoder.decodeManualCsv(
     data ?? _fixture(year, closedDate: closedDate),
-    sourceYear: year, sourceRevision: 'DGPA-reviewed-r' + revision.toString(),
+    sourceYear: year, sourceRevision: 'DGPA-reviewed-r$revision',
     revisionSequence: revision, sourceUrl: url,
     sourcePublishedAt: '2026-07-15', generatedAt: '2026-11-01T00:00:00Z');
 
