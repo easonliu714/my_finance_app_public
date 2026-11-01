@@ -328,7 +328,7 @@ void main() {
       '<< /Kids [11 0 R /Bogus 12 0 R] >>',
       '<< /Kids [] >>',
       '<< /Kids [11 0 R] /Kids [12 0 R] >>',
-      '<< /Kids [' + List<String>.filled(65, '11 0 R').join(' ') + '] >>',
+      '<< /Kids [${List<String>.filled(65, '11 0 R').join(' ')}] >>',
     ];
     for (final body in cases) {
       await expectLater(
