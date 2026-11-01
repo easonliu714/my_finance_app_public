@@ -1,0 +1,54 @@
+name: B2 Official DGPA 116 Calendar Source Lab
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/b2_official_calendar_source_lab.yml'
+      - 'tool/b2_official_calendar_source_lab.py'
+      - 'tool/b2_official_calendar_source_lab_test.dart'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: b2-official-calendar-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  official-116-calendar:
+    name: Isolated DGPA 116 bytes, SHA, parser and transactional LKG
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR source HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact PR HEAD
+        if: ${{ github.event_name == 'pull_request' }}
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Acquire exact official DGPA 116 CSV and fail-closed schema evidence
+        env:
+          B2_CSV_OUT: ${{ runner.temp }}/dgpa116.csv
+        run: python3 tool/b2_official_calendar_source_lab.py
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Run real official CSV through existing Dart parser and isolated SQLite rollback
+        env:
+          B2_OFFICIAL_CSV_PATH: ${{ runner.temp }}/dgpa116.csv
+        run: flutter test tool/b2_official_calendar_source_lab_test.dart --reporter expanded
+      - name: Assert official source was actually used
+        env:
+          B2_OFFICIAL_CSV_PATH: ${{ runner.temp }}/dgpa116.csv
+        run: |
+          test -s "$B2_OFFICIAL_CSV_PATH"
+          test -n "$B2_OFFICIAL_CSV_SHA256"
+          echo "B2_REAL_SOURCE_E2E=PASS (source SHA + real Dart parser + isolated SQLite only)"
