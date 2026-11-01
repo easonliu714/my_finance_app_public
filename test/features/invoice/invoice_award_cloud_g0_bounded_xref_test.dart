@@ -365,6 +365,89 @@ void main() {
     }
   });
 
+  // G0o.4: all root branches' second-level custody, not leaf text.
+  test('G0o.4 validates all root subtrees with a fixed reference budget',
+      () async {
+    final nodes = <int, String>{
+      11: '<< /Type /Pages /Parent 5 0 R /Count 2 /Kids [21 0 R 22 0 R] >>',
+      12: '<< /Type /Pages /Parent 5 0 R /Count 3 /Kids [31 0 R 32 0 R] >>',
+      21: '<< /Type /Page /Parent 11 0 R >>',
+      22: '<< /Type /Page /Parent 11 0 R >>',
+      31: '<< /Type /Pages /Parent 12 0 R /Count 2 >>',
+      32: '<< /Type /Page /Parent 12 0 R >>',
+    };
+    final result = await const C500G0AllRootSubtreesCountAuditor().inspect(
+      pagesBody: '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
+      rootId: 5, rootGeneration: 0, declaredPages: 5,
+      readObject: (id, generation) async => nodes[id]!,
+    );
+    expect(result['all_root_subtrees_audited'], 2);
+    expect(result['all_root_subtrees_grandchild_refs_verified'], 4);
+    expect(result['all_root_subtrees_declared_count_sum'], 5);
+    expect(result['all_root_subtrees_consistency'],
+        'VERIFIED_ALL_ROOT_SUBTREES_TWO_LEVELS_DEEPER_UNKNOWN');
+    expect(result.toString().contains('NOT_WIN'), false);
+  });
+
+  test('G0o.4 rejects cross-branch duplicate and forged parent', () async {
+    for (final nodes in <Map<int, String>>[
+      <int, String>{
+        11: '<< /Type /Pages /Parent 5 0 R /Count 2 /Kids [21 0 R 22 0 R] >>',
+        12: '<< /Type /Pages /Parent 5 0 R /Count 3 /Kids [21 0 R 32 0 R] >>',
+        21: '<< /Type /Page /Parent 11 0 R >>',
+        22: '<< /Type /Page /Parent 11 0 R >>',
+        32: '<< /Type /Pages /Parent 12 0 R /Count 2 >>',
+      },
+      <int, String>{
+        11: '<< /Type /Pages /Parent 5 0 R /Count 2 /Kids [21 0 R 22 0 R] >>',
+        12: '<< /Type /Pages /Parent 5 0 R /Count 3 /Kids [31 0 R 32 0 R] >>',
+        21: '<< /Type /Page /Parent 11 0 R >>',
+        22: '<< /Type /Page /Parent 11 0 R >>',
+        31: '<< /Type /Pages /Parent 99 0 R /Count 2 >>',
+        32: '<< /Type /Page /Parent 12 0 R >>',
+      },
+    ]) {
+      await expectLater(
+        const C500G0AllRootSubtreesCountAuditor().inspect(
+          pagesBody: '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
+          rootId: 5, rootGeneration: 0, declaredPages: 5,
+          readObject: (id, generation) async => nodes[id]!,
+        ),
+        throwsA(isA<C500G0BoundedXrefException>()),
+      );
+    }
+  });
+
+  test('G0o.4 rejects total budget and subtree count mismatch', () async {
+    await expectLater(
+      const C500G0AllRootSubtreesCountAuditor().inspect(
+        pagesBody: '<< /Count 1 /Kids [11 0 R] >>',
+        rootId: 5, rootGeneration: 0, declaredPages: 1,
+        readObject: (id, generation) async {
+          if (id == 11) {
+            return '<< /Type /Pages /Parent 5 0 R /Count 1 '
+                '/Kids [21 0 R 22 0 R] >>';
+          }
+          return '<< /Type /Page /Parent 11 0 R >>';
+        },
+      ),
+      throwsA(isA<C500G0BoundedXrefException>()),
+    );
+    await expectLater(
+      const C500G0AllRootSubtreesCountAuditor().inspect(
+        pagesBody: '<< /Count 17 /Kids ['
+            '101 0 R 102 0 R 103 0 R 104 0 R 105 0 R 106 0 R '
+            '107 0 R 108 0 R 109 0 R 110 0 R 111 0 R 112 0 R '
+            '113 0 R 114 0 R 115 0 R 116 0 R 117 0 R] >>',
+        rootId: 5, rootGeneration: 0, declaredPages: 17,
+        readObject: (id, generation) async =>
+            '<< /Type /Pages /Parent 5 0 R /Count 1 >>',
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0O4_ROOT_BUDGET')),
+    );
+  });
+
   // G0o.3: bounded third-level branch; synthetic is not source evidence.
   test('G0o.3 three-level parent and count custody positive', () async {
     final nodes = <int, String>{

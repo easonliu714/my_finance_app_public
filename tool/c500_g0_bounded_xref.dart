@@ -194,6 +194,100 @@ class C500G0FirstRootSubtreeCountAuditor {
   }
 }
 
+// G0o.4: all root subtrees' second-level /Kids custody, not leaf coverage.
+// Fixed 16-root and 192-grandchild budget; pinned XRef reader only.
+class C500G0AllRootSubtreesCountAuditor {
+  const C500G0AllRootSubtreesCountAuditor();
+
+  Future<Map<String, Object?>> inspect({
+    required String pagesBody,
+    required int rootId,
+    required int rootGeneration,
+    required int declaredPages,
+    required C500G0ReadObject readObject,
+  }) async {
+    final root = await const C500G0RootChildCountAuditor().inspect(
+      pagesBody: pagesBody, rootId: rootId,
+      rootGeneration: rootGeneration, declaredPages: declaredPages,
+      readObject: readObject,
+    );
+    final raw = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
+        .firstMatch(pagesBody)?.group(1);
+    if (raw == null) {
+      throw const C500G0BoundedXrefException('C500_G0O4_ROOT_KIDS_MISSING');
+    }
+    final reference = RegExp(r'(\d+)\s+(\d+)\s+R\b');
+    final children = reference.allMatches(raw).toList();
+    if (children.isEmpty || children.length > 16 ||
+        raw.replaceAll(reference, '').trim().isNotEmpty) {
+      throw const C500G0BoundedXrefException('C500_G0O4_ROOT_BUDGET');
+    }
+    final seen = <int>{rootId};
+    for (final child in children) {
+      if (!seen.add(int.parse(child.group(1)!))) {
+        throw const C500G0BoundedXrefException('C500_G0O4_CROSS_BRANCH_DUPLICATE');
+      }
+    }
+    var grandchildren = 0;
+    var sum = 0;
+    for (final child in children) {
+      final id = int.parse(child.group(1)!);
+      final generation = int.parse(child.group(2)!);
+      final body = await readObject(id, generation);
+      if (!RegExp(r'/Type\s*/Pages\b').hasMatch(body) ||
+          RegExp(r'/Type\s*/Page\b').hasMatch(body)) {
+        throw const C500G0BoundedXrefException('C500_G0O4_ROOT_CHILD_NOT_PAGES');
+      }
+      final counts = RegExp(r'/Count\s+(\d+)\b').allMatches(body).toList();
+      if (counts.length != 1) {
+        throw const C500G0BoundedXrefException('C500_G0O4_COUNT_INVALID');
+      }
+      final declared = int.parse(counts.single.group(1)!);
+      if (declared <= 0 || declared > declaredPages ||
+          sum > declaredPages - declared) {
+        throw const C500G0BoundedXrefException('C500_G0O4_COUNT_BOUNDS');
+      }
+      final nestedRaw = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
+          .firstMatch(body)?.group(1);
+      if (nestedRaw == null) {
+        throw const C500G0BoundedXrefException('C500_G0O4_NESTED_KIDS_MISSING');
+      }
+      final nested = reference.allMatches(nestedRaw).toList();
+      if (nested.isEmpty || nested.length > 64 ||
+          grandchildren + nested.length > 192 ||
+          nestedRaw.replaceAll(reference, '').trim().isNotEmpty) {
+        throw const C500G0BoundedXrefException('C500_G0O4_TOTAL_BUDGET');
+      }
+      for (final grandchild in nested) {
+        if (!seen.add(int.parse(grandchild.group(1)!))) {
+          throw const C500G0BoundedXrefException('C500_G0O4_CROSS_BRANCH_DUPLICATE');
+        }
+      }
+      final audit = await const C500G0RootChildCountAuditor().inspect(
+        pagesBody: body, rootId: id, rootGeneration: generation,
+        declaredPages: declared, readObject: readObject,
+      );
+      if (audit['root_child_count'] != nested.length ||
+          audit['root_child_declared_count_sum'] != declared) {
+        throw const C500G0BoundedXrefException('C500_G0O4_SUBTREE_COUNT_MISMATCH');
+      }
+      grandchildren += nested.length;
+      sum += declared;
+    }
+    if (sum != declaredPages) {
+      throw const C500G0BoundedXrefException('C500_G0O4_TOTAL_COUNT_MISMATCH');
+    }
+    return <String, Object?>{
+      ...root,
+      'all_root_subtrees_audited': children.length,
+      'all_root_subtrees_grandchild_refs_verified': grandchildren,
+      'all_root_subtrees_declared_count_sum': sum,
+      'all_root_subtrees_consistency':
+          'VERIFIED_ALL_ROOT_SUBTREES_TWO_LEVELS_DEEPER_UNKNOWN',
+    };
+  }
+}
+
 // G0o.3: bounded third-level /Kids custody on one first branch only.
 class C500G0ThreeLevelFirstBranchAuditor {
   const C500G0ThreeLevelFirstBranchAuditor();
@@ -281,10 +375,16 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstRootSubtreeCounts = false,
     bool verifySecondRootSubtreeCounts = false,
     bool verifyFirstGrandchildCounts = false,
+    bool verifyAllRootSubtreesCounts = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
         rootChildOrdinal != -1 && rootChildOrdinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
+    }
+    if (verifyAllRootSubtreesCounts &&
+        (verifyFirstGrandchildCounts || verifyFirstRootSubtreeCounts ||
+         verifySecondRootSubtreeCounts)) {
+      throw const C500G0BoundedXrefException('C500_G0O4_EXCLUSIVE_AUDIT');
     }
     if (verifyFirstGrandchildCounts &&
         (verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts)) {
@@ -297,7 +397,8 @@ class C500G0BoundedXrefInspector {
       throw const C500G0BoundedXrefException('C500_G0O2_REQUIRES_SECOND_CHILD');
     }
     if ((verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts ||
-        verifyFirstGrandchildCounts) && !verifyRootChildCounts) {
+        verifyFirstGrandchildCounts || verifyAllRootSubtreesCounts) &&
+        !verifyRootChildCounts) {
       throw const C500G0BoundedXrefException('C500_G0O1_REQUIRES_ROOT_AUDIT');
     }
     if (verifyRootChildCounts && !verifyCatalogRoot) {
@@ -498,12 +599,15 @@ class C500G0BoundedXrefInspector {
               verifyFirstPageOperandUnicodeRun,
               verifyFirstPageAllOperandsUnicode, rootChildOrdinal,
               verifyRootChildCounts, verifyFirstRootSubtreeCounts,
-              verifySecondRootSubtreeCounts, verifyFirstGrandchildCounts)
+              verifySecondRootSubtreeCounts, verifyFirstGrandchildCounts,
+              verifyAllRootSubtreesCounts)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         'root_child_ordinal': rootChildOrdinal,
-        'sample_scope': verifyFirstGrandchildCounts
+        'sample_scope': verifyAllRootSubtreesCounts
+            ? 'ALL_ROOT_SUBTREES_TWO_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
+            : verifyFirstGrandchildCounts
             ? 'FIRST_BRANCH_THREE_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
             : verifySecondRootSubtreeCounts
             ? 'SECOND_ROOT_SUBTREE_TWO_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
@@ -583,6 +687,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstRootSubtreeCounts,
     bool verifySecondRootSubtreeCounts,
     bool verifyFirstGrandchildCounts,
+    bool verifyAllRootSubtreesCounts,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -671,7 +776,13 @@ class C500G0BoundedXrefInspector {
       throw const C500G0BoundedXrefException('C500_G0P_PAGE_COUNT_INVALID');
     }
     final rootCountEvidence =
-        verifyFirstGrandchildCounts
+        verifyAllRootSubtreesCounts
+        ? await const C500G0AllRootSubtreesCountAuditor().inspect(
+            pagesBody: pagesBody, rootId: pagesId,
+            rootGeneration: int.parse(pages.group(2)!),
+            declaredPages: declared, readObject: readObject,
+          )
+        : verifyFirstGrandchildCounts
         ? await const C500G0ThreeLevelFirstBranchAuditor().inspect(
             pagesBody: pagesBody, rootId: pagesId,
             rootGeneration: int.parse(pages.group(2)!),
@@ -1312,8 +1423,10 @@ Future<void> main(List<String> args) async {
       args.single == '--audit-second-root-subtree';
   final auditFirstGrandchild = args.length == 1 &&
       args.single == '--audit-first-grandchild';
+  final auditAllRootSubtrees = args.length == 1 &&
+      args.single == '--audit-all-root-subtrees';
   final auditRootChildren = auditFirstSubtree || auditSecondSubtree ||
-      auditFirstGrandchild ||
+      auditFirstGrandchild || auditAllRootSubtrees ||
       (args.length == 1 && args.single == '--audit-root-children');
   final rootChildOrdinal = auditSecondSubtree ? 1
       : auditRootChildren || args.isEmpty ? 0
@@ -1370,6 +1483,7 @@ Future<void> main(List<String> args) async {
         verifyFirstRootSubtreeCounts: auditFirstSubtree,
         verifySecondRootSubtreeCounts: auditSecondSubtree,
         verifyFirstGrandchildCounts: auditFirstGrandchild,
+        verifyAllRootSubtreesCounts: auditAllRootSubtrees,
         rootChildOrdinal: rootChildOrdinal,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));
