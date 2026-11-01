@@ -12,7 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   const codec = TaiwanBusinessCalendarOfficialCsvCodec();
   const service = TaiwanBusinessCalendarPackageService();
-  const url = "https://www.dgpa.gov.tw/FileConversion?filename=dgpa%2Ffiles%2F202607%2Ff538b1ff-ba60-4c63-9477-10db8e6612d1.csv&name=116%E5%B9%B4%E4%B8%AD%E8%8F%AF%E6%B0%91%E5%9C%8B%E6%94%BF%E5%BA%9C%E8%A1%8C%E6%94%BF%E6%A9%9F%E9%97%9C%E8%BE%A6%E5%85%AC%E6%97%A5%E6%9B%86%E8%A1%A8_utf8bom.csv&nfix=";
+  const url = 'https://www.dgpa.gov.tw/FileConversion?filename=dgpa%2Ffiles%2F202607%2Ff538b1ff-ba60-4c63-9477-10db8e6612d1.csv&name=116%E5%B9%B4%E4%B8%AD%E8%8F%AF%E6%B0%91%E5%9C%8B%E6%94%BF%E5%BA%9C%E8%A1%8C%E6%94%BF%E6%A9%9F%E9%97%9C%E8%BE%A6%E5%85%AC%E6%97%A5%E6%9B%86%E8%A1%A8_utf8bom.csv&nfix=';
 
   setUpAll(() {
     sqfliteFfiInit();
@@ -88,7 +88,7 @@ void main() {
     expect(after!.rowCount, 365);
     expect(after.sequence, 1);
     expect(after.digest, year.digest);
-    print('B2_OFFICIAL_DART_INSTALL_ROLLBACK=PASS ROWS=365');
+
   });
 
   test('B2.7 official bytes with malformed UTF-8 fail closed', () async {
@@ -98,6 +98,6 @@ void main() {
       parse(corrupted, 3),
       throwsA(isA<TaiwanBusinessCalendarPackageException>()),
     );
-    print('B2_OFFICIAL_DART_TAMPER_REJECT=PASS');
+
   });
 }
