@@ -77,6 +77,9 @@ class FullRestoreService {
         await dropWalletTopUpAuditImmutabilityTriggers(txn);
       }
       try {
+        // Restore-only trigger changes must remain inside the same atomic
+        // transaction; never expose an unguarded pre-restore custody window.
+        await beforeManagedRestoreTransaction(txn);
         await _clearTables(txn);
         for (final tableName in FullBackupService.backupTableNames) {
           await _restoreTableRows(txn, tableName, data[tableName]);
@@ -91,8 +94,12 @@ class FullRestoreService {
         }
         audit = transactionAudit;
       } finally {
-        if (hasWalletTopUpAudits) {
-          await createWalletTopUpAuditImmutabilityTriggers(txn);
+        try {
+          await afterManagedRestoreTransaction(txn);
+        } finally {
+          if (hasWalletTopUpAudits) {
+            await createWalletTopUpAuditImmutabilityTriggers(txn);
+          }
         }
       }
     });
@@ -106,6 +113,13 @@ class FullRestoreService {
           ),
     );
   }
+
+  // Versioned restore services override these hooks to temporarily release
+  // immutable-row triggers ONLY within the destructive SQLite transaction.
+  // On rollback, SQLite restores the original trigger schema atomically.
+  Future<void> beforeManagedRestoreTransaction(DatabaseExecutor txn) async {}
+
+  Future<void> afterManagedRestoreTransaction(DatabaseExecutor txn) async {}
 
   Future<ReferentialIntegrityAudit> auditReferentialIntegrity(
     DatabaseExecutor db,

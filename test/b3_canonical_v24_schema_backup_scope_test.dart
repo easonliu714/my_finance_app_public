@@ -600,4 +600,89 @@ void main() {
         'literal_name'], 'retained private observation');
   });
 
+
+  // B3 #18 V26 security regression: pre-restore custody may await external
+  // persistence, but observation immutability must NEVER be disabled during
+  // that window. Only isolated synthetic in-memory V24 databases are used.
+  test('B3 V26 custody callback cannot mutate immutable observations',
+      () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    const stamp = '2026-11-02T00:00:00Z';
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account', 'name': 'source-private', 'type': 'cash',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account', 'name': 'target-private', 'type': 'cash',
+    });
+    await target.insert('merchant_brands', <String, Object?>{
+      'id': 'target-brand',
+      'display_name': 'target-private-brand',
+      'created_at': stamp,
+      'updated_at': stamp,
+    });
+    await target.insert('merchant_identity_observations', <String, Object?>{
+      'id': 'target-observation',
+      'literal_name': 'immutable-private-sentinel',
+      'normalized_name': 'immutableprivatesentinel',
+      'source': 'isolated-fixture',
+      'merchant_brand_id': 'target-brand',
+      'observed_at': stamp,
+      'created_at': stamp,
+    });
+    await target.insert('business_registry_snapshots', <String, Object?>{
+      'version': 'target-cache',
+      'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'e').join(),
+      'status': 'installed',
+      'created_at': stamp,
+    });
+
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    var custodyCalled = false;
+    final restored = await const FullRestoreServiceV8().restoreFromEnvelope(
+      target,
+      envelope,
+      confirmationText: FullRestoreService.destructiveConfirmationText,
+      persistPreRestoreBackup: (custody) async {
+        custodyCalled = true;
+        final before = custody['data']! as Map<String, Object?>;
+        expect((before['merchant_identity_observations']! as List).single,
+            containsPair('id', 'target-observation'));
+        // Previously both statements succeeded because V8 dropped triggers
+        // before awaiting this callback; neither may modify installed rows.
+        await expectLater(
+          target.update('merchant_identity_observations',
+              <String, Object?>{'literal_name': 'forged-during-custody'},
+              where: 'id = ?',
+              whereArgs: <Object?>['target-observation']),
+          throwsA(isA<DatabaseException>()),
+        );
+        await expectLater(
+          target.delete('merchant_identity_observations',
+              where: 'id = ?', whereArgs: <Object?>['target-observation']),
+          throwsA(isA<DatabaseException>()),
+        );
+        expect((await target.query('merchant_identity_observations')).single[
+            'literal_name'], 'immutable-private-sentinel');
+        return 'isolated-synthetic-custody';
+      },
+    );
+    expect(custodyCalled, isTrue);
+    expect(restored.preRestoreBackupPath, 'isolated-synthetic-custody');
+    expect(restored.audit.passed, isTrue);
+    expect((await target.query('accounts')).single['id'], 'source-account');
+    expect(await target.query('merchant_identity_observations'), isEmpty);
+    expect((await target.query('business_registry_snapshots')).single[
+        'version'], 'target-cache');
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+    final triggers = await target.query('sqlite_master',
+        columns: <String>['name'],
+        where: 'type = ? AND name LIKE ?',
+        whereArgs: <Object?>['trigger', 'trg_merchant_identity_observations_%']);
+    expect(triggers, hasLength(2));
+  });
 }
