@@ -494,4 +494,110 @@ void main() {
       throwsA(isA<FullBackupCoverageException>()),
     );
   });
+
+  // B3 #18 V25 negative: if the required pre-restore custody artifact cannot
+  // be persisted, the destructive transaction must never start. Verify real
+  // user-owned observations, independent public cache, FK and immutability
+  // triggers against isolated in-memory V24 databases only.
+  test('B3 V25 failed pre-restore custody persistence preserves all rows',
+      () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    const stamp = '2026-11-02T00:00:00Z';
+
+    await source.insert('accounts', <String, Object?>{
+      'id': 'incoming-account',
+      'name': 'incoming-private-sentinel',
+      'type': 'cash',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'retained-account',
+      'name': 'retained-private-sentinel',
+      'type': 'cash',
+    });
+    await target.insert('merchant_brands', <String, Object?>{
+      'id': 'retained-brand',
+      'display_name': 'retained-brand-private-sentinel',
+      'created_at': stamp,
+      'updated_at': stamp,
+    });
+    await target.insert('merchant_identity_observations',
+        <String, Object?>{
+      'id': 'retained-observation',
+      'literal_name': 'retained private observation',
+      'normalized_name': 'retainedprivateobservation',
+      'source': 'isolated-fixture',
+      'merchant_brand_id': 'retained-brand',
+      'observed_at': stamp,
+      'created_at': stamp,
+    });
+    await target.insert('business_registry_snapshots',
+        <String, Object?>{
+      'version': 'retained-cache',
+      'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'd').join(),
+      'status': 'installed',
+      'created_at': stamp,
+    });
+    await target.insert('business_registry_official_details',
+        <String, Object?>{
+      'snapshot_version': 'retained-cache',
+      'jurisdiction': 'TW',
+      'seller_identifier': '87654321',
+      'official_json': '{"fixture":"retained-only"}',
+    });
+
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    var persistenceAttempted = false;
+    await expectLater(
+      const FullRestoreServiceV8().restoreFromEnvelope(
+        target,
+        envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+        persistPreRestoreBackup: (preRestoreEnvelope) async {
+          persistenceAttempted = true;
+          final custody = preRestoreEnvelope['data']!
+              as Map<String, Object?>;
+          expect((custody['accounts']! as List).single,
+              containsPair('id', 'retained-account'));
+          expect((custody['merchant_identity_observations']! as List).single,
+              containsPair('id', 'retained-observation'));
+          expect(custody, isNot(contains('business_registry_snapshots')));
+          throw StateError('synthetic pre-restore custody persistence failure');
+        },
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(persistenceAttempted, isTrue);
+    expect((await target.query('accounts')).single['id'],
+        'retained-account');
+    expect((await target.query('merchant_brands')).single['id'],
+        'retained-brand');
+    expect((await target.query('merchant_identity_observations')).single['id'],
+        'retained-observation');
+    expect((await target.query('business_registry_official_details')).single[
+        'official_json'], '{"fixture":"retained-only"}');
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+
+    // The failure path must reinstate both production SQL immutability guards.
+    await expectLater(
+      target.update('merchant_identity_observations',
+          <String, Object?>{'literal_name': 'forged'},
+          where: 'id = ?',
+          whereArgs: <Object?>['retained-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+    await expectLater(
+      target.delete('merchant_identity_observations',
+          where: 'id = ?',
+          whereArgs: <Object?>['retained-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+    expect((await target.query('merchant_identity_observations')).single[
+        'literal_name'], 'retained private observation');
+  });
+
 }
