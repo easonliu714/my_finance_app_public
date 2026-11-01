@@ -221,6 +221,15 @@ jobs:
           set -euo pipefail
           timeout 240s dart run tool/c500_g0_bounded_xref.dart --audit-root-children
 
+      # G0o.1: first root subtree's immediate children only; no global proof.
+      - name: G0o.1 pinned first root subtree two-level count custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --audit-first-root-subtree
+
       # G0d/e/f: independent failure domain. qpdf bad_alloc and bounded-XRef
       # failures must remain FAIL, but must NOT implicitly skip the pinned
       # source-backed Android first-failure experiment. Only the verified

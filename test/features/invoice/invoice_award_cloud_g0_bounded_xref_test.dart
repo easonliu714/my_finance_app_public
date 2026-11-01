@@ -365,6 +365,76 @@ void main() {
     }
   });
 
+  // G0o.1: two pinned levels only; synthetic cases cannot prove NOT_WIN.
+  test('G0o.1 verifies first subtree immediate child counts', () async {
+    final result = await const C500G0FirstRootSubtreeCountAuditor().inspect(
+      pagesBody: '<< /Count 3 /Kids [11 0 R 12 0 R] >>',
+      rootId: 5,
+      rootGeneration: 0,
+      declaredPages: 3,
+      readObject: (id, generation) async {
+        if (generation != 0) throw StateError('generation');
+        if (id == 11) {
+          return '<< /Type /Pages /Parent 5 0 R /Count 2 '
+              '/Kids [21 0 R 22 0 R] >>';
+        }
+        if (id == 12) return '<< /Type /Page /Parent 5 0 R >>';
+        if (id == 21 || id == 22) {
+          return '<< /Type /Page /Parent 11 0 R >>';
+        }
+        throw StateError('unexpected object');
+      },
+    );
+    expect(result['root_child_count'], 2);
+    expect(result['first_root_subtree_id'], 11);
+    expect(result['first_root_subtree_child_count'], 2);
+    expect(result['first_root_subtree_child_count_sum'], 2);
+    expect(result['first_root_subtree_consistency'],
+        'VERIFIED_TWO_LEVELS_ONLY_DEEPER_DESCENDANTS_UNKNOWN');
+    expect(result.toString().contains('NOT_WIN'), false);
+  });
+
+  test('G0o.1 rejects forged parent, duplicate and second-level count',
+      () async {
+    for (final fault in <String>[
+      'wrong_parent',
+      'count_mismatch',
+      'duplicate',
+      'first_page',
+    ]) {
+      final isPage = fault == 'first_page';
+      final mismatch = fault == 'count_mismatch';
+      await expectLater(
+        const C500G0FirstRootSubtreeCountAuditor().inspect(
+          pagesBody: isPage
+              ? '<< /Count 1 /Kids [11 0 R] >>'
+              : mismatch
+                  ? '<< /Count 4 /Kids [11 0 R 12 0 R] >>'
+                  : '<< /Count 3 /Kids [11 0 R 12 0 R] >>',
+          rootId: 5,
+          rootGeneration: 0,
+          declaredPages: isPage ? 1 : mismatch ? 4 : 3,
+          readObject: (id, generation) async {
+            if (id == 11) {
+              if (isPage) return '<< /Type /Page /Parent 5 0 R >>';
+              final count = mismatch ? '3' : '2';
+              final second = fault == 'duplicate' ? '21' : '22';
+              return '<< /Type /Pages /Parent 5 0 R /Count $count '
+                  '/Kids [21 0 R $second 0 R] >>';
+            }
+            if (id == 12) return '<< /Type /Page /Parent 5 0 R >>';
+            if (id == 21 || id == 22) {
+              final parent = fault == 'wrong_parent' && id == 22 ? '99' : '11';
+              return '<< /Type /Page /Parent $parent 0 R >>';
+            }
+            throw StateError('unexpected object');
+          },
+        ),
+        throwsA(isA<C500G0BoundedXrefException>()),
+      );
+    }
+  });
+
   // G0j: strict bounded second root-child selection; synthetic-only.
   test('G0j selects distinct first and second root children without global proof', () {
     const selector = C500G0RootKidSelector();
