@@ -349,6 +349,137 @@ void main() {
     expect(triggers, hasLength(2));
   });
 
+  // B3 #18 V24 positive custody: user-owned merchant observations and aliases
+  // must round-trip, while replaceable official Registry cache stays local to
+  // the target. Restore must re-enable both immutable-observation triggers.
+  // No installed database or owner backup is accessed.
+  test('B3 V24 observation round-trip retains cache and immutable triggers',
+      () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    const stamp = '2026-11-01T00:00:00Z';
+
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account',
+      'name': 'source-private-sentinel',
+      'type': 'cash',
+    });
+    await source.insert('merchant_brands', <String, Object?>{
+      'id': 'source-brand',
+      'display_name': 'source-brand-private-sentinel',
+      'created_at': stamp,
+      'updated_at': stamp,
+    });
+    await source.insert('merchant_brand_aliases', <String, Object?>{
+      'id': 'source-alias',
+      'merchant_brand_id': 'source-brand',
+      'literal_alias': 'source alias',
+      'normalized_alias': 'sourcealias',
+      'source': 'isolated-fixture',
+      'created_at': stamp,
+    });
+    await source.insert('merchant_identity_observations', <String, Object?>{
+      'id': 'source-observation',
+      'literal_name': 'source observation',
+      'normalized_name': 'sourceobservation',
+      'source': 'isolated-fixture',
+      'merchant_brand_id': 'source-brand',
+      'observed_at': stamp,
+      'created_at': stamp,
+    });
+    await source.insert('business_registry_snapshots', <String, Object?>{
+      'version': 'source-cache',
+      'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'a').join(),
+      'status': 'installed',
+      'created_at': stamp,
+    });
+
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account',
+      'name': 'target-private-sentinel',
+      'type': 'cash',
+    });
+    await target.insert('merchant_brands', <String, Object?>{
+      'id': 'target-brand',
+      'display_name': 'target-brand-private-sentinel',
+      'created_at': stamp,
+      'updated_at': stamp,
+    });
+    await target.insert('merchant_identity_observations', <String, Object?>{
+      'id': 'target-observation',
+      'literal_name': 'target observation',
+      'normalized_name': 'targetobservation',
+      'source': 'isolated-fixture',
+      'merchant_brand_id': 'target-brand',
+      'observed_at': stamp,
+      'created_at': stamp,
+    });
+    await target.insert('business_registry_snapshots', <String, Object?>{
+      'version': 'target-cache',
+      'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'b').join(),
+      'status': 'installed',
+      'created_at': stamp,
+    });
+    await target.insert('business_registry_official_details', <String, Object?>{
+      'snapshot_version': 'target-cache',
+      'jurisdiction': 'TW',
+      'seller_identifier': '87654321',
+      'official_json': '{"fixture":"target-only"}',
+    });
+
+    final envelope = await const FullBackupService().buildFullBackupEnvelope(source);
+    final sourceData = envelope['data']! as Map<String, Object?>;
+    expect(sourceData['merchant_identity_observations'] as List, hasLength(1));
+    expect(sourceData['merchant_brand_aliases'] as List, hasLength(1));
+    expect(sourceData, isNot(contains('business_registry_snapshots')));
+    expect(sourceData, isNot(contains('business_registry_official_details')));
+
+    final restored = await const FullRestoreServiceV8().restoreFromEnvelope(
+      target,
+      envelope,
+      confirmationText: FullRestoreService.destructiveConfirmationText,
+    );
+    expect(restored.audit.passed, isTrue);
+    final preRestoreData =
+        restored.preRestoreBackupEnvelope['data']! as Map<String, Object?>;
+    expect((preRestoreData['merchant_identity_observations']! as List).single,
+        containsPair('id', 'target-observation'));
+    expect((await target.query('accounts')).single['id'], 'source-account');
+    expect((await target.query('merchant_brands')).single['id'], 'source-brand');
+    expect((await target.query('merchant_brand_aliases')).single[
+        'merchant_brand_id'], 'source-brand');
+    final observations = await target.query('merchant_identity_observations');
+    expect(observations, hasLength(1));
+    expect(observations.single['id'], 'source-observation');
+    expect(observations.single['merchant_brand_id'], 'source-brand');
+    expect((await target.query('business_registry_official_details')).single[
+        'snapshot_version'], 'target-cache');
+    expect((await target.query('business_registry_snapshots')).single[
+        'version'], 'target-cache');
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+
+    // These are real SQL write attempts on an isolated synthetic database:
+    // the production observation immutability triggers must reject both.
+    await expectLater(
+      target.update('merchant_identity_observations',
+          <String, Object?>{'literal_name': 'forged'},
+          where: 'id = ?',
+          whereArgs: <Object?>['source-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+    await expectLater(
+      target.delete('merchant_identity_observations',
+          where: 'id = ?', whereArgs: <Object?>['source-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+    expect((await target.query('merchant_identity_observations')).single[
+        'literal_name'], 'source observation');
+  });
+
   test('B3 V24 unknown private table blocks complete backup', () async {
     final db = await openIsolatedV24();
     addTearDown(db.close);
