@@ -685,4 +685,78 @@ void main() {
         whereArgs: <Object?>['trigger', 'trg_merchant_identity_observations_%']);
     expect(triggers, hasLength(2));
   });
+
+  // B3 #18 V27: simulate a legitimate managed-row write during asynchronous
+  // custody persistence. The old snapshot must NEVER permit destructive
+  // restore; the new write and independent public cache remain intact.
+  test('B3 V27 managed-row drift during custody aborts before restore',
+      () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    const stamp = '2026-11-02T00:00:00Z';
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account', 'name': 'incoming', 'type': 'cash',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account', 'name': 'original', 'type': 'cash',
+    });
+    await target.insert('merchant_brands', <String, Object?>{
+      'id': 'target-brand', 'display_name': 'private-brand',
+      'created_at': stamp, 'updated_at': stamp,
+    });
+    await target.insert('merchant_identity_observations', <String, Object?>{
+      'id': 'target-observation', 'literal_name': 'immutable-private',
+      'normalized_name': 'immutableprivate', 'source': 'isolated-fixture',
+      'merchant_brand_id': 'target-brand',
+      'observed_at': stamp, 'created_at': stamp,
+    });
+    await target.insert('business_registry_snapshots', <String, Object?>{
+      'version': 'target-cache', 'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'e').join(),
+      'status': 'installed', 'created_at': stamp,
+    });
+
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    var callbackRan = false;
+    await expectLater(
+      const FullRestoreServiceV8().restoreFromEnvelope(
+        target, envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+        persistPreRestoreBackup: (custody) async {
+          callbackRan = true;
+          expect(((custody['data']! as Map)['accounts'] as List).single,
+              containsPair('name', 'original'));
+          await target.update('accounts',
+              <String, Object?>{'name': 'concurrent-legitimate-write'},
+              where: 'id = ?', whereArgs: <Object?>['target-account']);
+          return 'isolated-synthetic-custody';
+        },
+      ),
+      throwsA(isA<FullRestoreException>()),
+    );
+    expect(callbackRan, isTrue);
+    expect((await target.query('accounts')).single,
+        containsPair('name', 'concurrent-legitimate-write'));
+    expect((await target.query('accounts')).single,
+        containsPair('id', 'target-account'));
+    expect((await target.query('merchant_identity_observations')).single,
+        containsPair('id', 'target-observation'));
+    expect((await target.query('business_registry_snapshots')).single,
+        containsPair('version', 'target-cache'));
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+    await expectLater(
+      target.update('merchant_identity_observations',
+          <String, Object?>{'literal_name': 'forged'},
+          where: 'id = ?', whereArgs: <Object?>['target-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+    await expectLater(
+      target.delete('merchant_identity_observations',
+          where: 'id = ?', whereArgs: <Object?>['target-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+  });
 }

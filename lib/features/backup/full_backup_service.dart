@@ -54,6 +54,56 @@ class FullBackupService {
     };
   }
 
+
+  // B3 V27: after external custody persistence, re-read every managed table
+  // under the SAME SQLite restore transaction before dropping immutable-row
+  // guards or deleting anything. A stale backup cannot authorize destruction
+  // of writes made while custody I/O was pending. Public cache is excluded.
+  Future<bool> managedSnapshotMatches(
+    DatabaseExecutor db,
+    Map<String, Object?> snapshot,
+  ) async {
+    final metadata = snapshot['metadata'];
+    final data = snapshot['data'];
+    if (metadata is! Map || data is! Map) return false;
+    final coverage = await FullBackupScope.inspect(db);
+    if (!coverage.isComplete) return false;
+    final expectedPresent = metadata['included_present_tables'];
+    if (!_snapshotValueEquals(
+      expectedPresent, coverage.includedPresentTables,
+    )) return false;
+    for (final tableName in backupTableNames) {
+      final expected = data[tableName];
+      if (expected is! List) return false;
+      final actual = await _readTableRows(db, tableName);
+      if (!_snapshotValueEquals(expected, actual)) return false;
+    }
+    return true;
+  }
+
+  // Compare typed SQLite cells without JSON re-encoding or an additional
+  // whole-database allocation. Also supports BLOB bytes represented as lists.
+  bool _snapshotValueEquals(Object? expected, Object? actual) {
+    if (expected is Map && actual is Map) {
+      if (expected.length != actual.length) return false;
+      for (final key in expected.keys) {
+        if (!actual.containsKey(key) ||
+            !_snapshotValueEquals(expected[key], actual[key])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (expected is List && actual is List) {
+      if (expected.length != actual.length) return false;
+      for (var i = 0; i < expected.length; i++) {
+        if (!_snapshotValueEquals(expected[i], actual[i])) return false;
+      }
+      return true;
+    }
+    return expected == actual;
+  }
+
   Future<String> buildFullBackupJson(
     DatabaseExecutor db, {
     DateTime? createdAt,

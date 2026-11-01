@@ -66,6 +66,15 @@ class FullRestoreService {
 
     ReferentialIntegrityAudit? audit;
     await db.transaction((txn) async {
+      // B3 V27: abort before ANY trigger drop or destructive DML if another
+      // writer changed managed data after the pre-restore custody snapshot.
+      if (!await backupService.managedSnapshotMatches(
+        txn, preRestoreBackupEnvelope,
+      )) {
+        throw const FullRestoreException(
+          '還原前備份快照與目前資料不一致；請重新確認備份後再還原',
+        );
+      }
       await _assertRequiredTablesExist(txn);
       // The category table is lazy-created on some installations. Materialize
       // it only inside the destructive restore transaction, so a V9 category
