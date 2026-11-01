@@ -759,4 +759,115 @@ void main() {
       throwsA(isA<DatabaseException>()),
     );
   });
+
+  // B3 #18 V28: a new unreviewed private table created while external custody
+  // is pending must invalidate the snapshot before destructive restore begins.
+  // This is an isolated in-memory schema-race fixture, never an installed DB.
+  test('B3 V28 new private schema during custody blocks destructive restore',
+      () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    const stamp = '2026-11-02T00:00:00Z';
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account', 'name': 'incoming', 'type': 'cash',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account', 'name': 'retained', 'type': 'cash',
+    });
+    await target.insert('merchant_brands', <String, Object?>{
+      'id': 'target-brand', 'display_name': 'private-brand',
+      'created_at': stamp, 'updated_at': stamp,
+    });
+    await target.insert('merchant_identity_observations', <String, Object?>{
+      'id': 'target-observation', 'literal_name': 'immutable-private',
+      'normalized_name': 'immutableprivate', 'source': 'isolated-fixture',
+      'merchant_brand_id': 'target-brand',
+      'observed_at': stamp, 'created_at': stamp,
+    });
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    var custodyCalled = false;
+    await expectLater(
+      const FullRestoreServiceV8().restoreFromEnvelope(
+        target, envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+        persistPreRestoreBackup: (custody) async {
+          custodyCalled = true;
+          expect(((custody['data']! as Map)['accounts'] as List).single,
+              containsPair('id', 'target-account'));
+          await target.execute(
+              'CREATE TABLE b3_unreviewed_live_private '
+              '(id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+          await target.insert('b3_unreviewed_live_private',
+              <String, Object?>{'id': 'new-private', 'payload': 'retain'});
+          return 'isolated-synthetic-custody';
+        },
+      ),
+      throwsA(isA<FullRestoreException>()),
+    );
+    expect(custodyCalled, isTrue);
+    expect((await target.query('accounts')).single,
+        containsPair('id', 'target-account'));
+    expect((await target.query('b3_unreviewed_live_private')).single,
+        containsPair('payload', 'retain'));
+    expect((await target.query('merchant_identity_observations')).single,
+        containsPair('id', 'target-observation'));
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+    await expectLater(
+      target.update('merchant_identity_observations',
+          <String, Object?>{'literal_name': 'forged'},
+          where: 'id = ?', whereArgs: <Object?>['target-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+  });
+
+  // B3 #18 V28 positive boundary: public Registry cache is explicitly outside
+  // managed backup custody. Its independent update during persistence must
+  // neither be overwritten nor cause a false managed-data drift rejection.
+  test('B3 V28 excluded public cache churn preserves restore boundary',
+      () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    const stamp = '2026-11-02T00:00:00Z';
+    const revisedStamp = '2026-11-02T01:00:00Z';
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account', 'name': 'incoming', 'type': 'cash',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account', 'name': 'retained', 'type': 'cash',
+    });
+    await target.insert('business_registry_snapshots', <String, Object?>{
+      'version': 'target-cache', 'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'e').join(),
+      'status': 'installed', 'created_at': stamp,
+    });
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    var custodyCalled = false;
+    final result = await const FullRestoreServiceV8().restoreFromEnvelope(
+      target, envelope,
+      confirmationText: FullRestoreService.destructiveConfirmationText,
+      persistPreRestoreBackup: (custody) async {
+        custodyCalled = true;
+        expect(custody['data']! as Map,
+            isNot(contains('business_registry_snapshots')));
+        await target.update('business_registry_snapshots',
+            <String, Object?>{'created_at': revisedStamp},
+            where: 'version = ?', whereArgs: <Object?>['target-cache']);
+        return 'isolated-synthetic-custody';
+      },
+    );
+    expect(custodyCalled, isTrue);
+    expect(result.audit.passed, isTrue);
+    expect(result.preRestoreBackupPath, 'isolated-synthetic-custody');
+    expect((await target.query('accounts')).single,
+        containsPair('id', 'source-account'));
+    expect((await target.query('business_registry_snapshots')).single,
+        containsPair('created_at', revisedStamp));
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+  });
 }
