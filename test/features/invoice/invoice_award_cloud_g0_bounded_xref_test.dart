@@ -365,6 +365,39 @@ void main() {
     }
   });
 
+  // G0o.4: source isolation must never silently omit an official period.
+  // Synthetic selector contract only; official SHA and /Count need the Lab.
+  test('G0o.4 period isolation defaults to both and rejects unsafe overrides',
+      () {
+    const selector = C500G0OfficialPeriodSelector();
+    expect(
+      selector.select(requestedPeriod: null, allowSinglePeriod: true),
+      <String>['115-05-06', '115-07-08'],
+    );
+    for (final period in <String>['115-05-06', '115-07-08']) {
+      expect(
+        selector.select(requestedPeriod: period, allowSinglePeriod: true),
+        <String>[period],
+      );
+      expect(
+        () => selector.select(
+          requestedPeriod: period, allowSinglePeriod: false),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+          (error) => error.code, 'code',
+          'C500_G0O4_PERIOD_SELECTION_INVALID')),
+      );
+    }
+    for (final invalid in <String>['', '115-05-07', '115-07-08 ']) {
+      expect(
+        () => selector.select(
+          requestedPeriod: invalid, allowSinglePeriod: true),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+          (error) => error.code, 'code',
+          'C500_G0O4_PERIOD_SELECTION_INVALID')),
+      );
+    }
+  });
+
   // G0o.4: all root branches' second-level custody, not leaf text.
   test('G0o.4 validates all root subtrees with a fixed reference budget',
       () async {

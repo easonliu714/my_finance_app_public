@@ -17,6 +17,27 @@ class C500G0BoundedXrefException implements Exception {
   String toString() => code;
 }
 
+// G0o.4: lab-only source selector for independent per-period wall-clock
+// budgets. The default remains BOTH pinned sources. A one-period run is
+// permitted ONLY for the all-root-subtrees diagnostic, never award authority.
+class C500G0OfficialPeriodSelector {
+  const C500G0OfficialPeriodSelector();
+
+  static const periods = <String>['115-05-06', '115-07-08'];
+
+  List<String> select({
+    required String? requestedPeriod,
+    required bool allowSinglePeriod,
+  }) {
+    if (requestedPeriod == null) return periods;
+    if (!allowSinglePeriod || !periods.contains(requestedPeriod)) {
+      throw const C500G0BoundedXrefException(
+          'C500_G0O4_PERIOD_SELECTION_INVALID');
+    }
+    return <String>[requestedPeriod];
+  }
+}
+
 // G0j: bounded, exact /Kids reference selection. Never scan arbitrary siblings
 // or infer complete page-tree / sorted-award coverage from one branch.
 class C500G0RootKidSelector {
@@ -1580,8 +1601,23 @@ Future<void> main(List<String> args) async {
       'sha': 'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571',
     },
   ];
+  // G0o.4: each pinned PDF receives the same existing 300-second bound.
+  // This avoids charging the second official period for the first's work.
+  // Invalid/empty period overrides fail closed; other modes always run both.
+  late final List<String> selectedPeriods;
+  try {
+    selectedPeriods = const C500G0OfficialPeriodSelector().select(
+      requestedPeriod: Platform.environment['G0_SOURCE_PERIOD'],
+      allowSinglePeriod: auditAllRootSubtrees,
+    );
+  } on C500G0BoundedXrefException catch (error) {
+    stderr.writeln(error.code);
+    exitCode = 64;
+    return;
+  }
   var failures = 0;
   for (final source in sources) {
+    if (!selectedPeriods.contains(source['period'])) continue;
     final period = source['period']! as String;
     final path = Platform.environment[source['env']! as String];
     try {

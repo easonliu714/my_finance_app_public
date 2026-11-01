@@ -249,11 +249,25 @@ jobs:
           set -euo pipefail
           timeout 240s dart run tool/c500_g0_bounded_xref.dart --audit-first-grandchild
 
-      # G0o.4: all root branches, two-level custody only; 16/192 ref budget.
-      - name: G0o.4 pinned all root subtrees two-level count custody
+      # G0o.4: two independent official periods, each with the SAME
+      # 300s per-period bound; never mask one source behind a combined timeout.
+      # Both steps must succeed to claim both periods verified on this HEAD.
+      - name: G0o.4 old pinned all root subtrees two-level count custody
         if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
         shell: bash
         timeout-minutes: 6
+        env:
+          G0_SOURCE_PERIOD: '115-05-06'
+        run: |
+          set -euo pipefail
+          timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-all-root-subtrees
+
+      - name: G0o.4 new pinned all root subtrees two-level count custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        env:
+          G0_SOURCE_PERIOD: '115-07-08'
         run: |
           set -euo pipefail
           timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-all-root-subtrees
