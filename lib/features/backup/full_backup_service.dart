@@ -71,7 +71,9 @@ class FullBackupService {
     final expectedPresent = metadata['included_present_tables'];
     if (!_snapshotValueEquals(
       expectedPresent, coverage.includedPresentTables,
-    )) return false;
+    )) {
+      return false;
+    }
     for (final tableName in backupTableNames) {
       final expected = data[tableName];
       if (expected is! List) return false;
