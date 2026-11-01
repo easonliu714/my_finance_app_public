@@ -179,6 +179,80 @@ void main() {
     expect(targetCache.single['seller_identifier'], '87654321');
   });
 
+  // B3 #18 negative: a malformed user-owned row must roll back the complete
+  // restore transaction without deleting existing accounting or Registry cache.
+  // Both databases are isolated synthetic in-memory fixtures only.
+  test('B3 V24 rejected managed restore rolls back user rows and cache', () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account',
+      'name': 'source-private-sentinel',
+      'type': 'cash',
+    });
+    await source.insert('merchant_brands', <String, Object?>{
+      'id': 'source-brand',
+      'display_name': 'source-brand-private-sentinel',
+      'created_at': '2026-11-01T00:00:00Z',
+      'updated_at': '2026-11-01T00:00:00Z',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account',
+      'name': 'target-private-sentinel',
+      'type': 'cash',
+    });
+    await target.insert('business_registry_snapshots', <String, Object?>{
+      'version': 'target-cache',
+      'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'b').join(),
+      'status': 'installed',
+      'created_at': '2026-11-01T00:00:00Z',
+    });
+    await target.insert('business_registry_official_details', <String, Object?>{
+      'snapshot_version': 'target-cache',
+      'jurisdiction': 'TW',
+      'seller_identifier': '87654321',
+      'official_json': '{"fixture":"target-only"}',
+    });
+
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    final corruptedData =
+        Map<String, Object?>.from(envelope['data']! as Map);
+    final brand = Map<String, Object?>.from(
+      (corruptedData['merchant_brands']! as List).single as Map,
+    );
+    brand.remove('display_name'); // Required production column: NOT NULL.
+    corruptedData['merchant_brands'] = <Object?>[brand];
+    final corruptedEnvelope = <String, Object?>{
+      ...envelope,
+      'data': corruptedData,
+    };
+
+    await expectLater(
+      const FullRestoreServiceV8().restoreFromEnvelope(
+        target,
+        corruptedEnvelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+    final retainedAccounts = await target.query('accounts');
+    expect(retainedAccounts, hasLength(1));
+    expect(retainedAccounts.single['id'], 'target-account');
+    expect(retainedAccounts.single['name'], 'target-private-sentinel');
+    expect(await target.query('merchant_brands'), isEmpty);
+    final retainedCache =
+        await target.query('business_registry_official_details');
+    expect(retainedCache, hasLength(1));
+    expect(retainedCache.single['snapshot_version'], 'target-cache');
+    expect(retainedCache.single['seller_identifier'], '87654321');
+    expect(retainedCache.single['official_json'], '{"fixture":"target-only"}');
+  });
+
   test('B3 V24 unknown private table blocks complete backup', () async {
     final db = await openIsolatedV24();
     addTearDown(db.close);
