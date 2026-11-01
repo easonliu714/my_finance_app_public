@@ -448,6 +448,81 @@ void main() {
     );
   });
 
+  // G0o.5: synthetic-only, never evidence for full pages or NOT_WIN.
+  test('G0o.5 verifies every first-branch grandchild count', () async {
+    final nodes = <int, String>{
+      11: '<< /Type /Pages /Parent 5 0 R /Count 4 /Kids [21 0 R 22 0 R] >>',
+      12: '<< /Type /Page /Parent 5 0 R >>',
+      21: '<< /Type /Pages /Parent 11 0 R /Count 2 /Kids [31 0 R 32 0 R] >>',
+      22: '<< /Type /Pages /Parent 11 0 R /Count 2 /Kids [33 0 R 34 0 R] >>',
+      31: '<< /Type /Page /Parent 21 0 R >>',
+      32: '<< /Type /Page /Parent 21 0 R >>',
+      33: '<< /Type /Page /Parent 22 0 R >>',
+      34: '<< /Type /Page /Parent 22 0 R >>',
+    };
+    final result = await const C500G0FirstBranchAllGrandchildrenAuditor()
+        .inspect(
+      pagesBody: '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
+      rootId: 5, rootGeneration: 0, declaredPages: 5,
+      readObject: (id, generation) async => nodes[id]!,
+    );
+    expect(result['first_branch_grandchildren_audited'], 2);
+    expect(result['first_branch_great_grandchildren_refs_verified'], 4);
+    expect(result['first_branch_third_level_count_sum'], 4);
+    expect(result.toString().contains('NOT_WIN'), false);
+  });
+
+  test('G0o.5 rejects parent, cross-alias, count, missing and leaf',
+      () async {
+    for (final fault in <String>[
+      'parent', 'alias', 'count', 'missing', 'leaf',
+    ]) {
+      final nodes = <int, String>{
+        11: '<< /Type /Pages /Parent 5 0 R /Count 4 /Kids [21 0 R 22 0 R] >>',
+        12: '<< /Type /Page /Parent 5 0 R >>',
+        21: '<< /Type /Pages /Parent 11 0 R /Count 2 /Kids [31 0 R 32 0 R] >>',
+        22: fault == 'leaf'
+            ? '<< /Type /Page /Parent 11 0 R >>'
+            : '<< /Type /Pages /Parent 11 0 R /Count '
+                '${fault == 'count' ? 3 : 2} '
+                '/Kids [${fault == 'alias' ? 31 : 33} 0 R '
+                '${fault == 'missing' ? '' : '34 0 R'}] >>',
+        31: '<< /Type /Page /Parent 21 0 R >>',
+        32: '<< /Type /Page /Parent 21 0 R >>',
+        33: '<< /Type /Page /Parent 22 0 R >>',
+        34: '<< /Type /Page /Parent ${fault == 'parent' ? 99 : 22} 0 R >>',
+      };
+      await expectLater(
+        const C500G0FirstBranchAllGrandchildrenAuditor().inspect(
+          pagesBody: '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
+          rootId: 5, rootGeneration: 0, declaredPages: 5,
+          readObject: (id, generation) async => nodes[id]!,
+        ),
+        throwsA(isA<C500G0BoundedXrefException>()),
+      );
+    }
+  });
+
+  test('G0o.5 rejects more than 16 grandchildren', () async {
+    final kids = List<String>.generate(17, (i) => '${100 + i} 0 R')
+        .join(' ');
+    await expectLater(
+      const C500G0FirstBranchAllGrandchildrenAuditor().inspect(
+        pagesBody: '<< /Count 17 /Kids [11 0 R] >>',
+        rootId: 5, rootGeneration: 0, declaredPages: 17,
+        readObject: (id, generation) async {
+          if (id == 11) {
+            return '<< /Type /Pages /Parent 5 0 R /Count 17 '
+                '/Kids [$kids] >>';
+          }
+          return '<< /Type /Page /Parent 11 0 R >>';
+        },
+      ),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0O5_BRANCH_BUDGET')),
+    );
+  });
+
   // G0o.3: bounded third-level branch; synthetic is not source evidence.
   test('G0o.3 three-level parent and count custody positive', () async {
     final nodes = <int, String>{

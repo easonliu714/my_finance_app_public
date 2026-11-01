@@ -72,6 +72,13 @@ for name, step_id, required_predecessor in (
         assert required_predecessor in condition.group(1)
     assert 'success()' not in condition.group(1)
 assert '[G0-SOURCE-LAB]' in step('Gate one-shot PR diagnostic or explicit manual dispatch')
+# G0o.5 requires the exact pinned source and enabled lab gate.
+all_grandchildren = step('G0o.5 pinned first branch all-grandchildren third-level custody')
+assert "!cancelled()" in all_grandchildren
+assert "steps.gate.outputs.run_lab == 'true'" in all_grandchildren
+assert "env.G0_OLD_PDF != ''" in all_grandchildren
+assert "env.G0_NEW_PDF != ''" in all_grandchildren
+assert 'dart run tool/c500_g0_bounded_xref.dart --audit-first-branch-all-grandchildren' in all_grandchildren
 # G0i: mock-only PR validation must execute even when official lab is disabled.
 mock = step('G0i per-case crash classifier and long-ring regression (synthetic only)')
 assert 'bash tool/c500_g0_android_renderer_lab_contract_test.sh' in mock
