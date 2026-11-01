@@ -715,12 +715,15 @@ class C500G0BoundedXrefInspector {
               verifyFirstPageAllOperandsUnicode, rootChildOrdinal,
               verifyRootChildCounts, verifyFirstRootSubtreeCounts,
               verifySecondRootSubtreeCounts, verifyFirstGrandchildCounts,
-              verifyAllRootSubtreesCounts)
+              verifyAllRootSubtreesCounts,
+              verifyFirstBranchAllGrandchildrenCounts)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         'root_child_ordinal': rootChildOrdinal,
-        'sample_scope': verifyAllRootSubtreesCounts
+        'sample_scope': verifyFirstBranchAllGrandchildrenCounts
+            ? 'FIRST_BRANCH_ALL_GRANDCHILDREN_THREE_LEVELS_NOT_GLOBAL_PROOF'
+            : verifyAllRootSubtreesCounts
             ? 'ALL_ROOT_SUBTREES_TWO_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
             : verifyFirstGrandchildCounts
             ? 'FIRST_BRANCH_THREE_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
@@ -803,6 +806,7 @@ class C500G0BoundedXrefInspector {
     bool verifySecondRootSubtreeCounts,
     bool verifyFirstGrandchildCounts,
     bool verifyAllRootSubtreesCounts,
+    bool verifyFirstBranchAllGrandchildrenCounts,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
