@@ -30,7 +30,8 @@ void main() {
           // of a complete installed AccountRepository schema inventory.
           await db.execute(
             'CREATE TABLE accounts ('
-            'id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL)',
+            'id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, '
+            'is_archived INTEGER NOT NULL DEFAULT 0)',
           );
           await db.execute(
             'CREATE TABLE transactions ('
