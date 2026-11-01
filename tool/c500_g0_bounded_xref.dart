@@ -62,6 +62,76 @@ class C500G0RootKidSelector {
   }
 }
 
+// G0o: bounded root-level /Kids Count crosscheck. This validates only
+// immediate children, never their descendants, ordering or NOT_WIN.
+class C500G0RootChildCountAuditor {
+  const C500G0RootChildCountAuditor();
+
+  Future<Map<String, Object?>> inspect({
+    required String pagesBody,
+    required int rootId,
+    required int rootGeneration,
+    required int declaredPages,
+    required C500G0ReadObject readObject,
+  }) async {
+    if (declaredPages <= 0 || declaredPages > 1000000) {
+      throw const C500G0BoundedXrefException('C500_G0O_ROOT_COUNT_INVALID');
+    }
+    final groups = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
+        .allMatches(pagesBody).toList();
+    if (groups.length != 1) {
+      throw const C500G0BoundedXrefException('C500_G0O_ROOT_KIDS_INVALID');
+    }
+    final raw = groups.single.group(1)!;
+    final reference = RegExp(r'(\d+)\s+(\d+)\s+R\b');
+    final kids = reference.allMatches(raw).toList();
+    if (kids.isEmpty || kids.length > 64 ||
+        raw.replaceAll(reference, '').trim().isNotEmpty) {
+      throw const C500G0BoundedXrefException('C500_G0O_ROOT_KIDS_BUDGET_OR_GRAMMAR');
+    }
+    final seen = <int>{rootId};
+    var sum = 0;
+    for (final kid in kids) {
+      final id = int.parse(kid.group(1)!);
+      final generation = int.parse(kid.group(2)!);
+      if (!seen.add(id)) {
+        throw const C500G0BoundedXrefException('C500_G0O_ROOT_KID_DUPLICATE_OR_CYCLE');
+      }
+      final body = await readObject(id, generation);
+      final pages = RegExp(r'/Type\s*/Pages\b').hasMatch(body);
+      final page = RegExp(r'/Type\s*/Page\b').hasMatch(body);
+      if (pages == page) {
+        throw const C500G0BoundedXrefException('C500_G0O_ROOT_KID_TYPE_INVALID');
+      }
+      final parents = RegExp(r'/Parent\s+(\d+)\s+(\d+)\s+R\b')
+          .allMatches(body).toList();
+      if (parents.length != 1 ||
+          int.parse(parents.single.group(1)!) != rootId ||
+          int.parse(parents.single.group(2)!) != rootGeneration) {
+        throw const C500G0BoundedXrefException('C500_G0O_ROOT_KID_PARENT_MISMATCH');
+      }
+      final counts = RegExp(r'/Count\s+(\d+)\b').allMatches(body).toList();
+      if ((pages && counts.length != 1) || (page && counts.isNotEmpty)) {
+        throw const C500G0BoundedXrefException('C500_G0O_ROOT_KID_COUNT_INVALID');
+      }
+      final count = pages ? int.parse(counts.single.group(1)!) : 1;
+      if (count <= 0 || count > declaredPages || sum > declaredPages - count) {
+        throw const C500G0BoundedXrefException('C500_G0O_ROOT_KID_COUNT_OVERFLOW');
+      }
+      sum += count;
+    }
+    if (sum != declaredPages) {
+      throw const C500G0BoundedXrefException('C500_G0O_ROOT_COUNT_SUM_MISMATCH');
+    }
+    return <String, Object?>{
+      'root_child_count': kids.length,
+      'root_child_declared_count_sum': sum,
+      'root_level_count_consistency':
+          'VERIFIED_IMMEDIATE_CHILDREN_ONLY_DESCENDANTS_UNKNOWN',
+    };
+  }
+}
+
 class C500G0BoundedXrefInspector {
   const C500G0BoundedXrefInspector({
     this.maxHeaderBytes = 1024 * 1024,
@@ -95,10 +165,14 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageAllOperandsUnicode = false,
     // G0j: second root-child's leftmost leaf, NOT the document's second page.
     int rootChildOrdinal = 0,
+    bool verifyRootChildCounts = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
         rootChildOrdinal != -1 && rootChildOrdinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
+    }
+    if (verifyRootChildCounts && !verifyCatalogRoot) {
+      throw const C500G0BoundedXrefException('C500_G0O_REQUIRES_PINNED_ROOT');
     }
     if (rootChildOrdinal != 0 &&
         (!verifyCatalogRoot || !verifyFirstPageChild || !verifyFirstPagePath)) {
@@ -290,12 +364,15 @@ class C500G0BoundedXrefInspector {
               verifyFirstPageFontResources, verifyFirstPageCmapStreams,
               verifyFirstPageCmapSemantics, verifyFirstPageGlyphUnicode,
               verifyFirstPageOperandUnicodeRun,
-              verifyFirstPageAllOperandsUnicode, rootChildOrdinal)
+              verifyFirstPageAllOperandsUnicode, rootChildOrdinal,
+              verifyRootChildCounts)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         'root_child_ordinal': rootChildOrdinal,
-        'sample_scope': rootChildOrdinal == 0
+        'sample_scope': verifyRootChildCounts
+            ? 'ROOT_CHILD_COUNT_ONLY_NOT_DESCENDANT_OR_GLOBAL_PROOF'
+            : rootChildOrdinal == 0
             ? 'DOCUMENT_LEFTMOST_LEAF_ONLY'
             : rootChildOrdinal == 1
                 ? 'SECOND_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_SECOND_DOCUMENT_PAGE'
@@ -363,6 +440,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstPageOperandUnicodeRun,
     bool verifyFirstPageAllOperandsUnicode,
     int rootChildOrdinal,
+    bool verifyRootChildCounts,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -450,6 +528,15 @@ class C500G0BoundedXrefInspector {
     if (declared == null || declared <= 0 || declared > 1000000) {
       throw const C500G0BoundedXrefException('C500_G0P_PAGE_COUNT_INVALID');
     }
+    final rootCountEvidence = verifyRootChildCounts
+        ? await const C500G0RootChildCountAuditor().inspect(
+            pagesBody: pagesBody,
+            rootId: pagesId,
+            rootGeneration: int.parse(pages.group(2)!),
+            declaredPages: declared,
+            readObject: readObject,
+          )
+        : const <String, Object?>{};
     // G0t: inspect exactly one /Kids child through the pinned XRef.
     // Require the child's /Parent to point back to this Pages root.
     // This is not recursive traversal, award proof, or global NOT_WIN.
@@ -614,6 +701,7 @@ class C500G0BoundedXrefInspector {
       'pages_root_id': pagesId,
       'pages_root_verified': true,
       'declared_page_count_unverified': declared,
+      ...rootCountEvidence,
       ...firstChildEvidence,
       'page_tree': verifyFirstPagePath
           ? 'LEFTMOST_PATH_ONLY_NOT_TRAVERSED'
@@ -1060,7 +1148,9 @@ class C500G0BoundedXrefInspector {
 }
 
 Future<void> main(List<String> args) async {
-  final rootChildOrdinal = args.isEmpty ? 0
+  final auditRootChildren = args.length == 1 &&
+      args.single == '--audit-root-children';
+  final rootChildOrdinal = auditRootChildren || args.isEmpty ? 0
       : args.length == 1 && args.single == '--second-root-child' ? 1
       : args.length == 1 && args.single == '--last-root-child' ? -1
       : args.length == 1 && args.single == '--middle-root-child' ? -2 : -3;
@@ -1100,16 +1190,17 @@ Future<void> main(List<String> args) async {
         verifyObjectOffsets: false,
         verifyCompressedMembers: false,
         verifyCatalogRoot: true,
-        verifyFirstPageChild: true,
-        verifyFirstPagePath: true,
-        verifyFirstPageContents: true,
-        verifyFirstPageGlyphOperands: true,
-        verifyFirstPageFontResources: true,
-        verifyFirstPageCmapStreams: true,
-        verifyFirstPageCmapSemantics: true,
-        verifyFirstPageGlyphUnicode: true,
-        verifyFirstPageOperandUnicodeRun: true,
-        verifyFirstPageAllOperandsUnicode: true,
+        verifyFirstPageChild: !auditRootChildren,
+        verifyFirstPagePath: !auditRootChildren,
+        verifyFirstPageContents: !auditRootChildren,
+        verifyFirstPageGlyphOperands: !auditRootChildren,
+        verifyFirstPageFontResources: !auditRootChildren,
+        verifyFirstPageCmapStreams: !auditRootChildren,
+        verifyFirstPageCmapSemantics: !auditRootChildren,
+        verifyFirstPageGlyphUnicode: !auditRootChildren,
+        verifyFirstPageOperandUnicodeRun: !auditRootChildren,
+        verifyFirstPageAllOperandsUnicode: !auditRootChildren,
+        verifyRootChildCounts: auditRootChildren,
         rootChildOrdinal: rootChildOrdinal,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));

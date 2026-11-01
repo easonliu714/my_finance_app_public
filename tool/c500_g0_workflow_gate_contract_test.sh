@@ -48,6 +48,12 @@ assert '!cancelled()' in middle
 assert "steps.gate.outputs.run_lab == 'true'" in middle
 assert "env.G0_OLD_PDF != ''" in middle and "env.G0_NEW_PDF != ''" in middle
 assert 'dart run tool/c500_g0_bounded_xref.dart --middle-root-child' in middle
+# G0o: independent pinned-source immediate root-level consistency audit.
+counts = step('G0o pinned root child count consistency (not page proof)')
+assert '!cancelled()' in counts
+assert "steps.gate.outputs.run_lab == 'true'" in counts
+assert "env.G0_OLD_PDF != ''" in counts and "env.G0_NEW_PDF != ''" in counts
+assert 'dart run tool/c500_g0_bounded_xref.dart --audit-root-children' in counts
 common = ("!cancelled()", "steps.gate.outputs.run_lab == 'true'",
           "env.G0_OLD_PDF != ''", "env.G0_NEW_PDF != ''")
 for name, step_id, required_predecessor in (

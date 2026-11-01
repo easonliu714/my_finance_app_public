@@ -269,6 +269,102 @@ Future<Map<String, Object?>> inspectSynthetic(
 void main() {
   late Directory directory;
 
+  // G0o: synthetic-only immediate-root count/parent consistency.
+  // No descendant page, Unicode, award or global negative proof.
+  test('G0o validates immediate child counts and parent custody', () async {
+    final result = await const C500G0RootChildCountAuditor().inspect(
+      pagesBody: '<< /Type /Pages /Count 3 /Kids [11 0 R 12 0 R] >>',
+      rootId: 5,
+      rootGeneration: 0,
+      declaredPages: 3,
+      readObject: (id, generation) async {
+        if (id == 11 && generation == 0) {
+          return '11 0 obj << /Type /Pages /Parent 5 0 R /Count 2 >>';
+        }
+        if (id == 12 && generation == 0) {
+          return '12 0 obj << /Type /Page /Parent 5 0 R >>';
+        }
+        throw StateError('unexpected child');
+      },
+    );
+    expect(result['root_child_count'], 2);
+    expect(result['root_child_declared_count_sum'], 3);
+    expect(result['root_level_count_consistency'],
+        'VERIFIED_IMMEDIATE_CHILDREN_ONLY_DESCENDANTS_UNKNOWN');
+    expect(result.toString().contains('NOT_WIN'), false);
+  });
+
+  test('G0o rejects count mismatch and forged parent', () async {
+    for (final forgedParent in <bool>[false, true]) {
+      await expectLater(
+        const C500G0RootChildCountAuditor().inspect(
+          pagesBody: '<< /Kids [11 0 R 12 0 R] >>',
+          rootId: 5,
+          rootGeneration: 0,
+          declaredPages: forgedParent ? 3 : 4,
+          readObject: (id, generation) async {
+            if (id == 11) {
+              return '<< /Type /Pages /Parent 5 0 R /Count 2 >>';
+            }
+            return forgedParent
+                ? '<< /Type /Page /Parent 99 0 R >>'
+                : '<< /Type /Page /Parent 5 0 R >>';
+          },
+        ),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+          (e) => e.code, 'code',
+          forgedParent
+              ? 'C500_G0O_ROOT_KID_PARENT_MISMATCH'
+              : 'C500_G0O_ROOT_COUNT_SUM_MISMATCH',
+        )),
+      );
+    }
+  });
+
+  test('G0o rejects duplicate, cycle, malformed and over-budget kids', () async {
+    final cases = <String>[
+      '<< /Kids [11 0 R 11 1 R] >>',
+      '<< /Kids [5 0 R 11 0 R] >>',
+      '<< /Kids [11 0 R /Bogus 12 0 R] >>',
+      '<< /Kids [] >>',
+      '<< /Kids [11 0 R] /Kids [12 0 R] >>',
+      '<< /Kids [' + List<String>.filled(65, '11 0 R').join(' ') + '] >>',
+    ];
+    for (final body in cases) {
+      await expectLater(
+        const C500G0RootChildCountAuditor().inspect(
+          pagesBody: body,
+          rootId: 5,
+          rootGeneration: 0,
+          declaredPages: 1,
+          readObject: (id, generation) async =>
+              '<< /Type /Page /Parent 5 0 R >>',
+        ),
+        throwsA(isA<C500G0BoundedXrefException>()),
+      );
+    }
+  });
+
+  test('G0o rejects child count overflow and invalid Page Count', () async {
+    for (final child in <String>[
+      '<< /Type /Pages /Parent 5 0 R /Count 4 >>',
+      '<< /Type /Pages /Parent 5 0 R /Count 0 >>',
+      '<< /Type /Page /Parent 5 0 R /Count 1 >>',
+      '<< /Type /Catalog /Parent 5 0 R >>',
+    ]) {
+      await expectLater(
+        const C500G0RootChildCountAuditor().inspect(
+          pagesBody: '<< /Kids [11 0 R] >>',
+          rootId: 5,
+          rootGeneration: 0,
+          declaredPages: 3,
+          readObject: (id, generation) async => child,
+        ),
+        throwsA(isA<C500G0BoundedXrefException>()),
+      );
+    }
+  });
+
   // G0j: strict bounded second root-child selection; synthetic-only.
   test('G0j selects distinct first and second root children without global proof', () {
     const selector = C500G0RootKidSelector();
