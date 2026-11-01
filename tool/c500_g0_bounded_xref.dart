@@ -194,6 +194,56 @@ class C500G0FirstRootSubtreeCountAuditor {
   }
 }
 
+// G0o.3: bounded third-level /Kids custody on one first branch only.
+class C500G0ThreeLevelFirstBranchAuditor {
+  const C500G0ThreeLevelFirstBranchAuditor();
+  Future<Map<String, Object?>> inspect({
+    required String pagesBody, required int rootId,
+    required int rootGeneration, required int declaredPages,
+    required C500G0ReadObject readObject,
+  }) async {
+    final two = await const C500G0FirstRootSubtreeCountAuditor().inspect(
+      pagesBody: pagesBody, rootId: rootId,
+      rootGeneration: rootGeneration, declaredPages: declaredPages,
+      readObject: readObject,
+    );
+    final first = const C500G0RootKidSelector().select(pagesBody, 0);
+    final firstBody = await readObject(first.$1, first.$2);
+    final child = const C500G0RootKidSelector().select(firstBody, 0);
+    if (child.$1 == rootId || child.$1 == first.$1) {
+      throw const C500G0BoundedXrefException('C500_G0O3_BRANCH_CYCLE');
+    }
+    final body = await readObject(child.$1, child.$2);
+    if (!RegExp(r'/Type\s*/Pages\b').hasMatch(body) ||
+        RegExp(r'/Type\s*/Page\b').hasMatch(body)) {
+      throw const C500G0BoundedXrefException('C500_G0O3_GRANDCHILD_NOT_PAGES');
+    }
+    final matches = RegExp(r'/Count\s+(\d+)\b').allMatches(body).toList();
+    if (matches.length != 1) {
+      throw const C500G0BoundedXrefException('C500_G0O3_COUNT_INVALID');
+    }
+    final count = int.parse(matches.single.group(1)!);
+    if (count <= 0 ||
+        count > (two['first_root_subtree_declared_count']! as int)) {
+      throw const C500G0BoundedXrefException('C500_G0O3_COUNT_BOUNDS');
+    }
+    final third = await const C500G0RootChildCountAuditor().inspect(
+      pagesBody: body, rootId: child.$1, rootGeneration: child.$2,
+      declaredPages: count, readObject: readObject,
+    );
+    return <String, Object?>{
+      ...two,
+      'first_grandchild_subtree_id': child.$1,
+      'first_grandchild_subtree_declared_count': count,
+      'first_grandchild_subtree_child_count': third['root_child_count'],
+      'first_grandchild_subtree_child_count_sum':
+          third['root_child_declared_count_sum'],
+      'first_grandchild_subtree_consistency':
+          'VERIFIED_THREE_LEVELS_ONE_BRANCH_ONLY_REMAINDER_UNKNOWN',
+    };
+  }
+}
+
 class C500G0BoundedXrefInspector {
   const C500G0BoundedXrefInspector({
     this.maxHeaderBytes = 1024 * 1024,
@@ -230,10 +280,15 @@ class C500G0BoundedXrefInspector {
     bool verifyRootChildCounts = false,
     bool verifyFirstRootSubtreeCounts = false,
     bool verifySecondRootSubtreeCounts = false,
+    bool verifyFirstGrandchildCounts = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
         rootChildOrdinal != -1 && rootChildOrdinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
+    }
+    if (verifyFirstGrandchildCounts &&
+        (verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts)) {
+      throw const C500G0BoundedXrefException('C500_G0O3_EXCLUSIVE_AUDIT');
     }
     if (verifyFirstRootSubtreeCounts && verifySecondRootSubtreeCounts) {
       throw const C500G0BoundedXrefException('C500_G0O2_EXCLUSIVE_AUDIT');
@@ -241,12 +296,15 @@ class C500G0BoundedXrefInspector {
     if (verifySecondRootSubtreeCounts && rootChildOrdinal != 1) {
       throw const C500G0BoundedXrefException('C500_G0O2_REQUIRES_SECOND_CHILD');
     }
-    if ((verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts) &&
-        !verifyRootChildCounts) {
+    if ((verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts ||
+        verifyFirstGrandchildCounts) && !verifyRootChildCounts) {
       throw const C500G0BoundedXrefException('C500_G0O1_REQUIRES_ROOT_AUDIT');
     }
     if (verifyRootChildCounts && !verifyCatalogRoot) {
       throw const C500G0BoundedXrefException('C500_G0O_REQUIRES_PINNED_ROOT');
+    }
+    if (verifyFirstGrandchildCounts && rootChildOrdinal != 0) {
+      throw const C500G0BoundedXrefException('C500_G0O3_REQUIRES_FIRST_CHILD');
     }
     if (rootChildOrdinal != 0 && !verifySecondRootSubtreeCounts &&
         (!verifyCatalogRoot || !verifyFirstPageChild || !verifyFirstPagePath)) {
@@ -440,12 +498,14 @@ class C500G0BoundedXrefInspector {
               verifyFirstPageOperandUnicodeRun,
               verifyFirstPageAllOperandsUnicode, rootChildOrdinal,
               verifyRootChildCounts, verifyFirstRootSubtreeCounts,
-              verifySecondRootSubtreeCounts)
+              verifySecondRootSubtreeCounts, verifyFirstGrandchildCounts)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         'root_child_ordinal': rootChildOrdinal,
-        'sample_scope': verifySecondRootSubtreeCounts
+        'sample_scope': verifyFirstGrandchildCounts
+            ? 'FIRST_BRANCH_THREE_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
+            : verifySecondRootSubtreeCounts
             ? 'SECOND_ROOT_SUBTREE_TWO_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
             : verifyFirstRootSubtreeCounts
             ? 'FIRST_ROOT_SUBTREE_TWO_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
@@ -522,6 +582,7 @@ class C500G0BoundedXrefInspector {
     bool verifyRootChildCounts,
     bool verifyFirstRootSubtreeCounts,
     bool verifySecondRootSubtreeCounts,
+    bool verifyFirstGrandchildCounts,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -610,7 +671,13 @@ class C500G0BoundedXrefInspector {
       throw const C500G0BoundedXrefException('C500_G0P_PAGE_COUNT_INVALID');
     }
     final rootCountEvidence =
-        (verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts)
+        verifyFirstGrandchildCounts
+        ? await const C500G0ThreeLevelFirstBranchAuditor().inspect(
+            pagesBody: pagesBody, rootId: pagesId,
+            rootGeneration: int.parse(pages.group(2)!),
+            declaredPages: declared, readObject: readObject,
+          )
+        : (verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts)
         ? await const C500G0FirstRootSubtreeCountAuditor().inspect(
             pagesBody: pagesBody,
             rootId: pagesId,
@@ -1243,7 +1310,10 @@ Future<void> main(List<String> args) async {
       args.single == '--audit-first-root-subtree';
   final auditSecondSubtree = args.length == 1 &&
       args.single == '--audit-second-root-subtree';
+  final auditFirstGrandchild = args.length == 1 &&
+      args.single == '--audit-first-grandchild';
   final auditRootChildren = auditFirstSubtree || auditSecondSubtree ||
+      auditFirstGrandchild ||
       (args.length == 1 && args.single == '--audit-root-children');
   final rootChildOrdinal = auditSecondSubtree ? 1
       : auditRootChildren || args.isEmpty ? 0
@@ -1299,6 +1369,7 @@ Future<void> main(List<String> args) async {
         verifyRootChildCounts: auditRootChildren,
         verifyFirstRootSubtreeCounts: auditFirstSubtree,
         verifySecondRootSubtreeCounts: auditSecondSubtree,
+        verifyFirstGrandchildCounts: auditFirstGrandchild,
         rootChildOrdinal: rootChildOrdinal,
       );
       stdout.writeln(jsonEncode(<String, Object?>{'period': period, ...result}));

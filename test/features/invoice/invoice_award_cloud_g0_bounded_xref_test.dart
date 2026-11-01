@@ -365,6 +365,55 @@ void main() {
     }
   });
 
+  // G0o.3: bounded third-level branch; synthetic is not source evidence.
+  test('G0o.3 three-level parent and count custody positive', () async {
+    final nodes = <int, String>{
+      11: '<< /Type /Pages /Parent 5 0 R /Count 3 /Kids [21 0 R 22 0 R] >>',
+      12: '<< /Type /Page /Parent 5 0 R >>',
+      21: '<< /Type /Pages /Parent 11 0 R /Count 2 /Kids [31 0 R 32 0 R] >>',
+      22: '<< /Type /Page /Parent 11 0 R >>',
+      31: '<< /Type /Page /Parent 21 0 R >>',
+      32: '<< /Type /Page /Parent 21 0 R >>',
+    };
+    final result = await const C500G0ThreeLevelFirstBranchAuditor().inspect(
+      pagesBody: '<< /Count 4 /Kids [11 0 R 12 0 R] >>',
+      rootId: 5, rootGeneration: 0, declaredPages: 4,
+      readObject: (id, generation) async => nodes[id]!,
+    );
+    expect(result['first_grandchild_subtree_id'], 21);
+    expect(result['first_grandchild_subtree_child_count_sum'], 2);
+    expect(result['first_grandchild_subtree_consistency'],
+        'VERIFIED_THREE_LEVELS_ONE_BRANCH_ONLY_REMAINDER_UNKNOWN');
+    expect(result.toString().contains('NOT_WIN'), false);
+  });
+
+  test('G0o.3 third-level forged parent/duplicate/count/leaf fail closed',
+      () async {
+    for (final fault in <String>['parent', 'duplicate', 'count', 'leaf']) {
+      final nodes = <int, String>{
+        11: '<< /Type /Pages /Parent 5 0 R /Count 3 /Kids [21 0 R 22 0 R] >>',
+        12: '<< /Type /Page /Parent 5 0 R >>',
+        21: fault == 'leaf'
+            ? '<< /Type /Page /Parent 11 0 R >>'
+            : '<< /Type /Pages /Parent 11 0 R /Count 2 '
+                '/Kids [31 0 R ${fault == 'duplicate' ? 31 : 32} 0 R] >>',
+        22: '<< /Type /Page /Parent 11 0 R >>',
+        31: '<< /Type /Page /Parent ${fault == 'parent' ? 99 : 21} 0 R >>',
+        32: fault == 'count'
+            ? '<< /Type /Pages /Parent 21 0 R /Count 2 >>'
+            : '<< /Type /Page /Parent 21 0 R >>',
+      };
+      await expectLater(
+        const C500G0ThreeLevelFirstBranchAuditor().inspect(
+          pagesBody: '<< /Count 4 /Kids [11 0 R 12 0 R] >>',
+          rootId: 5, rootGeneration: 0, declaredPages: 4,
+          readObject: (id, generation) async => nodes[id]!,
+        ),
+        throwsA(isA<C500G0BoundedXrefException>()),
+      );
+    }
+  });
+
   // G0o.1: two pinned levels only; synthetic cases cannot prove NOT_WIN.
   test('G0o.1 verifies first subtree immediate child counts', () async {
     final result = await const C500G0FirstRootSubtreeCountAuditor().inspect(
