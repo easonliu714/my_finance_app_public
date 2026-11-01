@@ -42,6 +42,12 @@ assert '!cancelled()' in last
 assert "steps.gate.outputs.run_lab == 'true'" in last
 assert "env.G0_OLD_PDF != ''" in last and "env.G0_NEW_PDF != ''" in last
 assert 'dart run tool/c500_g0_bounded_xref.dart --last-root-child' in last
+# G0n: real source only when the pinned pair and gate actually execute.
+middle = step('G0n pinned middle root-child leftmost leaf Unicode coverage')
+assert '!cancelled()' in middle
+assert "steps.gate.outputs.run_lab == 'true'" in middle
+assert "env.G0_OLD_PDF != ''" in middle and "env.G0_NEW_PDF != ''" in middle
+assert 'dart run tool/c500_g0_bounded_xref.dart --middle-root-child' in middle
 common = ("!cancelled()", "steps.gate.outputs.run_lab == 'true'",
           "env.G0_OLD_PDF != ''", "env.G0_NEW_PDF != ''")
 for name, step_id, required_predecessor in (

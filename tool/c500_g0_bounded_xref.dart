@@ -23,7 +23,7 @@ class C500G0RootKidSelector {
   const C500G0RootKidSelector();
 
   (int, int) select(String pagesBody, int ordinal) {
-    if (ordinal != 0 && ordinal != 1 && ordinal != -1) {
+    if (ordinal != 0 && ordinal != 1 && ordinal != -1 && ordinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
     }
     final kids = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
@@ -48,7 +48,12 @@ class C500G0RootKidSelector {
     if (ordinal == -1 && matches.length < 3) {
       throw const C500G0BoundedXrefException('C500_G0M_LAST_ROOT_CHILD_NOT_DISTINCT');
     }
-    final selectedIndex = ordinal == -1 ? matches.length - 1 : ordinal;
+    // G0n: an interior subtree must differ from first, second and tail.
+    if (ordinal == -2 && matches.length < 5) {
+      throw const C500G0BoundedXrefException('C500_G0N_MIDDLE_ROOT_CHILD_NOT_DISTINCT');
+    }
+    final selectedIndex = ordinal == -2 ? matches.length ~/ 2
+        : ordinal == -1 ? matches.length - 1 : ordinal;
     if (matches.length <= selectedIndex) {
       throw const C500G0BoundedXrefException('C500_G0J_SECOND_ROOT_CHILD_MISSING');
     }
@@ -92,7 +97,7 @@ class C500G0BoundedXrefInspector {
     int rootChildOrdinal = 0,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
-        rootChildOrdinal != -1) {
+        rootChildOrdinal != -1 && rootChildOrdinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
     }
     if (rootChildOrdinal != 0 &&
@@ -294,7 +299,9 @@ class C500G0BoundedXrefInspector {
             ? 'DOCUMENT_LEFTMOST_LEAF_ONLY'
             : rootChildOrdinal == 1
                 ? 'SECOND_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_SECOND_DOCUMENT_PAGE'
-                : 'LAST_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_LAST_DOCUMENT_PAGE',
+                : rootChildOrdinal == -1
+                    ? 'LAST_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_LAST_DOCUMENT_PAGE'
+                    : 'MIDDLE_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_MIDDLE_DOCUMENT_PAGE',
         ...navigation,
         ...catalog,
         'sha256': source.sha256,
@@ -1055,9 +1062,10 @@ class C500G0BoundedXrefInspector {
 Future<void> main(List<String> args) async {
   final rootChildOrdinal = args.isEmpty ? 0
       : args.length == 1 && args.single == '--second-root-child' ? 1
-      : args.length == 1 && args.single == '--last-root-child' ? -1 : -2;
-  if (rootChildOrdinal == -2) {
-    stderr.writeln('C500_G0M_USAGE_OPTIONAL_SECOND_OR_LAST_ROOT_CHILD');
+      : args.length == 1 && args.single == '--last-root-child' ? -1
+      : args.length == 1 && args.single == '--middle-root-child' ? -2 : -3;
+  if (rootChildOrdinal == -3) {
+    stderr.writeln('C500_G0N_USAGE_OPTIONAL_SECOND_LAST_OR_MIDDLE_ROOT_CHILD');
     exitCode = 64;
     return;
   }
