@@ -277,6 +277,38 @@ void main() {
     expect(selector.select(body, 1), (6, 0));
   });
 
+  // G0m: the last root subtree is a distinct, far-tail bounded sample.
+  // This is not a proof of intervening pages or global NOT_WIN.
+  test('G0m selects the last distinct root child, preserving first/second', () {
+    const selector = C500G0RootKidSelector();
+    const body = '<< /Type /Pages /Count 87000 /Kids [5 0 R 6 0 R 7 0 R 8 0 R] >>';
+    expect(selector.select(body, 0), (5, 0));
+    expect(selector.select(body, 1), (6, 0));
+    expect(selector.select(body, -1), (8, 0));
+  });
+
+  test('G0m fails closed without a distinct last child or valid Kids', () {
+    const selector = C500G0RootKidSelector();
+    for (final body in <String>[
+      '<< /Kids [5 0 R] >>',
+      '<< /Kids [5 0 R 6 0 R] >>',
+    ]) {
+      expect(() => selector.select(body, -1),
+          throwsA(isA<C500G0BoundedXrefException>().having(
+              (e) => e.code, 'code', 'C500_G0M_LAST_ROOT_CHILD_NOT_DISTINCT')));
+    }
+    for (final body in <String>[
+      '<< /Kids [5 0 R 6 0 R 6 0 R] >>',
+      '<< /Kids [5 0 R 6 0 R /Bogus 7 0 R] >>',
+    ]) {
+      expect(() => selector.select(body, -1),
+          throwsA(isA<C500G0BoundedXrefException>()));
+    }
+    expect(() => selector.select('<< /Kids [5 0 R 6 0 R 7 0 R] >>', 2),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+            (e) => e.code, 'code', 'C500_G0J_ORDINAL_INVALID')));
+  });
+
   test('G0j rejects absent, duplicated, malformed and excessive root kids', () {
     const selector = C500G0RootKidSelector();
     for (final input in <String>[

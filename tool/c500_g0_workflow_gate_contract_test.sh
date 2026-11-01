@@ -36,6 +36,12 @@ assert '!cancelled()' in second
 assert "steps.gate.outputs.run_lab == 'true'" in second
 assert "env.G0_OLD_PDF != ''" in second and "env.G0_NEW_PDF != ''" in second
 assert 'dart run tool/c500_g0_bounded_xref.dart --second-root-child' in second
+# G0m: only actual pinned bytes can provide a new far-tail leaf sample.
+last = step('G0m pinned last root-child leftmost leaf Unicode coverage')
+assert '!cancelled()' in last
+assert "steps.gate.outputs.run_lab == 'true'" in last
+assert "env.G0_OLD_PDF != ''" in last and "env.G0_NEW_PDF != ''" in last
+assert 'dart run tool/c500_g0_bounded_xref.dart --last-root-child' in last
 common = ("!cancelled()", "steps.gate.outputs.run_lab == 'true'",
           "env.G0_OLD_PDF != ''", "env.G0_NEW_PDF != ''")
 for name, step_id, required_predecessor in (

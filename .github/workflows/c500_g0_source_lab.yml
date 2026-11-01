@@ -191,6 +191,16 @@ jobs:
           set -euo pipefail
           timeout 240s dart run tool/c500_g0_bounded_xref.dart --second-root-child
 
+      # G0m: new far-tail root subtree (not the last page). One SHA-pinned
+      # bounded leaf per period; independent of qpdf/Android failures.
+      - name: G0m pinned last root-child leftmost leaf Unicode coverage
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --last-root-child
+
       # G0d/e/f: independent failure domain. qpdf bad_alloc and bounded-XRef
       # failures must remain FAIL, but must NOT implicitly skip the pinned
       # source-backed Android first-failure experiment. Only the verified

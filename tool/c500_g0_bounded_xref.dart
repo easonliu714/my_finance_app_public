@@ -23,7 +23,7 @@ class C500G0RootKidSelector {
   const C500G0RootKidSelector();
 
   (int, int) select(String pagesBody, int ordinal) {
-    if (ordinal != 0 && ordinal != 1) {
+    if (ordinal != 0 && ordinal != 1 && ordinal != -1) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
     }
     final kids = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
@@ -43,10 +43,16 @@ class C500G0RootKidSelector {
         throw const C500G0BoundedXrefException('C500_G0J_DUPLICATE_KID');
       }
     }
-    if (matches.length <= ordinal) {
+    // G0m: select a genuinely new far-tail subtree without enumerating
+    // page descendants. A two-child root cannot count as new coverage.
+    if (ordinal == -1 && matches.length < 3) {
+      throw const C500G0BoundedXrefException('C500_G0M_LAST_ROOT_CHILD_NOT_DISTINCT');
+    }
+    final selectedIndex = ordinal == -1 ? matches.length - 1 : ordinal;
+    if (matches.length <= selectedIndex) {
       throw const C500G0BoundedXrefException('C500_G0J_SECOND_ROOT_CHILD_MISSING');
     }
-    final selected = matches[ordinal];
+    final selected = matches[selectedIndex];
     return (int.parse(selected.group(1)!), int.parse(selected.group(2)!));
   }
 }
@@ -85,10 +91,11 @@ class C500G0BoundedXrefInspector {
     // G0j: second root-child's leftmost leaf, NOT the document's second page.
     int rootChildOrdinal = 0,
   }) async {
-    if (rootChildOrdinal != 0 && rootChildOrdinal != 1) {
+    if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
+        rootChildOrdinal != -1) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
     }
-    if (rootChildOrdinal == 1 &&
+    if (rootChildOrdinal != 0 &&
         (!verifyCatalogRoot || !verifyFirstPageChild || !verifyFirstPagePath)) {
       throw const C500G0BoundedXrefException('C500_G0J_REQUIRES_PINNED_PATH');
     }
@@ -285,7 +292,9 @@ class C500G0BoundedXrefInspector {
         'root_child_ordinal': rootChildOrdinal,
         'sample_scope': rootChildOrdinal == 0
             ? 'DOCUMENT_LEFTMOST_LEAF_ONLY'
-            : 'SECOND_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_SECOND_DOCUMENT_PAGE',
+            : rootChildOrdinal == 1
+                ? 'SECOND_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_SECOND_DOCUMENT_PAGE'
+                : 'LAST_ROOT_CHILD_LEFTMOST_LEAF_ONLY_NOT_LAST_DOCUMENT_PAGE',
         ...navigation,
         ...catalog,
         'sha256': source.sha256,
@@ -586,6 +595,9 @@ class C500G0BoundedXrefInspector {
           }
         }
       }
+      // Retain the legacy key for existing tests, but identify the actual
+      // selected subtree explicitly in new bounded evidence.
+      firstChildEvidence['selected_root_child_id'] = childId;
       firstChildEvidence['first_root_child_id'] = childId;
       firstChildEvidence['first_root_child_verified'] = true;
     }
@@ -1042,9 +1054,10 @@ class C500G0BoundedXrefInspector {
 
 Future<void> main(List<String> args) async {
   final rootChildOrdinal = args.isEmpty ? 0
-      : args.length == 1 && args.single == '--second-root-child' ? 1 : -1;
-  if (rootChildOrdinal < 0) {
-    stderr.writeln('C500_G0J_USAGE_OPTIONAL_SECOND_ROOT_CHILD');
+      : args.length == 1 && args.single == '--second-root-child' ? 1
+      : args.length == 1 && args.single == '--last-root-child' ? -1 : -2;
+  if (rootChildOrdinal == -2) {
+    stderr.writeln('C500_G0M_USAGE_OPTIONAL_SECOND_OR_LAST_ROOT_CHILD');
     exitCode = 64;
     return;
   }
