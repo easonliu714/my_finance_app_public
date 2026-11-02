@@ -987,11 +987,13 @@ class C500G0BoundedXrefInspector {
       if (!RegExp(r'/Type\s*/(?:Pages|Page)\b').hasMatch(childBody)) {
         throw const C500G0BoundedXrefException('C500_G0T_CHILD_TYPE_INVALID');
       }
-      final parent = RegExp(r'/Parent\s+(\d+)\s+(\d+)\s+R\b')
-          .firstMatch(childBody);
-      if (parent == null ||
-          int.parse(parent.group(1)!) != pagesId ||
-          int.parse(parent.group(2)!) != int.parse(pages.group(2)!)) {
+      // G0o.9: an additional /Parent can contradict the first matching
+      // reference. Fail closed before granting even one sampled leaf path.
+      final parents = RegExp(r'/Parent\s+(\d+)\s+(\d+)\s+R\b')
+          .allMatches(childBody).toList();
+      if (parents.length != 1 ||
+          int.parse(parents.single.group(1)!) != pagesId ||
+          int.parse(parents.single.group(2)!) != int.parse(pages.group(2)!)) {
         throw const C500G0BoundedXrefException('C500_G0T_PARENT_MISMATCH');
       }
       // G0u: only the leftmost bounded path to one Page leaf.
@@ -1036,11 +1038,13 @@ class C500G0BoundedXrefInspector {
           if (!RegExp(r'/Type\s*/(?:Pages|Page)\b').hasMatch(nextBody)) {
             throw const C500G0BoundedXrefException('C500_G0U_CHILD_TYPE_INVALID');
           }
-          final parentRef = RegExp(r'/Parent\s+(\d+)\s+(\d+)\s+R\b')
-              .firstMatch(nextBody);
-          if (parentRef == null ||
-              int.parse(parentRef.group(1)!) != nodeId ||
-              int.parse(parentRef.group(2)!) != nodeGeneration) {
+          // G0o.9: reject duplicate /Parent on each bounded descendant;
+          // a valid first entry cannot hide a forged second entry.
+          final parentRefs = RegExp(r'/Parent\s+(\d+)\s+(\d+)\s+R\b')
+              .allMatches(nextBody).toList();
+          if (parentRefs.length != 1 ||
+              int.parse(parentRefs.single.group(1)!) != nodeId ||
+              int.parse(parentRefs.single.group(2)!) != nodeGeneration) {
             throw const C500G0BoundedXrefException('C500_G0U_PARENT_MISMATCH');
           }
           parentCount = childCount;

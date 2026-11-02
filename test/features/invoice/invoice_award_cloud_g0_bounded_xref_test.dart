@@ -99,8 +99,10 @@ Future<File> makeCatalogSynthetic(
   bool duplicateNestedCount = false,
   bool includeFirstChild = false,
   bool wrongFirstChildParent = false,
+  bool duplicateFirstChildParent = false,
   bool nestedFirstChild = false,
   bool wrongNestedParent = false,
+  bool duplicateNestedParent = false,
   bool nestedCycle = false,
   bool nestedExcessCount = false,
   bool includePageContent = false,
@@ -131,13 +133,15 @@ Future<File> makeCatalogSynthetic(
   final obj5 = includeFirstChild
       ? latin1.encode('5 0 obj\n<< /Type /${nestedFirstChild ? 'Pages' : 'Page'} /Parent '
           '${wrongFirstChildParent ? 9 : 3} 0 R '
+          '${duplicateFirstChildParent ? '/Parent 9 0 R ' : ''}'
           '${nestedFirstChild ? '/Count ${nestedExcessCount ? 2 : 1} ${duplicateNestedCount ? '/Count 2 ' : ''}/Kids [${nestedCycle ? 3 : 6} 0 R]' : ''}'
           '${includePageContent ? '/Contents ${forgedContentReference ? 9 : 7} 0 R' : ''} >>\nendobj\n')
       : <int>[];
   final obj6Offset = obj5Offset + obj5.length;
   final obj6 = nestedFirstChild
       ? latin1.encode('6 0 obj\n<< /Type /Page /Parent '
-          '${wrongNestedParent ? 9 : 5} 0 R >>\nendobj\n')
+          '${wrongNestedParent ? 9 : 5} 0 R '
+          '${duplicateNestedParent ? '/Parent 9 0 R ' : ''}>>\nendobj\n')
       : <int>[];
   final contentCompressed = zlib.encode(latin1.encode('BT /F1 12 Tf (TEST) Tj ET'));
   final obj7Offset = obj6Offset + obj6.length;
@@ -1270,6 +1274,19 @@ void main() {
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0T_PARENT_MISMATCH')));
   });
+  // G0o.9: one valid /Parent followed by a forged /Parent is ambiguous.
+  // Preserve the existing positive root-child contract and reject ambiguity.
+  test('G0o.9 duplicate root-child Parent fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, duplicateFirstChildParent: true);
+    await expectLater(
+      inspectSynthetic(file,
+          verifyCatalogRoot: true, verifyFirstPageChild: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0T_PARENT_MISMATCH')),
+    );
+  });
+
   test('G0t requires root verification', () async {
     final file = await makeCatalogSynthetic(directory, includeFirstChild: true);
     await expectLater(inspectSynthetic(file, verifyFirstPageChild: true),
@@ -1302,6 +1319,20 @@ void main() {
       throwsA(isA<C500G0BoundedXrefException>().having(
         (e) => e.code, 'code', 'C500_G0U_SUBTREE_COUNT_INVALID')));
   });
+  // G0o.9: the bounded descendant must also have exactly one parent.
+  test('G0o.9 duplicate nested Page Parent fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, nestedFirstChild: true,
+        duplicateNestedParent: true);
+    await expectLater(
+      inspectSynthetic(file,
+          verifyCatalogRoot: true, verifyFirstPageChild: true,
+          verifyFirstPagePath: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0U_PARENT_MISMATCH')),
+    );
+  });
+
   test('G0u nested forged Parent fails closed', () async {
     final file = await makeCatalogSynthetic(directory,
         includeFirstChild: true, nestedFirstChild: true,
