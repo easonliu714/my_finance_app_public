@@ -115,7 +115,6 @@ void main() {
       // otherwise mismatched signer appear upgrade-compatible.
       final forgedParity = await invoke(
         security.replaceFirst(canonicalLine, matchingLine),
-        trustFixture: true,
       );
       expect(forgedParity.exitCode, isNot(0));
       expect(
@@ -136,6 +135,7 @@ void main() {
 
       final parity = await invoke(
         security.replaceFirst(canonicalLine, matchingLine),
+        trustFixture: true,
       );
       expect(parity.exitCode, 0);
       expect(
