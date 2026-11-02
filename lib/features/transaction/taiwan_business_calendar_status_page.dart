@@ -88,13 +88,16 @@ class _TaiwanBusinessCalendarStatusPageState
     try {
       final db = await _database();
       final now = (widget.clock ?? DateTime.now)();
-      final current = await _service.status(db, now.year);
-      final next = await _service.status(db, now.year + 1);
+      // B2: status labels and database years must use the same Taiwan date
+      // as annualUpdateDecision, including UTC year-end rollover.
+      final taipeiYear = now.toUtc().add(const Duration(hours: 8)).year;
+      final current = await _service.status(db, taipeiYear);
+      final next = await _service.status(db, taipeiYear + 1);
       final decision = await _service.annualUpdateDecision(db, now);
       if (!mounted) return;
       setState(() {
-        _currentStatus = '${now.year} 年：${_coverage(current)}';
-        _nextStatus = '${now.year + 1} 年：${_coverage(next)}';
+        _currentStatus = '${taipeiYear} 年：${_coverage(current)}';
+        _nextStatus = '${taipeiYear + 1} 年：${_coverage(next)}';
         _annualDecision = _decision(decision);
         _loading = false;
       });
