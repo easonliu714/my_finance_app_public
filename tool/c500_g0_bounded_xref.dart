@@ -47,11 +47,13 @@ class C500G0RootKidSelector {
     if (ordinal != 0 && ordinal != 1 && ordinal != -1 && ordinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
     }
-    final kids = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
-        .firstMatch(pagesBody)?.group(1);
-    if (kids == null) {
+    // G0o.7: duplicate /Kids dictionaries are ambiguous; fail closed.
+    final kidsGroups = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
+        .allMatches(pagesBody).toList();
+    if (kidsGroups.length != 1) {
       throw const C500G0BoundedXrefException('C500_G0T_KIDS_FORM_UNSUPPORTED');
     }
+    final kids = kidsGroups.single.group(1)!;
     final reference = RegExp(r'(\d+)\s+(\d+)\s+R\b');
     final matches = reference.allMatches(kids).toList();
     if (matches.isEmpty || matches.length > 2048 ||

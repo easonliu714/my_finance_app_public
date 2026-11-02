@@ -269,6 +269,29 @@ Future<Map<String, Object?>> inspectSynthetic(
 void main() {
   late Directory directory;
 
+  // G0o.7: conflicting /Kids dictionaries must not authorize a leaf path.
+  test('G0o.7 rejects duplicate Kids before bounded leaf selection', () {
+    const selector = C500G0RootKidSelector();
+    expect(
+      selector.select('<< /Type /Pages /Kids [11 0 R 12 0 R] >>', 1),
+      (12, 0),
+    );
+    for (final body in <String>[
+      '<< /Kids [11 0 R] /Kids [12 0 R] >>',
+      '<< /Kids [11 0 R] /Kids [11 0 R] >>',
+      '<< /Type /Pages /Count 1 >>',
+    ]) {
+      expect(
+        () => selector.select(body, 0),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+          (error) => error.code,
+          'code',
+          'C500_G0T_KIDS_FORM_UNSUPPORTED',
+        )),
+      );
+    }
+  });
+
   // G0o: synthetic-only immediate-root count/parent consistency.
   // No descendant page, Unicode, award or global negative proof.
   test('G0o validates immediate child counts and parent custody', () async {
