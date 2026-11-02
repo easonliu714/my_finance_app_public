@@ -10,7 +10,12 @@ void main() {
     expect(source, isNot(contains('offset / _ledgerTileApproxHeight')));
     expect(source, contains("label: '\${anchor.year}年'"));
     expect(source, contains(".padLeft(2, '0')}月'"));
-    expect(source, contains('來源／稽核資訊'));
+    // B1 disclosure redesign: geometry custody remains intact, while the
+    // ledger's user-facing tap must not expose the obsolete audit panel.
+    // Actual tap/opt-in behavior is exercised by the B1 widget regression.
+    expect(source, contains("key: ValueKey<String>('account-ledger-row-"));
+    expect(source, contains("title: const Text('顯示技術來源')"));
+    expect(source, isNot(contains('來源／稽核資訊')));
     expect(source, contains('ValueKey<String>(item.id)'));
   });
 
