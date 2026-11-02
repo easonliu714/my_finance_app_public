@@ -55,6 +55,32 @@ class FullBackupService {
   }
 
 
+  // B3 V29: compare only managed-table DDL, indexes and triggers. This is
+  // read-only SQLite metadata; public Registry cache DDL is intentionally
+  // excluded, and no financial row or backup payload is copied here.
+  Future<List<Map<String, Object?>>> captureManagedSchema(
+    DatabaseExecutor db,
+  ) async {
+    final managedTables = backupTableNames.toSet();
+    final rows = await db.rawQuery(
+      'SELECT type, name, tbl_name, sql FROM sqlite_master '
+      "WHERE type IN ('table', 'index', 'trigger') "
+      "AND name NOT LIKE 'sqlite_%' "
+      'ORDER BY type ASC, name ASC',
+    );
+    return rows
+        .where((row) => managedTables.contains(row['tbl_name']))
+        .map((row) => Map<String, Object?>.from(row))
+        .toList(growable: false);
+  }
+
+  Future<bool> managedSchemaMatches(
+    DatabaseExecutor db,
+    List<Map<String, Object?>> expected,
+  ) async {
+    return _snapshotValueEquals(expected, await captureManagedSchema(db));
+  }
+
   // B3 V27: after external custody persistence, re-read every managed table
   // under the SAME SQLite restore transaction before dropping immutable-row
   // guards or deleting anything. A stale backup cannot authorize destruction

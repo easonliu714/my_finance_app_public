@@ -55,6 +55,11 @@ class FullRestoreService {
     final rawData = envelope['data']! as Map<String, Object?>;
     final data = _normalizedManagedData(metadata, rawData);
     final backupCounts = _managedBackupCounts(data);
+    // B3 V29: capture managed schema before external custody I/O. A newly
+    // installed private trigger/index or altered managed DDL must not inherit
+    // authority from the older pre-restore backup snapshot.
+    final preRestoreManagedSchema =
+        await backupService.captureManagedSchema(db);
     final preRestoreBackupEnvelope = await backupService.buildFullBackupEnvelope(
       db,
       createdAt: preRestoreBackupCreatedAt,
@@ -68,9 +73,12 @@ class FullRestoreService {
     await db.transaction((txn) async {
       // B3 V27: abort before ANY trigger drop or destructive DML if another
       // writer changed managed data after the pre-restore custody snapshot.
-      if (!await backupService.managedSnapshotMatches(
-        txn, preRestoreBackupEnvelope,
-      )) {
+      if (!await backupService.managedSchemaMatches(
+            txn, preRestoreManagedSchema,
+          ) ||
+          !await backupService.managedSnapshotMatches(
+            txn, preRestoreBackupEnvelope,
+          )) {
         throw const FullRestoreException(
           '還原前備份快照與目前資料不一致；請重新確認備份後再還原',
         );

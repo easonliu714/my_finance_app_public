@@ -870,4 +870,122 @@ void main() {
         containsPair('created_at', revisedStamp));
     expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
   });
+
+  // B3 #18 V29: a private trigger created on an existing managed table
+  // during external custody is a schema race, even when table names and all
+  // managed row values remain unchanged. Fail before destructive restore.
+  // These are synthetic in-memory databases, not installed accounting data.
+  test('B3 V29 managed trigger DDL drift aborts restore custody', () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    const stamp = '2026-11-02T00:00:00Z';
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account', 'name': 'incoming', 'type': 'cash',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account', 'name': 'private-retained', 'type': 'cash',
+    });
+    await target.insert('merchant_brands', <String, Object?>{
+      'id': 'target-brand', 'display_name': 'private-brand',
+      'created_at': stamp, 'updated_at': stamp,
+    });
+    await target.insert('merchant_identity_observations', <String, Object?>{
+      'id': 'target-observation', 'literal_name': 'immutable-private',
+      'normalized_name': 'immutableprivate', 'source': 'isolated-fixture',
+      'merchant_brand_id': 'target-brand',
+      'observed_at': stamp, 'created_at': stamp,
+    });
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    var custodyCalled = false;
+    await expectLater(
+      const FullRestoreServiceV8().restoreFromEnvelope(
+        target, envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+        persistPreRestoreBackup: (custody) async {
+          custodyCalled = true;
+          expect(((custody['data']! as Map)['accounts'] as List).single,
+              containsPair('id', 'target-account'));
+          await target.execute(
+            'CREATE TRIGGER b3_private_managed_audit '
+            'AFTER UPDATE ON accounts BEGIN SELECT 1; END',
+          );
+          return 'isolated-synthetic-custody';
+        },
+      ),
+      throwsA(isA<FullRestoreException>()),
+    );
+    expect(custodyCalled, isTrue);
+    expect((await target.query('accounts')).single,
+        containsPair('name', 'private-retained'));
+    expect((await target.query('merchant_identity_observations')).single,
+        containsPair('id', 'target-observation'));
+    expect(
+      await target.query('sqlite_master',
+          columns: <String>['name'],
+          where: 'type = ? AND name = ?',
+          whereArgs: <Object?>['trigger', 'b3_private_managed_audit']),
+      hasLength(1),
+    );
+    await expectLater(
+      target.update('merchant_identity_observations',
+          <String, Object?>{'literal_name': 'forged'},
+          where: 'id = ?', whereArgs: <Object?>['target-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+  });
+
+  // B3 #18 V29 positive boundary: a new index on explicitly excluded public
+  // Registry cache during custody is not managed-schema drift and must remain
+  // intact after a successful isolated restore.
+  test('B3 V29 excluded cache index DDL is outside restore custody',
+      () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account', 'name': 'incoming', 'type': 'cash',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account', 'name': 'old-private', 'type': 'cash',
+    });
+    await target.insert('business_registry_snapshots', <String, Object?>{
+      'version': 'target-cache', 'source_dataset': 'synthetic-fixture',
+      'content_sha256': List<String>.filled(64, 'e').join(),
+      'status': 'installed', 'created_at': '2026-11-02T00:00:00Z',
+    });
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    final result = await const FullRestoreServiceV8().restoreFromEnvelope(
+      target, envelope,
+      confirmationText: FullRestoreService.destructiveConfirmationText,
+      persistPreRestoreBackup: (custody) async {
+        expect(custody['data']! as Map,
+            isNot(contains('business_registry_snapshots')));
+        await target.execute(
+          'CREATE INDEX b3_public_cache_extra_idx '
+          'ON business_registry_snapshots(status)',
+        );
+        return 'isolated-synthetic-custody';
+      },
+    );
+    expect(result.audit.passed, isTrue);
+    expect((await target.query('accounts')).single,
+        containsPair('id', 'source-account'));
+    expect((await target.query('business_registry_snapshots')).single,
+        containsPair('version', 'target-cache'));
+    expect(
+      await target.query('sqlite_master',
+          columns: <String>['name'],
+          where: 'type = ? AND name = ?',
+          whereArgs: <Object?>['index', 'b3_public_cache_extra_idx']),
+      hasLength(1),
+    );
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+  });
+
 }
