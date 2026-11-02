@@ -30,6 +30,7 @@ import '../features/plan/credit_card_installment_preview_page.dart';
 import '../features/plan/repayment_plan_page.dart';
 import '../features/product/product_capture_page.dart';
 import '../features/profile/my_page.dart';
+import '../features/transaction/taiwan_business_calendar_status_page.dart';
 import '../features/transaction/transaction_entry_page.dart';
 import '../features/transaction/transaction_record.dart';
 import '../features/voice/voice_transaction_entry_page.dart';
@@ -49,6 +50,11 @@ List<RouteBase> buildAppRoutes({
       path: '/',
       name: DashboardPage.routeName,
       builder: (context, state) => const DashboardInvoiceEntryShell(),
+    ),
+    GoRoute(
+      path: TaiwanBusinessCalendarStatusPage.routePath,
+      name: TaiwanBusinessCalendarStatusPage.routeName,
+      builder: (context, state) => const TaiwanBusinessCalendarStatusPage(),
     ),
     GoRoute(
       path: AccountPage.routePath,

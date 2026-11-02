@@ -22,6 +22,7 @@ import '../backup/scheduled_backup_reminder_service.dart';
 import '../invoice/lab/private_cloud_invoice_lab_webview_page.dart';
 import '../merchant/business_registry_repository.dart';
 import '../merchant/business_registry_update_service.dart';
+import '../transaction/taiwan_business_calendar_status_page.dart';
 import '../transaction/transaction_repository.dart';
 import 'business_registry_update_card.dart';
 import 'business_registry_update_presentation.dart';
@@ -138,7 +139,19 @@ class _MyPageState extends State<MyPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('我的')),
+      appBar: AppBar(
+        title: const Text('我的'),
+        actions: [
+          IconButton(
+            key: const Key('my_business_calendar_entry'),
+            tooltip: '台灣營業日曆',
+            icon: const Icon(Icons.event_available_outlined),
+            onPressed: () => context.pushNamed(
+              TaiwanBusinessCalendarStatusPage.routeName,
+            ),
+          ),
+        ],
+      ),
       body: BackupMigrationCenter(
         reminderSettings: _reminderSettings,
         notificationSettings: _notificationSettings,
