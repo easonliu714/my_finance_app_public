@@ -26,6 +26,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fail fast on independent installed-upgrade signer continuity
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tool/issue_13_signer_continuity_preflight.sh
+
       - name: Wait for exact-head Flutter Android CI authority
         env:
           GH_TOKEN: ${{ github.token }}
@@ -66,12 +72,6 @@ jobs:
           ! grep -Fq "phase = 'issue-29-localized-multi-item-review-calculator-463'" lib/app_build_metadata.dart
           grep -Eq "phase = 'issue-13-[^']+'" lib/app_build_metadata.dart
           printf 'ISSUE_13_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
-
-      - name: Fail fast on independent installed-upgrade signer continuity
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash tool/issue_13_signer_continuity_preflight.sh
 
       - uses: subosito/flutter-action@v2
         with:

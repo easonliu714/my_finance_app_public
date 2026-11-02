@@ -41,6 +41,8 @@ void main() {
     );
     expect(RegExp(r'bash tool/issue_13_signer_continuity_preflight.sh').allMatches(workflow), hasLength(2));
     expect(workflow.indexOf('Fail fast on independent installed-upgrade signer continuity'), lessThan(workflow.indexOf('uses: subosito/flutter-action@v2')));
+    // Fail before CI polling or toolchain setup; preserve the immutable signer hold.
+    expect(workflow.indexOf('Fail fast on independent installed-upgrade signer continuity'), lessThan(workflow.indexOf('Wait for exact-head Flutter Android CI authority')));
     expect(pins.toSet(), hasLength(1));
     expect(workflow, contains('docs/public_release_signing_security.md'));
     expect(workflow, contains('SIGNER_UPGRADE_COMPATIBILITY=HOLD_DOC_PIN_MISMATCH'));
