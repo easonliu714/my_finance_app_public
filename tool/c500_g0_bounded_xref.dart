@@ -918,8 +918,12 @@ class C500G0BoundedXrefInspector {
         !RegExp(r'/Kids\s*\[').hasMatch(pagesBody)) {
       throw const C500G0BoundedXrefException('C500_G0P_PAGES_TYPE_INVALID');
     }
-    final count = RegExp(r'/Count\s+(\d+)\b').firstMatch(pagesBody);
-    final declared = int.tryParse(count?.group(1) ?? '');
+    // G0o.8: a duplicate root /Count is ambiguous even when its first
+    // value matches the sampled tree. Never infer page coverage from it.
+    final rootCounts = RegExp(r'/Count\s+(\d+)\b')
+        .allMatches(pagesBody).toList();
+    final declared = rootCounts.length == 1
+        ? int.tryParse(rootCounts.single.group(1)!) : null;
     if (declared == null || declared <= 0 || declared > 1000000) {
       throw const C500G0BoundedXrefException('C500_G0P_PAGE_COUNT_INVALID');
     }
@@ -1007,8 +1011,12 @@ class C500G0BoundedXrefInspector {
           if (depth >= maxDepth) {
             throw const C500G0BoundedXrefException('C500_G0U_PATH_DEPTH_LIMIT');
           }
-          final countMatch = RegExp(r'/Count\s+(\d+)\b').firstMatch(nodeBody);
-          final childCount = int.tryParse(countMatch?.group(1) ?? '');
+          // G0o.8: reject ambiguous intermediate page counts before
+          // following any child reference in this bounded path.
+          final nodeCounts = RegExp(r'/Count\s+(\d+)\b')
+              .allMatches(nodeBody).toList();
+          final childCount = nodeCounts.length == 1
+              ? int.tryParse(nodeCounts.single.group(1)!) : null;
           if (childCount == null || childCount <= 0 ||
               childCount > parentCount) {
             throw const C500G0BoundedXrefException('C500_G0U_SUBTREE_COUNT_INVALID');

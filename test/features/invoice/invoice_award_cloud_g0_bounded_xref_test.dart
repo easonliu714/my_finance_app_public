@@ -95,6 +95,8 @@ Future<File> makeCatalogSynthetic(
   bool forgedPages = false,
   bool wrongPagesType = false,
   bool zeroPageCount = false,
+  bool duplicateRootCount = false,
+  bool duplicateNestedCount = false,
   bool includeFirstChild = false,
   bool wrongFirstChildParent = false,
   bool nestedFirstChild = false,
@@ -122,13 +124,14 @@ Future<File> makeCatalogSynthetic(
   final obj3Offset = obj2Offset + obj2.length + member.length + obj2Tail.length;
   final obj3 = latin1.encode(
     '3 0 obj\n<< /Type /${wrongPagesType ? 'Page' : 'Pages'} '
-    '/Count ${zeroPageCount ? 0 : 1} /Kids [5 0 R] >>\nendobj\n',
+    '/Count ${zeroPageCount ? 0 : 1} '
+    '${duplicateRootCount ? '/Count 999 ' : ''}/Kids [5 0 R] >>\nendobj\n',
   );
   final obj5Offset = obj3Offset + obj3.length;
   final obj5 = includeFirstChild
       ? latin1.encode('5 0 obj\n<< /Type /${nestedFirstChild ? 'Pages' : 'Page'} /Parent '
           '${wrongFirstChildParent ? 9 : 3} 0 R '
-          '${nestedFirstChild ? '/Count ${nestedExcessCount ? 2 : 1} /Kids [${nestedCycle ? 3 : 6} 0 R]' : ''}'
+          '${nestedFirstChild ? '/Count ${nestedExcessCount ? 2 : 1} ${duplicateNestedCount ? '/Count 2 ' : ''}/Kids [${nestedCycle ? 3 : 6} 0 R]' : ''}'
           '${includePageContent ? '/Contents ${forgedContentReference ? 9 : 7} 0 R' : ''} >>\nendobj\n')
       : <int>[];
   final obj6Offset = obj5Offset + obj5.length;
@@ -1213,6 +1216,13 @@ void main() {
     await rejectsCatalog('C500_G0P_PAGE_COUNT_INVALID',
         () => makeCatalogSynthetic(directory, zeroPageCount: true));
   });
+  // G0o.8: duplicate root /Count must fail before any bounded child audit.
+  test('G0o.8 duplicate Pages root Count fails closed', () async {
+    final file = await makeCatalogSynthetic(directory, duplicateRootCount: true);
+    await expectLater(inspectSynthetic(file, verifyCatalogRoot: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0P_PAGE_COUNT_INVALID')));
+  });
   // G0q: root-only mode is independently bounded; unrelated sampled parents
   // must not be touched before the authoritative Root/Pages path is examined.
   test('G0q verifies Catalog/Pages without unrelated ObjStm samples', () async {
@@ -1280,6 +1290,17 @@ void main() {
     expect(result['leftmost_path_verified'], true);
     expect(result['page_tree'], 'LEFTMOST_PATH_ONLY_NOT_TRAVERSED');
     expect(result['global_not_win'], 'NOT_PROVEN');
+  });
+  // G0o.8: even a valid first /Count cannot authorize ambiguous descendants.
+  test('G0o.8 duplicate intermediate Pages Count fails closed', () async {
+    final file = await makeCatalogSynthetic(directory,
+        includeFirstChild: true, nestedFirstChild: true,
+        duplicateNestedCount: true);
+    await expectLater(inspectSynthetic(file,
+        verifyCatalogRoot: true, verifyFirstPageChild: true,
+        verifyFirstPagePath: true),
+      throwsA(isA<C500G0BoundedXrefException>().having(
+        (e) => e.code, 'code', 'C500_G0U_SUBTREE_COUNT_INVALID')));
   });
   test('G0u nested forged Parent fails closed', () async {
     final file = await makeCatalogSynthetic(directory,
