@@ -6,14 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_status_page.dart';
 import 'package:my_finance_app/routing/app_router.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite/sqflite.dart';
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
   test('B2 public 116 CSV pin matches real source lab, never a synthetic pin', () {
     final source = File('tool/b2_official_calendar_source_lab.py')
         .readAsStringSync();
@@ -37,19 +32,8 @@ void main() {
 
   testWidgets('B2 unverified year and mismatched CSV fail closed without writes',
       (tester) async {
-    final db = await openDatabase(inMemoryDatabasePath);
-    addTearDown(db.close);
-    await db.execute('''
-      CREATE TABLE taiwan_business_calendar_days (
-        calendar_date TEXT PRIMARY KEY,
-        is_business_day INTEGER NOT NULL,
-        day_label TEXT NOT NULL DEFAULT '',
-        source_year INTEGER NOT NULL,
-        source_revision TEXT NOT NULL,
-        source_url TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    ''');
+    // Avoid FFI I/O under Flutter fake async; all writes are forbidden.
+    final db = _ReadOnlyCalendarDb();
     await tester.pumpWidget(MaterialApp(
       home: TaiwanBusinessCalendarStatusPage(
         databaseProvider: () async => db,
@@ -64,25 +48,15 @@ void main() {
     await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.previewKey));
     await tester.pumpAndSettle();
     expect(find.textContaining('SHA-256 不符'), findsOneWidget);
-    expect(await db.query('taiwan_business_calendar_days'), isEmpty);
+    expect(db.readCount, greaterThanOrEqualTo(2));
+    expect(db.writeAttempts, 0);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('B2 oversize CSV rejects before hashing, never writes',
       (tester) async {
-    final db = await openDatabase(inMemoryDatabasePath);
-    addTearDown(db.close);
-    await db.execute('''
-      CREATE TABLE taiwan_business_calendar_days (
-        calendar_date TEXT PRIMARY KEY,
-        is_business_day INTEGER NOT NULL,
-        day_label TEXT NOT NULL DEFAULT '',
-        source_year INTEGER NOT NULL,
-        source_revision TEXT NOT NULL,
-        source_url TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    ''');
+    // Avoid FFI I/O under Flutter fake async; all writes are forbidden.
+    final db = _ReadOnlyCalendarDb();
     await tester.pumpWidget(MaterialApp(
       home: TaiwanBusinessCalendarStatusPage(
         databaseProvider: () async => db,
@@ -96,7 +70,27 @@ void main() {
     await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.previewKey));
     await tester.pumpAndSettle();
     expect(find.textContaining('CSV 讀取或驗證失敗'), findsOneWidget);
-    expect(await db.query('taiwan_business_calendar_days'), isEmpty);
+    expect(db.readCount, greaterThanOrEqualTo(2));
+    expect(db.writeAttempts, 0);
     expect(tester.takeException(), isNull);
   });
+}
+
+// No real SQLite or Owner data: query-only test double, explicit write audit.
+// Existing isolated transactional SQLite tests remain authoritative and intact.
+class _ReadOnlyCalendarDb implements DatabaseExecutor {
+  int readCount = 0;
+  int writeAttempts = 0;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #query) {
+      readCount++;
+      return Future<List<Map<String, Object?>>>.value(
+        <Map<String, Object?>>[],
+      );
+    }
+    writeAttempts++;
+    throw StateError('B2 status/preview widget must not write');
+  }
 }
