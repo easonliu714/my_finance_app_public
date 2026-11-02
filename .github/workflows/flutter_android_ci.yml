@@ -432,7 +432,18 @@ jobs:
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           image_dir="$sdk/system-images/android-35/google_apis/x86_64"
           package='system-images;android-35;google_apis;x86_64'
-          command -v sdkmanager >/dev/null || { echo 'ANDROID_API35_SDKMANAGER_MISSING' >&2; exit 63; }
+          # The emulator action augments PATH only inside its own process;
+          # the preflight runs earlier, so locate the already installed SDK
+          # manager by absolute path instead of assuming a global command.
+          sdkmanager_bin="$(command -v sdkmanager || true)"
+          if [[ -z "$sdkmanager_bin" && -d "$sdk/cmdline-tools" ]]; then
+            sdkmanager_bin="$(find "$sdk/cmdline-tools" -maxdepth 3 \\( -type f -o -type l \\) -name sdkmanager -print -quit 2>/dev/null || true)"
+          fi
+          if [[ -z "$sdkmanager_bin" || ! -x "$sdkmanager_bin" ]]; then
+            echo "ANDROID_API35_SDKMANAGER_MISSING sdk_root=$sdk" >&2
+            exit 63
+          fi
+          echo "ANDROID_API35_SDKMANAGER_PATH=$sdkmanager_bin"
           image_ready() {
             test -s "$image_dir/system.img" && test -s "$image_dir/package.xml"
           }
@@ -446,7 +457,7 @@ jobs:
               rm -rf -- "$image_dir"
             fi
             echo "ANDROID_API35_SYSTEM_IMAGE_FETCH attempt=$attempt"
-            if timeout 300s sdkmanager --sdk_root="$sdk" --install "$package" --channel=0; then
+            if timeout 300s "$sdkmanager_bin" --sdk_root="$sdk" --install "$package" --channel=0; then
               echo "ANDROID_API35_SDKMANAGER_RETURNED_SUCCESS attempt=$attempt"
             else
               echo "ANDROID_API35_SDKMANAGER_FAILED attempt=$attempt" >&2
