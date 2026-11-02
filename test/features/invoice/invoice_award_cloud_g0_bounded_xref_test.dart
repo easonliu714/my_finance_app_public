@@ -505,6 +505,49 @@ void main() {
     expect(result.toString().contains('NOT_WIN'), false);
   });
 
+  // G0o.6 second root branch has its own parent/count authority.
+  // No synthetic result can establish real page or NOT_WIN coverage.
+  test('G0o.6 second branch positive and wrong-parent negative', () async {
+    final nodes = <int, String>{
+      11: '<< /Type /Pages /Parent 5 0 R /Count 1 /Kids [21 0 R] >>',
+      12: '<< /Type /Pages /Parent 5 0 R /Count 4 /Kids [22 0 R 23 0 R] >>',
+      21: '<< /Type /Page /Parent 11 0 R >>',
+      22: '<< /Type /Pages /Parent 12 0 R /Count 2 /Kids [31 0 R 32 0 R] >>',
+      23: '<< /Type /Pages /Parent 12 0 R /Count 2 /Kids [33 0 R 34 0 R] >>',
+      31: '<< /Type /Page /Parent 22 0 R >>',
+      32: '<< /Type /Page /Parent 22 0 R >>',
+      33: '<< /Type /Page /Parent 23 0 R >>',
+      34: '<< /Type /Page /Parent 23 0 R >>',
+    };
+    Future<Map<String, Object?>> inspect() =>
+        const C500G0FirstBranchAllGrandchildrenAuditor().inspect(
+          pagesBody: '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
+          rootId: 5, rootGeneration: 0, declaredPages: 5,
+          rootChildOrdinal: 1,
+          readObject: (id, generation) async => nodes[id]!,
+        );
+    final result = await inspect();
+    expect(result['second_root_subtree_declared_count'], 4);
+    expect(result['second_branch_grandchildren_audited'], 2);
+    expect(result['second_branch_great_grandchildren_refs_verified'], 4);
+    expect(result['second_branch_third_level_count_sum'], 4);
+    expect(result.containsKey('first_branch_third_level_count_sum'), isFalse);
+    expect(result.toString().contains('NOT_WIN'), false);
+    nodes[34] = '<< /Type /Page /Parent 99 0 R >>';
+    await expectLater(inspect(), throwsA(isA<C500G0BoundedXrefException>()
+        .having((e) => e.code, 'code', 'C500_G0O_ROOT_KID_PARENT_MISMATCH')));
+    await expectLater(
+      const C500G0FirstBranchAllGrandchildrenAuditor().inspect(
+        pagesBody: '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
+        rootId: 5, rootGeneration: 0, declaredPages: 5,
+        rootChildOrdinal: 2,
+        readObject: (id, generation) async => nodes[id]!,
+      ),
+      throwsA(isA<C500G0BoundedXrefException>()
+          .having((e) => e.code, 'code', 'C500_G0O6_ORDINAL_INVALID')),
+    );
+  });
+
   test('G0o.5 rejects parent, cross-alias, count, missing and leaf',
       () async {
     for (final fault in <String>[
