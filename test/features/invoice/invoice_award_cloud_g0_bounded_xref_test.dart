@@ -299,6 +299,27 @@ void main() {
     }
   });
 
+  // G0o.10: synthetic-only positive/negative object-number alias custody.
+  test('G0o.10 rejects root Kids aliases across generations and padding', () {
+    const selector = C500G0RootKidSelector();
+    const valid = '<< /Kids [5 0 R 6 1 R 7 0 R] >>';
+    expect(selector.select(valid, 0), (5, 0));
+    expect(selector.select(valid, 1), (6, 1));
+    expect(selector.select(valid, -1), (7, 0));
+    for (final body in <String>[
+      '<< /Kids [5 0 R 5 1 R] >>',
+      '<< /Kids [005 0 R 5 0 R] >>',
+      '<< /Kids [5 00 R 5 0 R] >>',
+      '<< /Kids [5 0 R 6 0 R 5 2 R] >>',
+    ]) {
+      expect(
+        () => selector.select(body, 0),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+          (e) => e.code, 'code', 'C500_G0J_DUPLICATE_KID')),
+      );
+    }
+  });
+
   // G0o: synthetic-only immediate-root count/parent consistency.
   // No descendant page, Unicode, award or global negative proof.
   test('G0o validates immediate child counts and parent custody', () async {

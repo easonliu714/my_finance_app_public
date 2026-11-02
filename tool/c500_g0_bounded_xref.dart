@@ -60,9 +60,11 @@ class C500G0RootKidSelector {
         kids.replaceAll(reference, '').trim().isNotEmpty) {
       throw const C500G0BoundedXrefException('C500_G0J_KIDS_GRAMMAR_INVALID');
     }
-    final seen = <String>{};
+    // G0o.10: one PDF object number cannot be counted as distinct /Kids
+    // merely by changing its generation or zero-padding its spelling.
+    final seen = <int>{};
     for (final match in matches) {
-      if (!seen.add('${match.group(1)}:${match.group(2)}')) {
+      if (!seen.add(int.parse(match.group(1)!))) {
         throw const C500G0BoundedXrefException('C500_G0J_DUPLICATE_KID');
       }
     }
