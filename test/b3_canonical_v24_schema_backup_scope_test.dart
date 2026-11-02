@@ -988,4 +988,71 @@ void main() {
     expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
   });
 
+
+  // B3 #18 V30: a new private index on a managed accounting table during
+  // external custody is independent schema drift (not a row-value change).
+  // Abort before destructive DML; preserve immutable observations and the
+  // new index. Only synthetic in-memory databases are accessed.
+  test('B3 V30 managed index DDL drift aborts restore before mutation',
+      () async {
+    final source = await openIsolatedV24();
+    final target = await openIsolatedV24();
+    addTearDown(source.close);
+    addTearDown(target.close);
+    const stamp = '2026-11-02T00:00:00Z';
+    await source.insert('accounts', <String, Object?>{
+      'id': 'source-account', 'name': 'incoming', 'type': 'cash',
+    });
+    await target.insert('accounts', <String, Object?>{
+      'id': 'target-account', 'name': 'private-retained', 'type': 'cash',
+    });
+    await target.insert('merchant_brands', <String, Object?>{
+      'id': 'target-brand', 'display_name': 'private-brand',
+      'created_at': stamp, 'updated_at': stamp,
+    });
+    await target.insert('merchant_identity_observations', <String, Object?>{
+      'id': 'target-observation', 'literal_name': 'immutable-private',
+      'normalized_name': 'immutableprivate', 'source': 'isolated-fixture',
+      'merchant_brand_id': 'target-brand',
+      'observed_at': stamp, 'created_at': stamp,
+    });
+    final envelope =
+        await const FullBackupService().buildFullBackupEnvelope(source);
+    var custodyCalled = false;
+    await expectLater(
+      const FullRestoreServiceV8().restoreFromEnvelope(
+        target, envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+        persistPreRestoreBackup: (custody) async {
+          custodyCalled = true;
+          expect(((custody['data']! as Map)['accounts'] as List).single,
+              containsPair('id', 'target-account'));
+          await target.execute(
+            'CREATE INDEX b3_private_managed_account_idx ON accounts(name)',
+          );
+          return 'isolated-synthetic-custody';
+        },
+      ),
+      throwsA(isA<FullRestoreException>()),
+    );
+    expect(custodyCalled, isTrue);
+    expect((await target.query('accounts')).single,
+        containsPair('name', 'private-retained'));
+    expect((await target.query('merchant_identity_observations')).single,
+        containsPair('id', 'target-observation'));
+    expect(
+      await target.query('sqlite_master',
+          columns: <String>['name'],
+          where: 'type = ? AND name = ?',
+          whereArgs: <Object?>['index', 'b3_private_managed_account_idx']),
+      hasLength(1),
+    );
+    await expectLater(
+      target.update('merchant_identity_observations',
+          <String, Object?>{'literal_name': 'forged'},
+          where: 'id = ?', whereArgs: <Object?>['target-observation']),
+      throwsA(isA<DatabaseException>()),
+    );
+    expect(await target.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+  });
 }
