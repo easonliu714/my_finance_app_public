@@ -115,14 +115,14 @@ void main() {
         );
       }
 
-      final baseline = await invoke(security);
-      expect(baseline.exitCode, 0);
-      expect(baseline.stdout.toString(), contains('PIN_PARITY_ONLY_DEVICE_REQUIRED'));
-      expect(baseline.stdout.toString(), isNot(contains('=PASS')));
+      final baselineResult = await invoke(security);
+      expect(baselineResult.exitCode, 0);
+      expect(baselineResult.stdout.toString(), contains('PIN_PARITY_ONLY_DEVICE_REQUIRED'));
+      expect(baselineResult.stdout.toString(), isNot(contains('=PASS')));
 
       // A PR-local edit to the documented certificate may not make an
       // otherwise mismatched signer appear upgrade-compatible.
-      final historicalLine = '36:1A:08:06:C3:1E:CE:FF:B0:DE:AD:7E:DA:5F:BC:D7:68:84:5D:8A:00:D6:69:B0:23:2B:8C:11:21:0A:ED:1A';
+      const historicalLine = '36:1A:08:06:C3:1E:CE:FF:B0:DE:AD:7E:DA:5F:BC:D7:68:84:5D:8A:00:D6:69:B0:23:2B:8C:11:21:0A:ED:1A';
       final forgedParity = await invoke(
         security.replaceFirst(canonicalLine, historicalLine),
       );
