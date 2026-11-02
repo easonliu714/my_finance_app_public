@@ -14,13 +14,13 @@ void main() {
     ).readAsStringSync();
 
     final canonicalMatch =
-        RegExp(r'(?m)^(?:[A-F0-9]{2}:){31}[A-F0-9]{2}$')
+        RegExp(r'^(?:[A-F0-9]{2}:){31}[A-F0-9]{2}$', multiLine: true)
             .firstMatch(security);
     expect(canonicalMatch, isNotNull);
     final canonical = canonicalMatch!.group(0)!.replaceAll(':', '');
     expect(canonical, hasLength(64));
 
-    final pins = RegExp(r"(?m)^\s+pinned='([A-F0-9]{64})'$")
+    final pins = RegExp(r"^\s+pinned='([A-F0-9]{64})'$", multiLine: true)
         .allMatches(workflow)
         .map((match) => match.group(1)!)
         .toList();
