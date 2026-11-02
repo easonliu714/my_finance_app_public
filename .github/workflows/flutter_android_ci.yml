@@ -437,7 +437,7 @@ jobs:
           # manager by absolute path instead of assuming a global command.
           sdkmanager_bin="$(command -v sdkmanager || true)"
           if [[ -z "$sdkmanager_bin" && -d "$sdk/cmdline-tools" ]]; then
-            sdkmanager_bin="$(find "$sdk/cmdline-tools" -maxdepth 3 \\( -type f -o -type l \\) -name sdkmanager -print -quit 2>/dev/null || true)"
+            sdkmanager_bin="$(find "$sdk/cmdline-tools" -maxdepth 3 -name sdkmanager -print -quit 2>/dev/null || true)"
           fi
           if [[ -z "$sdkmanager_bin" || ! -x "$sdkmanager_bin" ]]; then
             echo "ANDROID_API35_SDKMANAGER_MISSING sdk_root=$sdk" >&2
