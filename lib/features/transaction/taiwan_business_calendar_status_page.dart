@@ -96,7 +96,7 @@ class _TaiwanBusinessCalendarStatusPageState
       final decision = await _service.annualUpdateDecision(db, now);
       if (!mounted) return;
       setState(() {
-        _currentStatus = '${taipeiYear} 年：${_coverage(current)}';
+        _currentStatus = '$taipeiYear 年：${_coverage(current)}';
         _nextStatus = '${taipeiYear + 1} 年：${_coverage(next)}';
         _annualDecision = _decision(decision);
         _loading = false;
