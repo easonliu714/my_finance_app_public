@@ -67,6 +67,12 @@ jobs:
           grep -Eq "phase = 'issue-13-[^']+'" lib/app_build_metadata.dart
           printf 'ISSUE_13_EXACT_HEAD=%s\n' "$(git rev-parse HEAD)"
 
+      - name: Fail fast on independent installed-upgrade signer continuity
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tool/issue_13_signer_continuity_preflight.sh
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -220,6 +226,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          bash tool/issue_13_signer_continuity_preflight.sh
           for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_SIGNING_CERT_SHA256; do test -n "${!v}"; done
           pinned='9BA2CA64E4218795A4313EFB8FDC020011DCEAE0C70F6F0614DF28328BBEDEB7'
           configured="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
