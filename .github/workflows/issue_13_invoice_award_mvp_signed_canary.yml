@@ -346,6 +346,11 @@ jobs:
             printf 'LEGACY_RECEIPT_AUTO_BACKFILL=ZERO\n'
             printf 'APPID_APIKEY_RELEASE_DEPENDENCY=false\n'
             printf 'GCIS_RELEASE_DEPENDENCY=false\n'
+            # B1/B2 signed device candidate is not C500 global NOT_WIN proof.
+            printf 'B1_B2_DEVICE_CANDIDATE_ONLY=TRUE\n'
+            printf 'C500_GLOBAL_NOT_WIN=HOLD\n'
+            printf 'C500_G5_OWNER_CHOICE=HOLD\n'
+            printf 'B1_B2_OWNER_UPGRADE_DATA_RETENTION=HOLD\n'
             printf 'SIGNER_SHA256_PIN=PASS\n'
           } > issue_13_award_mvp_canary_metadata.txt
           for required in \
