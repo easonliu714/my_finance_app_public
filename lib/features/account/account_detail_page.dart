@@ -1035,6 +1035,8 @@ class _AccountLedgerTileState extends State<_AccountLedgerTile> {
   }
 }
 
+// B1: the signed amount already conveys direction. Open a concise, readable
+// detail sheet on tap; reveal provenance only after a separate explicit action.
 class _LedgerContent extends StatelessWidget {
   const _LedgerContent({required this.item, required this.currency});
 
@@ -1044,24 +1046,12 @@ class _LedgerContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sign = item.amountForAccount >= 0 ? '+' : '';
-    // Preserve the entire source/provenance and per-row balance, but avoid
-    // making unbounded SHA/UUID text the default transaction-list surface.
-    return ExpansionTile(
-      key: PageStorageKey<String>('account-ledger-${item.id}'),
-      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+    return ListTile(
+      key: ValueKey<String>('account-ledger-row-${item.id}'),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
       title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(DateFormat('yyyy/MM/dd HH:mm').format(item.occurredAt)),
-      leading: Icon(item.amountForAccount >= 0
-          ? Icons.arrow_downward : Icons.arrow_upward),
-      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      expandedAlignment: Alignment.centerLeft,
-      children: [
-        const Text('來源／稽核資訊', style: TextStyle(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 6),
-        SelectableText(item.subtitle),
-        const SizedBox(height: 6),
-        Text('該筆後餘額：${_money(item.runningBalance, currency)}'),
-      ],
+      onTap: () => _showDetails(context),
       trailing: Text(
         '$sign${_money(item.amountForAccount, currency)}',
         maxLines: 1,
@@ -1069,6 +1059,54 @@ class _LedgerContent extends StatelessWidget {
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
             ),
+      ),
+    );
+  }
+
+  void _showDetails(BuildContext context) {
+    final sign = item.amountForAccount >= 0 ? '+' : '';
+    final note = item.transaction?.note ?? item.event?.note ?? '';
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('交易明細',
+                  style: Theme.of(sheetContext).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              Text(item.title,
+                  style: Theme.of(sheetContext).textTheme.titleMedium),
+              Text(DateFormat('yyyy/MM/dd HH:mm').format(item.occurredAt)),
+              const SizedBox(height: 8),
+              Text('金額：$sign${_money(item.amountForAccount, currency)}'),
+              if (note.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('備註：$note'),
+              ],
+              const SizedBox(height: 8),
+              Text('該筆後餘額：${_money(item.runningBalance, currency)}'),
+              const SizedBox(height: 8),
+              // Raw account/source/repayment-group identifiers are not the
+              // default ledger UX, but remain available for audit on demand.
+              ExpansionTile(
+                key: ValueKey<String>('account-ledger-provenance-${item.id}'),
+                tilePadding: EdgeInsets.zero,
+                title: const Text('顯示技術來源'),
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: SelectableText(item.subtitle),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

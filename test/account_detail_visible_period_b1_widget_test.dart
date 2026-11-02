@@ -99,6 +99,32 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('B1 ledger tap shows readable details; provenance is opt-in',
+      (tester) async {
+    const account = AccountRecord(
+      id: 'ipass', name: 'iPASS Money', type: AccountType.eWallet,
+      initialBalance: 0, sortOrder: 0,
+    );
+    await _pump(tester, account, _FixtureStore(account), 1.3);
+    final row = find.byKey(const ValueKey<String>('account-ledger-row-synthetic-0'));
+    expect(row, findsOneWidget);
+    expect(tester.widget<ListTile>(row).leading, isNull,
+        reason: 'Signed amount already conveys direction; no misleading arrows');
+    expect(find.text('來源／稽核資訊'), findsNothing);
+    expect(find.text('顯示技術來源'), findsNothing);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    expect(find.text('交易明細'), findsOneWidget);
+    expect(find.text('備註：read-only synthetic ledger'), findsOneWidget);
+    expect(find.textContaining('該筆後餘額：'), findsOneWidget);
+    expect(find.text('read-only synthetic ledger'), findsNothing,
+        reason: 'Raw provenance must not be expanded automatically');
+    await tester.tap(find.text('顯示技術來源'));
+    await tester.pumpAndSettle();
+    expect(find.text('read-only synthetic ledger'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final type in AccountType.values) {
     testWidgets('B1 paired summary for account type ${type.name}', (tester) async {
       final account = AccountRecord(
@@ -117,7 +143,9 @@ void main() {
 // The first real ledger tile must find an ink-owning Material before the
 // swipe GestureDetector; Card's outer Material is too far away for ListTile.
 void _expectLedgerInkSurface(WidgetTester tester) {
-  final tile = tester.element(find.byType(ExpansionTile).first);
+  final tile = tester.element(find.byKey(
+    const ValueKey<String>('account-ledger-row-synthetic-0'),
+  ));
   var materialInsideSwipe = false;
   tile.visitAncestorElements((ancestor) {
     if (ancestor.widget is Material) {
