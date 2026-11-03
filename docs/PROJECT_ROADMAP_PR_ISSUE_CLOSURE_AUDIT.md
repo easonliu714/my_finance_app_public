@@ -1,4 +1,22 @@
-## CURRENT — 2026-11-04 01:15 Asia/Taipei | B2.13 first-failure FakeAsync/SQLite widget regression repair; successor CI PENDING
+## CURRENT — 2026-11-04 02:15 Asia/Taipei | B2.13 real-source widget FakeAsync file-I/O root fix; successor CI and DGPA Lab PENDING
+
+**Authority and lease:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; exact inspected parent `de91171b71cc9e7bc4031416a06e0ab654b836e0`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`. This is a single leased PR-branch test+governance commit; read back successor HEAD and its exact-head CI before claiming PASS. No second Writer, direct main, force push, merge, signing, production account/SQLite/LKG/POSTED NT$700 mutation.
+
+**Verified exact-parent CI:** [Flutter Android CI #1325](https://github.com/easonliu714/my_finance_app_public/actions/runs/41682301565) SUCCESS on `de91171b71cc9e7bc4031416a06e0ab654b836e0`: Analyze, focused source custody, full Flutter, existing debug build, native JVM and independent API35 strict witness all PASS. This CI result does NOT establish real-source B2.13 E2E.
+
+**FIRST REAL-SOURCE FAILURE:** [DGPA Official Lab #70](https://github.com/easonliu714/my_finance_app_public/actions/runs/41682301448) completed FAILURE on same parent. Official DGPA ROC116 UTF8BOM original 6511 bytes SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3` genuinely downloaded, 365 days/121 holidays, official listing, pinned parser, B2.12 real SQLite install/rollback tests PASS (six tests). Seventh B2.13 genuine-source UI widget test TIMED OUT after exactly 10 minutes, so owner install E2E and parent #19 remain HOLD. Root isolation: `testWidgets` FakeAsync was awaiting `File.readAsBytes` and async SHA inside its callback BEFORE the first pump; routine widget regressions do not read disk and passed. This commit moves exact-source file read and SHA validation to async `setUpAll` (real event loop) and passes only a copied SHA-verified byte buffer to the widget callback. Existing real isolated SQLite, consent cancel zero writes, confirm 365 persisted, downgrade/rollback, and source pin assertions remain unchanged. No synthetic source substitution, test skip or timeout inflation. Successor exact-head CI and actual official Lab result PENDING.
+
+**B2.13 DoD:** production separate preview → explicit consent dialog → exactly one pinned atomic SQLite install code is present; routine Flutter/native/API35 parent CI PASS, but real official CSV UI source Lab FAIL on parent, new fix unverified, Owner Signed/device installation E2E and annual trigger HOLD. B2 parent Issue #19 OPEN; do not call preview an installation or infer current-year 2026 business days. Next B task is exact-head official Lab replay, then root-fix any first failure and proceed to signed Owner E2E only after complete CI/source PASS.
+
+**Owner device authority (unchanged):** 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) belongs ONLY to older `446d56e2eddb2a787c6c1910c79f4262322335db`; U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and B2.8 original 6511-byte SHA preview screenshot `3175.png` OWNER_DEVICE=PASS; B1.5 cross-year N/A. Neither 2026 nor 2027 official calendar has been installed by this preview; B2 parent HOLD. No repeat accepted Owner UAT.
+
+**C500 A P0:** last genuine [MOF Lab #148](https://github.com/easonliu714/my_finance_app_public/actions/runs/41618698164) acquired both SHA-pinned 115-05-06 and 115-07-08 PDFs; 3/3 sampled glyph lexical probes per period PASS but qpdf `std::bad_alloc` at 1.5GiB, PdfRenderer IOException, PDFium SIGTRAP and PDFBox OOM. [Lab #151](https://github.com/easonliu714/my_finance_app_public/actions/runs/41682301461) SUCCESS only for synthetic classifier; official binary/acquisition/XRef/glyph/Android source steps ALL SKIPPED, so A_REAL_SOURCE_EXECUTED=FALSE for #151. G0 complete Unicode/sortedness/global NOT_WIN HOLD; A_STAGNATION=FAIL. Next A task: actually run LAB_ENABLED=true with [G0-SOURCE-LAB], a bounded same-device dual-PDF renderer first-failure/resource-cap comparison, or evidence-based NO_GO; not more shallow synthetic samples. No source-independent global NOT_WIN claim.
+
+**Roadmap/closure:** C500-D0 PASS, G0 ACTIVE/HOLD, G1–G4 HOLD, G5 Owner choice HOLD, G6 BLOCKED; C13/C17/C18/global-negative root authority HOLD despite passing strict API35 regressions. B2.13 successor CI/real-source/Owner E2E HOLD → B2 annual automatic trigger → B3 #18 isolated backup → B4 #6 → B5 #9 → B6 #15. SIGNED successor=NOT_REQUESTED/NOT_VERIFIED; MERGED_MAIN=NO. OWNER_HELP_NOW=NONE; OWNER_HELP_LATER=explicit 2027 install UAT after verified Signed build. B-track code/test delta present; A-track stagnation FAIL.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-04 01:15 Asia/Taipei | B2.13 first-failure FakeAsync/SQLite widget regression repair; successor CI PENDING
 
 **Authority:** PR #45 OPEN/DRAFT; exact verified parent `158cf16de658431bb00188851d1279d8b078d4d7` (B2.13 consent-gated UI + tests), main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; successor HEAD and CI MUST be fresh-read after this single leased commit. Single Writer only. No main write, force push, merge, signing or production SQLite/LKG/account/POSTED 700 change.
 
@@ -11,8 +29,6 @@
 **C500 A P0:** last genuine [MOF Lab #148](https://github.com/easonliu714/my_finance_app_public/actions/runs/41618698164) acquired both pinned PDFs, sampled lexical 3/3 each PASS but qpdf std::bad_alloc under 1.5GiB, PdfRenderer IOException/PDFium SIGTRAP/PDFBox OOM. [Lab #150](https://github.com/easonliu714/my_finance_app_public/actions/runs/41672370516) completed SUCCESS with synthetic G0i only; all official MOF binary/XRef/glyph/Android steps SKIPPED. A_REAL_SOURCE_EXECUTED for #150=FALSE; A_STAGNATION=FAIL; G0/global NOT_WIN HOLD. Next A slot MUST run LAB_ENABLED=true and a bounded true-source renderer/resource first-failure experiment, not synthetic-only churn.
 
 **Roadmap:** C500-D0 PASS, G0 ACTIVE/HOLD, G1–G4 HOLD, G5 Owner choice HOLD, G6 BLOCKED; C13/C17/C18/global negative root authority HOLD despite API35 strict regressions PASS. B2.13 CODE present / CI RED / Owner E2E HOLD; B2 annual trigger then B3 #18 isolated backup, B4 #6, B5 #9, B6 #15. OWNER_HELP_NOW=NONE. No docs-only engineering claim.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-04 00:15 Asia/Taipei | B2.13 explicit consent UI implementation, successor CI PENDING
 

@@ -208,9 +208,19 @@ void main() {
   });
 
 
+  // B2.13 Lab #70 first failure: testWidgets runs in FakeAsync. Reading the
+  // real CSV from disk (and awaiting its SHA) before the first widget pump
+  // stalls the test for ten minutes. Load and SHA-verify original DGPA bytes
+  // in setUpAll's real async zone; never replace them with a synthetic CSV.
+  late Uint8List verifiedOfficialUiBytes;
+  setUpAll(() async {
+    verifiedOfficialUiBytes = Uint8List.fromList(await officialBytes());
+  });
+
   testWidgets('B2.13 genuine DGPA UI cancel=zero writes, confirm=365 days',
       (tester) async {
-    final bytes = await officialBytes();
+    // Only immutable, preverified bytes enter WidgetTester's FakeAsync zone.
+    final bytes = verifiedOfficialUiBytes;
     final db = await openDatabase(inMemoryDatabasePath);
     addTearDown(db.close);
     await db.execute('''
