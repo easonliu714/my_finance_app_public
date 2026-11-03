@@ -15,6 +15,8 @@ on:
       - 'test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart'
       - 'tool/c500_g0_qpdf_preflight.sh'
       - 'tool/c500_g0_qpdf_preflight_contract_test.sh'
+      - 'tool/c500_g0_qpdf_resource_ladder.sh'
+      - 'tool/c500_g0_qpdf_resource_ladder_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
 
@@ -31,7 +33,7 @@ jobs:
   official-source-only-lab:
     name: Pinned MOF binary acquisition and bounded structure (NOT G0 PASS)
     runs-on: ubuntu-latest
-    timeout-minutes: 48
+    timeout-minutes: 64
     steps:
       - name: Checkout exact PR source HEAD
         uses: actions/checkout@v4
@@ -79,6 +81,7 @@ jobs:
         run: |
           bash tool/c500_g0_android_renderer_lab_contract_test.sh
           bash tool/c500_g0_workflow_gate_contract_test.sh
+          bash tool/c500_g0_qpdf_resource_ladder_contract_test.sh
 
       - name: G0l bounded XRef synthetic positive/negative contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -174,6 +177,17 @@ jobs:
 
       # G0l runs even after qpdf fails: independent bounded object-access
       # evidence must not mask qpdf's original failed status or promote LKG.
+      # G0x: independent source-backed first-failure resource experiment.
+      # Previous qpdf failure remains RED; this does not mask or bypass it.
+      # Both pinned files must be present; only isolated, capped qpdf children.
+      - name: G0x pinned dual-PDF qpdf virtual-memory failure threshold (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 9
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_qpdf_resource_ladder.sh
+
       - name: G0l pinned official XRef-stream bounded access (NOT page proof)
         if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
         shell: bash
