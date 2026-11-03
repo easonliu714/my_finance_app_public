@@ -1,4 +1,7 @@
 // C500-G0r: synthetic ordinal-to-leaf contracts, NOT official PDF evidence.
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import '../../../tool/c500_g0_bounded_xref.dart';
 
@@ -138,11 +141,13 @@ void main() {
     }
     return o;
   }
-  Future<Map<String, Object?>> contents(Map<int, String> o) =>
-      const C500G0SpreadPageAuditor().inspect(
+  Future<Map<String, Object?>> contents(Map<int, String> o, {
+    bool decode = false,
+  }) => const C500G0SpreadPageAuditor().inspect(
         pagesBody: '<< /Type /Pages /Count 4 /Kids [11 0 R 12 0 R] >>',
         rootId: 10, rootGeneration: 0, declaredPages: 4,
         verifyContentHeaders: true,
+        verifyContentDecode: decode,
         readObject: (id, gen) async {
           if (gen != 0 || !o.containsKey(id)) {
             throw const C500G0BoundedXrefException('C500_G0R_XREF_UNAVAILABLE');
@@ -181,5 +186,49 @@ void main() {
     b[101] = b[101]!.replaceFirst('abcd', 'ab');
     await expectLater(contents(b),
         throwsA(failure('C500_G0T_STREAM_TRUNCATED')));
+  });
+
+  // G0u: synthetic compressed bytes, never genuine official source evidence.
+  String compressedObject(int id, List<int> bytes) =>
+      '$id 0 obj\n<< /Length ' + bytes.length.toString() +
+      ' /Filter /FlateDecode >>\nstream\n' + latin1.decode(bytes) +
+      '\nendstream\nendobj';
+  Map<int, String> withZlib() {
+    final o = withContents();
+    final bytes = const ZLibEncoder().convert(utf8.encode('BT (abc) Tj ET'));
+    for (final id in <int>[101, 103, 104]) {
+      o[id] = compressedObject(id, bytes);
+    }
+    return o;
+  }
+  test('G0u three bounded zlib streams without glyph or NOT_WIN proof', () async {
+    final r = await contents(withZlib(), decode: true);
+    expect(r['spread_content_headers_verified'], 3);
+    expect(r['spread_content_streams_decoded'], 3);
+    expect(r['spread_content_decoded_bytes_total'],
+        3 * utf8.encode('BT (abc) Tj ET').length);
+    expect(r['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0u malformed compressed data rejected', () async {
+    final o = withZlib();
+    o[101] = compressedObject(101, <int>[1, 2, 3, 4, 5, 6]);
+    await expectLater(contents(o, decode: true),
+        throwsA(failure('C500_G0U_DECODE_INVALID')));
+  });
+  test('G0u overexpanded stream rejected', () async {
+    final o = withZlib();
+    final bomb = const ZLibEncoder().convert(List<int>.filled(300000, 65));
+    expect(bomb.length, lessThan(32768));
+    o[103] = compressedObject(103, bomb);
+    await expectLater(contents(o, decode: true),
+        throwsA(failure('C500_G0U_DECODED_LIMIT')));
+  });
+  test('G0u cannot bypass header verification', () async {
+    await expectLater(const C500G0SpreadPageAuditor().inspect(
+      pagesBody: '<< /Type /Pages /Count 4 /Kids [11 0 R 12 0 R] >>',
+      rootId: 10, rootGeneration: 0, declaredPages: 4,
+      verifyContentDecode: true,
+      readObject: (id, gen) async => '',
+    ), throwsA(failure('C500_G0U_REQUIRES_HEADERS')));
   });
 }

@@ -1,4 +1,18 @@
-## CURRENT — 2026-11-03 16:15 Asia/Taipei | G0t three official sampled content-stream headers; new exact-head gates pending
+## CURRENT — 2026-11-03 17:15 Asia/Taipei | G0u three-position bounded real-source content decode
+
+**Authority:** PR #45 OPEN/DRAFT; verified parent `701bd0c60faddb0168bfc1703bd9a13b51a4b789`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, version 4.20.37+495. New exact SHA is the live PR head after commit; no direct main, force push, merge, production SQLite/LKG or signer changes.
+
+**Fresh exact-parent evidence:** [CI #1319](https://github.com/easonliu714/my_finance_app_public/actions/runs/41602049704) SUCCESS (Analyze, full Flutter, Native JVM, API35). [Official Lab #145](https://github.com/easonliu714/my_finance_app_public/actions/runs/41602049667) LAB_ENABLED=true acquired both genuine SHA-pinned PDFs, G0s first/middle/last leaf paths PASS and G0t three /Contents headers PASS on EACH PDF, 1828 compressed bytes each. Independent qpdf still std::bad_alloc, new PdfRenderer IOException and PDFium SIGTRAP, both PDFBox Java OOM. Lab overall FAIL; G0/global NOT_WIN HOLD and A_STAGNATION=FAIL. [DGPA Lab #64](https://github.com/easonliu714/my_finance_app_public/actions/runs/41602049563) real official ROC116 CSV and isolated SQLite PASS.
+
+**New G0u source-backed delta:** same 3 XRef-bound content streams on each pinned original official PDF; reuse bounded FlateDecode/zlib header/Adler32 primitive, <=32KiB compressed/stream, <=256KiB decoded/stream, <=768KiB total. Four positive/negative synthetic regressions cover success, corrupt zlib, overexpanded stream and missing header prerequisites. Real workflow `--audit-spread-decode` replaces redundant header-only rerun. Decoded bytes never logged or promoted to glyph/Unicode/sortedness/full-page/NOT_WIN authority. Exact successor CI and real-source run PENDING.
+
+**B track Owner evidence:** Signed #994 only prior HEAD `446d56e2eddb2a787c6c1910c79f4262322335db`, APK SHA256 `8a2be3a64703a273cb7b155416c8fac2ae80d6c2e6d6b430e322eec3e58c8a5c`, signer 9BA2. Installed 4.20.37+495 U0/U1, B1.1–1.4/B1.6–1.8, B2.7, B2.8 Owner screenshot 3175.png PASS; B1.5 N/A. B2.8 official DGPA ROC116 CSV SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3` 6511 bytes identity PREVIEW ONLY, NOT INSTALLED. B2 parent Issue #19 transactional install/LKG/annual trigger/Owner E2E HOLD, B3 #18 HOLD; do not repeat B2.8 UAT.
+
+**Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED; C13/C17/C18 broad same-UID and full global negative proof HOLD. **NEXT SINGLE GATE:** read successor exact-head CI and real G0u source results, fix first failure; Owner help NOW=NONE.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-03 16:15 Asia/Taipei | G0t sampled official content headers
 
 **Authority:** PR #45 OPEN/DRAFT; verified parent `cc0341e43ba12f8dbd03617e7775fe5a37570fc9`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, version 4.20.37+495. Successor is live PR HEAD; no main/force push/merge/production SQLite/LKG/signer/device writes.
 
@@ -9,8 +23,6 @@
 **B track:** [DGPA Lab #63](https://github.com/easonliu714/my_finance_app_public/actions/runs/41595682194) SUCCESS original 116 CSV 6511 bytes SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365 days/121 holidays, isolated SQLite. [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) PASS only older `446d56e2eddb2a787c6c1910c79f4262322335db`, 495 APK SHA256 `8a2be3a64703a273cb7b155416c8fac2ae80d6c2e6d6b430e322eec3e58c8a5c`, signer 9BA2. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7, B2.8 screenshot 3175.png PASS; B1.5 N/A. B2.8 preview NOT installed; B2 parent #19 transactional install/LKG/annual trigger/Owner E2E HOLD; B3 #18 HOLD; Issues #4/#13/#19 OPEN.
 
 **Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner-choice HOLD; G6 BLOCKED; C13/C17/C18 broad same-UID HOLD. **NEXT:** read new exact-head Analyze/Flutter/Native/API35 and actual official G0t results; repair first failure. Owner help NOW=NONE.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-03 15:15 Asia/Taipei | G0s three sampled XRef leaf paths
 **Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; verified parent `83216eeaf79f59b04bde359258228813713f21e5`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, version 4.20.37+495. Successor SHA is live PR HEAD; no main/force push/merge/production SQLite/LKG/device/signer writes.

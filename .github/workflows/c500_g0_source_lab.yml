@@ -319,8 +319,9 @@ jobs:
         run: |
           set -euo pipefail
           timeout 660s dart run tool/c500_g0_bounded_xref.dart --audit-spread-pages
-          # G0t: actual pinned /Contents header custody, independent qpdf/Android gates remain.
-          timeout 660s dart run tool/c500_g0_bounded_xref.dart --audit-spread-contents
+          # G0u includes G0t header verification then bounded zlib/Adler32.
+          # Same pinned official pair; no Unicode or global NOT_WIN proof.
+          timeout 660s dart run tool/c500_g0_bounded_xref.dart --audit-spread-decode
 
       # G0d/e/f: independent failure domain. qpdf bad_alloc and bounded-XRef
       # failures must remain FAIL, but must NOT implicitly skip the pinned

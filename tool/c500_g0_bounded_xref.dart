@@ -604,7 +604,11 @@ class C500G0SpreadPageAuditor {
     required int rootGeneration, required int declaredPages,
     required C500G0ReadObject readObject,
     bool verifyContentHeaders = false,
+    bool verifyContentDecode = false,
   }) async {
+    if (verifyContentDecode && !verifyContentHeaders) {
+      throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_HEADERS');
+    }
     if (declaredPages < 3 || declaredPages > 100000) {
       throw const C500G0BoundedXrefException('C500_G0S_COUNT_LIMIT');
     }
@@ -630,6 +634,7 @@ class C500G0SpreadPageAuditor {
     }
     // G0t: sampled /Contents metadata only; no glyphs, sorting, or NOT_WIN.
     var headerCount = 0, totalLength = 0;
+    var decodedCount = 0, decodedTotal = 0;
     if (verifyContentHeaders) {
       for (var i = 0; i < 3; i++) {
         final leaf = await readObject(leaves[i], gens[i]);
@@ -679,12 +684,48 @@ class C500G0SpreadPageAuditor {
         }
         totalLength += length;
         headerCount++;
+        // G0u: only three XRef-bound samples. Never log decoded bytes,
+        // private glyphs or invoice numbers, or promote award authority.
+        if (verifyContentDecode) {
+          List<int> decoded;
+          try {
+            decoded = const CloudAwardPdfBoundedStreamDecoder(
+              maxCompressedBytes: 32 * 1024,
+              maxDecodedBytes: 256 * 1024,
+            ).decode(
+              bytes: latin1.encode(obj.substring(
+                  marker.end, marker.end + length)),
+              filters: filters == 1
+                  ? const <String>['FlateDecode']
+                  : const <String>[],
+            );
+          } on CloudAwardPdfBoundedStreamDecodeException catch (error) {
+            throw C500G0BoundedXrefException(
+              error.code == 'CLOUD_AWARD_PDF_STREAM_DECODED_LIMIT_EXCEEDED'
+                  ? 'C500_G0U_DECODED_LIMIT'
+                  : 'C500_G0U_DECODE_INVALID',
+            );
+          } catch (_) {
+            throw const C500G0BoundedXrefException('C500_G0U_DECODE_INVALID');
+          }
+          if (decoded.isEmpty ||
+              decodedTotal > 3 * 256 * 1024 - decoded.length) {
+            throw const C500G0BoundedXrefException('C500_G0U_DECODED_LIMIT');
+          }
+          decodedTotal += decoded.length;
+          decodedCount++;
+        }
       }
     }
     return <String, Object?>{
       'spread_page_indices': targets, 'spread_leaf_ids': leaves,
       'spread_content_headers_verified': headerCount,
       'spread_content_compressed_bytes_total': totalLength,
+      'spread_content_streams_decoded': decodedCount,
+      'spread_content_decoded_bytes_total': decodedTotal,
+      'spread_content_decode_scope': verifyContentDecode
+          ? 'THREE_BOUNDED_STREAMS_NOT_GLYPH_OR_GLOBAL_PROOF'
+          : 'NOT_RUN',
       'spread_content_scope': verifyContentHeaders
           ? 'THREE_HEADERS_ONLY_NOT_DECODED_OR_GLOBAL_PROOF' : 'NOT_RUN',
       'spread_path_objects_read_total': reads, 'spread_paths_verified': 3,
@@ -736,6 +777,7 @@ class C500G0BoundedXrefInspector {
     bool verifyMidpointPagePath = false,
     bool verifySpreadPagePaths = false,
     bool verifySpreadPageContents = false,
+    bool verifySpreadPageDecodedContents = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
         rootChildOrdinal != 2 && rootChildOrdinal != -1 &&
@@ -752,6 +794,9 @@ class C500G0BoundedXrefInspector {
     }
     if (verifySpreadPageContents && !verifySpreadPagePaths) {
       throw const C500G0BoundedXrefException('C500_G0T_REQUIRES_SPREAD');
+    }
+    if (verifySpreadPageDecodedContents && !verifySpreadPageContents) {
+      throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_HEADERS');
     }
     if ((verifyMidpointPagePath || verifySpreadPagePaths) && !verifyCatalogRoot) {
       throw const C500G0BoundedXrefException('C500_G0R_REQUIRES_PINNED_ROOT');
@@ -985,12 +1030,15 @@ class C500G0BoundedXrefInspector {
               verifyAllRootSubtreesCounts,
               verifyFirstBranchAllGrandchildrenCounts,
               verifyMidpointPagePath, verifySpreadPagePaths,
-              verifySpreadPageContents)
+              verifySpreadPageContents,
+              verifySpreadPageDecodedContents)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         'root_child_ordinal': rootChildOrdinal,
-        'sample_scope': verifySpreadPageContents
+        'sample_scope': verifySpreadPageDecodedContents
+            ? 'FIRST_MIDDLE_LAST_BOUNDED_DECODE_NOT_TEXT_OR_GLOBAL_PROOF'
+            : verifySpreadPageContents
             ? 'FIRST_MIDDLE_LAST_CONTENT_HEADERS_NOT_TEXT_PROOF'
             : verifySpreadPagePaths
             ? 'FIRST_MIDDLE_LAST_THREE_LEAF_PATHS_NOT_GLOBAL_PROOF'
@@ -1089,6 +1137,7 @@ class C500G0BoundedXrefInspector {
     bool verifyMidpointPagePath,
     bool verifySpreadPagePaths,
     bool verifySpreadPageContents,
+    bool verifySpreadPageDecodedContents,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -1187,6 +1236,7 @@ class C500G0BoundedXrefInspector {
             rootGeneration: int.parse(pages.group(2)!),
             declaredPages: declared, readObject: readObject,
             verifyContentHeaders: verifySpreadPageContents,
+            verifyContentDecode: verifySpreadPageDecodedContents,
           )
         : verifyMidpointPagePath
         ? await const C500G0MidpointPageAuditor().inspect(
@@ -1868,8 +1918,10 @@ Future<void> main(List<String> args) async {
       args.single == '--audit-third-branch-all-grandchildren';
   final auditMidpointPage = args.length == 1 &&
       args.single == '--audit-midpoint-page';
-  final auditSpreadContents = args.length == 1 &&
-      args.single == '--audit-spread-contents';
+  final auditSpreadDecode = args.length == 1 &&
+      args.single == '--audit-spread-decode';
+  final auditSpreadContents = auditSpreadDecode || (args.length == 1 &&
+      args.single == '--audit-spread-contents');
   final auditSpreadPages = auditSpreadContents || (args.length == 1 &&
       args.single == '--audit-spread-pages');
   final auditSelectedBranchAllGrandchildren =
@@ -1950,6 +2002,7 @@ Future<void> main(List<String> args) async {
         verifyMidpointPagePath: auditMidpointPage,
         verifySpreadPagePaths: auditSpreadPages,
         verifySpreadPageContents: auditSpreadContents,
+        verifySpreadPageDecodedContents: auditSpreadDecode,
         verifyFirstRootSubtreeCounts: auditFirstSubtree,
         verifySecondRootSubtreeCounts: auditSecondSubtree,
         verifyFirstGrandchildCounts: auditFirstGrandchild,
