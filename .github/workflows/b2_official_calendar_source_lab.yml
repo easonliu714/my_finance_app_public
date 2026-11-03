@@ -7,6 +7,8 @@ on:
       - '.github/workflows/b2_official_calendar_source_lab.yml'
       - 'tool/b2_official_calendar_source_lab.py'
       - 'tool/b2_official_calendar_source_lab_test.dart'
+      - 'lib/features/transaction/taiwan_business_calendar_pinned_116_install.dart'
+      - 'test/features/transaction/taiwan_business_calendar_pinned_116_install_test.dart'
       - 'tool/b2_official_calendar_publication_lab.py'
       - 'tool/test_b2_official_calendar_publication_lab.py'
   workflow_dispatch:

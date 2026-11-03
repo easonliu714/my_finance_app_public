@@ -1,4 +1,18 @@
-## CURRENT — 2026-11-03 18:18 Asia/Taipei | G0u real official decode PASS; G0w lexical feasibility queued
+## CURRENT — 2026-11-03 19:15 Asia/Taipei | B2.12 pinned 116 manual-install backend; C500-G0w source lexical PASS / parent HOLD
+
+**Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT verified parent `2bc00d13f1dee88d1d43dd3ee22a9c9808ec95c4` (next commit must be read back as live HEAD); main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`. Single controlled Writer, no direct main/force push/merge, no production SQLite/LKG, no signing-key or Owner-device changes.
+
+**Exact-parent evidence:** [Flutter CI #1322](https://github.com/easonliu714/my_finance_app_public/actions/runs/41618698083) SUCCESS Analyze/full Flutter/Native JVM/API35 on `2bc00d13f1dee88d1d43dd3ee22a9c9808ec95c4`. [MOF Official Lab #148](https://github.com/easonliu714/my_finance_app_public/actions/runs/41618698164) LAB_ENABLED=true ACTUALLY acquired both pinned 115-05-06/115-07-08 PDFs; G0w first/middle/last decoded glyph lexical probes 3/3 each PASS. Overall Lab FAIL: independent qpdf std::bad_alloc, new PdfRenderer IOException/PDFium SIGTRAP, both PDFBox Java OOM; old PdfRenderer sampled 3 pages with ~829 MB PSS. Full Unicode/sorting/all-page completeness/global NOT_WIN NOT_PROVEN; A_STAGNATION=FAIL for renderer/root feasibility. [DGPA Lab #67](https://github.com/easonliu714/my_finance_app_public/actions/runs/41618698238) genuine ROC116 CSV/isolated SQLite PASS.
+
+**B2.12 new bounded production-code delta (CI/source lab PENDING on successor):** pinned SHA+365-day/121-holiday parser is now prerequisite to deterministic local sequence-1 baseline package; DGPA 2026-05-21 [calendar announcement](https://www.dgpa.gov.tw/information?fr=ev22548C0701M03&pid=12983&uid=82) is recorded as calendar publication date, NOT per-resource CSV revision. Manifest generation timestamp is fixed for idempotent digest; explicit consent is mandatory before existing atomic SQLite install; reject changed bytes, no consent, downgrade, collision and partial-batch failure. New routine fail-closed tests and opt-in real official CSV isolated SQLite success/idempotency/rollback tests. **No UI invokes install yet, no production DB changed.** Future CSV revisions still require independent resource-level provenance, new reviewed SHA pin/sequence, and annual trigger; no claim automatic updates.
+
+**Owner device separate from parent:** installed signed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) applies ONLY to older `446d56e2eddb2a787c6c1910c79f4262322335db`. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and B2.8 screenshot `3175.png` original 6511-byte DGPA SHA preview PASS; B1.5 N/A. B2.8 PREVIEW NOT INSTALLED; 2026/2027 NOT VERIFIED expected. Parent Issue #19 actual UI-confirmed install, durable LKG/revision/audit, annual trigger and Owner E2E HOLD. No repeat B2.8 or download-link-only APK.
+
+**Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner-choice HOLD; G6 BLOCKED. C13/C17/C18 strict security/global NOT_WIN HOLD. **NEXT:** verify successor exact-head Flutter CI and real DGPA Lab first failure, then wire separate explicit Owner-confirmed installation UI without weakening source pin/rollback; C500 source-backed renderer root remains parallel P0. Owner help NOW=NONE.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-03 18:18 Asia/Taipei | G0u real official decode PASS; G0w lexical feasibility queued
 
 **Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT parent `71285db5ec1b763cf0d01f8f81571877b5dd065b`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; new successor is live HEAD only after readback. No main write, force push, merge, production SQLite/LKG, signing or device mutation.
 
@@ -10,7 +24,7 @@
 
 **Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner-choice HOLD; G6 BLOCKED. C13/C17/C18 strict security/global NOT_WIN HOLD. **NEXT:** read exact successor CI and real G0w first failure; B2 source-revision/install DoD remains separate. Owner help NOW=NONE.
 
-## HISTORY — superseded snapshots, not current authority
+
 
 ### HISTORY (former CURRENT) — 2026-11-03 17:18 Asia/Taipei | G0u first failure non-const ZLibEncoder synthetic fixture repair
 

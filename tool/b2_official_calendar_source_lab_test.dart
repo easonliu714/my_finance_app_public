@@ -7,6 +7,7 @@ import 'package:my_finance_app/features/transaction/taiwan_business_calendar_csv
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_official_116_stage.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package_service.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_pinned_116_install.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// B2.7: explicit isolated source lab only; never included in routine test/.
@@ -125,4 +126,80 @@ void main() {
     );
 
   });
+
+  test('B2.12 genuine pinned source installs once with explicit consent', () async {
+    final bytes = await officialBytes();
+    const installer = TaiwanBusinessCalendarPinned116Installer();
+    final first = await installer.prepare(bytes);
+    final again = await installer.prepare(bytes);
+    expect(first.digest, again.digest,
+        reason: 'Pinned baseline package must be byte-stable across retries.');
+    expect(first.sourceRevision, contains(
+        TaiwanBusinessCalendarOfficial116Stage.pinnedSha256));
+    expect(first.revisionSequence, 1);
+    expect(first.sourcePublishedAt, '2026-05-21');
+
+    final db = await openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('''
+      CREATE TABLE taiwan_business_calendar_days (
+        calendar_date TEXT PRIMARY KEY, is_business_day INTEGER NOT NULL,
+        day_label TEXT NOT NULL DEFAULT '', source_year INTEGER NOT NULL,
+        source_revision TEXT NOT NULL, source_url TEXT NOT NULL,
+        updated_at TEXT NOT NULL, CHECK (is_business_day IN (0, 1))
+      )
+    ''');
+    await expectLater(installer.install(db, bytes, userConfirmed: false),
+        throwsA(isA<CalendarPackageConflictException>()));
+    expect(await service.status(db, 2027), isNull);
+
+    final installed = await installer.install(db, bytes, userConfirmed: true);
+    expect(installed.disposition, CalendarPackageInstallDisposition.installed);
+    expect(installed.rowCount, 365);
+    final retry = await installer.install(db, bytes, userConfirmed: true);
+    expect(retry.disposition, CalendarPackageInstallDisposition.unchanged);
+    expect(retry.digest, installed.digest);
+    final status = await service.status(db, 2027);
+    expect(status!.rowCount, 365);
+    expect(status.sequence, 1);
+    expect(status.digest, first.digest);
+    expect(status.sourceUrl, TaiwanBusinessCalendarPinned116Installer.sourceUrl);
+
+    final changed = Uint8List.fromList(bytes);
+    changed[changed.length - 1] ^= 1;
+    await expectLater(installer.install(db, changed, userConfirmed: true),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>()));
+    final preserved = await service.status(db, 2027);
+    expect(preserved!.digest, first.digest);
+    expect(preserved.sequence, 1);
+  });
+
+  test('B2.12 real source initial install rolls back on mid-batch abort',
+      () async {
+    final bytes = await officialBytes();
+    const installer = TaiwanBusinessCalendarPinned116Installer();
+    final db = await openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('''
+      CREATE TABLE taiwan_business_calendar_days (
+        calendar_date TEXT PRIMARY KEY, is_business_day INTEGER NOT NULL,
+        day_label TEXT NOT NULL DEFAULT '', source_year INTEGER NOT NULL,
+        source_revision TEXT NOT NULL, source_url TEXT NOT NULL,
+        updated_at TEXT NOT NULL, CHECK (is_business_day IN (0, 1))
+      )
+    ''');
+    await db.execute('''
+      CREATE TRIGGER b2_initial_abort
+      BEFORE INSERT ON taiwan_business_calendar_days
+      WHEN NEW.calendar_date = '2027-07-01'
+      BEGIN SELECT RAISE(ABORT, 'isolated-initial-install-rollback'); END
+    ''');
+    await expectLater(installer.install(db, bytes, userConfirmed: true),
+        throwsA(isA<DatabaseException>()));
+    expect(await service.status(db, 2027), isNull);
+    final rows = await db.rawQuery(
+        'SELECT COUNT(*) AS count FROM taiwan_business_calendar_days');
+    expect(rows.single['count'], 0);
+  });
+
 }
