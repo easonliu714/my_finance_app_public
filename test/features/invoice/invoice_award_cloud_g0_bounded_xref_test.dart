@@ -591,12 +591,54 @@ void main() {
       const C500G0FirstBranchAllGrandchildrenAuditor().inspect(
         pagesBody: '<< /Count 5 /Kids [11 0 R 12 0 R] >>',
         rootId: 5, rootGeneration: 0, declaredPages: 5,
-        rootChildOrdinal: 2,
+        rootChildOrdinal: 3,
         readObject: (id, generation) async => nodes[id]!,
       ),
       throwsA(isA<C500G0BoundedXrefException>()
           .having((e) => e.code, 'code', 'C500_G0O6_ORDINAL_INVALID')),
     );
+  });
+
+  // G0o.11: the third distinct branch extends real-source custody coverage,
+  // but this synthetic contract cannot establish page/Unicode/NOT_WIN proof.
+  test('G0o.11 third branch count, parent and cross-alias custody', () async {
+    final nodes = <int, String>{
+      11: '<< /Type /Page /Parent 5 0 R >>',
+      12: '<< /Type /Page /Parent 5 0 R >>',
+      13: '<< /Type /Pages /Parent 5 0 R /Count 4 /Kids [22 0 R 23 0 R] >>',
+      22: '<< /Type /Pages /Parent 13 0 R /Count 2 /Kids [31 0 R 32 0 R] >>',
+      23: '<< /Type /Pages /Parent 13 0 R /Count 2 /Kids [33 0 R 34 0 R] >>',
+      31: '<< /Type /Page /Parent 22 0 R >>',
+      32: '<< /Type /Page /Parent 22 0 R >>',
+      33: '<< /Type /Page /Parent 23 0 R >>',
+      34: '<< /Type /Page /Parent 23 0 R >>',
+    };
+    Future<Map<String, Object?>> inspect() =>
+        const C500G0FirstBranchAllGrandchildrenAuditor().inspect(
+          pagesBody: '<< /Count 6 /Kids [11 0 R 12 0 R 13 0 R] >>',
+          rootId: 5, rootGeneration: 0, declaredPages: 6,
+          rootChildOrdinal: 2,
+          readObject: (id, generation) async => nodes[id]!,
+        );
+    final valid = await inspect();
+    expect(valid['third_root_subtree_declared_count'], 4);
+    expect(valid['third_branch_grandchildren_audited'], 2);
+    expect(valid['third_branch_great_grandchildren_refs_verified'], 4);
+    expect(valid['third_branch_third_level_count_sum'], 4);
+    expect(valid.toString().contains('NOT_WIN'), false);
+
+    nodes[34] = '<< /Type /Page /Parent 99 0 R >>';
+    await expectLater(inspect(), throwsA(isA<C500G0BoundedXrefException>()
+        .having((e) => e.code, 'code', 'C500_G0O_ROOT_KID_PARENT_MISMATCH')));
+    nodes[34] = '<< /Type /Page /Parent 23 0 R >>';
+
+    nodes[23] = '<< /Type /Pages /Parent 13 0 R /Count 2 /Kids [33 0 R 31 0 R] >>';
+    await expectLater(inspect(), throwsA(isA<C500G0BoundedXrefException>()
+        .having((e) => e.code, 'code', 'C500_G0O5_ALIAS_OR_CYCLE')));
+    nodes[23] = '<< /Type /Pages /Parent 13 0 R /Count 2 /Kids [33 0 R 34 0 R] >>';
+
+    nodes[23] = '<< /Type /Pages /Parent 13 0 R /Count 3 /Kids [33 0 R 34 0 R] >>';
+    await expectLater(inspect(), throwsA(isA<C500G0BoundedXrefException>()));
   });
 
   test('G0o.5 rejects parent, cross-alias, count, missing and leaf',

@@ -44,7 +44,8 @@ class C500G0RootKidSelector {
   const C500G0RootKidSelector();
 
   (int, int) select(String pagesBody, int ordinal) {
-    if (ordinal != 0 && ordinal != 1 && ordinal != -1 && ordinal != -2) {
+    if (ordinal != 0 && ordinal != 1 && ordinal != 2 &&
+        ordinal != -1 && ordinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
     }
     // G0o.7: duplicate /Kids dictionaries are ambiguous; fail closed.
@@ -170,7 +171,8 @@ class C500G0FirstRootSubtreeCountAuditor {
     required C500G0ReadObject readObject,
     int rootChildOrdinal = 0,
   }) async {
-    if (rootChildOrdinal != 0 && rootChildOrdinal != 1) {
+    if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
+        rootChildOrdinal != 2) {
       throw const C500G0BoundedXrefException('C500_G0O2_ORDINAL_INVALID');
     }
     final root = await const C500G0RootChildCountAuditor().inspect(
@@ -182,7 +184,8 @@ class C500G0FirstRootSubtreeCountAuditor {
     );
     final selected = const C500G0RootKidSelector()
         .select(pagesBody, rootChildOrdinal);
-    final label = rootChildOrdinal == 0 ? 'first' : 'second';
+    final label = rootChildOrdinal == 0 ? 'first'
+        : rootChildOrdinal == 1 ? 'second' : 'third';
     final body = await readObject(selected.$1, selected.$2);
     if (!RegExp(r'/Type\s*/Pages\b').hasMatch(body) ||
         RegExp(r'/Type\s*/Page\b').hasMatch(body)) {
@@ -326,7 +329,8 @@ class C500G0FirstBranchAllGrandchildrenAuditor {
     required C500G0ReadObject readObject,
     int rootChildOrdinal = 0,
   }) async {
-    if (rootChildOrdinal != 0 && rootChildOrdinal != 1) {
+    if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
+        rootChildOrdinal != 2) {
       throw const C500G0BoundedXrefException('C500_G0O6_ORDINAL_INVALID');
     }
     final two = await const C500G0FirstRootSubtreeCountAuditor().inspect(
@@ -337,7 +341,8 @@ class C500G0FirstBranchAllGrandchildrenAuditor {
     );
     final selected = const C500G0RootKidSelector().select(pagesBody, rootChildOrdinal);
     final branch = await readObject(selected.$1, selected.$2);
-    final label = rootChildOrdinal == 0 ? 'first' : 'second';
+    final label = rootChildOrdinal == 0 ? 'first'
+        : rootChildOrdinal == 1 ? 'second' : 'third';
     final expected = two['${label}_root_subtree_declared_count']! as int;
     final groups = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
         .allMatches(branch).toList();
@@ -515,7 +520,8 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstBranchAllGrandchildrenCounts = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
-        rootChildOrdinal != -1 && rootChildOrdinal != -2) {
+        rootChildOrdinal != 2 && rootChildOrdinal != -1 &&
+        rootChildOrdinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
     }
     if (verifyFirstBranchAllGrandchildrenCounts &&
@@ -753,7 +759,9 @@ class C500G0BoundedXrefInspector {
         'sample_scope': verifyFirstBranchAllGrandchildrenCounts
             ? rootChildOrdinal == 0
                 ? 'FIRST_BRANCH_ALL_GRANDCHILDREN_THREE_LEVELS_NOT_GLOBAL_PROOF'
-                : 'SECOND_BRANCH_ALL_GRANDCHILDREN_THREE_LEVELS_NOT_GLOBAL_PROOF'
+                : rootChildOrdinal == 1
+                    ? 'SECOND_BRANCH_ALL_GRANDCHILDREN_THREE_LEVELS_NOT_GLOBAL_PROOF'
+                    : 'THIRD_BRANCH_ALL_GRANDCHILDREN_THREE_LEVELS_NOT_GLOBAL_PROOF'
             : verifyAllRootSubtreesCounts
             ? 'ALL_ROOT_SUBTREES_TWO_LEVEL_COUNT_ONLY_NOT_GLOBAL_PROOF'
             : verifyFirstGrandchildCounts
@@ -1599,14 +1607,18 @@ Future<void> main(List<String> args) async {
   // G0o.6: separate second branch, not full-document proof.
   final auditSecondBranchAllGrandchildren = args.length == 1 &&
       args.single == '--audit-second-branch-all-grandchildren';
+  // G0o.11: third distinct root subtree, identical 16/256 reference budgets.
+  final auditThirdBranchAllGrandchildren = args.length == 1 &&
+      args.single == '--audit-third-branch-all-grandchildren';
   final auditSelectedBranchAllGrandchildren =
-      auditFirstBranchAllGrandchildren || auditSecondBranchAllGrandchildren;
+      auditFirstBranchAllGrandchildren || auditSecondBranchAllGrandchildren ||
+      auditThirdBranchAllGrandchildren;
   final auditRootChildren = auditFirstSubtree || auditSecondSubtree ||
       auditFirstGrandchild || auditAllRootSubtrees ||
       auditSelectedBranchAllGrandchildren ||
       (args.length == 1 && args.single == '--audit-root-children');
-  final rootChildOrdinal = (auditSecondSubtree ||
-      auditSecondBranchAllGrandchildren) ? 1
+  final rootChildOrdinal = auditThirdBranchAllGrandchildren ? 2
+      : (auditSecondSubtree || auditSecondBranchAllGrandchildren) ? 1
       : auditRootChildren || args.isEmpty ? 0
       : args.length == 1 && args.single == '--second-root-child' ? 1
       : args.length == 1 && args.single == '--last-root-child' ? -1

@@ -290,6 +290,16 @@ jobs:
           set -euo pipefail
           timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-second-branch-all-grandchildren
 
+      # G0o.11: third distinct root subtree; same pinned official pair,
+      # bounded 16 grandchildren/256 great-grandchildren, leaves UNKNOWN.
+      - name: G0o.11 pinned third branch all-grandchildren third-level custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-third-branch-all-grandchildren
+
       # G0d/e/f: independent failure domain. qpdf bad_alloc and bounded-XRef
       # failures must remain FAIL, but must NOT implicitly skip the pinned
       # source-backed Android first-failure experiment. Only the verified
