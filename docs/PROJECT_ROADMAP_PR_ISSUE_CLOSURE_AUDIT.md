@@ -1,4 +1,20 @@
-## CURRENT — 2026-11-03 19:15 Asia/Taipei | B2.12 pinned 116 manual-install backend; C500-G0w source lexical PASS / parent HOLD
+## CURRENT — 2026-11-04 00:15 Asia/Taipei | B2.13 explicit consent UI implementation, successor CI PENDING
+
+**Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT, verified parent `f430687c4f0cf29a7a09d5b1a59b3b5d28889d7e`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; successor exact SHA must be read back after one leased atomic commit. Single Writer; no main write, force push, merge, production account/SQLite/LKG/POSTED 700 mutation, or signing-key change.
+
+**Last verified parent CI:** [Flutter Android CI #1323](https://github.com/easonliu714/my_finance_app_public/actions/runs/41626496915) SUCCESS Analyze/full Flutter/debug build/native JVM/Android API35 strict witnesses on parent only. [DGPA Official Lab #68](https://github.com/easonliu714/my_finance_app_public/actions/runs/41626496730) real original ROC116 CSV 6511 bytes SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365 days/121 holidays, official listing, Dart parser and isolated SQLite rollback PASS. New B2.13 exact-head CI and real-source UI integration test PENDING; no inherited PASS.
+
+**B2.13 production delta:** after bounded SHA+full-year preview, hold only verified bytes in memory and expose a separate explicit installation action. An affirmative confirmation dialog is required BEFORE obtaining the canonical Database. Cancel/negative picker/invalid SHA never call install. Confirmation calls exactly one existing `TaiwanBusinessCalendarPinned116Installer.install(db, bytes, userConfirmed:true)`; installer re-verifies source bytes, uses existing atomic transaction and rejects revision collision/downgrade. No silent download, automatic annual update, second DB connection or 2026 inference. New routine widget negative tests and genuine-source isolated DB widget cancel/confirm test are added; successor CI/Lab outcome PENDING. B2.13 CODE committed does NOT mean Owner E2E PASS or parent #19 closure.
+
+**Owner-device evidence (unchanged):** installed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) is ONLY old `446d56e2eddb2a787c6c1910c79f4262322335db`. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7, B2.8 screenshot 3175.png original official CSV SHA preview PASS; B1.5 cross-year N/A. Preview is NOT installation; 2026/2027 NOT VERIFIED expected. B2 parent Issue #19 transactional installation/annual trigger/Owner install E2E HOLD. No repeat accepted UAT, no download-link-only APK.
+
+**C500 A P0:** last true-source [Lab #148](https://github.com/easonliu714/my_finance_app_public/actions/runs/41618698164) acquired both pinned MOF PDFs, 3/3 sampled lexical glyph paths each PASS but qpdf std::bad_alloc (1.5GiB), PdfRenderer IOException/PDFium SIGTRAP/PDFBox OOM; complete Unicode/sortedness/all pages/global NOT_WIN HOLD. [Lab #149](https://github.com/easonliu714/my_finance_app_public/actions/runs/41626496898) source steps ALL SKIPPED, synthetic-only SUCCESS is NOT real-source proof. A_STAGNATION=FAIL. Next A slot requires a bounded true-source renderer/resource root experiment with `[G0-SOURCE-LAB]` and actual LAB_ENABLED=true, not more shallow synthetic samples.
+
+**Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED. C13/C17/C18/global NOT_WIN root authority HOLD notwithstanding passing current strict regression witnesses. B2.13 successor CI/Lab and Owner Signed/device gates HOLD; then B2 annual trigger, B3 #18 isolated backup, B4 #6, B5 #9, B6 #15. **STAGNATION:** prior 20:15/21:15 slots FAIL (no code/test delta); this is the first new substantive code/test delta, not yet tested. OWNER_HELP_NOW=NONE.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-03 19:15 Asia/Taipei | B2.12 pinned 116 manual-install backend; C500-G0w source lexical PASS / parent HOLD
 
 **Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT verified parent `2bc00d13f1dee88d1d43dd3ee22a9c9808ec95c4` (next commit must be read back as live HEAD); main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`. Single controlled Writer, no direct main/force push/merge, no production SQLite/LKG, no signing-key or Owner-device changes.
 
@@ -10,7 +26,7 @@
 
 **Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner-choice HOLD; G6 BLOCKED. C13/C17/C18 strict security/global NOT_WIN HOLD. **NEXT:** verify successor exact-head Flutter CI and real DGPA Lab first failure, then wire separate explicit Owner-confirmed installation UI without weakening source pin/rollback; C500 source-backed renderer root remains parallel P0. Owner help NOW=NONE.
 
-## HISTORY — superseded snapshots, not current authority
+
 
 ### HISTORY (former CURRENT) — 2026-11-03 18:18 Asia/Taipei | G0u real official decode PASS; G0w lexical feasibility queued
 

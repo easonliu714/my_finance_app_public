@@ -9,10 +9,12 @@ import 'package:sqflite/sqflite.dart';
 import 'taiwan_business_calendar_csv_import.dart';
 import 'taiwan_business_calendar_official_116_stage.dart';
 import 'taiwan_business_calendar_package_service.dart';
+import 'taiwan_business_calendar_pinned_116_install.dart';
 import 'transaction_repository.dart';
 
-/// B2 owner-facing, read-only annual status and bounded official-file preview.
-/// No production calendar/transaction row is changed by this page.
+/// B2.13: read-only status and bounded SHA preview, followed by a separate
+/// explicit owner-confirmed, atomic 116-year calendar installation action.
+/// No account/transaction rows or unrelated calendar years are written.
 class TaiwanBusinessCalendarStatusPage extends StatefulWidget {
   const TaiwanBusinessCalendarStatusPage({
     super.key,
@@ -24,6 +26,9 @@ class TaiwanBusinessCalendarStatusPage extends StatefulWidget {
   static const routeName = 'taiwan-business-calendar-status';
   static const routePath = '/taiwan-business-calendar';
   static const previewKey = Key('b2-official-116-csv-preview');
+  static const installKey = Key('b2-official-116-csv-install');
+  static const cancelInstallKey = Key('b2-official-116-install-cancel');
+  static const confirmInstallKey = Key('b2-official-116-install-confirm');
 
   final Future<DatabaseExecutor> Function()? databaseProvider;
   final Future<Uint8List?> Function()? csvBytesPicker;
@@ -43,6 +48,7 @@ class _TaiwanBusinessCalendarStatusPageState
 
   bool _loading = true;
   bool _checking = false;
+  Uint8List? _verifiedCsv;
   String _currentStatus = '讀取中…';
   String _nextStatus = '讀取中…';
   String _annualDecision = '讀取中…';
@@ -135,6 +141,8 @@ class _TaiwanBusinessCalendarStatusPageState
     if (_checking) return;
     setState(() {
       _checking = true;
+      // A new selection revokes all earlier installation eligibility.
+      _verifiedCsv = null;
       _fileResult = '正在有界檢查 CSV；尚未安裝。';
     });
     try {
@@ -163,6 +171,8 @@ class _TaiwanBusinessCalendarStatusPageState
           await const TaiwanBusinessCalendarOfficial116Stage().verify(bytes);
       if (!mounted) return;
       setState(() {
+        // Snapshot only verified 6511-byte source; revalidate again on install.
+        _verifiedCsv = Uint8List.fromList(bytes);
         _fileResult = '116 年官方來源 SHA-256 相符（${bytes.lengthInBytes} bytes）；'
             '完整年度 ${staged.days.length} 日／放假 ${staged.holidayCount} 日解析通過；'
             '僅完成身分與結構預檢，未安裝。';
@@ -170,6 +180,73 @@ class _TaiwanBusinessCalendarStatusPageState
     } catch (_) {
       if (!mounted) return;
       setState(() => _fileResult = 'CSV 讀取或驗證失敗；資料未變更。');
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  // B2.13: preview is never installation authority. A second explicit tap
+  // and affirmative dialog are required before acquiring a writable DB.
+  Future<void> _installVerifiedCsv() async {
+    final bytes = _verifiedCsv;
+    if (_checking || bytes == null) return;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('確認安裝 2027 年官方日曆？'),
+        content: const Text(
+          '僅將已核對 SHA-256 的 116 年原始 CSV，交易式安裝為 2027 年'
+          '完整 365 日營業日曆。這會修改本機日曆資料；不會修改帳務。'
+          '若已有較新版本、內容衝突或資料庫失敗，將拒絕並保留原資料。'
+          '此動作不會啟用年度自動下載。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            key: TaiwanBusinessCalendarStatusPage.cancelInstallKey,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消，不安裝'),
+          ),
+          FilledButton(
+            key: TaiwanBusinessCalendarStatusPage.confirmInstallKey,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('確認安裝 2027 年'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || approved != true || !identical(_verifiedCsv, bytes)) {
+      return;
+    }
+    setState(() {
+      _checking = true;
+      // Consent is one-shot; require a fresh preview for any later attempt.
+      _verifiedCsv = null;
+      _fileResult = '正在重新驗證官方 CSV 並執行交易式日曆安裝…';
+    });
+    try {
+      final executor = await _database();
+      // The existing service requires Database.transaction; never substitute
+      // an unowned executor or create a second production connection.
+      if (executor is! Database) {
+        throw StateError('Calendar installation requires the canonical Database.');
+      }
+      final result = await const TaiwanBusinessCalendarPinned116Installer()
+          .install(executor, bytes, userConfirmed: true);
+      if (!mounted) return;
+      setState(() {
+        _fileResult = result.disposition ==
+                CalendarPackageInstallDisposition.unchanged
+            ? '2027 年官方日曆已存在且內容相同（365 日）；未重複寫入。'
+            : '2027 年官方日曆已交易式安裝並驗證 365 日；帳務未變更。';
+      });
+      await _loadReadOnlyStatus();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _fileResult = '安裝拒絕或失敗；未確認任何新年度資料，'
+            '請重新預檢官方 CSV。原日曆由交易式回復保護。';
+      });
+      await _loadReadOnlyStatus();
     } finally {
       if (mounted) setState(() => _checking = false);
     }
@@ -206,9 +283,18 @@ class _TaiwanBusinessCalendarStatusPageState
           ),
           const SizedBox(height: 8),
           Text(_fileResult),
+          if (_verifiedCsv != null) ...<Widget>[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              key: TaiwanBusinessCalendarStatusPage.installKey,
+              onPressed: _checking ? null : _installVerifiedCsv,
+              icon: const Icon(Icons.verified_user_outlined),
+              label: const Text('另行確認安裝 2027 年官方日曆'),
+            ),
+          ],
           const SizedBox(height: 16),
-          const Text('正式年度安裝仍需修訂日期與來源驗證、'
-              '交易式回復測試及 Owner 確認；此頁不宣稱已完成安裝。'),
+          const Text('僅在重新核對官方原始檔且明確確認後，才會交易式安裝。'
+              '年度自動下載／更新尚未啟用；2026 年資料狀態不受此操作推定。'),
         ],
       ),
     );

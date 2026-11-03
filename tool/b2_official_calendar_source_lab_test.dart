@@ -2,7 +2,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_status_page.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_csv_import.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_official_116_stage.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package.dart';
@@ -200,6 +202,59 @@ void main() {
     final rows = await db.rawQuery(
         'SELECT COUNT(*) AS count FROM taiwan_business_calendar_days');
     expect(rows.single['count'], 0);
+  });
+
+
+  testWidgets('B2.13 genuine DGPA UI cancel=zero writes, confirm=365 days',
+      (tester) async {
+    final bytes = await officialBytes();
+    final db = await openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('''
+      CREATE TABLE taiwan_business_calendar_days (
+        calendar_date TEXT PRIMARY KEY, is_business_day INTEGER NOT NULL,
+        day_label TEXT NOT NULL DEFAULT '', source_year INTEGER NOT NULL,
+        source_revision TEXT NOT NULL, source_url TEXT NOT NULL,
+        updated_at TEXT NOT NULL, CHECK (is_business_day IN (0, 1))
+      )
+    ''');
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        csvBytesPicker: () async => Uint8List.fromList(bytes),
+        clock: () => DateTime.utc(2026, 11, 3),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.previewKey));
+    await tester.pumpAndSettle();
+    final install = find.byKey(TaiwanBusinessCalendarStatusPage.installKey);
+    expect(install, findsOneWidget);
+    await tester.ensureVisible(install);
+    await tester.tap(install);
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.confirmInstallKey),
+        findsOneWidget);
+    await tester.tap(find.byKey(
+        TaiwanBusinessCalendarStatusPage.cancelInstallKey));
+    await tester.pumpAndSettle();
+    expect(await service.status(db, 2027), isNull);
+
+    await tester.ensureVisible(install);
+    await tester.tap(install);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(
+        TaiwanBusinessCalendarStatusPage.confirmInstallKey));
+    await tester.pumpAndSettle();
+    final installed = await service.status(db, 2027);
+    expect(installed, isNotNull);
+    expect(installed!.rowCount, 365);
+    expect(installed.isContiguous, isTrue);
+    expect(installed.sequence, 1);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.installKey), findsNothing);
+    expect(find.textContaining('2027 年：365 日已驗證'), findsOneWidget);
+    expect(await service.status(db, 2026), isNull,
+        reason: '2027 install must not invent current-year authority.');
   });
 
 }
