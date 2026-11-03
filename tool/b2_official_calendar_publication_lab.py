@@ -58,15 +58,27 @@ def verify_dataset_html(raw):
     tokens = parser.tokens
     # A resource label follows its own CSV link; the label is not necessarily
     # part of the anchor. Reject duplicate/mismatched or Google-calendar links.
-    matches = []
+    # The public portal splits a single resource label across HTML nodes.
+    # Associate the *concatenated* text between consecutive links with the
+    # preceding href; a per-node substring check can miss genuine resources.
+    segments = []
     last_href = None
+    text_after_href = []
     for kind, value in tokens:
         if kind == 'href':
+            if last_href is not None:
+                segments.append((last_href, ''.join(text_after_href)))
             last_href = value
-        elif TARGET_LABEL in value and 'Google' not in value and 'google' not in value:
-            matches.append(last_href)
+            text_after_href = []
+        elif last_href is not None:
+            text_after_href.append(value)
+    if last_href is not None:
+        segments.append((last_href, ''.join(text_after_href)))
+    matches = [href for href, label in segments
+               if TARGET_LABEL in label and
+               not re.search(r'google', label, flags=re.IGNORECASE)]
     if matches != [CSV_URL]:
-        raise ValueError('DGPA 116 non-Google CSV resource URL drift or ambiguity')
+        raise ValueError('DGPA 116 resource identity unresolved: matches=%d exact_link=%d label_segments=%d' % (len(matches), sum(1 for href, _ in segments if href == CSV_URL), sum(1 for _, label in segments if TARGET_LABEL in label)))
     text = ''.join(value for kind, value in tokens if kind == 'text')
     if '詮釋資料更新時間' + DATASET_METADATA_TIME.replace(' ', '') not in text:
         raise ValueError('Government dataset metadata timestamp drift')

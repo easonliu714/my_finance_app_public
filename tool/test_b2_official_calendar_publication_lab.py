@@ -18,6 +18,11 @@ class PublicationCustodyTests(unittest.TestCase):
         self.assertTrue(verify_calendar_html(
             f'<a> {DGPA_CALENDAR_LISTING} </a>'.encode()))
 
+    def test_official_resource_label_split_across_markup_nodes(self):
+        raw = dataset().replace('116年中華民國政府行政機關辦公日曆表'.encode(),
+                                '116年<span>中華民國政府</span>行政機關辦公日曆表'.encode())
+        self.assertTrue(verify_dataset_html(raw))
+
     def test_forged_and_google_resources_fail_closed(self):
         for href, label in (
             ('https://www.dgpa.gov.tw.attacker.example/f.csv', '116年中華民國政府行政機關辦公日曆表'),
