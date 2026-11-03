@@ -1,4 +1,20 @@
-## CURRENT — 2026-11-04 05:10 Asia/Taipei | G0y independent MuPDF real-source first-page engine experiment; successor PENDING
+## CURRENT — 2026-11-04 06:18 Asia/Taipei | B2.14a first foreground/resume read-only annual notice; successor CI PENDING
+
+**Authority:** sole [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; inspected exact parent a6d6ab9b54a28cfa9639b2b1a418183cbfc09373, main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8. One B code/test/docs commit only, no main write/force push/merge/signing/production account/SQLite/LKG/POSTED NT$700 mutation.
+
+**Fresh exact-parent CI:** [Flutter Android #1330](https://github.com/easonliu714/my_finance_app_public/actions/runs/41719783391) SUCCESS, Analyzer/full Flutter 2317 tests PASS (1 skipped), native JVM and independent Android API35 strict witnesses PASS. [DGPA Lab #75](https://github.com/easonliu714/my_finance_app_public/actions/runs/41719783617) SUCCESS: actual official ROC116 UTF8BOM 6511 bytes SHA e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3, 365 days/121 holidays, official listing, Dart parser and isolated SQLite B2.13 cancel=0 write/confirm=365 persisted/rollback PASS. B2.13 CODE/CI/REAL_SOURCE_LAB PASS, NOT Signed or Owner E2E.
+
+**C500 A real-source result:** [MOF Lab #156](https://github.com/easonliu714/my_finance_app_public/actions/runs/41719782964) overall FAILURE, LAB_ENABLED=true and BOTH pinned original PDFs acquired: old 119769589 bytes SHA 1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe; new 135200798 bytes SHA f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571. G0y MuPDF bounded first-page text nonempty for BOTH (623 bytes each, exit=0, peak RSS 718868/798924 KiB, 3GiB virtual cap, 90s timeout). FIRST PAGE ONLY; qpdf 3/4GiB --check allocation failure, Android PdfRenderer IOException, PDFium SIGTRAP and PDFBox Java OOM persist. No complete Unicode/sorting/global NOT_WIN proof; G0 HOLD.
+
+**This B2.14a delta:** new dashboard first-foreground/resume read-only annualUpdateDecision notice with Taipei midnight rollover and stale-query generation guard. Only verified current-year first official December business day and missing next year can show manual status-page link. Missing/incomplete 2026 or already installed 2027 stays silent; no network, check receipt, silent install, calendar/account write or holiday inference. Four synthetic-only widget lifecycle/zero-write tests; not official 2026 source. B2.14a is partial annual eligibility UI, NOT complete official-source scheduler. Successor CI PENDING.
+
+**Owner device:** installed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) older HEAD 446d56e2eddb2a787c6c1910c79f4262322335db. U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and B2.8 screenshot 3175.png official SHA preview PASS, B1.5 N/A. No 2027 installation, newer Signed or Owner B2.13 E2E.
+
+**Closure:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED; C13/C17/C18 root and global NOT_WIN HOLD despite CI witnesses. A_STAGNATION global completeness FAIL. B2.13 DoD 60% (code/CI/real-source isolated DB PASS; Signed/Owner HOLD). B2.14a successor CI PENDING; annual official check/last-checked persistence HOLD; B2 parent #19 OPEN/HOLD. Roadmap B2 → B3 #18 → B4 #6 → B5 #9 → B6 #15 with A concurrently. NEXT A=real-source MuPDF bounded middle/last random-page and memory feasibility; NEXT B=verify successor CI, then real official-source idempotent annual check and later Signed Owner explicit consent E2E. OWNER_HELP_NOW=NONE; OWNER_HELP_LATER=verified Signed 2027 installation. MERGED_MAIN=NO.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-04 05:10 Asia/Taipei | G0y independent MuPDF real-source first-page engine experiment; successor PENDING
 
 **Authority:** sole [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; inspected parent `ac662955e5701d24aadc68f10d36d1e7553aa88a`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`. Single leased PR-branch code/test/docs commit only, no main write, force push, merge, Signed or production account/SQLite/LKG/POSTED NT$700 mutation. Successor HEAD/CI/real-source must be independently read back.
 
@@ -11,8 +27,6 @@
 **Owner device:** installed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) is older HEAD `446d56e2eddb2a787c6c1910c79f4262322335db`. U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and B2.8 screenshot 3175.png SHA preview PASS; B1.5 cross-year N/A. Original CSV preview did NOT install 2027. Do not repeat Owner PASS.
 
 **Closure:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED; C13/C17/C18 root and global NOT_WIN HOLD despite CI witness PASS. A_STAGNATION for global completeness remains FAIL. B2.13 DoD 60% (CODE/CI/isolated official-source E2E PASS; Signed/Owner/annual trigger HOLD); B2 parent #19 HOLD; then B3 #18, B4 #6, B5 #9, B6 #15. NEXT A=read successor genuine MuPDF root-feasibility first failure and compare against qpdf/Android caps. NEXT B=verified Signed candidate and Owner explicit 2027 installation, then annual foreground trigger. OWNER_HELP_NOW=NONE; OWNER_HELP_LATER=Signed Owner install E2E. MERGED_MAIN=NO.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-04 04:19 Asia/Taipei | C500-G0x.1 real-source qpdf peak-RSS defect repair + bounded 4GiB structural-check probe; successor PENDING
 
