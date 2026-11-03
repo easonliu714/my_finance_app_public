@@ -1,4 +1,18 @@
-## CURRENT — 2026-11-03 17:15 Asia/Taipei | G0u three-position bounded real-source content decode
+## CURRENT — 2026-11-03 17:18 Asia/Taipei | G0u first failure non-const ZLibEncoder synthetic fixture repair
+
+**Authority:** PR #45 OPEN/DRAFT parent `c139c1ebea399410e2ce63119d89a00b6c6252d6`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; successor is exact live HEAD. No main write, force push, merge, SQLite/LKG/signer/device changes.
+
+**FIRST FAILURE (same HEAD):** [CI #1320](https://github.com/easonliu714/my_finance_app_public/actions/runs/41609491060) Analyze FAIL at test/features/invoice/invoice_award_cloud_g0_midpoint_path_test.dart:198,220 `const_with_non_const` (ZLibEncoder is not const), plus prefer_interpolation_to_compose_strings infos at :193-194. [Official Lab #146](https://github.com/easonliu714/my_finance_app_public/actions/runs/41609490772) stopped at synthetic midpoint contract compilation BEFORE acquiring official PDFs; source-backed G0u = NOT_RUN on failed HEAD, not official source failure. Independent API35 job may run, but does not replace Analyze. Fix only two non-const constructors and fixture string interpolation; do not weaken/remove any security or negative test. Re-run exact-head CI and opt-in real-source Lab on new HEAD.
+
+**Last actual official evidence:** [Lab #145](https://github.com/easonliu714/my_finance_app_public/actions/runs/41602049667) acquired BOTH SHA-pinned official 115-05-06/115-07-08 PDFs and G0t 3 /Contents headers per period PASS (1828 compressed bytes each). Independent qpdf bad_alloc, new PdfRenderer IOException/PDFium SIGTRAP, both PDFBox OOM; G0/global NOT_WIN HOLD, A_STAGNATION=FAIL. [CI #1319](https://github.com/easonliu714/my_finance_app_public/actions/runs/41602049704) full Flutter/Native/API35 PASS only previous HEAD.
+
+**B Owner acceptance:** Installed signed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) on older `446d56e2eddb2a787c6c1910c79f4262322335db`; Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7, B2.8 3175.png official 6511-byte DGPA SHA preview PASS; B1.5 N/A. B2.8 PREVIEW NOT INSTALLED. B2 parent #19 transactional LKG/annual trigger/Owner install E2E HOLD; B3 #18 HOLD. No repeated Owner UAT.
+
+**Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner-choice HOLD; G6 BLOCKED. C13/C17/C18 strict security/full global NOT_WIN HOLD. **NEXT:** read new exact-head Analyze, Flutter, API35 and actual source-enabled G0u three-stream decode on both pinned PDFs. Owner help NOW=NONE.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-03 17:15 Asia/Taipei | G0u new gate pending
 
 **Authority:** PR #45 OPEN/DRAFT; verified parent `701bd0c60faddb0168bfc1703bd9a13b51a4b789`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, version 4.20.37+495. New exact SHA is the live PR head after commit; no direct main, force push, merge, production SQLite/LKG or signer changes.
 
@@ -9,8 +23,6 @@
 **B track Owner evidence:** Signed #994 only prior HEAD `446d56e2eddb2a787c6c1910c79f4262322335db`, APK SHA256 `8a2be3a64703a273cb7b155416c8fac2ae80d6c2e6d6b430e322eec3e58c8a5c`, signer 9BA2. Installed 4.20.37+495 U0/U1, B1.1–1.4/B1.6–1.8, B2.7, B2.8 Owner screenshot 3175.png PASS; B1.5 N/A. B2.8 official DGPA ROC116 CSV SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3` 6511 bytes identity PREVIEW ONLY, NOT INSTALLED. B2 parent Issue #19 transactional install/LKG/annual trigger/Owner E2E HOLD, B3 #18 HOLD; do not repeat B2.8 UAT.
 
 **Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED; C13/C17/C18 broad same-UID and full global negative proof HOLD. **NEXT SINGLE GATE:** read successor exact-head CI and real G0u source results, fix first failure; Owner help NOW=NONE.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-03 16:15 Asia/Taipei | G0t sampled official content headers
 

@@ -190,12 +190,11 @@ void main() {
 
   // G0u: synthetic compressed bytes, never genuine official source evidence.
   String compressedObject(int id, List<int> bytes) =>
-      '$id 0 obj\n<< /Length ' + bytes.length.toString() +
-      ' /Filter /FlateDecode >>\nstream\n' + latin1.decode(bytes) +
-      '\nendstream\nendobj';
+      '$id 0 obj\n<< /Length ${bytes.length} /Filter /FlateDecode >>\n'
+      'stream\n${latin1.decode(bytes)}\nendstream\nendobj';
   Map<int, String> withZlib() {
     final o = withContents();
-    final bytes = const ZLibEncoder().convert(utf8.encode('BT (abc) Tj ET'));
+    final bytes = ZLibEncoder().convert(utf8.encode('BT (abc) Tj ET'));
     for (final id in <int>[101, 103, 104]) {
       o[id] = compressedObject(id, bytes);
     }
@@ -217,7 +216,7 @@ void main() {
   });
   test('G0u overexpanded stream rejected', () async {
     final o = withZlib();
-    final bomb = const ZLibEncoder().convert(List<int>.filled(300000, 65));
+    final bomb = ZLibEncoder().convert(List<int>.filled(300000, 65));
     expect(bomb.length, lessThan(32768));
     o[103] = compressedObject(103, bomb);
     await expectLater(contents(o, decode: true),
