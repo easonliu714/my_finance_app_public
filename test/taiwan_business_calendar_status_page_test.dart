@@ -74,6 +74,44 @@ void main() {
     expect(db.writeAttempts, 0);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('B2.10 canceled picker leaves all calendar rows untouched',
+      (tester) async {
+    final db = _ReadOnlyCalendarDb();
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        clock: () => DateTime.utc(2026, 11, 2),
+        csvBytesPicker: () async => null,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.previewKey));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已取消選取'), findsOneWidget);
+    expect(find.textContaining('解析通過'), findsNothing);
+    expect(db.writeAttempts, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('B2.10 forged exact-length CSV never reaches full-year PASS',
+      (tester) async {
+    final db = _ReadOnlyCalendarDb();
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        clock: () => DateTime.utc(2026, 11, 2),
+        csvBytesPicker: () async => Uint8List(6511),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.previewKey));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SHA-256 不符'), findsOneWidget);
+    expect(find.textContaining('解析通過'), findsNothing);
+    expect(db.writeAttempts, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   // B2 Taiwan midnight/year rollover: the display and SQLite query must
   // agree with the existing annualUpdateDecision Taipei (+08:00) clock.
   testWidgets('B2 UTC Dec 31 evening reads Taiwan next-year status only',

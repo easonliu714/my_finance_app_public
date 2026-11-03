@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'taiwan_business_calendar_csv_import.dart';
+import 'taiwan_business_calendar_official_116_stage.dart';
 import 'taiwan_business_calendar_package_service.dart';
 import 'transaction_repository.dart';
 
@@ -151,11 +152,20 @@ class _TaiwanBusinessCalendarStatusPageState
           .map((value) => value.toRadixString(16).padLeft(2, '0'))
           .join();
       if (!mounted) return;
+      if (actual != _official116Digest) {
+        setState(() => _fileResult =
+            'SHA-256 不符已驗證的 116 年官方 CSV；拒絕安裝，資料未變更。');
+        return;
+      }
+      // B2.10: byte identity alone is insufficient for a success display.
+      // Reuse production strict full-year staging; never write SQLite here.
+      final staged =
+          await const TaiwanBusinessCalendarOfficial116Stage().verify(bytes);
+      if (!mounted) return;
       setState(() {
-        _fileResult = actual == _official116Digest
-            ? '116 年官方來源 SHA-256 相符（${bytes.lengthInBytes} bytes）；'
-                '僅完成檔案身分預檢，未安裝。'
-            : 'SHA-256 不符已驗證的 116 年官方 CSV；拒絕安裝，資料未變更。';
+        _fileResult = '116 年官方來源 SHA-256 相符（${bytes.lengthInBytes} bytes）；'
+            '完整年度 ${staged.days.length} 日／放假 ${staged.holidayCount} 日解析通過；'
+            '僅完成身分與結構預檢，未安裝。';
       });
     } catch (_) {
       if (!mounted) return;
@@ -185,7 +195,7 @@ class _TaiwanBusinessCalendarStatusPageState
               style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           const Text('請從行政院人事行政總處官方網站取得原始 CSV。'
-              '目前僅核對實際官方來源實驗室已驗證的 SHA-256；'
+              '目前核對官方來源 SHA-256 與完整年度日期、放假日結構；'
               '不會自動安裝、覆寫年度資料或修改帳務。'),
           const SizedBox(height: 12),
           OutlinedButton.icon(
