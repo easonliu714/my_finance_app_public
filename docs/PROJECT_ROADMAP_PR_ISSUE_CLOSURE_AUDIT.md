@@ -1,4 +1,20 @@
-## CURRENT — 2026-11-04 06:18 Asia/Taipei | B2.14a first foreground/resume read-only annual notice; successor CI PENDING
+## CURRENT — 2026-11-04 07:15 Asia/Taipei | G0z source-pinned MuPDF middle/last random-page feasibility; successor CI and actual source PENDING
+
+**Authority:** sole [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT, inspected parent `4393cc1803ade02469eb7c2509639b5198400686`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`. One A production-lab/test/workflow/governance commit with exact parent lease only. No main write, force push, merge, Signed, finance/account/SQLite/LKG/POSTED NT$700 modification.
+
+**Exact-parent verification:** [Flutter Android CI #1331](https://github.com/easonliu714/my_finance_app_public/actions/runs/41730257824) SUCCESS: Analyze, 2321 Flutter tests PASS (1 skipped), native JVM and independent API35 runtime strict witnesses PASS. [DGPA official Lab #76](https://github.com/easonliu714/my_finance_app_public/actions/runs/41730257932) SUCCESS: actual official ROC116 CSV HTTP 200, 6511 bytes, SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365 rows/121 holidays, official listing, parser and isolated SQLite B2.13 consent/cancel/rollback tests PASS. [MOF Lab #157](https://github.com/easonliu714/my_finance_app_public/actions/runs/41730257866) SUCCESS but LAB_ENABLED=false and ALL real official MOF PDF acquisition, XRef, glyph and Android engine steps SKIPPED; REAL_SOURCE_EXECUTED=false on #157.
+
+**Prior genuine source authority:** [MOF Lab #156](https://github.com/easonliu714/my_finance_app_public/actions/runs/41719782964) LAB_ENABLED=true, BOTH official pinned PDFs acquired: 115-05-06 119769589 bytes SHA `1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe`, 115-07-08 135200798 bytes SHA `f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`. MuPDF first page nonempty BOTH (623 bytes, RSS 718868/798924 KiB), while qpdf --check fails allocation even at 4 GiB. Android old PdfRenderer OPEN and first/middle/last samples PASS (PSS up to ~830426 KiB); new PdfRenderer OPEN IOException (PSS ~857712 KiB); new PDFium SIGTRAP, both PDFBox Java heap OOM. These are bounded samples/failure classifications, not full-page Unicode, global sorting, or NOT_WIN.
+
+**This G0z code/test delta:** reuse same SHA-pinned official pair and installed MuPDF, independently render exact middle/last pages (old 38500/77000; new 43500/87000) in four isolated children with 3 GiB virtual-memory, 90s timeout, 512 KiB output cap each. Report per-case exit/peak RSS/byte count/SHA and first failure; never print or upload extracted text. Forged/missing source must fail before invoking renderer; executable negative and static resource-contract regression. Workflow source lab one-shot marker `[G0-SOURCE-LAB]` requests actual source steps; successor result is PENDING, not inherited from prior source. Even 4/4 nonempty is sample feasibility ONLY, never full-page completeness/Unicode/sorting/global NOT_WIN.
+
+**Owner:** installed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) older head `446d56e2eddb2a787c6c1910c79f4262322335db`; U0/U1/B1.1–1.4/B1.6–1.8/B2.7/B2.8 screenshot 3175.png PASS, B1.5 N/A. No 2027 installation, no new signed release, no Owner B2.13 E2E.
+
+**Closure and roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD, G1–G4 HOLD, G5 Owner choice HOLD, G6 BLOCKED; C13/C17/C18 strict root and global NOT_WIN HOLD despite passing current CI witnesses. A_STAGNATION for global completeness FAIL until full-source convergence. B2.13 DoD 60% (code/CI/official isolated SQLite PASS, Signed/Owner HOLD). B2.14a read-only foreground notice CI #1331 PASS, but official annual check/last-checked persistence HOLD, B2 parent Issue #19 OPEN/HOLD. Roadmap B2 → B3 #18 → B4 #6 → B5 #9 → B6 #15, A concurrently. NEXT A=read successor genuine G0z 4-case source lab and resource/failure evidence, then decide bounded feasibility; NEXT B=official-source idempotent annual check without silent install. OWNER_HELP_NOW=NONE; LATER=verified Signed Owner explicit 2027 install E2E. MERGED_MAIN=NO.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-04 06:18 Asia/Taipei | B2.14a first foreground/resume read-only annual notice; successor CI PENDING
 
 **Authority:** sole [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; inspected exact parent a6d6ab9b54a28cfa9639b2b1a418183cbfc09373, main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8. One B code/test/docs commit only, no main write/force push/merge/signing/production account/SQLite/LKG/POSTED NT$700 mutation.
 
@@ -11,8 +27,6 @@
 **Owner device:** installed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) older HEAD 446d56e2eddb2a787c6c1910c79f4262322335db. U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and B2.8 screenshot 3175.png official SHA preview PASS, B1.5 N/A. No 2027 installation, newer Signed or Owner B2.13 E2E.
 
 **Closure:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED; C13/C17/C18 root and global NOT_WIN HOLD despite CI witnesses. A_STAGNATION global completeness FAIL. B2.13 DoD 60% (code/CI/real-source isolated DB PASS; Signed/Owner HOLD). B2.14a successor CI PENDING; annual official check/last-checked persistence HOLD; B2 parent #19 OPEN/HOLD. Roadmap B2 → B3 #18 → B4 #6 → B5 #9 → B6 #15 with A concurrently. NEXT A=real-source MuPDF bounded middle/last random-page and memory feasibility; NEXT B=verify successor CI, then real official-source idempotent annual check and later Signed Owner explicit consent E2E. OWNER_HELP_NOW=NONE; OWNER_HELP_LATER=verified Signed 2027 installation. MERGED_MAIN=NO.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-04 05:10 Asia/Taipei | G0y independent MuPDF real-source first-page engine experiment; successor PENDING
 

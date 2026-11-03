@@ -15,6 +15,8 @@ on:
       - 'test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart'
       - 'tool/c500_g0_qpdf_preflight.sh'
       - 'tool/c500_g0_qpdf_preflight_contract_test.sh'
+      - 'tool/c500_g0_mutool_spread_page_probe.sh'
+      - 'tool/c500_g0_mutool_spread_page_probe_contract_test.sh'
       - 'tool/c500_g0_qpdf_resource_ladder.sh'
       - 'tool/c500_g0_qpdf_resource_ladder_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
@@ -83,6 +85,7 @@ jobs:
           bash tool/c500_g0_workflow_gate_contract_test.sh
           bash tool/c500_g0_qpdf_resource_ladder_contract_test.sh
           bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
+          bash tool/c500_g0_mutool_spread_page_probe_contract_test.sh
 
       - name: G0l bounded XRef synthetic positive/negative contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -197,6 +200,16 @@ jobs:
         run: |
           set -euo pipefail
           bash tool/c500_g0_mutool_first_page_probe.sh
+
+      # G0z: genuinely distinct midpoint/last pages, not first-page replay.
+      # This independent step executes after prior failures, with 3 GiB/90s/page.
+      - name: G0z pinned MuPDF middle and last random-page feasibility (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_mutool_spread_page_probe.sh
 
       - name: G0l pinned official XRef-stream bounded access (NOT page proof)
         if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
