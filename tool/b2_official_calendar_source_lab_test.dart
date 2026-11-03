@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_csv_import.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_official_116_stage.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -89,6 +90,30 @@ void main() {
     expect(after.sequence, 1);
     expect(after.digest, year.digest);
 
+  });
+
+  test('B2.9 actual pinned DGPA 116 bytes pass production parse-only staging',
+      () async {
+    final bytes = await officialBytes();
+    final staged =
+        await const TaiwanBusinessCalendarOfficial116Stage().verify(bytes);
+    expect(staged.sourceYear, 2027);
+    expect(staged.rawSha256,
+        TaiwanBusinessCalendarOfficial116Stage.pinnedSha256);
+    expect(staged.days, hasLength(365));
+    expect(staged.holidayCount, 121);
+    expect(staged.days.first.dateKey, '2027-01-01');
+    expect(staged.days.last.dateKey, '2027-12-31');
+    expect(() => staged.days.clear(), throwsUnsupportedError);
+  });
+
+  test('B2.9 one-byte alteration of real source cannot stage', () async {
+    final bytes = Uint8List.fromList(await officialBytes());
+    bytes[bytes.length - 1] ^= 1;
+    await expectLater(
+      const TaiwanBusinessCalendarOfficial116Stage().verify(bytes),
+      throwsA(isA<TaiwanBusinessCalendarPackageException>()),
+    );
   });
 
   test('B2.7 official bytes with malformed UTF-8 fail closed', () async {

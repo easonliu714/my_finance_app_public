@@ -28,6 +28,25 @@ class TaiwanBusinessCalendarOfficialCsvCodec {
       throw const TaiwanBusinessCalendarPackageException(
         'Manual CSV must identify an approved official source.');
     }
+    final days = parseFullYear(bytes, sourceYear: sourceYear);
+    // Reuse the existing complete-year validator and SHA-256 package builder.
+    return const TaiwanBusinessCalendarPackageCodec().build(
+      sourceYear: sourceYear, sourceRevision: sourceRevision,
+      revisionSequence: revisionSequence, sourceUrl: sourceUrl,
+      sourcePublishedAt: sourcePublishedAt, generatedAt: generatedAt,
+      days: days);
+  }
+
+  // B2.9: parse-only staging shares the strict manual DGPA CSV validation.
+  // It grants no source-revision authority and never writes calendar/ledger rows.
+  List<TaiwanBusinessCalendarPackageDay> parseFullYear(
+    Uint8List bytes, {
+    required int sourceYear,
+  }) {
+    if (bytes.isEmpty || bytes.lengthInBytes > maxCsvBytes) {
+      throw const TaiwanBusinessCalendarPackageException(
+        'Calendar CSV is empty or exceeds the 256KiB limit.');
+    }
     String csv;
     try {
       csv = utf8.decode(bytes, allowMalformed: false);
@@ -71,12 +90,7 @@ class TaiwanBusinessCalendarOfficialCsvCodec {
       days.add(TaiwanBusinessCalendarPackageDay(
         dateKey: key, isBusinessDay: flag == '0', label: row[3].trim()));
     }
-    // Reuse the existing complete-year validator and SHA-256 package builder.
-    return const TaiwanBusinessCalendarPackageCodec().build(
-      sourceYear: sourceYear, sourceRevision: sourceRevision,
-      revisionSequence: revisionSequence, sourceUrl: sourceUrl,
-      sourcePublishedAt: sourcePublishedAt, generatedAt: generatedAt,
-      days: days);
+    return List<TaiwanBusinessCalendarPackageDay>.unmodifiable(days);
   }
 
   // Strict quoted CSV, including CRLF and quoted embedded newline. Fail
