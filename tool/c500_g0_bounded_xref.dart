@@ -488,11 +488,16 @@ class C500G0MidpointPageAuditor {
     required String pagesBody, required int rootId,
     required int rootGeneration, required int declaredPages,
     required C500G0ReadObject readObject,
+    int? targetPageIndex,
   }) async {
     if (declaredPages <= 0 || declaredPages > 100000) {
       throw const C500G0BoundedXrefException('C500_G0R_COUNT_LIMIT');
     }
-    final target = declaredPages ~/ 2;
+    // G0s: explicit ordinal is bounded; default G0r midpoint unchanged.
+    final target = targetPageIndex ?? declaredPages ~/ 2;
+    if (target < 0 || target >= declaredPages) {
+      throw const C500G0BoundedXrefException('C500_G0S_TARGET_OUT_OF_RANGE');
+    }
     var ordinal = target;
     var nodeId = rootId, nodeGeneration = rootGeneration;
     var nodeBody = pagesBody, nodeCount = declaredPages, objectsRead = 0;
@@ -569,6 +574,8 @@ class C500G0MidpointPageAuditor {
         }
         return <String, Object?>{
           'midpoint_page_index': target,
+          'sampled_page_index': target,
+          'sampled_leaf_id': selectedId,
           'midpoint_leaf_id': selectedId,
           'midpoint_leaf_generation': selectedGeneration,
           'midpoint_path_depth': depth,
@@ -584,6 +591,46 @@ class C500G0MidpointPageAuditor {
       nodeCount = selectedCount!;
     }
     throw const C500G0BoundedXrefException('C500_G0R_DEPTH_LIMIT');
+  }
+}
+
+// G0s: bounded ordinal random access across first/middle/last official pages.
+// Each path retains the G0r 8-level/512-object cap. Three leaves are NOT
+// page-wide Unicode, sortedness, full coverage, or global NOT_WIN evidence.
+class C500G0SpreadPageAuditor {
+  const C500G0SpreadPageAuditor();
+  Future<Map<String, Object?>> inspect({
+    required String pagesBody, required int rootId,
+    required int rootGeneration, required int declaredPages,
+    required C500G0ReadObject readObject,
+  }) async {
+    if (declaredPages < 3 || declaredPages > 100000) {
+      throw const C500G0BoundedXrefException('C500_G0S_COUNT_LIMIT');
+    }
+    final targets = <int>[0, declaredPages ~/ 2, declaredPages - 1];
+    final leaves = <int>[];
+    var reads = 0;
+    for (final target in targets) {
+      final path = await const C500G0MidpointPageAuditor().inspect(
+        pagesBody: pagesBody, rootId: rootId,
+        rootGeneration: rootGeneration, declaredPages: declaredPages,
+        readObject: readObject, targetPageIndex: target,
+      );
+      if (path['sampled_page_index'] != target) {
+        throw const C500G0BoundedXrefException('C500_G0S_INDEX_MISMATCH');
+      }
+      leaves.add(path['sampled_leaf_id']! as int);
+      reads += path['midpoint_path_objects_read']! as int;
+    }
+    if (leaves.toSet().length != 3 || reads > 1536) {
+      throw const C500G0BoundedXrefException('C500_G0S_ALIAS_OR_BUDGET');
+    }
+    return <String, Object?>{
+      'spread_page_indices': targets, 'spread_leaf_ids': leaves,
+      'spread_path_objects_read_total': reads, 'spread_paths_verified': 3,
+      'spread_path_status': 'THREE_DISTANT_XREF_BOUND_LEAF_PATHS_ONLY',
+      'all_pages': 'NOT_VERIFIED', 'global_not_win': 'NOT_PROVEN',
+    };
   }
 }
 
@@ -627,20 +674,22 @@ class C500G0BoundedXrefInspector {
     bool verifyAllRootSubtreesCounts = false,
     bool verifyFirstBranchAllGrandchildrenCounts = false,
     bool verifyMidpointPagePath = false,
+    bool verifySpreadPagePaths = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
         rootChildOrdinal != 2 && rootChildOrdinal != -1 &&
         rootChildOrdinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
     }
-    if (verifyMidpointPagePath &&
+    if ((verifyMidpointPagePath || verifySpreadPagePaths) &&
         (verifyRootChildCounts || verifyFirstPageChild ||
+         (verifyMidpointPagePath && verifySpreadPagePaths) ||
          verifyFirstPagePath || verifyFirstBranchAllGrandchildrenCounts ||
          verifyAllRootSubtreesCounts || verifyFirstGrandchildCounts ||
          verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts)) {
       throw const C500G0BoundedXrefException('C500_G0R_EXCLUSIVE_AUDIT');
     }
-    if (verifyMidpointPagePath && !verifyCatalogRoot) {
+    if ((verifyMidpointPagePath || verifySpreadPagePaths) && !verifyCatalogRoot) {
       throw const C500G0BoundedXrefException('C500_G0R_REQUIRES_PINNED_ROOT');
     }
     if (verifyFirstBranchAllGrandchildrenCounts &&
@@ -871,12 +920,14 @@ class C500G0BoundedXrefInspector {
               verifySecondRootSubtreeCounts, verifyFirstGrandchildCounts,
               verifyAllRootSubtreesCounts,
               verifyFirstBranchAllGrandchildrenCounts,
-              verifyMidpointPagePath)
+              verifyMidpointPagePath, verifySpreadPagePaths)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         'root_child_ordinal': rootChildOrdinal,
-        'sample_scope': verifyMidpointPagePath
+        'sample_scope': verifySpreadPagePaths
+            ? 'FIRST_MIDDLE_LAST_THREE_LEAF_PATHS_NOT_GLOBAL_PROOF'
+            : verifyMidpointPagePath
             ? 'MIDPOINT_ONE_XREF_BOUND_LEAF_ANCESTRY_NOT_GLOBAL_PROOF'
             : verifyFirstBranchAllGrandchildrenCounts
             ? rootChildOrdinal == 0
@@ -969,6 +1020,7 @@ class C500G0BoundedXrefInspector {
     bool verifyAllRootSubtreesCounts,
     bool verifyFirstBranchAllGrandchildrenCounts,
     bool verifyMidpointPagePath,
+    bool verifySpreadPagePaths,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -1061,7 +1113,13 @@ class C500G0BoundedXrefInspector {
       throw const C500G0BoundedXrefException('C500_G0P_PAGE_COUNT_INVALID');
     }
     final rootCountEvidence =
-        verifyMidpointPagePath
+        verifySpreadPagePaths
+        ? await const C500G0SpreadPageAuditor().inspect(
+            pagesBody: pagesBody, rootId: pagesId,
+            rootGeneration: int.parse(pages.group(2)!),
+            declaredPages: declared, readObject: readObject,
+          )
+        : verifyMidpointPagePath
         ? await const C500G0MidpointPageAuditor().inspect(
             pagesBody: pagesBody, rootId: pagesId,
             rootGeneration: int.parse(pages.group(2)!),
@@ -1741,6 +1799,8 @@ Future<void> main(List<String> args) async {
       args.single == '--audit-third-branch-all-grandchildren';
   final auditMidpointPage = args.length == 1 &&
       args.single == '--audit-midpoint-page';
+  final auditSpreadPages = args.length == 1 &&
+      args.single == '--audit-spread-pages';
   final auditSelectedBranchAllGrandchildren =
       auditFirstBranchAllGrandchildren || auditSecondBranchAllGrandchildren ||
       auditThirdBranchAllGrandchildren;
@@ -1750,7 +1810,7 @@ Future<void> main(List<String> args) async {
       (args.length == 1 && args.single == '--audit-root-children');
   final rootChildOrdinal = auditThirdBranchAllGrandchildren ? 2
       : (auditSecondSubtree || auditSecondBranchAllGrandchildren) ? 1
-      : auditRootChildren || auditMidpointPage || args.isEmpty ? 0
+      : auditRootChildren || auditMidpointPage || auditSpreadPages || args.isEmpty ? 0
       : args.length == 1 && args.single == '--second-root-child' ? 1
       : args.length == 1 && args.single == '--last-root-child' ? -1
       : args.length == 1 && args.single == '--middle-root-child' ? -2 : -3;
@@ -1805,18 +1865,19 @@ Future<void> main(List<String> args) async {
         verifyObjectOffsets: false,
         verifyCompressedMembers: false,
         verifyCatalogRoot: true,
-        verifyFirstPageChild: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPagePath: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPageContents: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPageGlyphOperands: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPageFontResources: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPageCmapStreams: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPageCmapSemantics: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPageGlyphUnicode: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPageOperandUnicodeRun: !auditRootChildren && !auditMidpointPage,
-        verifyFirstPageAllOperandsUnicode: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageChild: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPagePath: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPageContents: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPageGlyphOperands: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPageFontResources: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPageCmapStreams: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPageCmapSemantics: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPageGlyphUnicode: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPageOperandUnicodeRun: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
+        verifyFirstPageAllOperandsUnicode: !auditRootChildren && !auditMidpointPage && !auditSpreadPages,
         verifyRootChildCounts: auditRootChildren,
         verifyMidpointPagePath: auditMidpointPage,
+        verifySpreadPagePaths: auditSpreadPages,
         verifyFirstRootSubtreeCounts: auditFirstSubtree,
         verifySecondRootSubtreeCounts: auditSecondSubtree,
         verifyFirstGrandchildCounts: auditFirstGrandchild,

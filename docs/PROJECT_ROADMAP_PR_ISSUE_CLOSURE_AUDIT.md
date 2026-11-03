@@ -1,4 +1,17 @@
-## CURRENT — 2026-11-03 14:20 Asia/Taipei | C500-G0r FIRST FAILURE compile repair, official source revalidation pending
+## CURRENT — 2026-11-03 15:15 Asia/Taipei | G0s bounded first/middle/last official leaf paths, exact-head CI/source pending
+
+**Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; verified parent `83216eeaf79f59b04bde359258228813713f21e5`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, version 4.20.37+495. Successor SHA is live PR HEAD; no main/force push/merge/production SQLite/LKG/device/signer writes.
+
+**G0r real-source result:** [CI #1317](https://github.com/easonliu714/my_finance_app_public/actions/runs/41589387390) SUCCESS Analyze/full Flutter/Native JVM/API35. [Official Lab #143](https://github.com/easonliu714/my_finance_app_public/actions/runs/41589387527) LAB_ENABLED=true actually downloaded both pinned PDFs: 115-05-06 119769589 bytes SHA `1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe`, 115-07-08 135200798 bytes SHA `f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`. G0r midpoint 38500/43500 reached real leaf IDs 81047/91572, depth 5, 48/49 object reads PASS (one path only). qpdf --show-npages exit=3 and --check exit=2 due std::bad_alloc at Pages-root 4187016/0 and 4730783/0; old PdfRenderer 3 pages PASS, new PdfRenderer IOException/PDFium SIGTRAP, both PDFBox OOM. Lab overall FAIL, G0 global NOT_WIN and C13/C17/C18 broader same-UID HOLD; A_STAGNATION=FAIL for renderer/completeness root.
+
+**New G0s source-backed feasibility experiment:** reuse same 8-level/512-read G0r XRef path verification independently for page ordinals 0, floor(N/2), N-1 in both original official PDFs. Require distinct leaves and <=1536 total reads; new positive/negative tests cover out-of-range ordinal, forged parent, missing tail leaf, insufficient page count. No whole-tree, Unicode, sortedness, full NOT_WIN or award authority inferred. G0r midpoint default unchanged. New exact-head CI and actual G0s official source steps PENDING; no new Signed for lab-only changes.
+
+**B track:** [DGPA Lab #62](https://github.com/easonliu714/my_finance_app_public/actions/runs/41589387461) SUCCESS original 116 CSV 6511 bytes SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365 days/121 holidays, isolated SQLite. [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) PASS only older `446d56e2eddb2a787c6c1910c79f4262322335db`, installed 495 APK SHA256 `8a2be3a64703a273cb7b155416c8fac2ae80d6c2e6d6b430e322eec3e58c8a5c`, signer 9BA2. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and 2026-11-03 09:35 screenshot 3175.png B2.8 OWNER_DEVICE PASS; B1.5 N/A. SHA preview explicitly NOT INSTALLED. B2 parent Issue #19 transactional install/LKG/annual trigger/Owner full E2E HOLD; B3 #18 HOLD; Issues #4/#13/#19 OPEN.
+
+**Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner-choice HOLD; G6 BLOCKED. **NEXT SINGLE GATE:** verify exact new-head CI and actual G0s first/middle/last leaf results on BOTH official PDFs; repair first failure, no test/security weakening. Owner help NOW=NONE.
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-03 14:20 Asia/Taipei | C500-G0r FIRST FAILURE compile repair, official source revalidation pending
 
 **Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT, verified parent `144e2553378a7afd2fd96863c73225618283d9bd`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, version 4.20.37+495. New successor SHA is live HEAD. No main/force push/merge/production SQLite/LKG/signer/Owner device write.
 
@@ -9,8 +22,6 @@
 **B track:** [DGPA source Lab #60](https://github.com/easonliu714/my_finance_app_public/actions/runs/41583152072) SUCCESS official 116 CSV 6511 bytes SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365/121 days and isolated SQLite. [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) PASS only on older `446d56e2eddb2a787c6c1910c79f4262322335db`, installed 4.20.37+495, signer 9BA2, APK SHA256 `8a2be3a64703a273cb7b155416c8fac2ae80d6c2e6d6b430e322eec3e58c8a5c`. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7, screenshot 3175.png B2.8 original CSV FilePicker SHA PASS; B1.5 N/A; preview NOT installed. B2 #19 production install/LKG/annual trigger/Owner E2E HOLD; B3 #18 HOLD. Issues #4/#13/#19 OPEN.
 
 **Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED. C13/C17/C18 broad same-UID and global NOT_WIN HOLD. **NEXT SINGLE GATE:** verify exact new-head Analyze/Flutter/Native/API35 and Lab G0r official midpoint path for BOTH pinned sources; if synthetic test fails, fix first failure before source claims. Owner help NOW=NONE.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-03 14:15 Asia/Taipei | C500-G0r official midpoint leaf path experiment, new-head CI/source pending
 
