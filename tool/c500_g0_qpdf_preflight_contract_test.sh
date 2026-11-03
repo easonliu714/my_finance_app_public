@@ -29,6 +29,20 @@ cat > "$tmp/fakebin/qpdf" <<'MOCK_QPDF'
 #!/usr/bin/env bash
 if [[ "$1" == --version ]]; then echo 'qpdf mock 0.0'; exit 0; fi
 printf '%s\n' "$*" >> "$C500_G0K_TRACE"
+if [[ "$1" == --show-npages ]]; then
+  if [[ "${C500_G0P_NPAGES_FAIL_NEW:-0}" == 1 && "$*" == *new.pdf* ]]; then
+    echo 'mock qpdf bad_alloc in page-count path' >&2
+    exit 2
+  fi
+  if [[ "$*" == *old.pdf* ]]; then
+    if [[ "${C500_G0P_NPAGES_WRONG_OLD:-0}" == 1 ]]; then echo 76999; else echo 77000; fi
+  elif [[ "$*" == *new.pdf* ]]; then
+    echo 87000
+  else
+    exit 74
+  fi
+  exit 0
+fi
 if [[ "${C500_G0K_QPDF_FAIL_NEW:-0}" == 1 && "$*" == *new.pdf* ]]; then
   echo 'mock invalid xref' >&2
   exit 2
@@ -40,12 +54,28 @@ export G0_OLD_PDF="$tmp/old.pdf" G0_NEW_PDF="$tmp/new.pdf" C500_G0K_TRACE="$tmp/
 PATH="$tmp/fakebin:$PATH" bash "$script_dir/c500_g0_qpdf_preflight.sh" > "$tmp/pass" 2>&1
 grep -Fq 'C500_G0K_BOTH_QPDF_STRUCTURE_CHECKS_PASS_NOT_ANDROID_OR_GLOBAL_NEGATIVE' "$tmp/pass"
 [[ "$(grep -c '^--check ' "$tmp/trace")" == 2 ]]
+[[ "$(grep -c '^--show-npages ' "$tmp/trace")" == 2 ]]
 : > "$tmp/trace"
 if C500_G0K_QPDF_FAIL_NEW=1 PATH="$tmp/fakebin:$PATH" bash "$script_dir/c500_g0_qpdf_preflight.sh" > "$tmp/fail" 2>&1; then
   echo 'C500_G0K_EXPECTED_QPDF_FAILURE' >&2; exit 72
 fi
 grep -Fq 'C500_G0K_QPDF_CHECK_PASS period=115-05-06' "$tmp/fail"
 grep -Fq 'C500_G0K_QPDF_CHECK_FAILED period=115-07-08' "$tmp/fail"
+[[ "$(grep -c '^--check ' "$tmp/trace")" == 2 ]]
+: > "$tmp/trace"
+if C500_G0P_NPAGES_FAIL_NEW=1 PATH="$tmp/fakebin:$PATH" bash "$script_dir/c500_g0_qpdf_preflight.sh" > "$tmp/npages-fail" 2>&1; then
+  echo 'C500_G0P_EXPECTED_NPAGES_FAILURE' >&2; exit 75
+fi
+grep -Fq 'C500_G0P_NPAGES_PASS period=115-05-06 pages=77000' "$tmp/npages-fail"
+grep -Fq 'C500_G0P_NPAGES_FAILED period=115-07-08 exit=2' "$tmp/npages-fail"
+[[ "$(grep -c '^--check ' "$tmp/trace")" == 2 ]]
+[[ "$(grep -c '^--show-npages ' "$tmp/trace")" == 2 ]]
+: > "$tmp/trace"
+if C500_G0P_NPAGES_WRONG_OLD=1 PATH="$tmp/fakebin:$PATH" bash "$script_dir/c500_g0_qpdf_preflight.sh" > "$tmp/npages-wrong" 2>&1; then
+  echo 'C500_G0P_EXPECTED_COUNT_MISMATCH_FAILURE' >&2; exit 76
+fi
+grep -Fq 'C500_G0P_NPAGES_FAILED period=115-05-06 exit=0 expected=77000' "$tmp/npages-wrong"
+grep -Fq 'C500_G0P_NPAGES_PASS period=115-07-08 pages=87000' "$tmp/npages-wrong"
 [[ "$(grep -c '^--check ' "$tmp/trace")" == 2 ]]
 : > "$tmp/trace"
 if C500_G0K_BAD_SHA_OLD=1 PATH="$tmp/fakebin:$PATH" bash "$script_dir/c500_g0_qpdf_preflight.sh" > "$tmp/bad-pin" 2>&1; then
@@ -57,4 +87,4 @@ if G0_OLD_PDF="$tmp/missing.pdf" PATH="$tmp/fakebin:$PATH" bash "$script_dir/c50
   echo 'C500_G0K_EXPECTED_MISSING_SOURCE_REJECTION' >&2; exit 74
 fi
 grep -Fq 'C500_G0K_SOURCE_MISSING_OR_SYMLINK period=115-05-06' "$tmp/missing"
-echo 'PASS C500_G0K_MOCK_TWO_PERIODS_QPDF_FAILURE_AND_SOURCE_PIN_FAIL_CLOSED'
+echo 'PASS C500_G0P_PAGE_COUNT_VS_EAGER_CHECK_POSITIVE_NEGATIVE_AND_SOURCE_PIN_FAIL_CLOSED'

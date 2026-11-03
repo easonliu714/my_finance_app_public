@@ -29,6 +29,30 @@ verify_source 115-07-08 "$G0_NEW_PDF" 135200798 \
 command -v qpdf >/dev/null || { echo 'C500_G0K_QPDF_UNAVAILABLE' >&2; exit 64; }
 qpdf --version | head -n 1
 
+# G0p: isolate the qpdf page-tree count/open path from --check's eager
+# object/stream walk. A 77K/87K count is a bounded structural diagnostic,
+# NEVER a leaf, glyph, sort, Android, or global NOT_WIN completeness proof.
+probe_page_count() {
+  local period="$1" path="$2" expected="$3" output rc observed
+  output="$(mktemp)"
+  echo "C500_G0P_NPAGES_BEGIN period=$period expected=$expected memory_virtual_kib=1572864 timeout_seconds=45"
+  if (ulimit -v 1572864; ulimit -f 1024; timeout --signal=TERM --kill-after=5s 45s qpdf --show-npages "$path") >"$output" 2>&1; then
+    rc=0
+  else
+    rc=$?
+  fi
+  observed="$(tr -d '\r\n' < "$output")"
+  if [[ "$rc" -eq 0 && "$observed" =~ ^[0-9]+$ && "$observed" == "$expected" ]]; then
+    echo "C500_G0P_NPAGES_PASS period=$period pages=$observed STRUCTURE_ONLY_NOT_GLOBAL_NEGATIVE"
+    rm -f -- "$output"
+    return 0
+  fi
+  sed -n '1,6p' "$output" | cut -c1-240
+  echo "C500_G0P_NPAGES_FAILED period=$period exit=$rc expected=$expected NOT_PROOF_OF_CORRUPTION" >&2
+  rm -f -- "$output"
+  return 1
+}
+
 check_pdf() {
   local period="$1" path="$2" output rc
   output="$(mktemp)"
@@ -49,6 +73,10 @@ check_pdf() {
 }
 
 failures=0
+# Both independently pinned official files are probed even if one fails.
+# --check still runs for both and retains its original first-failure evidence.
+probe_page_count 115-05-06 "$G0_OLD_PDF" 77000 || failures=$((failures + 1))
+probe_page_count 115-07-08 "$G0_NEW_PDF" 87000 || failures=$((failures + 1))
 check_pdf 115-05-06 "$G0_OLD_PDF" || failures=$((failures + 1))
 check_pdf 115-07-08 "$G0_NEW_PDF" || failures=$((failures + 1))
 if [[ "$failures" -ne 0 ]]; then
