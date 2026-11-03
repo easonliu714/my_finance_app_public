@@ -40,7 +40,7 @@ run_probe() {
   else
     (ulimit -v "$cap"; ulimit -f 1024; timeout --signal=TERM --kill-after=5s "${seconds}s" /usr/bin/time -f '%M' -o "$timing" qpdf --check "$path") >"$out" 2>&1 || rc=$?
   fi
-  rss="$(grep -E '^[0-9]+
+  rss="$(grep -E '^[0-9]+$' "$timing" | tail -n 1 || true)"
   [[ -n "$rss" ]] || rss=UNKNOWN
   result=NONZERO_OTHER
   if [[ "$rc" -eq 124 || "$rc" -eq 137 ]]; then
@@ -75,39 +75,6 @@ done
 # qpdf --check needs more address space than page-count traversal;
 # run 4-GiB bounded checks independently to locate its first failure.
 for cap in 4194304; do
-  run_probe 115-05-06 "$G0_OLD_PDF" 77000 check "$cap"
-  run_probe 115-07-08 "$G0_NEW_PDF" 87000 check "$cap"
-done
-echo "C500_G0X_RESOURCE_LADDER_COMPLETE=EVIDENCE_ONLY G0_GLOBAL_NOT_WIN=HOLD"
- "$timing" | tail -n 1 || true)"
-  [[ -n "$rss" ]] || rss=UNKNOWN
-  result=NONZERO_OTHER
-  if [[ "$rc" -eq 124 || "$rc" -eq 137 ]]; then
-    result=TIME_OR_KILL_BOUND
-  elif grep -Eiq 'std::bad_alloc|cannot allocate memory|out of memory' "$out"; then
-    result=ALLOCATION_FAILURE
-  elif [[ "$rc" -eq 0 && "$mode" == "check" ]]; then
-    result=STRUCTURE_CHECK_OK_ONLY
-  elif [[ "$rc" -eq 0 && "$mode" == "npages" ]]; then
-    observed="$(tr -d '\r\n' < "$out")"
-    if [[ "$observed" == "$expected" ]]; then
-      result=PAGE_COUNT_MATCH_ONLY
-    else
-      result=PAGE_COUNT_MISMATCH
-    fi
-  fi
-  echo "C500_G0X_RESOURCE_CASE period=$period mode=$mode virtual_kib=$cap timeout_s=$seconds exit=$rc peak_rss_kib=$rss result=$result"
-  if [[ "$result" != "PAGE_COUNT_MATCH_ONLY" && "$result" != "STRUCTURE_CHECK_OK_ONLY" ]]; then
-    sed -n '1,3p' "$out" | cut -c1-220
-  fi
-  rm -f -- "$out" "$timing"
-}
-
-# Same source and qpdf binary, 1.5-GiB vs 3-GiB virtual memory caps.
-# 8 independently bounded runs; no source files are modified or uploaded.
-for cap in 1572864 3145728; do
-  run_probe 115-05-06 "$G0_OLD_PDF" 77000 npages "$cap"
-  run_probe 115-07-08 "$G0_NEW_PDF" 87000 npages "$cap"
   run_probe 115-05-06 "$G0_OLD_PDF" 77000 check "$cap"
   run_probe 115-07-08 "$G0_NEW_PDF" 87000 check "$cap"
 done
