@@ -605,9 +605,14 @@ class C500G0SpreadPageAuditor {
     required C500G0ReadObject readObject,
     bool verifyContentHeaders = false,
     bool verifyContentDecode = false,
+    bool verifyContentGlyphLexing = false,
   }) async {
     if (verifyContentDecode && !verifyContentHeaders) {
       throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_HEADERS');
+    }
+    // G0w requires exact bounded decoded stream bytes.
+    if (verifyContentGlyphLexing && !verifyContentDecode) {
+      throw const C500G0BoundedXrefException('C500_G0W_REQUIRES_DECODE');
     }
     if (declaredPages < 3 || declaredPages > 100000) {
       throw const C500G0BoundedXrefException('C500_G0S_COUNT_LIMIT');
@@ -635,6 +640,7 @@ class C500G0SpreadPageAuditor {
     // G0t: sampled /Contents metadata only; no glyphs, sorting, or NOT_WIN.
     var headerCount = 0, totalLength = 0;
     var decodedCount = 0, decodedTotal = 0;
+    var glyphLexed = 0, glyphTextShows = 0, glyphTextSections = 0;
     if (verifyContentHeaders) {
       for (var i = 0; i < 3; i++) {
         final leaf = await readObject(leaves[i], gens[i]);
@@ -714,6 +720,21 @@ class C500G0SpreadPageAuditor {
           }
           decodedTotal += decoded.length;
           decodedCount++;
+          // G0w: strict existing lexer on three SHA/XRef-bound streams.
+          // Only counts escape; glyph codes are NOT Unicode or award proof.
+          if (verifyContentGlyphLexing) {
+            try {
+              final glyph = const C500G0GlyphProbe().inspect(decoded);
+              glyphTextSections += glyph['first_page_bt_et_pairs']! as int;
+              glyphTextShows += (glyph['first_page_tj_operators']! as int) +
+                  (glyph['first_page_tj_array_operators']! as int);
+              glyphLexed++;
+            } on C500G0GlyphException catch (error) {
+              throw C500G0BoundedXrefException(
+                'C500_G0W_GLYPH_LEX_${error.code}',
+              );
+            }
+          }
         }
       }
     }
@@ -723,6 +744,12 @@ class C500G0SpreadPageAuditor {
       'spread_content_compressed_bytes_total': totalLength,
       'spread_content_streams_decoded': decodedCount,
       'spread_content_decoded_bytes_total': decodedTotal,
+      'spread_glyph_lexed_streams': glyphLexed,
+      'spread_glyph_text_show_operators': glyphTextShows,
+      'spread_glyph_text_sections': glyphTextSections,
+      'spread_glyph_scope': verifyContentGlyphLexing
+          ? 'THREE_SAMPLES_GLYPH_CODES_ONLY_NO_UNICODE_OR_GLOBAL_PROOF'
+          : 'NOT_RUN',
       'spread_content_decode_scope': verifyContentDecode
           ? 'THREE_BOUNDED_STREAMS_NOT_GLYPH_OR_GLOBAL_PROOF'
           : 'NOT_RUN',
@@ -778,6 +805,7 @@ class C500G0BoundedXrefInspector {
     bool verifySpreadPagePaths = false,
     bool verifySpreadPageContents = false,
     bool verifySpreadPageDecodedContents = false,
+    bool verifySpreadPageGlyphLexing = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
         rootChildOrdinal != 2 && rootChildOrdinal != -1 &&
@@ -797,6 +825,9 @@ class C500G0BoundedXrefInspector {
     }
     if (verifySpreadPageDecodedContents && !verifySpreadPageContents) {
       throw const C500G0BoundedXrefException('C500_G0U_REQUIRES_HEADERS');
+    }
+    if (verifySpreadPageGlyphLexing && !verifySpreadPageDecodedContents) {
+      throw const C500G0BoundedXrefException('C500_G0W_REQUIRES_DECODE');
     }
     if ((verifyMidpointPagePath || verifySpreadPagePaths) && !verifyCatalogRoot) {
       throw const C500G0BoundedXrefException('C500_G0R_REQUIRES_PINNED_ROOT');
@@ -1031,12 +1062,15 @@ class C500G0BoundedXrefInspector {
               verifyFirstBranchAllGrandchildrenCounts,
               verifyMidpointPagePath, verifySpreadPagePaths,
               verifySpreadPageContents,
-              verifySpreadPageDecodedContents)
+              verifySpreadPageDecodedContents,
+              verifySpreadPageGlyphLexing)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         'root_child_ordinal': rootChildOrdinal,
-        'sample_scope': verifySpreadPageDecodedContents
+        'sample_scope': verifySpreadPageGlyphLexing
+            ? 'FIRST_MIDDLE_LAST_GLYPH_LEXICAL_ONLY_NOT_UNICODE'
+            : verifySpreadPageDecodedContents
             ? 'FIRST_MIDDLE_LAST_BOUNDED_DECODE_NOT_TEXT_OR_GLOBAL_PROOF'
             : verifySpreadPageContents
             ? 'FIRST_MIDDLE_LAST_CONTENT_HEADERS_NOT_TEXT_PROOF'
@@ -1138,6 +1172,7 @@ class C500G0BoundedXrefInspector {
     bool verifySpreadPagePaths,
     bool verifySpreadPageContents,
     bool verifySpreadPageDecodedContents,
+    bool verifySpreadPageGlyphLexing,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -1237,6 +1272,7 @@ class C500G0BoundedXrefInspector {
             declaredPages: declared, readObject: readObject,
             verifyContentHeaders: verifySpreadPageContents,
             verifyContentDecode: verifySpreadPageDecodedContents,
+            verifyContentGlyphLexing: verifySpreadPageGlyphLexing,
           )
         : verifyMidpointPagePath
         ? await const C500G0MidpointPageAuditor().inspect(
@@ -1918,8 +1954,10 @@ Future<void> main(List<String> args) async {
       args.single == '--audit-third-branch-all-grandchildren';
   final auditMidpointPage = args.length == 1 &&
       args.single == '--audit-midpoint-page';
-  final auditSpreadDecode = args.length == 1 &&
-      args.single == '--audit-spread-decode';
+  final auditSpreadGlyph = args.length == 1 &&
+      args.single == '--audit-spread-glyph';
+  final auditSpreadDecode = auditSpreadGlyph || (args.length == 1 &&
+      args.single == '--audit-spread-decode');
   final auditSpreadContents = auditSpreadDecode || (args.length == 1 &&
       args.single == '--audit-spread-contents');
   final auditSpreadPages = auditSpreadContents || (args.length == 1 &&
@@ -2003,6 +2041,7 @@ Future<void> main(List<String> args) async {
         verifySpreadPagePaths: auditSpreadPages,
         verifySpreadPageContents: auditSpreadContents,
         verifySpreadPageDecodedContents: auditSpreadDecode,
+        verifySpreadPageGlyphLexing: auditSpreadGlyph,
         verifyFirstRootSubtreeCounts: auditFirstSubtree,
         verifySecondRootSubtreeCounts: auditSecondSubtree,
         verifyFirstGrandchildCounts: auditFirstGrandchild,

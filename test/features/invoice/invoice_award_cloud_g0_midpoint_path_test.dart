@@ -143,11 +143,13 @@ void main() {
   }
   Future<Map<String, Object?>> contents(Map<int, String> o, {
     bool decode = false,
+    bool glyph = false,
   }) => const C500G0SpreadPageAuditor().inspect(
         pagesBody: '<< /Type /Pages /Count 4 /Kids [11 0 R 12 0 R] >>',
         rootId: 10, rootGeneration: 0, declaredPages: 4,
         verifyContentHeaders: true,
         verifyContentDecode: decode,
+        verifyContentGlyphLexing: glyph,
         readObject: (id, gen) async {
           if (gen != 0 || !o.containsKey(id)) {
             throw const C500G0BoundedXrefException('C500_G0R_XREF_UNAVAILABLE');
@@ -221,6 +223,32 @@ void main() {
     o[103] = compressedObject(103, bomb);
     await expectLater(contents(o, decode: true),
         throwsA(failure('C500_G0U_DECODED_LIMIT')));
+  });
+  // G0w: sampled glyph lexing is neither Unicode nor award evidence.
+  Map<int, String> withGlyphZlib() {
+    final o = withContents();
+    final bytes = ZLibEncoder().convert(
+      utf8.encode('BT /F1 12 Tf (abc) Tj ET'),
+    );
+    for (final id in <int>[101, 103, 104]) {
+      o[id] = compressedObject(id, bytes);
+    }
+    return o;
+  }
+  test('G0w three sampled glyph lexers without award proof', () async {
+    final r = await contents(withGlyphZlib(), decode: true, glyph: true);
+    expect(r['spread_glyph_lexed_streams'], 3);
+    expect(r['spread_glyph_text_sections'], 3);
+    expect(r['spread_glyph_text_show_operators'], 3);
+    expect(r['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0w missing font selection fails closed', () async {
+    await expectLater(contents(withZlib(), decode: true, glyph: true),
+        throwsA(failure('C500_G0W_GLYPH_LEX_C500_G0X_FONT_NOT_SELECTED')));
+  });
+  test('G0w requires bounded decode before lexical inspection', () async {
+    await expectLater(contents(withGlyphZlib(), glyph: true),
+        throwsA(failure('C500_G0W_REQUIRES_DECODE')));
   });
   test('G0u cannot bypass header verification', () async {
     await expectLater(const C500G0SpreadPageAuditor().inspect(

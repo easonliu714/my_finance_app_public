@@ -1,4 +1,18 @@
-## CURRENT — 2026-11-03 17:18 Asia/Taipei | G0u first failure non-const ZLibEncoder synthetic fixture repair
+## CURRENT — 2026-11-03 18:18 Asia/Taipei | G0u real official decode PASS; G0w lexical feasibility queued
+
+**Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT parent `71285db5ec1b763cf0d01f8f81571877b5dd065b`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; new successor is live HEAD only after readback. No main write, force push, merge, production SQLite/LKG, signing or device mutation.
+
+**Fresh exact-parent evidence:** [Flutter CI #1321](https://github.com/easonliu714/my_finance_app_public/actions/runs/41609826901) SUCCESS Analyze/full Flutter/native JVM/API35 on `71285db5ec1b763cf0d01f8f81571877b5dd065b`. [Official Lab #147](https://github.com/easonliu714/my_finance_app_public/actions/runs/41609826908) LAB_ENABLED=true ACTUALLY acquired both SHA-pinned MOF PDFs. G0u 3/3 sampled /Contents per period decoded PASS: each 1828 compressed bytes -> 17511 decoded bytes. 115-05-06 119769589 bytes SHA `1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe`; 115-07-08 135200798 bytes SHA `f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`. **Lab overall FAIL:** independent qpdf std::bad_alloc, new PdfRenderer IOException/PDFium SIGTRAP, both PDFBox OOM; old PdfRenderer only 3 sampled pages. Unicode, sorting, full pages and global NOT_WIN NOT_PROVEN; A_STAGNATION=FAIL for original renderer/completeness root.
+
+**New smallest G0w:** strict existing `C500G0GlyphProbe` lexes the same three XRef-bound decoded official streams per period; output only text-show and BT/ET counts, never glyph bytes or invoice IDs. Fail closed on invalid font selection and lexer-before-decode. Three synthetic positive/negative tests and `--audit-spread-glyph` genuine source lab. New-head CI and G0w real-source execution PENDING; no inherited PASS.
+
+**B Owner device separate from parent:** Installed signed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) belongs only to older `446d56e2eddb2a787c6c1910c79f4262322335db`. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7, B2.8 `3175.png` original DGPA 6511-byte SHA preview PASS; B1.5 N/A. B2.10 365-day/121-holiday strict parse and [DGPA Lab #66](https://github.com/easonliu714/my_finance_app_public/actions/runs/41609826989) isolated source/SQLite PASS. B2.11 official listing/global metadata is NOT per-resource revision authority. B2.8 preview explicitly NOT INSTALLED; parent Issue #19 transactional LKG/annual trigger/Owner install E2E HOLD. No repeat UAT or download-link-only APK.
+
+**Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner-choice HOLD; G6 BLOCKED. C13/C17/C18 strict security/global NOT_WIN HOLD. **NEXT:** read exact successor CI and real G0w first failure; B2 source-revision/install DoD remains separate. Owner help NOW=NONE.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-03 17:18 Asia/Taipei | G0u first failure non-const ZLibEncoder synthetic fixture repair
 
 **Authority:** PR #45 OPEN/DRAFT parent `c139c1ebea399410e2ce63119d89a00b6c6252d6`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; successor is exact live HEAD. No main write, force push, merge, SQLite/LKG/signer/device changes.
 
@@ -9,8 +23,6 @@
 **B Owner acceptance:** Installed signed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) on older `446d56e2eddb2a787c6c1910c79f4262322335db`; Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7, B2.8 3175.png official 6511-byte DGPA SHA preview PASS; B1.5 N/A. B2.8 PREVIEW NOT INSTALLED. B2 parent #19 transactional LKG/annual trigger/Owner install E2E HOLD; B3 #18 HOLD. No repeated Owner UAT.
 
 **Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner-choice HOLD; G6 BLOCKED. C13/C17/C18 strict security/full global NOT_WIN HOLD. **NEXT:** read new exact-head Analyze, Flutter, API35 and actual source-enabled G0u three-stream decode on both pinned PDFs. Owner help NOW=NONE.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-03 17:15 Asia/Taipei | G0u new gate pending
 
