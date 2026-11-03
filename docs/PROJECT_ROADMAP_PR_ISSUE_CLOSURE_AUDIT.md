@@ -1,4 +1,20 @@
-## CURRENT — 2026-11-04 03:15 Asia/Taipei | C500-G0x genuine pinned qpdf resource-threshold experiment; source run PENDING
+## CURRENT — 2026-11-04 04:15 Asia/Taipei | C500-G0x.1 real-source qpdf peak-RSS defect repair + bounded 4GiB structural-check probe; successor PENDING
+
+**Authority:** sole [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; inspected exact parent `bd2b6dc41ca7162f8138f07343e2b1bc32e3441e`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`. One leased production-lab/test/governance commit only; no direct main write, merge, force push, release signing or finance SQLite/account/LKG/POSTED NT$700 mutation. Successor HEAD, exact-head CI and source Lab must be independently verified before PASS.
+
+**Fresh exact-parent CI:** [Flutter Android #1327](https://github.com/easonliu714/my_finance_app_public/actions/runs/41702419487) SUCCESS, full Flutter/Analyzer, native JVM and independent API35 strict witnesses. [DGPA Official Lab #72](https://github.com/easonliu714/my_finance_app_public/actions/runs/41702419450) SUCCESS and ACTUALLY fetched official ROC116 UTF8BOM HTTP 200, 6511 bytes, SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365 days/121 holidays; official listing, parser and 7 Dart isolated SQLite tests including B2.13 cancel=0 writes/confirm=365 rows PASS. B2.13 CODE/CI/REAL_SOURCE_LAB PASS on parent, NOT Signed or Owner installation; B2 parent Issue #19 annual trigger and device E2E HOLD.
+
+**Real A source root evidence:** [MOF Lab #153](https://github.com/easonliu714/my_finance_app_public/actions/runs/41702419087) LAB_ENABLED=true, both official PDFs actually SHA/byte pinned and acquired. Its original independent qpdf --check and Android three-engine steps FAILED (lab overall FAILURE), not source skipped. G0x baseline 1.5GiB virtual cap: both qpdf page-count and structure-check ALLOCATION_FAILURE. At 3GiB, page-count returned 77,000 and 87,000 (PAGE_COUNT_MATCH_ONLY) with GNU-time peak RSS 2,499,820/2,823,052 KiB; --check still ALLOCATION_FAILURE for both. The old parser used first GNU-time output line, misreporting nonzero exit status 2/3 as peak RSS; those failure-case RSS values are INVALID, not evidence of low memory. Full pages/Unicode/sorting/global NOT_WIN remain unproven.
+
+**This G0x.1 root correction:** parse the last standalone numeric GNU-time RSS line even after nonzero child exit; add executable regression reproducing GNU-time's diagnostic-first format; run TWO further 4GiB bounded qpdf --check cases on both exact SHA-pinned official PDFs with independent time/address-space caps. Preserve all original eight cases, existing failing qpdf/Android security gates, source SHA pins and negative forged-source test. Commit marker `[G0-SOURCE-LAB]` requests actual source replay; successor measurements are PENDING and must not be inferred from source-lab scheduling.
+
+**Owner device authority:** installed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) is older `446d56e2eddb2a787c6c1910c79f4262322335db`. U0/U1, B1.1–1.4/B1.6–1.8, B2.7, B2.8 original official CSV SHA preview screenshot 3175.png OWNER_DEVICE=PASS; B1.5 cross-year N/A. No 2027 calendar installation or newer Signed/Owner E2E. Do not ask to repeat accepted gates.
+
+**Gate closure and next:** C500-D0 PASS; C500-G0 ACTIVE/HOLD, G1–G4 HOLD, G5 Owner-choice HOLD, G6 BLOCKED; C13/C17/C18 root authority and global NOT_WIN HOLD even with passing strict CI regressions. A_STAGNATION root evidence now improved, full feasibility unresolved. B2.13 estimated DoD 60% (code/full CI/real-source isolated DB proven, Signed/Owner and annual trigger absent); parent #19 OPEN/HOLD; then B3 #18 isolated backup, B4 #6, B5 #9, B6 #15. NEXT A=read successor real 4GiB qpdf checks/true RSS and decide bounded renderer feasibility; NEXT B=prepare verified Signed Owner consent-install E2E and subsequently annual foreground trigger without inferring unverified 2026. OWNER_HELP_NOW=NONE, OWNER_HELP_LATER=2027 explicit install only after verified Signed. MERGED_MAIN=NO.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-04 03:15 Asia/Taipei | C500-G0x genuine pinned qpdf resource-threshold experiment; source run PENDING
 
 **Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; inspected exact parent `76d5f4a5fc3055be703a2f3d0b0f8ed9e41a3304`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; this is one leased PR-branch engineering+test+governance commit, not main or merge. The new successor SHA, CI and source Lab must be read back independently; no inferred PASS.
 
@@ -11,8 +27,6 @@
 **Owner authority unchanged:** installed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) is older `446d56e2eddb2a787c6c1910c79f4262322335db`. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and B2.8 original SHA preview screenshot 3175.png PASS; B1.5 cross-year N/A. Preview did NOT install 2027; do not repeat accepted UAT. No same-head Signed APK or owner B2.13 E2E. Formal SQLite/account/POSTED NT$700/LKG/signing keys untouched.
 
 **Closure and next:** C500-D0 PASS; G0 ACTIVE/HOLD, global Unicode/sorting/NOT_WIN HOLD, G1–G4 HOLD, G5 Owner-choice HOLD, G6 BLOCKED. C13/C17/C18 strict root authority HOLD even though regression witnesses PASS. B2.13 CODE+CI+source Lab PASS on parent, Owner E2E HOLD; B2 annual trigger then B3 #18 isolated backup, B4 #6, B5 #9, B6 #15. NEXT A=read exact-head true-source G0x case results and determine resource cap vs parser corruption/engine limitation; NEXT B=only after new exact-head CI, plan verified Signed owner consent-install E2E and annual trigger. OWNER_HELP_NOW=NONE; OWNER_HELP_LATER=explicit 2027 install on verified Signed APK. MERGED_MAIN=NO.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-04 02:15 Asia/Taipei | B2.13 real-source widget FakeAsync file-I/O root fix; successor CI and DGPA Lab PENDING
 
