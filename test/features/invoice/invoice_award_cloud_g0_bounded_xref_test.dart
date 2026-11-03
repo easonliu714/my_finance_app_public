@@ -916,7 +916,9 @@ void main() {
       expect(() => selector.select(body, -1),
           throwsA(isA<C500G0BoundedXrefException>()));
     }
-    expect(() => selector.select('<< /Kids [5 0 R 6 0 R 7 0 R] >>', 2),
+    // G0o.11: ordinal 2 is now a valid third root-child selector.
+    expect(selector.select('<< /Kids [5 0 R 6 0 R 7 0 R] >>', 2), (7, 0));
+    expect(() => selector.select('<< /Kids [5 0 R 6 0 R 7 0 R] >>', 3),
         throwsA(isA<C500G0BoundedXrefException>().having(
             (e) => e.code, 'code', 'C500_G0J_ORDINAL_INVALID')));
   });
@@ -957,7 +959,11 @@ void main() {
       expect(() => selector.select(input, 1),
           throwsA(isA<C500G0BoundedXrefException>()));
     }
+    // Missing third child remains fail-closed; ordinal 3 stays unsupported.
     expect(() => selector.select('<< /Kids [5 0 R 6 0 R] >>', 2),
+        throwsA(isA<C500G0BoundedXrefException>().having(
+            (e) => e.code, 'code', 'C500_G0J_SECOND_ROOT_CHILD_MISSING')));
+    expect(() => selector.select('<< /Kids [5 0 R 6 0 R] >>', 3),
         throwsA(isA<C500G0BoundedXrefException>().having(
             (e) => e.code, 'code', 'C500_G0J_ORDINAL_INVALID')));
   });
