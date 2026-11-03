@@ -20,7 +20,10 @@ void main() {
 
   setUpAll(() {
     sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+    // B2.13 CI #1324: Flutter WidgetTester uses FakeAsync; the worker-isolate
+    // FFI factory deadlocks widget pumps. Keep REAL isolated SQLite and
+    // transactional assertions, but run its FFI work in the test isolate.
+    databaseFactory = databaseFactoryFfiNoIsolate;
   });
 
   Future<Uint8List> officialBytes() async {

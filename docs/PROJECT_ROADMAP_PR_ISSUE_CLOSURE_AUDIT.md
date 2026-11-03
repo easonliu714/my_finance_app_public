@@ -1,4 +1,20 @@
-## CURRENT — 2026-11-04 00:15 Asia/Taipei | B2.13 explicit consent UI implementation, successor CI PENDING
+## CURRENT — 2026-11-04 01:15 Asia/Taipei | B2.13 first-failure FakeAsync/SQLite widget regression repair; successor CI PENDING
+
+**Authority:** PR #45 OPEN/DRAFT; exact verified parent `158cf16de658431bb00188851d1279d8b078d4d7` (B2.13 consent-gated UI + tests), main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; successor HEAD and CI MUST be fresh-read after this single leased commit. Single Writer only. No main write, force push, merge, signing or production SQLite/LKG/account/POSTED 700 change.
+
+**FIRST REAL FAILURE — exact parent:** [Flutter Android CI #1324](https://github.com/easonliu714/my_finance_app_public/actions/runs/41672370813) completed FAILURE: Analyze PASS, focused source-custody PASS, full Flutter 2315 passed / 2 failed / 1 skipped. Both B2.13 widget tests failed: canceled picker TIMEOUT 10 minutes, subsequent wrong-SHA test Flutter Guarded function conflict cascading from first timeout. Native JVM/debug build SKIPPED because full Flutter failed; independent Android API35 strict witness PASS. [DGPA Lab #69](https://github.com/easonliu714/my_finance_app_public/actions/runs/41672370693) actually acquired official ROC116 UTF8BOM 6511 bytes SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, official listing and 365-day parser/isolated rollback earlier steps PASS, but new real-source B2.13 widget test TIMEOUT 10 minutes; lab overall FAILURE. **No B2.13 PASS.**
+
+**This commit's smallest root-cause test fix:** Flutter `testWidgets` uses FakeAsync; `sqflite_common_ffi` isolate-based `databaseFactoryFfi` can deadlock widget pumps. Both B2.13 widget-test files now use official upstream-supported `databaseFactoryFfiNoIsolate`, preserving real SQLite (not a mock), actual 365-day persisted check, cancel/wrong SHA zero-install, and atomic rollback assertions. This is TEST_PROGRESS root-cause repair, NOT new production feature. Next exact-head full Flutter/Native/API35 and real-source B2 Lab outcomes PENDING; inspect first failure rather than inheriting parent CI. Production `TaiwanBusinessCalendarStatusPage` remains explicit-preview + separate affirmative confirmation, canonical DB only, one-shot pinned installer; no silent install or annual trigger.
+
+**Owner-device separate:** installed 4.20.37+495 Signed #994 belongs ONLY to older `446d56e2eddb2a787c6c1910c79f4262322335db`; U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and B2.8 original 6511-byte SHA screenshot 3175.png PASS; B1.5 cross-year N/A. B2.8 PREVIEW NOT INSTALLATION; 2026/2027 NOT VERIFIED expected. B2 parent Issue #19 installation E2E/annual trigger HOLD. Do not ask to repeat accepted UAT or sign unverified successor.
+
+**C500 A P0:** last genuine [MOF Lab #148](https://github.com/easonliu714/my_finance_app_public/actions/runs/41618698164) acquired both pinned PDFs, sampled lexical 3/3 each PASS but qpdf std::bad_alloc under 1.5GiB, PdfRenderer IOException/PDFium SIGTRAP/PDFBox OOM. [Lab #150](https://github.com/easonliu714/my_finance_app_public/actions/runs/41672370516) completed SUCCESS with synthetic G0i only; all official MOF binary/XRef/glyph/Android steps SKIPPED. A_REAL_SOURCE_EXECUTED for #150=FALSE; A_STAGNATION=FAIL; G0/global NOT_WIN HOLD. Next A slot MUST run LAB_ENABLED=true and a bounded true-source renderer/resource first-failure experiment, not synthetic-only churn.
+
+**Roadmap:** C500-D0 PASS, G0 ACTIVE/HOLD, G1–G4 HOLD, G5 Owner choice HOLD, G6 BLOCKED; C13/C17/C18/global negative root authority HOLD despite API35 strict regressions PASS. B2.13 CODE present / CI RED / Owner E2E HOLD; B2 annual trigger then B3 #18 isolated backup, B4 #6, B5 #9, B6 #15. OWNER_HELP_NOW=NONE. No docs-only engineering claim.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-04 00:15 Asia/Taipei | B2.13 explicit consent UI implementation, successor CI PENDING
 
 **Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT, verified parent `f430687c4f0cf29a7a09d5b1a59b3b5d28889d7e`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; successor exact SHA must be read back after one leased atomic commit. Single Writer; no main write, force push, merge, production account/SQLite/LKG/POSTED 700 mutation, or signing-key change.
 
@@ -12,7 +28,6 @@
 
 **Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED. C13/C17/C18/global NOT_WIN root authority HOLD notwithstanding passing current strict regression witnesses. B2.13 successor CI/Lab and Owner Signed/device gates HOLD; then B2 annual trigger, B3 #18 isolated backup, B4 #6, B5 #9, B6 #15. **STAGNATION:** prior 20:15/21:15 slots FAIL (no code/test delta); this is the first new substantive code/test delta, not yet tested. OWNER_HELP_NOW=NONE.
 
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-03 19:15 Asia/Taipei | B2.12 pinned 116 manual-install backend; C500-G0w source lexical PASS / parent HOLD
 
