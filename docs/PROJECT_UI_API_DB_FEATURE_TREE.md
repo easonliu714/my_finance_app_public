@@ -1,4 +1,18 @@
-## CURRENT — 2026-11-03 14:15 Asia/Taipei | C500-G0r official midpoint leaf path experiment, new-head CI/source pending
+## CURRENT — 2026-11-03 14:20 Asia/Taipei | C500-G0r FIRST FAILURE compile repair, official source revalidation pending
+
+**Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT, verified parent `144e2553378a7afd2fd96863c73225618283d9bd`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, version 4.20.37+495. New successor SHA is live HEAD. No main/force push/merge/production SQLite/LKG/signer/Owner device write.
+
+**Immediate FIRST FAILURE:** [G0 source Lab #142](https://github.com/easonliu714/my_finance_app_public/actions/runs/41589144152) stopped at synthetic XRef test, **before official PDF acquisition**, because `_verifyCatalogRoot` did not receive newly added `verifyMidpointPagePath`; [Flutter Android CI #1316](https://github.com/easonliu714/my_finance_app_public/actions/runs/41589144013) Analyze FAIL undefined identifier at tool/c500_g0_bounded_xref.dart:1060, independent API35 job not a substitute for Flutter Analyze. This is a compiler plumbing failure, NOT source-binary or Android C18 failure. **Fix** forwards the bool through the existing private method, corrects synthetic midpoint object-read expectation from 6 to 4 (two root siblings + two selected-branch leaves), and labels actual midpoint path sample scope distinctly. No deleted/skipped/weakened security tests. New-head Analyze/focused/full/API35 and actual Lab `LAB_ENABLED=true` are PENDING.
+
+**G0p actual pinned first failure (parent):** [CI #1315](https://github.com/easonliu714/my_finance_app_public/actions/runs/41583151946) PASS Analyze/full Flutter/Native JVM/API35; [official Lab #141](https://github.com/easonliu714/my_finance_app_public/actions/runs/41583152561) actually acquired 115-05-06 119769589-byte SHA `1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe` and 115-07-08 135200798-byte SHA `f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`. qpdf `--show-npages` printed 77000/87000 **with warnings exit=3** and `std::bad_alloc` at /Pages 4187016/0 and 4730783/0; `--check` exit=2. Both strict FAIL, no source corruption inference. Old PdfRenderer 77000 open/3 pages PASS, new PdfRenderer IOException, PDFium SIGTRAP, both PDFBox OOM. Correct `ulimit -f 1024` is 1 MiB output cap, not 512 KiB. G0r is a new bounded XRef midpoint ordinal-to-leaf path experiment (8 levels/512 reads), not full leaf/glyph/sort/global NOT_WIN proof; A_STAGNATION=FAIL until actual root progress.
+
+**B track:** [DGPA source Lab #60](https://github.com/easonliu714/my_finance_app_public/actions/runs/41583152072) SUCCESS official 116 CSV 6511 bytes SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365/121 days and isolated SQLite. [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) PASS only on older `446d56e2eddb2a787c6c1910c79f4262322335db`, installed 4.20.37+495, signer 9BA2, APK SHA256 `8a2be3a64703a273cb7b155416c8fac2ae80d6c2e6d6b430e322eec3e58c8a5c`. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7, screenshot 3175.png B2.8 original CSV FilePicker SHA PASS; B1.5 N/A; preview NOT installed. B2 #19 production install/LKG/annual trigger/Owner E2E HOLD; B3 #18 HOLD. Issues #4/#13/#19 OPEN.
+
+**Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED. C13/C17/C18 broad same-UID and global NOT_WIN HOLD. **NEXT SINGLE GATE:** verify exact new-head Analyze/Flutter/Native/API35 and Lab G0r official midpoint path for BOTH pinned sources; if synthetic test fails, fix first failure before source claims. Owner help NOW=NONE.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-03 14:15 Asia/Taipei | C500-G0r official midpoint leaf path experiment, new-head CI/source pending
 
 **Authority:** [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; verified parent `433bc6d8c856d82fa9454373cd522935bf53110f`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, branch `issue-13-invoice-award-official-data`, version 4.20.37+495. Successor SHA is live PR HEAD. No main/force push/merge/production DB/LKG/signer/device writes. New-head CI, source Lab and Signed must be read back, not inherited.
 
@@ -9,8 +23,6 @@
 **B track:** [DGPA official Lab #60](https://github.com/easonliu714/my_finance_app_public/actions/runs/41583152072) SUCCESS 6511-byte SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365 days/121 holidays, isolated SQLite. [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) PASS older HEAD `446d56e2eddb2a787c6c1910c79f4262322335db` only; 495 9BA2 signer APK SHA256 `8a2be3a64703a273cb7b155416c8fac2ae80d6c2e6d6b430e322eec3e58c8a5c`. Owner U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and screenshot 3175.png B2.8 SHA file-picker PASS; B1.5 N/A; B2.8 is PREVIEW NOT INSTALLED. B2 parent #19 transactional install/LKG, annual trigger, Owner full E2E HOLD; B3 #18 HOLD. Issues #4/#13/#19 OPEN.
 
 **Roadmap:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner selection HOLD; G6 BLOCKED. C13/C17/C18 broad same-UID and global NOT_WIN HOLD. **NEXT SINGLE GATE:** verify new-head CI and BOTH official G0r midpoint path results; report first real failing node if any. Owner help NOW=NONE.
-
-## HISTORY — superseded snapshots, not current authority
 
 ### HISTORY (former CURRENT) — 2026-11-03 13:15 Asia/Taipei | C500-G0p bounded qpdf first-failure split (new HEAD gates pending)
 

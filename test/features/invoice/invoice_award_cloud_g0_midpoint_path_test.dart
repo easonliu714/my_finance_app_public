@@ -32,7 +32,7 @@ void main() {
     expect(result['midpoint_page_index'], 2);
     expect(result['midpoint_leaf_id'], 23);
     expect(result['midpoint_path_depth'], 2);
-    expect(result['midpoint_path_objects_read'], 6);
+    expect(result['midpoint_path_objects_read'], 4);
     expect(result['all_pages'], 'NOT_VERIFIED');
     expect(result['global_not_win'], 'NOT_PROVEN');
   });
