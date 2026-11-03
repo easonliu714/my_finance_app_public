@@ -7,6 +7,8 @@ on:
       - '.github/workflows/b2_official_calendar_source_lab.yml'
       - 'tool/b2_official_calendar_source_lab.py'
       - 'tool/b2_official_calendar_source_lab_test.dart'
+      - 'tool/b2_official_calendar_publication_lab.py'
+      - 'tool/test_b2_official_calendar_publication_lab.py'
   workflow_dispatch:
 
 permissions:
@@ -34,6 +36,12 @@ jobs:
         env:
           B2_CSV_OUT: ${{ runner.temp }}/dgpa116.csv
         run: python3 tool/b2_official_calendar_source_lab.py
+      # B2.11: independent official listing/dataset metadata cross-check.
+      # Neither timestamp is a per-resource revision or installation authority.
+      - name: B2.11 synthetic publication/source link positive and negative contracts
+        run: python3 -m unittest tool/test_b2_official_calendar_publication_lab.py -v
+      - name: B2.11 real DGPA 2027 listing and data.gov.tw 116 CSV link custody
+        run: python3 tool/b2_official_calendar_publication_lab.py
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
