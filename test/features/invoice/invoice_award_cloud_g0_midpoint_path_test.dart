@@ -126,4 +126,60 @@ void main() {
         throwsA(failure('C500_G0S_COUNT_LIMIT')));
   });
 
+  // G0t synthetic positive/negative; never official source proof.
+  Map<int, String> withContents() {
+    final o = valid();
+    for (final pair in <(int, int)>[(21, 101), (23, 103), (24, 104)]) {
+      final leaf = pair.$1, content = pair.$2;
+      o[leaf] = o[leaf]!.replaceFirst(' >>', ' /Contents $content 0 R >>');
+      o[content] = '$content 0 obj\n'
+          '<< /Length 4 /Filter /FlateDecode >>\n'
+          'stream\nabcd\nendstream\nendobj';
+    }
+    return o;
+  }
+  Future<Map<String, Object?>> contents(Map<int, String> o) =>
+      const C500G0SpreadPageAuditor().inspect(
+        pagesBody: '<< /Type /Pages /Count 4 /Kids [11 0 R 12 0 R] >>',
+        rootId: 10, rootGeneration: 0, declaredPages: 4,
+        verifyContentHeaders: true,
+        readObject: (id, gen) async {
+          if (gen != 0 || !o.containsKey(id)) {
+            throw const C500G0BoundedXrefException('C500_G0R_XREF_UNAVAILABLE');
+          }
+          return o[id]!;
+        },
+      );
+  test('G0t three bounded content headers without text authority', () async {
+    final x = await contents(withContents());
+    expect(x['spread_content_headers_verified'], 3);
+    expect(x['spread_content_compressed_bytes_total'], 12);
+    expect(x['global_not_win'], 'NOT_PROVEN');
+  });
+  test('G0t missing and duplicate Contents rejected', () async {
+    await expectLater(contents(valid()),
+        throwsA(failure('C500_G0T_CONTENT_REF_UNSUPPORTED')));
+    final o = withContents();
+    o[23] = o[23]!.replaceFirst(' >>', ' /Contents 103 0 R >>');
+    await expectLater(contents(o),
+        throwsA(failure('C500_G0T_CONTENT_REF_UNSUPPORTED')));
+  });
+  test('G0t missing XRef and unsupported filter rejected', () async {
+    await expectLater(contents(withContents()..remove(104)),
+        throwsA(failure('C500_G0R_XREF_UNAVAILABLE')));
+    final o = withContents();
+    o[103] = o[103]!.replaceFirst('/FlateDecode', '/LZWDecode');
+    await expectLater(contents(o),
+        throwsA(failure('C500_G0T_FILTER_UNSUPPORTED')));
+  });
+  test('G0t oversized and truncated streams rejected', () async {
+    final a = withContents();
+    a[104] = a[104]!.replaceFirst('/Length 4', '/Length 40000');
+    await expectLater(contents(a),
+        throwsA(failure('C500_G0T_STREAM_BUDGET')));
+    final b = withContents();
+    b[101] = b[101]!.replaceFirst('abcd', 'ab');
+    await expectLater(contents(b),
+        throwsA(failure('C500_G0T_STREAM_TRUNCATED')));
+  });
 }

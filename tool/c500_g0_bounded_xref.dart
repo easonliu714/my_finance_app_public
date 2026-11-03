@@ -603,12 +603,14 @@ class C500G0SpreadPageAuditor {
     required String pagesBody, required int rootId,
     required int rootGeneration, required int declaredPages,
     required C500G0ReadObject readObject,
+    bool verifyContentHeaders = false,
   }) async {
     if (declaredPages < 3 || declaredPages > 100000) {
       throw const C500G0BoundedXrefException('C500_G0S_COUNT_LIMIT');
     }
     final targets = <int>[0, declaredPages ~/ 2, declaredPages - 1];
     final leaves = <int>[];
+    final gens = <int>[];
     var reads = 0;
     for (final target in targets) {
       final path = await const C500G0MidpointPageAuditor().inspect(
@@ -620,13 +622,71 @@ class C500G0SpreadPageAuditor {
         throw const C500G0BoundedXrefException('C500_G0S_INDEX_MISMATCH');
       }
       leaves.add(path['sampled_leaf_id']! as int);
+      gens.add(path['midpoint_leaf_generation']! as int);
       reads += path['midpoint_path_objects_read']! as int;
     }
     if (leaves.toSet().length != 3 || reads > 1536) {
       throw const C500G0BoundedXrefException('C500_G0S_ALIAS_OR_BUDGET');
     }
+    // G0t: sampled /Contents metadata only; no glyphs, sorting, or NOT_WIN.
+    var headerCount = 0, totalLength = 0;
+    if (verifyContentHeaders) {
+      for (var i = 0; i < 3; i++) {
+        final leaf = await readObject(leaves[i], gens[i]);
+        final refs = RegExp(r'/Contents\s+(\d+)\s+(\d+)\s+R\b')
+            .allMatches(leaf).toList();
+        if (RegExp(r'/Contents\b').allMatches(leaf).length != 1 ||
+            refs.length != 1) {
+          throw const C500G0BoundedXrefException('C500_G0T_CONTENT_REF_UNSUPPORTED');
+        }
+        final id = int.parse(refs.single.group(1)!);
+        final generation = int.parse(refs.single.group(2)!);
+        if (id <= 0 || id == leaves[i]) {
+          throw const C500G0BoundedXrefException('C500_G0T_CONTENT_CYCLE');
+        }
+        // Existing SHA/XRef reader validates generation and object budgets.
+        final obj = await readObject(id, generation);
+        if (!RegExp('^$id\\s+$generation\\s+obj\\b').hasMatch(obj)) {
+          throw const C500G0BoundedXrefException('C500_G0T_CONTENT_IDENTITY');
+        }
+        final marker = RegExp(
+            r'>>[ \t]*(?:\r\n|\r|\n)?stream(?:\r\n|\r|\n)')
+            .firstMatch(obj);
+        if (marker == null) {
+          throw const C500G0BoundedXrefException('C500_G0T_STREAM_MISSING');
+        }
+        final dict = obj.substring(0, marker.start + 2);
+        final lengths = RegExp(r'/Length\s+(\d+)\b').allMatches(dict).toList();
+        if (lengths.length != 1 ||
+            RegExp(r'/Length\s+\d+\s+\d+\s+R\b').hasMatch(dict)) {
+          throw const C500G0BoundedXrefException('C500_G0T_LENGTH_UNSUPPORTED');
+        }
+        final length = int.parse(lengths.single.group(1)!);
+        if (length < 1 || length > 32768 || totalLength > 98304 - length) {
+          throw const C500G0BoundedXrefException('C500_G0T_STREAM_BUDGET');
+        }
+        final filters = RegExp(r'/Filter\b').allMatches(dict).length;
+        if (dict.contains('/DecodeParms') || filters > 1 ||
+            (filters == 1 &&
+                !RegExp(r'/Filter\s*(?:/FlateDecode\b|\[\s*/FlateDecode\s*\])')
+                    .hasMatch(dict))) {
+          throw const C500G0BoundedXrefException('C500_G0T_FILTER_UNSUPPORTED');
+        }
+        if (obj.length < marker.end + length ||
+            !RegExp(r'^(?:\r\n|\r|\n)?endstream\b')
+                .hasMatch(obj.substring(marker.end + length))) {
+          throw const C500G0BoundedXrefException('C500_G0T_STREAM_TRUNCATED');
+        }
+        totalLength += length;
+        headerCount++;
+      }
+    }
     return <String, Object?>{
       'spread_page_indices': targets, 'spread_leaf_ids': leaves,
+      'spread_content_headers_verified': headerCount,
+      'spread_content_compressed_bytes_total': totalLength,
+      'spread_content_scope': verifyContentHeaders
+          ? 'THREE_HEADERS_ONLY_NOT_DECODED_OR_GLOBAL_PROOF' : 'NOT_RUN',
       'spread_path_objects_read_total': reads, 'spread_paths_verified': 3,
       'spread_path_status': 'THREE_DISTANT_XREF_BOUND_LEAF_PATHS_ONLY',
       'all_pages': 'NOT_VERIFIED', 'global_not_win': 'NOT_PROVEN',
@@ -675,6 +735,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstBranchAllGrandchildrenCounts = false,
     bool verifyMidpointPagePath = false,
     bool verifySpreadPagePaths = false,
+    bool verifySpreadPageContents = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
         rootChildOrdinal != 2 && rootChildOrdinal != -1 &&
@@ -688,6 +749,9 @@ class C500G0BoundedXrefInspector {
          verifyAllRootSubtreesCounts || verifyFirstGrandchildCounts ||
          verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts)) {
       throw const C500G0BoundedXrefException('C500_G0R_EXCLUSIVE_AUDIT');
+    }
+    if (verifySpreadPageContents && !verifySpreadPagePaths) {
+      throw const C500G0BoundedXrefException('C500_G0T_REQUIRES_SPREAD');
     }
     if ((verifyMidpointPagePath || verifySpreadPagePaths) && !verifyCatalogRoot) {
       throw const C500G0BoundedXrefException('C500_G0R_REQUIRES_PINNED_ROOT');
@@ -920,12 +984,15 @@ class C500G0BoundedXrefInspector {
               verifySecondRootSubtreeCounts, verifyFirstGrandchildCounts,
               verifyAllRootSubtreesCounts,
               verifyFirstBranchAllGrandchildrenCounts,
-              verifyMidpointPagePath, verifySpreadPagePaths)
+              verifyMidpointPagePath, verifySpreadPagePaths,
+              verifySpreadPageContents)
           : const <String, Object?>{};
       return <String, Object?>{
         'gate': 'C500_G0L_BOUNDED_XREF_ONLY',
         'root_child_ordinal': rootChildOrdinal,
-        'sample_scope': verifySpreadPagePaths
+        'sample_scope': verifySpreadPageContents
+            ? 'FIRST_MIDDLE_LAST_CONTENT_HEADERS_NOT_TEXT_PROOF'
+            : verifySpreadPagePaths
             ? 'FIRST_MIDDLE_LAST_THREE_LEAF_PATHS_NOT_GLOBAL_PROOF'
             : verifyMidpointPagePath
             ? 'MIDPOINT_ONE_XREF_BOUND_LEAF_ANCESTRY_NOT_GLOBAL_PROOF'
@@ -1021,6 +1088,7 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstBranchAllGrandchildrenCounts,
     bool verifyMidpointPagePath,
     bool verifySpreadPagePaths,
+    bool verifySpreadPageContents,
   ) async {
     final root = RegExp(r'/Root\s+(\d+)\s+(\d+)\s+R\b')
         .firstMatch(xrefDictionary);
@@ -1118,6 +1186,7 @@ class C500G0BoundedXrefInspector {
             pagesBody: pagesBody, rootId: pagesId,
             rootGeneration: int.parse(pages.group(2)!),
             declaredPages: declared, readObject: readObject,
+            verifyContentHeaders: verifySpreadPageContents,
           )
         : verifyMidpointPagePath
         ? await const C500G0MidpointPageAuditor().inspect(
@@ -1799,8 +1868,10 @@ Future<void> main(List<String> args) async {
       args.single == '--audit-third-branch-all-grandchildren';
   final auditMidpointPage = args.length == 1 &&
       args.single == '--audit-midpoint-page';
-  final auditSpreadPages = args.length == 1 &&
-      args.single == '--audit-spread-pages';
+  final auditSpreadContents = args.length == 1 &&
+      args.single == '--audit-spread-contents';
+  final auditSpreadPages = auditSpreadContents || (args.length == 1 &&
+      args.single == '--audit-spread-pages');
   final auditSelectedBranchAllGrandchildren =
       auditFirstBranchAllGrandchildren || auditSecondBranchAllGrandchildren ||
       auditThirdBranchAllGrandchildren;
@@ -1878,6 +1949,7 @@ Future<void> main(List<String> args) async {
         verifyRootChildCounts: auditRootChildren,
         verifyMidpointPagePath: auditMidpointPage,
         verifySpreadPagePaths: auditSpreadPages,
+        verifySpreadPageContents: auditSpreadContents,
         verifyFirstRootSubtreeCounts: auditFirstSubtree,
         verifySecondRootSubtreeCounts: auditSecondSubtree,
         verifyFirstGrandchildCounts: auditFirstGrandchild,
