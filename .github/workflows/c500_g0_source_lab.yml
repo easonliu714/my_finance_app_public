@@ -82,6 +82,7 @@ jobs:
           bash tool/c500_g0_android_renderer_lab_contract_test.sh
           bash tool/c500_g0_workflow_gate_contract_test.sh
           bash tool/c500_g0_qpdf_resource_ladder_contract_test.sh
+          bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
 
       - name: G0l bounded XRef synthetic positive/negative contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -172,7 +173,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qpdf
+          sudo apt-get install -y -qq qpdf mupdf-tools
           bash tool/c500_g0_qpdf_preflight.sh
 
       # G0l runs even after qpdf fails: independent bounded object-access
@@ -187,6 +188,15 @@ jobs:
         run: |
           set -euo pipefail
           bash tool/c500_g0_qpdf_resource_ladder.sh
+
+      # G0y: source-backed alternative renderer root-feasibility; never a global proof.
+      - name: G0y independent pinned MuPDF first-page engine feasibility (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_mutool_first_page_probe.sh
 
       - name: G0l pinned official XRef-stream bounded access (NOT page proof)
         if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}

@@ -1,4 +1,20 @@
-## CURRENT — 2026-11-04 04:19 Asia/Taipei | C500-G0x.1 real-source qpdf peak-RSS defect repair + bounded 4GiB structural-check probe; successor PENDING
+## CURRENT — 2026-11-04 05:10 Asia/Taipei | G0y independent MuPDF real-source first-page engine experiment; successor PENDING
+
+**Authority:** sole [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; inspected parent `ac662955e5701d24aadc68f10d36d1e7553aa88a`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`. Single leased PR-branch code/test/docs commit only, no main write, force push, merge, Signed or production account/SQLite/LKG/POSTED NT$700 mutation. Successor HEAD/CI/real-source must be independently read back.
+
+**Verified parent:** [Flutter Android #1329](https://github.com/easonliu714/my_finance_app_public/actions/runs/41712057826) SUCCESS (Analyzer/full Flutter/native JVM/independent Android API35 strict witnesses). [DGPA Lab #74](https://github.com/easonliu714/my_finance_app_public/actions/runs/41712057781) SUCCESS with actual DGPA original 6511-byte ROC116 CSV SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365 days/121 holidays, official listing, Dart parser and isolated SQLite consent-cancel=0 write/confirm=365 rows PASS. B2.13 CODE/CI/REAL_SOURCE_LAB PASS, but no same-head Signed, Owner install E2E or annual automatic trigger; B2 parent Issue #19 OPEN/HOLD.
+
+**C500 real-source first failure:** [MOF Lab #155](https://github.com/easonliu714/my_finance_app_public/actions/runs/41712057723) FAILURE, LAB_ENABLED=true, BOTH pinned original official PDFs acquired: old 119769589 bytes SHA `1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe`, new 135200798 bytes SHA `f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`. GNU-time RSS parser regression PASS. qpdf page counts 77000/87000 at 3GiB PASS (peak RSS 2499740/2822932 KiB), but qpdf --check at 3GiB allocation failed (3130924/3016736 KiB) and at 4GiB STILL allocation failed (4179684/4064844 KiB). Android PDFium new SIGTRAP, PdfRenderer new IOException, PDFBox both Java heap OOM. No full-page Unicode, sortedness or global NOT_WIN proof.
+
+**This engineering delta:** add independently bounded MuPDF `mutool draw -F txt` first-page probe for each exact SHA-pinned official PDF, 3GiB virtual cap, 90s timeout, 512KiB output cap, peak RSS and first-failure classification; never log/upload extracted content. Add forged-source negative contract and real-source workflow step with `[G0-SOURCE-LAB]` marker. This is an alternative engine feasibility experiment, not another qpdf memory ladder, nor complete page/Unicode/NOT_WIN proof. Successor CI/source PENDING.
+
+**Owner device:** installed 4.20.37+495 [Signed #994](https://github.com/easonliu714/my_finance_app_public/actions/runs/41551821792) is older HEAD `446d56e2eddb2a787c6c1910c79f4262322335db`. U0/U1, B1.1–1.4/B1.6–1.8, B2.7 and B2.8 screenshot 3175.png SHA preview PASS; B1.5 cross-year N/A. Original CSV preview did NOT install 2027. Do not repeat Owner PASS.
+
+**Closure:** C500-D0 PASS; G0 ACTIVE/HOLD; G1–G4 HOLD; G5 Owner choice HOLD; G6 BLOCKED; C13/C17/C18 root and global NOT_WIN HOLD despite CI witness PASS. A_STAGNATION for global completeness remains FAIL. B2.13 DoD 60% (CODE/CI/isolated official-source E2E PASS; Signed/Owner/annual trigger HOLD); B2 parent #19 HOLD; then B3 #18, B4 #6, B5 #9, B6 #15. NEXT A=read successor genuine MuPDF root-feasibility first failure and compare against qpdf/Android caps. NEXT B=verified Signed candidate and Owner explicit 2027 installation, then annual foreground trigger. OWNER_HELP_NOW=NONE; OWNER_HELP_LATER=Signed Owner install E2E. MERGED_MAIN=NO.
+
+## HISTORY — superseded snapshots, not current authority
+
+### HISTORY (former CURRENT) — 2026-11-04 04:19 Asia/Taipei | C500-G0x.1 real-source qpdf peak-RSS defect repair + bounded 4GiB structural-check probe; successor PENDING
 
 **Authority:** sole [PR #45](https://github.com/easonliu714/my_finance_app_public/pull/45) OPEN/DRAFT; inspected exact parent `bd2b6dc41ca7162f8138f07343e2b1bc32e3441e`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`. One leased production-lab/test/governance commit only; no direct main write, merge, force push, release signing or finance SQLite/account/LKG/POSTED NT$700 mutation. Successor HEAD, exact-head CI and source Lab must be independently verified before PASS.
 
@@ -14,7 +30,8 @@
 
 **Gate closure and next:** C500-D0 PASS; C500-G0 ACTIVE/HOLD, G1–G4 HOLD, G5 Owner-choice HOLD, G6 BLOCKED; C13/C17/C18 root authority and global NOT_WIN HOLD even with passing strict CI regressions. A_STAGNATION root evidence now improved, full feasibility unresolved. B2.13 estimated DoD 60% (code/full CI/real-source isolated DB proven, Signed/Owner and annual trigger absent); parent #19 OPEN/HOLD; then B3 #18 isolated backup, B4 #6, B5 #9, B6 #15. NEXT A=read successor real 4GiB qpdf checks/true RSS and decide bounded renderer feasibility; NEXT B=prepare verified Signed Owner consent-install E2E and subsequently annual foreground trigger without inferring unverified 2026. OWNER_HELP_NOW=NONE, OWNER_HELP_LATER=2027 explicit install only after verified Signed. MERGED_MAIN=NO.
 
-## HISTORY — superseded snapshots, not current authority
+
+
 
 ### HISTORY (former CURRENT) — 2026-11-04 03:15 Asia/Taipei | C500-G0x genuine pinned qpdf resource-threshold experiment; source run PENDING
 
