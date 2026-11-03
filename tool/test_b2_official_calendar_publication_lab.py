@@ -1,7 +1,7 @@
 import unittest
 from tool.b2_official_calendar_publication_lab import (
     CSV_URL, DATASET_METADATA_TIME, DGPA_CALENDAR_LISTING,
-    verify_calendar_html, verify_dataset_html,
+    verify_calendar_html, verify_dataset_html, same_official_csv_resource,
 )
 
 
@@ -22,6 +22,11 @@ class PublicationCustodyTests(unittest.TestCase):
         raw = dataset().replace('116年中華民國政府行政機關辦公日曆表'.encode(),
                                 '116年<span>中華民國政府</span>行政機關辦公日曆表'.encode())
         self.assertTrue(verify_dataset_html(raw))
+
+    def test_html_protocol_relative_and_entity_escaped_link_identity(self):
+        self.assertTrue(same_official_csv_resource(CSV_URL.replace('https:', '', 1)))
+        self.assertTrue(verify_dataset_html(dataset(CSV_URL.replace('https:', '', 1))))
+        self.assertTrue(verify_dataset_html(dataset(CSV_URL.replace('&nfix=', '&amp;nfix='))))
 
     def test_forged_and_google_resources_fail_closed(self):
         for href, label in (

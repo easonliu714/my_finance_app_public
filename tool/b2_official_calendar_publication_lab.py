@@ -9,6 +9,7 @@ import re
 import ssl
 import sys
 import urllib.request
+from urllib.parse import parse_qsl, urljoin, urlsplit
 
 DATASET_URL = 'https://data.gov.tw/dataset/14718'
 CALENDAR_URL = 'https://www.dgpa.gov.tw/en/informationlist?uid=353'
@@ -52,6 +53,18 @@ class Tokens(HTMLParser):
                 self.tokens.append(('text', stripped))
 
 
+def same_official_csv_resource(href):
+    # Accept only harmless serialization differences (protocol-relative URL,
+    # query encoding/order). Never broaden the official host/path/source pin.
+    candidate = urlsplit(urljoin(DATASET_URL, href))
+    pinned = urlsplit(CSV_URL)
+    return ((candidate.scheme, candidate.netloc, candidate.path) ==
+            (pinned.scheme, pinned.netloc, pinned.path) and
+            sorted(parse_qsl(candidate.query, keep_blank_values=True)) ==
+            sorted(parse_qsl(pinned.query, keep_blank_values=True)) and
+            not candidate.fragment)
+
+
 def verify_dataset_html(raw):
     parser = Tokens()
     parser.feed(raw.decode('utf-8-sig', errors='strict'))
@@ -77,8 +90,9 @@ def verify_dataset_html(raw):
     matches = [href for href, label in segments
                if TARGET_LABEL in label and
                not re.search(r'google', label, flags=re.IGNORECASE)]
-    if matches != [CSV_URL]:
-        raise ValueError('DGPA 116 resource identity unresolved: matches=%d exact_link=%d label_segments=%d' % (len(matches), sum(1 for href, _ in segments if href == CSV_URL), sum(1 for _, label in segments if TARGET_LABEL in label)))
+    if len(matches) != 1 or not same_official_csv_resource(matches[0]):
+        raise ValueError('DGPA 116 resource identity unresolved: matches=%d href=%r' %
+                         (len(matches), matches[0] if matches else None))
     text = ''.join(value for kind, value in tokens if kind == 'text')
     if '詮釋資料更新時間' + DATASET_METADATA_TIME.replace(' ', '') not in text:
         raise ValueError('Government dataset metadata timestamp drift')
