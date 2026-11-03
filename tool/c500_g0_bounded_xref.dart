@@ -479,6 +479,114 @@ class C500G0ThreeLevelFirstBranchAuditor {
   }
 }
 
+// G0r: pinned-XRef midpoint ordinal-to-leaf path, not a global scan.
+// Bounded to 8 levels and 512 object reads; all siblings at each visited
+// level must agree on /Count, /Parent and unique object identities.
+class C500G0MidpointPageAuditor {
+  const C500G0MidpointPageAuditor();
+  Future<Map<String, Object?>> inspect({
+    required String pagesBody, required int rootId,
+    required int rootGeneration, required int declaredPages,
+    required C500G0ReadObject readObject,
+  }) async {
+    if (declaredPages <= 0 || declaredPages > 100000) {
+      throw const C500G0BoundedXrefException('C500_G0R_COUNT_LIMIT');
+    }
+    final target = declaredPages ~/ 2;
+    var ordinal = target;
+    var nodeId = rootId, nodeGeneration = rootGeneration;
+    var nodeBody = pagesBody, nodeCount = declaredPages, objectsRead = 0;
+    final seen = <int>{rootId};
+    final reference = RegExp(r'(\d+)\s+(\d+)\s+R\b');
+    for (var depth = 1; depth <= 8; depth++) {
+      if (!RegExp(r'/Type\s*/Pages\b').hasMatch(nodeBody) ||
+          RegExp(r'/Type\s*/Page\b').hasMatch(nodeBody)) {
+        throw const C500G0BoundedXrefException('C500_G0R_PARENT_NOT_PAGES');
+      }
+      final counts = RegExp(r'/Count\s+(\d+)\b').allMatches(nodeBody).toList();
+      if (counts.length != 1 ||
+          int.parse(counts.single.group(1)!) != nodeCount) {
+        throw const C500G0BoundedXrefException('C500_G0R_PARENT_COUNT_MISMATCH');
+      }
+      final groups = RegExp(r'/Kids\s*\[([^\]]{0,65536})\]')
+          .allMatches(nodeBody).toList();
+      if (groups.length != 1) {
+        throw const C500G0BoundedXrefException('C500_G0R_KIDS_AMBIGUOUS');
+      }
+      final raw = groups.single.group(1)!;
+      final refs = reference.allMatches(raw).toList();
+      if (refs.isEmpty || refs.length > 64 ||
+          raw.replaceAll(reference, '').trim().isNotEmpty) {
+        throw const C500G0BoundedXrefException('C500_G0R_KIDS_BUDGET_OR_GRAMMAR');
+      }
+      var sum = 0;
+      int? selectedId, selectedGeneration, selectedStart, selectedCount;
+      String? selectedBody;
+      var selectedIsPage = false;
+      for (final ref in refs) {
+        final id = int.parse(ref.group(1)!);
+        final generation = int.parse(ref.group(2)!);
+        if (++objectsRead > 512 || !seen.add(id)) {
+          throw const C500G0BoundedXrefException('C500_G0R_BUDGET_ALIAS_OR_CYCLE');
+        }
+        final body = await readObject(id, generation);
+        final parents = RegExp(r'/Parent\s+(\d+)\s+(\d+)\s+R\b')
+            .allMatches(body).toList();
+        if (parents.length != 1 ||
+            int.parse(parents.single.group(1)!) != nodeId ||
+            int.parse(parents.single.group(2)!) != nodeGeneration) {
+          throw const C500G0BoundedXrefException('C500_G0R_PARENT_MISMATCH');
+        }
+        final isPages = RegExp(r'/Type\s*/Pages\b').hasMatch(body);
+        final isPage = RegExp(r'/Type\s*/Page\b').hasMatch(body);
+        if (isPages == isPage) {
+          throw const C500G0BoundedXrefException('C500_G0R_CHILD_TYPE_INVALID');
+        }
+        final childCounts = RegExp(r'/Count\s+(\d+)\b')
+            .allMatches(body).toList();
+        if ((isPages && childCounts.length != 1) ||
+            (isPage && (childCounts.isNotEmpty ||
+                RegExp(r'/Kids\s*\[').hasMatch(body)))) {
+          throw const C500G0BoundedXrefException('C500_G0R_CHILD_COUNT_INVALID');
+        }
+        final count = isPages ? int.parse(childCounts.single.group(1)!) : 1;
+        if (count <= 0 || count > nodeCount || sum > nodeCount - count) {
+          throw const C500G0BoundedXrefException('C500_G0R_COUNT_OVERFLOW');
+        }
+        if (selectedId == null && ordinal >= sum && ordinal < sum + count) {
+          selectedId = id; selectedGeneration = generation;
+          selectedStart = sum; selectedCount = count;
+          selectedBody = body; selectedIsPage = isPage;
+        }
+        sum += count;
+      }
+      if (sum != nodeCount || selectedId == null) {
+        throw const C500G0BoundedXrefException('C500_G0R_SIBLING_SUM_MISMATCH');
+      }
+      if (selectedIsPage) {
+        if (ordinal != selectedStart) {
+          throw const C500G0BoundedXrefException('C500_G0R_LEAF_ORDINAL_MISMATCH');
+        }
+        return <String, Object?>{
+          'midpoint_page_index': target,
+          'midpoint_leaf_id': selectedId,
+          'midpoint_leaf_generation': selectedGeneration,
+          'midpoint_path_depth': depth,
+          'midpoint_path_objects_read': objectsRead,
+          'midpoint_path_status': 'ONE_XREF_BOUND_LEAF_AND_ANCESTRY_ONLY',
+          'all_pages': 'NOT_VERIFIED', 'global_not_win': 'NOT_PROVEN',
+        };
+      }
+      ordinal -= selectedStart!;
+      nodeId = selectedId;
+      nodeGeneration = selectedGeneration!;
+      nodeBody = selectedBody!;
+      nodeCount = selectedCount!;
+    }
+    throw const C500G0BoundedXrefException('C500_G0R_DEPTH_LIMIT');
+  }
+}
+
 class C500G0BoundedXrefInspector {
   const C500G0BoundedXrefInspector({
     this.maxHeaderBytes = 1024 * 1024,
@@ -518,11 +626,22 @@ class C500G0BoundedXrefInspector {
     bool verifyFirstGrandchildCounts = false,
     bool verifyAllRootSubtreesCounts = false,
     bool verifyFirstBranchAllGrandchildrenCounts = false,
+    bool verifyMidpointPagePath = false,
   }) async {
     if (rootChildOrdinal != 0 && rootChildOrdinal != 1 &&
         rootChildOrdinal != 2 && rootChildOrdinal != -1 &&
         rootChildOrdinal != -2) {
       throw const C500G0BoundedXrefException('C500_G0J_ORDINAL_INVALID');
+    }
+    if (verifyMidpointPagePath &&
+        (verifyRootChildCounts || verifyFirstPageChild ||
+         verifyFirstPagePath || verifyFirstBranchAllGrandchildrenCounts ||
+         verifyAllRootSubtreesCounts || verifyFirstGrandchildCounts ||
+         verifyFirstRootSubtreeCounts || verifySecondRootSubtreeCounts)) {
+      throw const C500G0BoundedXrefException('C500_G0R_EXCLUSIVE_AUDIT');
+    }
+    if (verifyMidpointPagePath && !verifyCatalogRoot) {
+      throw const C500G0BoundedXrefException('C500_G0R_REQUIRES_PINNED_ROOT');
     }
     if (verifyFirstBranchAllGrandchildrenCounts &&
         (verifyAllRootSubtreesCounts || verifyFirstGrandchildCounts ||
@@ -938,7 +1057,13 @@ class C500G0BoundedXrefInspector {
       throw const C500G0BoundedXrefException('C500_G0P_PAGE_COUNT_INVALID');
     }
     final rootCountEvidence =
-        verifyFirstBranchAllGrandchildrenCounts
+        verifyMidpointPagePath
+        ? await const C500G0MidpointPageAuditor().inspect(
+            pagesBody: pagesBody, rootId: pagesId,
+            rootGeneration: int.parse(pages.group(2)!),
+            declaredPages: declared, readObject: readObject,
+          )
+        : verifyFirstBranchAllGrandchildrenCounts
         ? await const C500G0FirstBranchAllGrandchildrenAuditor().inspect(
             pagesBody: pagesBody, rootId: pagesId,
             rootGeneration: int.parse(pages.group(2)!),
@@ -1610,6 +1735,8 @@ Future<void> main(List<String> args) async {
   // G0o.11: third distinct root subtree, identical 16/256 reference budgets.
   final auditThirdBranchAllGrandchildren = args.length == 1 &&
       args.single == '--audit-third-branch-all-grandchildren';
+  final auditMidpointPage = args.length == 1 &&
+      args.single == '--audit-midpoint-page';
   final auditSelectedBranchAllGrandchildren =
       auditFirstBranchAllGrandchildren || auditSecondBranchAllGrandchildren ||
       auditThirdBranchAllGrandchildren;
@@ -1619,7 +1746,7 @@ Future<void> main(List<String> args) async {
       (args.length == 1 && args.single == '--audit-root-children');
   final rootChildOrdinal = auditThirdBranchAllGrandchildren ? 2
       : (auditSecondSubtree || auditSecondBranchAllGrandchildren) ? 1
-      : auditRootChildren || args.isEmpty ? 0
+      : auditRootChildren || auditMidpointPage || args.isEmpty ? 0
       : args.length == 1 && args.single == '--second-root-child' ? 1
       : args.length == 1 && args.single == '--last-root-child' ? -1
       : args.length == 1 && args.single == '--middle-root-child' ? -2 : -3;
@@ -1674,17 +1801,18 @@ Future<void> main(List<String> args) async {
         verifyObjectOffsets: false,
         verifyCompressedMembers: false,
         verifyCatalogRoot: true,
-        verifyFirstPageChild: !auditRootChildren,
-        verifyFirstPagePath: !auditRootChildren,
-        verifyFirstPageContents: !auditRootChildren,
-        verifyFirstPageGlyphOperands: !auditRootChildren,
-        verifyFirstPageFontResources: !auditRootChildren,
-        verifyFirstPageCmapStreams: !auditRootChildren,
-        verifyFirstPageCmapSemantics: !auditRootChildren,
-        verifyFirstPageGlyphUnicode: !auditRootChildren,
-        verifyFirstPageOperandUnicodeRun: !auditRootChildren,
-        verifyFirstPageAllOperandsUnicode: !auditRootChildren,
+        verifyFirstPageChild: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPagePath: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageContents: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageGlyphOperands: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageFontResources: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageCmapStreams: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageCmapSemantics: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageGlyphUnicode: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageOperandUnicodeRun: !auditRootChildren && !auditMidpointPage,
+        verifyFirstPageAllOperandsUnicode: !auditRootChildren && !auditMidpointPage,
         verifyRootChildCounts: auditRootChildren,
+        verifyMidpointPagePath: auditMidpointPage,
         verifyFirstRootSubtreeCounts: auditFirstSubtree,
         verifySecondRootSubtreeCounts: auditSecondSubtree,
         verifyFirstGrandchildCounts: auditFirstGrandchild,

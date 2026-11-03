@@ -86,6 +86,7 @@ jobs:
         run: |
           flutter test test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart --reporter expanded
           flutter test test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart --reporter expanded
+          flutter test test/features/invoice/invoice_award_cloud_g0_midpoint_path_test.dart --reporter expanded
 
       - name: G0k synthetic qpdf and pinned-source fail-closed contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -299,6 +300,16 @@ jobs:
         run: |
           set -euo pipefail
           timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-third-branch-all-grandchildren
+
+      # G0r: SHA-pinned midpoint ordinal-to-leaf ancestry, 8-level/512-object cap.
+      # One selected path is NOT full leaf, glyph, sorting or NOT_WIN proof.
+      - name: G0r pinned official midpoint page leaf ancestry (NOT global proof)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          timeout 420s dart run tool/c500_g0_bounded_xref.dart --audit-midpoint-page
 
       # G0d/e/f: independent failure domain. qpdf bad_alloc and bounded-XRef
       # failures must remain FAIL, but must NOT implicitly skip the pinned
