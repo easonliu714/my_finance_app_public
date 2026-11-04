@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'taiwan_business_calendar_annual_check_receipt.dart';
 import 'taiwan_business_calendar_annual_source_check.dart';
 import 'taiwan_business_calendar_csv_import.dart';
 import 'taiwan_business_calendar_official_116_stage.dart';
@@ -22,6 +23,7 @@ class TaiwanBusinessCalendarStatusPage extends StatefulWidget {
     this.databaseProvider,
     this.csvBytesPicker,
     this.officialSourceCheck,
+    this.receiptStore,
     this.clock,
   });
 
@@ -37,6 +39,7 @@ class TaiwanBusinessCalendarStatusPage extends StatefulWidget {
   final Future<Uint8List?> Function()? csvBytesPicker;
   final Future<TaiwanBusinessCalendarAnnualSourceResult> Function()?
       officialSourceCheck;
+  final TaiwanBusinessCalendarAnnualCheckReceiptStore? receiptStore;
   final DateTime Function()? clock;
 
   @override
@@ -100,6 +103,22 @@ class _TaiwanBusinessCalendarStatusPageState
           '可人工檢查官方來源；不會自動下載或安裝',
       };
 
+  TaiwanBusinessCalendarAnnualCheckReceiptStore get _receiptStore =>
+      widget.receiptStore ??
+      const TaiwanBusinessCalendarAnnualCheckReceiptStore();
+
+  // Advisory preferences may fail; absence MUST allow explicit manual check.
+  Future<DateTime?> _receipt(CalendarPackageStatus? current, DateTime now) async {
+    if (current == null || !current.isContiguous ||
+        current.sequence < 1 || current.digest.isEmpty) return null;
+    try {
+      return await _receiptStore.readVerified(
+        year: current.year, digest: current.digest, now: now);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _loadReadOnlyStatus() async {
     try {
       final db = await _database();
@@ -109,8 +128,9 @@ class _TaiwanBusinessCalendarStatusPageState
       final taipeiYear = now.toUtc().add(const Duration(hours: 8)).year;
       final current = await _service.status(db, taipeiYear);
       final next = await _service.status(db, taipeiYear + 1);
+      final saved = await _receipt(current, now);
       final decision = await _service.annualUpdateDecision(
-        db, now, lastCheckedAt: _lastCheckedAtInThisPage,
+        db, now, lastCheckedAt: saved ?? _lastCheckedAtInThisPage,
       );
       if (!mounted) return;
       setState(() {
@@ -278,8 +298,11 @@ class _TaiwanBusinessCalendarStatusPageState
     try {
       final db = await _database();
       final now = (widget.clock ?? DateTime.now)();
+      final year = now.toUtc().add(const Duration(hours: 8)).year;
+      final current = await _service.status(db, year);
+      final saved = await _receipt(current, now);
       final decision = await _service.annualUpdateDecision(
-        db, now, lastCheckedAt: _lastCheckedAtInThisPage,
+        db, now, lastCheckedAt: saved ?? _lastCheckedAtInThisPage,
       );
       if (decision != CalendarAnnualUpdateDecision.checkOfficialSource) {
         if (mounted) {
@@ -299,10 +322,38 @@ class _TaiwanBusinessCalendarStatusPageState
           result.holidays != 121) {
         throw const FormatException('Official source result is untrusted.');
       }
+      final checkedAt = (widget.clock ?? DateTime.now)();
+      // A calendar install or Taipei midnight may occur during HTTPS GET.
+      final stillEligible = await _service.annualUpdateDecision(
+        db, checkedAt, lastCheckedAt: saved ?? _lastCheckedAtInThisPage,
+      );
+      if (!mounted) return;
+      if (stillEligible != CalendarAnnualUpdateDecision.checkOfficialSource) {
+        setState(() => _annualCheckResult =
+            '來源已核對但年度條件改變；未建立檢查紀錄或安裝。');
+        await _loadReadOnlyStatus();
+        return;
+      }
+      var durable = false;
+      try {
+        if (current != null && current.isContiguous &&
+            current.year == year && current.sequence > 0 &&
+            current.digest.isNotEmpty) {
+          await _receiptStore.writeVerified(
+            year: year, digest: current.digest, checkedAt: checkedAt);
+          durable = true;
+        }
+      } catch (_) {
+        // Storage failure never promotes source authority or calendar LKG.
+      }
+      if (!mounted) return;
       setState(() {
-        _lastCheckedAtInThisPage = (widget.clock ?? DateTime.now)();
-        _annualCheckResult = '官方 116 年來源核對通過：365 日／121 放假日；'
-            '僅驗證來源，未安裝 2027 年日曆。';
+        _lastCheckedAtInThisPage = checkedAt;
+        _annualCheckResult = durable
+            ? '官方 116 年來源核對通過：365 日／121 放假日；'
+                '本機當日檢查紀錄已保存，未安裝 2027 年日曆。'
+            : '官方 116 年來源核對通過，但本機檢查紀錄未能保存；'
+                '未安裝 2027 年日曆。';
       });
       await _loadReadOnlyStatus();
     } catch (_) {
@@ -340,8 +391,8 @@ class _TaiwanBusinessCalendarStatusPageState
           ],
           const SizedBox(height: 8),
           Text(_annualCheckResult),
-          const Text('本頁成功檢查後當日不重複；尚未建立跨啟動檢查紀錄。'
-              '此檢查不安裝、不修改日曆或帳務。'),
+          const Text('成功後僅保存本機當日檢查時間與來源雜湊；'
+              '不是官方版本或安裝證明，亦不修改日曆或帳務。'),
           if (_loading || _annualChecking)
             const LinearProgressIndicator(),
           const Divider(height: 32),

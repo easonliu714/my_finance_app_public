@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_foreground_notice.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_status_page.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_annual_check_receipt.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_annual_source_check.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_official_116_stage.dart';
 import 'package:sqflite/sqflite.dart';
@@ -138,6 +139,71 @@ void main() {
     expect(db.writes, 0);
   });
 
+  testWidgets('B2.14c same-day receipt survives page recreation, zero DB writes',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw, writeRaw: (value) async { raw = value; });
+    Widget page() => MaterialApp(home: TaiwanBusinessCalendarStatusPage(
+      databaseProvider: () async => db,
+      receiptStore: store,
+      clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+      officialSourceCheck: () async {
+        checks++;
+        return const TaiwanBusinessCalendarAnnualSourceResult(
+          sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+          days: 365, holidays: 121);
+      },
+    ));
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(raw, isNotNull);
+    expect(db.writes, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsNothing);
+    expect(checks, 1);
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14c failed receipt write allows next-page manual retry',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => null,
+      writeRaw: (_) async => throw StateError('storage unavailable'));
+    Widget page() => MaterialApp(home: TaiwanBusinessCalendarStatusPage(
+      databaseProvider: () async => db,
+      receiptStore: store,
+      clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+      officialSourceCheck: () async {
+        checks++;
+        return const TaiwanBusinessCalendarAnnualSourceResult(
+          sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+          days: 365, holidays: 121);
+      },
+    ));
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('檢查紀錄未能保存'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(page());
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget);
+    expect(checks, 1);
+    expect(db.writes, 0);
+  });
 }
 
 /// Read-only synthetic SQLite fixture. No real official year is inferred.
