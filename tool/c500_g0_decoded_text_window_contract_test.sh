@@ -54,6 +54,30 @@ if G0_OLD_PDF="$tmp/link.pdf" bash "$script" >"$tmp/log" 2>&1; then exit 1; fi
 grep -Fq G0AH_SOURCE_MISSING_OR_SYMLINK "$tmp/log"
 test ! -e "$G0AH_RENDER_MARKER"
 bash -n "$script"
+# Regression: execute the REAL probe function under nounset with a synthetic
+# 512-page renderer. Source-pin negative cases above remain unchanged.
+cat >"$tmp/bin/mutool" <<'PY'
+#!/usr/bin/env python3
+import pathlib, sys
+args = sys.argv[1:]
+assert args[:3] == ['draw', '-F', 'txt']
+pattern = args[args.index('-o') + 1]
+first, last = map(int, args[-1].split('-'))
+assert last - first + 1 == 512
+for page in range(first, last + 1):
+    pathlib.Path(pattern.replace('%d', str(page))).write_text(
+        f'頁面 {page}\n{page:08d}\n', encoding='utf-8')
+PY
+chmod +x "$tmp/bin/mutool"
+(
+  root="$root"
+  tmp="$tmp"
+  source <(sed -n '/^probe() {/,/^}/p' "$script")
+  PATH="$tmp/bin:$PATH" probe SYNTHETIC "$tmp/old.pdf" 1 first >"$tmp/probe-positive"
+)
+grep -Fq 'G0AH_CASE period=SYNTHETIC segment=first pages=1-512' "$tmp/probe-positive"
+grep -Fq 'G0AH_TEXT_WINDOW pages=512 utf8_pages=512' "$tmp/probe-positive"
+echo 'PASS G0AH_ACTUAL_PROBE_NOUNSET_512_PAGE_SYNTHETIC_REPLAY'
 python3 -m py_compile "$root/tool/c500_g0_decoded_text_window_audit.py"
 python3 - "$root/.github/workflows/c500_g0_source_lab.yml" <<'PY'
 from pathlib import Path

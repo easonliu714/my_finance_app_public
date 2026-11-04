@@ -18,7 +18,9 @@ verify 115-07-08 "$G0_NEW_PDF" 135200798 f50d0dcebc7497c51ce2eea9da9525232e638fd
 command -v mutool >/dev/null && command -v python3 >/dev/null && test -x /usr/bin/time || { echo G0AH_ENGINE_MISSING >&2; exit 66; }
 tmp="$(mktemp -d)"; trap 'rm -rf -- "$tmp"' EXIT
 probe() {
-  local period="$1" file="$2" start="$3" label="$4" end=$((start+511)) rc=0 rss=UNKNOWN
+  # Bash local assignments expand before start is initialized under set -u.
+  local period="$1" file="$2" start="$3" label="$4"
+  local end=$((start + 511)) rc=0 rss=UNKNOWN
   local out="$tmp/$period-$label" log="$tmp/$period-$label.log" timing="$tmp/$period-$label.time" summary="$tmp/$period-$label.summary"
   mkdir -p "$out"
   (ulimit -v 3145728; ulimit -f 512;
