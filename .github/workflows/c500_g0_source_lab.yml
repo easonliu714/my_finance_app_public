@@ -32,6 +32,9 @@ on:
       - 'tool/c500_g0_page_identity_stream.py'
       - 'tool/c500_g0_page_identity_4g_probe.sh'
       - 'tool/c500_g0_page_identity_4g_contract_test.sh'
+      - 'tool/c500_g0_page_content_graph_stream.py'
+      - 'tool/c500_g0_page_content_graph_4g_probe.sh'
+      - 'tool/c500_g0_page_content_graph_4g_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
 
@@ -101,6 +104,7 @@ jobs:
           bash tool/c500_g0_recovery_isolation_contract_test.sh
           bash tool/c500_g0_page_tree_stage_contract_test.sh
           bash tool/c500_g0_page_identity_4g_contract_test.sh
+          bash tool/c500_g0_page_content_graph_4g_contract_test.sh
           bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_spread_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_vm_recovery_contract_test.sh
@@ -252,6 +256,15 @@ jobs:
         run: |
           set -euo pipefail
           bash tool/c500_g0_page_identity_4g_probe.sh
+
+      # G0ag: source-pinned all-page content reference custody, not text or NOT_WIN.
+      - name: G0ag pinned 4-GiB full page-to-content reference graph
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_page_content_graph_4g_probe.sh
 
       # G0y: source-backed alternative renderer root-feasibility; never a global proof.
       - name: G0y independent pinned MuPDF first-page engine feasibility (NOT G0 PASS)
