@@ -374,7 +374,9 @@ class _TaiwanBusinessCalendarStatusPageState
         // An advisory receipt write failure is NOT a successful same-day
         // check. Keep the manual action eligible on this page for a retry;
         // only a durably stored verified receipt may suppress another GET.
-        if (durable) _lastCheckedAtInThisPage = checkedAt;
+        if (durable) {
+          _lastCheckedAtInThisPage = checkedAt;
+        }
         _annualCheckResult = durable
             ? '官方 116 年來源核對通過：365 日／121 放假日；'
                 '本機當日檢查紀錄已保存，未安裝 2027 年日曆。'
