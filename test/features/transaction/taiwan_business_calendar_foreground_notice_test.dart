@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_foreground_notice.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_status_page.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_annual_source_check.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_official_116_stage.dart';
 import 'package:sqflite/sqflite.dart';
 
 void main() {
@@ -60,6 +63,81 @@ void main() {
         findsNothing);
     expect(db.writes, 0);
   });
+  testWidgets('B2.14b explicit same-day check is idempotent and read-only',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var checks = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+        officialSourceCheck: () async {
+          checks++;
+          return const TaiwanBusinessCalendarAnnualSourceResult(
+            sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+            days: 365,
+            holidays: 121,
+          );
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final check = find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey);
+    expect(check, findsOneWidget);
+    expect(checks, 0, reason: 'Foreground must not silently download.');
+    await tester.tap(check);
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(check, findsNothing, reason: 'Same-day retry must be suppressed.');
+    expect(find.textContaining('未安裝 2027 年日曆'), findsOneWidget);
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14b source failure never records success or writes',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var checks = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+        officialSourceCheck: () async {
+          checks++;
+          throw const FormatException('tampered bytes');
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final check = find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey);
+    await tester.tap(check);
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(check, findsOneWidget, reason: 'Failure must permit explicit retry.');
+    expect(find.textContaining('SHA／年度結構驗證失敗'), findsOneWidget);
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14b absent current-year authority forbids network check',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: false);
+    var checks = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+        officialSourceCheck: () async {
+          checks++;
+          throw StateError('must not be called');
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsNothing);
+    expect(checks, 0);
+    expect(db.writes, 0);
+  });
+
 }
 
 /// Read-only synthetic SQLite fixture. No real official year is inferred.

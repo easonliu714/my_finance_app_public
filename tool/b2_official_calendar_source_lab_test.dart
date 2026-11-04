@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_status_page.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_annual_source_check.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_csv_import.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_official_116_stage.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package.dart';
@@ -268,6 +269,34 @@ void main() {
     expect(find.textContaining('2027 年：365 日已驗證'), findsOneWidget);
     expect(await service.status(db, 2026), isNull,
         reason: '2027 install must not invent current-year authority.');
+  });
+
+
+  test('B2.14b genuine DGPA 116 bytes produce read-only source receipt',
+      () async {
+    final original = await officialBytes();
+    var fetches = 0;
+    final checker = TaiwanBusinessCalendarAnnualSourceCheck(
+      readPinnedCsv: () async {
+        fetches++;
+        return Uint8List.fromList(original);
+      },
+    );
+    expect(fetches, 0);
+    final receipt = await checker.check();
+    expect(fetches, 1);
+    expect(receipt.sha256,
+        TaiwanBusinessCalendarOfficial116Stage.pinnedSha256);
+    expect(receipt.days, 365);
+    expect(receipt.holidays, 121);
+    final tampered = Uint8List.fromList(original);
+    tampered[tampered.length - 1] ^= 1;
+    await expectLater(
+      TaiwanBusinessCalendarAnnualSourceCheck(
+        readPinnedCsv: () async => tampered,
+      ).check(),
+      throwsA(isA<TaiwanBusinessCalendarPackageException>()),
+    );
   });
 
 }

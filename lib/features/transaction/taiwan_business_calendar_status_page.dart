@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'taiwan_business_calendar_annual_source_check.dart';
 import 'taiwan_business_calendar_csv_import.dart';
 import 'taiwan_business_calendar_official_116_stage.dart';
 import 'taiwan_business_calendar_package_service.dart';
@@ -20,11 +21,13 @@ class TaiwanBusinessCalendarStatusPage extends StatefulWidget {
     super.key,
     this.databaseProvider,
     this.csvBytesPicker,
+    this.officialSourceCheck,
     this.clock,
   });
 
   static const routeName = 'taiwan-business-calendar-status';
   static const routePath = '/taiwan-business-calendar';
+  static const annualCheckKey = Key('b2-official-116-annual-source-check');
   static const previewKey = Key('b2-official-116-csv-preview');
   static const installKey = Key('b2-official-116-csv-install');
   static const cancelInstallKey = Key('b2-official-116-install-cancel');
@@ -32,6 +35,8 @@ class TaiwanBusinessCalendarStatusPage extends StatefulWidget {
 
   final Future<DatabaseExecutor> Function()? databaseProvider;
   final Future<Uint8List?> Function()? csvBytesPicker;
+  final Future<TaiwanBusinessCalendarAnnualSourceResult> Function()?
+      officialSourceCheck;
   final DateTime Function()? clock;
 
   @override
@@ -48,6 +53,10 @@ class _TaiwanBusinessCalendarStatusPageState
 
   bool _loading = true;
   bool _checking = false;
+  bool _annualChecking = false;
+  bool _annualEligible = false;
+  DateTime? _lastCheckedAtInThisPage;
+  String _annualCheckResult = '官方來源尚未由本頁手動檢查。';
   Uint8List? _verifiedCsv;
   String _currentStatus = '讀取中…';
   String _nextStatus = '讀取中…';
@@ -100,12 +109,16 @@ class _TaiwanBusinessCalendarStatusPageState
       final taipeiYear = now.toUtc().add(const Duration(hours: 8)).year;
       final current = await _service.status(db, taipeiYear);
       final next = await _service.status(db, taipeiYear + 1);
-      final decision = await _service.annualUpdateDecision(db, now);
+      final decision = await _service.annualUpdateDecision(
+        db, now, lastCheckedAt: _lastCheckedAtInThisPage,
+      );
       if (!mounted) return;
       setState(() {
         _currentStatus = '$taipeiYear 年：${_coverage(current)}';
         _nextStatus = '${taipeiYear + 1} 年：${_coverage(next)}';
         _annualDecision = _decision(decision);
+        _annualEligible =
+            decision == CalendarAnnualUpdateDecision.checkOfficialSource;
         _loading = false;
       });
     } catch (_) {
@@ -114,6 +127,7 @@ class _TaiwanBusinessCalendarStatusPageState
         _currentStatus = '讀取失敗；不推定年度資料已驗證';
         _nextStatus = '讀取失敗；不推定年度資料已驗證';
         _annualDecision = '資料庫狀態不可確認；保持 HOLD';
+        _annualEligible = false;
         _loading = false;
       });
     }
@@ -252,6 +266,54 @@ class _TaiwanBusinessCalendarStatusPageState
     }
   }
 
+
+  // B2.14b: a distinct explicit tap is the only network entry point.
+  // Recheck eligibility before GET; successful same-day receipt is ephemeral.
+  Future<void> _checkOfficialSource() async {
+    if (_checking || _annualChecking || !_annualEligible) return;
+    setState(() {
+      _annualChecking = true;
+      _annualCheckResult = '正在手動核對官方 116 年來源；不會安裝。';
+    });
+    try {
+      final db = await _database();
+      final now = (widget.clock ?? DateTime.now)();
+      final decision = await _service.annualUpdateDecision(
+        db, now, lastCheckedAt: _lastCheckedAtInThisPage,
+      );
+      if (decision != CalendarAnnualUpdateDecision.checkOfficialSource) {
+        if (mounted) {
+          setState(() => _annualCheckResult =
+              '年度檢查條件已變更；未讀取官方檔案，也未寫入資料。');
+          await _loadReadOnlyStatus();
+        }
+        return;
+      }
+      final result = widget.officialSourceCheck != null
+          ? await widget.officialSourceCheck!()
+          : await const TaiwanBusinessCalendarAnnualSourceCheck().check();
+      if (!mounted) return;
+      if (result.sha256 !=
+              TaiwanBusinessCalendarOfficial116Stage.pinnedSha256 ||
+          result.days != 365 ||
+          result.holidays != 121) {
+        throw const FormatException('Official source result is untrusted.');
+      }
+      setState(() {
+        _lastCheckedAtInThisPage = (widget.clock ?? DateTime.now)();
+        _annualCheckResult = '官方 116 年來源核對通過：365 日／121 放假日；'
+            '僅驗證來源，未安裝 2027 年日曆。';
+      });
+      await _loadReadOnlyStatus();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _annualCheckResult =
+          '官方來源讀取或 SHA／年度結構驗證失敗；未安裝且未寫入資料。');
+    } finally {
+      if (mounted) setState(() => _annualChecking = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -266,7 +328,22 @@ class _TaiwanBusinessCalendarStatusPageState
           Text(_nextStatus),
           const SizedBox(height: 12),
           Text(_annualDecision),
-          if (_loading) const LinearProgressIndicator(),
+          if (_annualEligible) ...<Widget>[
+            const SizedBox(height: 8),
+            OutlinedButton(
+              key: TaiwanBusinessCalendarStatusPage.annualCheckKey,
+              onPressed: (_checking || _annualChecking)
+                  ? null
+                  : _checkOfficialSource,
+              child: const Text('手動核對官方 116 年來源（僅讀取）'),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(_annualCheckResult),
+          const Text('本頁成功檢查後當日不重複；尚未建立跨啟動檢查紀錄。'
+              '此檢查不安裝、不修改日曆或帳務。'),
+          if (_loading || _annualChecking)
+            const LinearProgressIndicator(),
           const Divider(height: 32),
           const Text('116 年（2027）官方 CSV 檔案預檢',
               style: TextStyle(fontWeight: FontWeight.bold)),
@@ -277,7 +354,7 @@ class _TaiwanBusinessCalendarStatusPageState
           const SizedBox(height: 12),
           OutlinedButton.icon(
             key: TaiwanBusinessCalendarStatusPage.previewKey,
-            onPressed: _checking ? null : _previewCsv,
+            onPressed: (_checking || _annualChecking) ? null : _previewCsv,
             icon: const Icon(Icons.file_open_outlined),
             label: const Text('選擇官方 CSV（僅預檢）'),
           ),
@@ -287,7 +364,7 @@ class _TaiwanBusinessCalendarStatusPageState
             const SizedBox(height: 12),
             FilledButton.icon(
               key: TaiwanBusinessCalendarStatusPage.installKey,
-              onPressed: _checking ? null : _installVerifiedCsv,
+              onPressed: (_checking || _annualChecking) ? null : _installVerifiedCsv,
               icon: const Icon(Icons.verified_user_outlined),
               label: const Text('另行確認安裝 2027 年官方日曆'),
             ),
