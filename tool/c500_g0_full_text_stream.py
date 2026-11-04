@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 from c500_g0_decoded_text_window_audit import audit
+from c500_g0_lexical_shape import LexicalShape
 
 SOURCES = (
     ("115-05-06", "G0_OLD_PDF", 119769589,
@@ -39,6 +40,7 @@ def scan_period(period, source, pages, engine="mutool"):
     if pages < 1 or pages > 87000 or source.is_symlink() or not source.is_file():
         raise ValueError("G0AI_PERIOD_ARGUMENT_INVALID")
     manifest = hashlib.sha256()
+    shape = LexicalShape()
     totals = dict(windows=0, utf8_pages=0, candidate_pages=0, candidates=0,
                   increases=0, decreases=0, equals=0)
     with tempfile.TemporaryDirectory(prefix="c500_g0ai_") as work:
@@ -64,6 +66,14 @@ def scan_period(period, source, pages, engine="mutool"):
                 except (ValueError, OSError) as exc:
                     kind = str(exc).split(" ", 1)[0]
                     raise ValueError(f"G0AI_TEXT_AUDIT_FAILED period={period} start={start} kind={kind}") from exc
+                # G0aj: same already-verified official UTF-8 window; no second engine pass.
+                # Record only positional counts, never raw invoice/award numbers.
+                try:
+                    for page in range(start, end + 1):
+                        shape.observe((out / f"page-{page}.txt").read_bytes())
+                except (ValueError, OSError, UnicodeError) as exc:
+                    kind = str(exc).split(" ", 1)[0]
+                    raise ValueError(f"G0AI_SHAPE_FAILED period={period} start={start} kind={kind}") from exc
                 def number(key):
                     match = re.search(r"\b" + re.escape(key) + r"=([0-9]+)\b", summary)
                     if match is None:
@@ -93,7 +103,8 @@ def scan_period(period, source, pages, engine="mutool"):
             f"window_equals={totals['equals']} peak_child_rss_kib={rss} "
             f"manifest_sha256={manifest.hexdigest()} "
             "UTF8_BYTES=VALIDATED UNICODE_SEMANTICS=UNPROVEN "
-            "AWARD_RECORDS=UNVERIFIED GLOBAL_SORTING=UNPROVEN GLOBAL_NOT_WIN=HOLD")
+            "AWARD_RECORDS=UNVERIFIED GLOBAL_SORTING=UNPROVEN GLOBAL_NOT_WIN=HOLD "
+            + shape.summary())
 
 def main():
     try:

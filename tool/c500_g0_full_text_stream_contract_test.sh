@@ -15,6 +15,11 @@ for page in range(start, end + 1):
     if os.environ.get('G0AI_TEST_MISSING') == '1' and page == 513:
         continue
     text = f'頁 {page}\n{page:08d}\n\f'
+    if os.environ.get('G0AI_TEST_SHAPE') == '1':
+        values = list(range(1, 51))
+        if os.environ.get('G0AI_TEST_SHAPE_BROKEN') == '1':
+            values.reverse()
+        text = '99999999\n' + '\n'.join(f'{v:08d}' for v in values) + '\n\f'
     if os.environ.get('G0AI_TEST_CONTROL') == '1' and page == 513:
         text = '12345678\x01'
     pathlib.Path(pattern.replace('%d', str(page))).write_text(text, encoding='utf-8')
@@ -35,6 +40,19 @@ except ValueError as exc:
 result = scan_period('SYNTHETIC', source, 513)
 assert 'pages=513 windows=2 utf8_pages=513 candidate_pages=513' in result, result
 assert 'GLOBAL_NOT_WIN=HOLD' in result
+assert 'G0AJ_LEXICAL_SHAPE pages=513 candidate_count_min=1 candidate_count_max=1' in result
+os.environ['G0AI_TEST_SHAPE'] = '1'
+result = scan_period('SYNTHETIC', source, 513)
+assert 'G0AJ_LEXICAL_SHAPE pages=513 candidate_count_min=51 candidate_count_max=51' in result
+assert 'single_drop_pages=513 multi_drop_pages=0 dominant_drop_position=2 dominant_drop_pages=513' in result
+assert 'dominant_repeat_position=1 dominant_repeat_pairs=512' in result
+assert 'RECORD_GRAMMAR=UNVERIFIED SORTING=UNPROVEN GLOBAL_NOT_WIN=HOLD' in result
+os.environ['G0AI_TEST_SHAPE_BROKEN'] = '1'
+result = scan_period('SYNTHETIC', source, 513)
+assert 'single_drop_pages=0 multi_drop_pages=513' in result
+assert 'SORTING=UNPROVEN GLOBAL_NOT_WIN=HOLD' in result
+del os.environ['G0AI_TEST_SHAPE_BROKEN']
+del os.environ['G0AI_TEST_SHAPE']
 for env, expected in [('G0AI_TEST_MISSING', 'G0AI_TEXT_AUDIT_FAILED'),
                       ('G0AI_TEST_CONTROL', 'G0AI_TEXT_AUDIT_FAILED')]:
     os.environ[env] = '1'

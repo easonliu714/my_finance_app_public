@@ -39,6 +39,7 @@ on:
       - 'tool/c500_g0_decoded_text_window_probe.sh'
       - 'tool/c500_g0_decoded_text_window_contract_test.sh'
       - 'tool/c500_g0_full_text_stream.py'
+      - 'tool/c500_g0_lexical_shape.py'
       - 'tool/c500_g0_full_text_stream_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
@@ -56,7 +57,7 @@ jobs:
   official-source-only-lab:
     name: Pinned MOF binary acquisition and bounded structure (NOT G0 PASS)
     runs-on: ubuntu-latest
-    timeout-minutes: 64
+    timeout-minutes: 75
     steps:
       - name: Checkout exact PR source HEAD
         uses: actions/checkout@v4
@@ -323,6 +324,8 @@ jobs:
           set -euo pipefail
           bash tool/c500_g0_decoded_text_window_probe.sh
 
+      # G0ai/G0aj: one source-backed full-text scan plus bounded lexical-position
+      # audit. Counts/repeat/drop indices are NOT verified award records or NOT_WIN.
       # G0ai: full 77K+87K genuine pages, 512/page bounded MuPDF windows.
       # Fail-closed UTF-8 and source SHA; NOT Android or award-semantic proof.
       - name: G0ai pinned full 164000-page UTF8 lexical coverage (NOT G0 PASS)
