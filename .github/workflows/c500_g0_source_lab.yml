@@ -35,6 +35,9 @@ on:
       - 'tool/c500_g0_page_content_graph_stream.py'
       - 'tool/c500_g0_page_content_graph_4g_probe.sh'
       - 'tool/c500_g0_page_content_graph_4g_contract_test.sh'
+      - 'tool/c500_g0_decoded_text_window_audit.py'
+      - 'tool/c500_g0_decoded_text_window_probe.sh'
+      - 'tool/c500_g0_decoded_text_window_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
 
@@ -105,6 +108,7 @@ jobs:
           bash tool/c500_g0_page_tree_stage_contract_test.sh
           bash tool/c500_g0_page_identity_4g_contract_test.sh
           bash tool/c500_g0_page_content_graph_4g_contract_test.sh
+          bash tool/c500_g0_decoded_text_window_contract_test.sh
           bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_spread_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_vm_recovery_contract_test.sh
@@ -305,6 +309,16 @@ jobs:
         run: |
           set -euo pipefail
           bash tool/c500_g0_mutool_window_replay_probe.sh
+
+      # G0ah: actual MuPDF-decoded text on 3072 DISTINCT official pages,
+      # not global page coverage, verified award records or NOT_WIN.
+      - name: G0ah pinned MuPDF decoded UTF8 3072-page lexical quality
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 21
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_decoded_text_window_probe.sh
 
       - name: G0l pinned official XRef-stream bounded access (NOT page proof)
         if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
