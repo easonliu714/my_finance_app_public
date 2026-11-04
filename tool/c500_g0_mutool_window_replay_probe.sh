@@ -30,9 +30,7 @@ probe() {
   local manifest="$tmp/$period-$phase.manifest"
   mkdir -p "$out"
   (ulimit -v 3145728; ulimit -f 512;
-   timeout --signal=TERM --kill-after=5s 120s
-     /usr/bin/time -f '%M' -o "$timing"
-     mutool draw -F txt -o "$out/page-%d.txt" "$file" "$start-$end") >"$log" 2>&1 || rc=$?
+   timeout --signal=TERM --kill-after=5s 120s /usr/bin/time -f '%M' -o "$timing" mutool draw -F txt -o "$out/page-%d.txt" "$file" "$start-$end") >"$log" 2>&1 || rc=$?
   CASE_RC="$rc"
   CASE_RSS="$(grep -E '^[0-9]+$' "$timing" 2>/dev/null | tail -n 1 || true)"
   [[ -n "$CASE_RSS" ]] || CASE_RSS=UNKNOWN

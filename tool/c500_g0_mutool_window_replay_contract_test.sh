@@ -35,7 +35,7 @@ assert 'bash tool/c500_g0_mutool_window_replay_probe.sh' in workflow
 assert 'bash tool/c500_g0_mutool_window_replay_contract_test.sh' in workflow
 assert "steps.gate.outputs.run_lab == 'true'" in workflow
 assert 'ulimit -v 3145728' in script and 'ulimit -f 512' in script
-assert 'timeout --signal=TERM --kill-after=5s 120s' in script
+assert 'timeout --signal=TERM --kill-after=5s 120s /usr/bin/time' in script
 assert 'count == 64 && total <= 16777216' in script
 assert 'CASE_SHA' in script and 'first_sha' in script
 assert 'GLOBAL_NOT_WIN=HOLD' in script
