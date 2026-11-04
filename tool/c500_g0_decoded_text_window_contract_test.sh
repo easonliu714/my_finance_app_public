@@ -21,9 +21,15 @@ original = target.read_bytes()
 target.write_bytes(b'\xff\x00')
 check(False, 'G0AH_INVALID_UTF8')
 target.write_bytes(b'12345678\xef\xbf\xbd')
-check(False, 'G0AH_REPLACEMENT_OR_CONTROL')
+check(False, 'kind=REPLACEMENT codepoint=U+FFFD page=3')
 target.write_bytes(b'12345678\x01')
-check(False, 'G0AH_REPLACEMENT_OR_CONTROL')
+check(False, 'kind=CONTROL codepoint=U+0001 page=3')
+target.write_bytes(b'12345678\x0c12345678')
+check(False, 'kind=CONTROL codepoint=U+000C page=3')
+target.write_bytes(b'12345678\x0c\x0c\n')
+check(False, 'kind=CONTROL codepoint=U+000C page=3')
+target.write_bytes(b'12345678\x0c\n')
+check(True, 'terminal_formfeed_pages=1')
 target.write_bytes(original)
 target.unlink()
 check(False, 'G0AH_PAGE_GAP_OR_EXTRA')
@@ -58,15 +64,17 @@ bash -n "$script"
 # 512-page renderer. Source-pin negative cases above remain unchanged.
 cat >"$tmp/bin/mutool" <<'PY'
 #!/usr/bin/env python3
-import pathlib, sys
+import os, pathlib, sys
 args = sys.argv[1:]
 assert args[:3] == ['draw', '-F', 'txt']
 pattern = args[args.index('-o') + 1]
 first, last = map(int, args[-1].split('-'))
 assert last - first + 1 == 512
 for page in range(first, last + 1):
-    pathlib.Path(pattern.replace('%d', str(page))).write_text(
-        f'頁面 {page}\n{page:08d}\n', encoding='utf-8')
+    body = f'頁面 {page}\n{page:08d}\n'
+    if os.environ.get('G0AH_SYNTHETIC_BAD_CONTROL') == '1' and page == first + 2:
+        body += '\f12345678'
+    pathlib.Path(pattern.replace('%d', str(page))).write_text(body, encoding='utf-8')
 PY
 chmod +x "$tmp/bin/mutool"
 (
@@ -77,6 +85,12 @@ chmod +x "$tmp/bin/mutool"
 )
 grep -Fq 'G0AH_CASE period=SYNTHETIC segment=first pages=1-512' "$tmp/probe-positive"
 grep -Fq 'G0AH_TEXT_WINDOW pages=512 utf8_pages=512' "$tmp/probe-positive"
+(
+  root="$root"; tmp="$tmp"
+  source <(sed -n '/^probe() {/,/^}/p' "$script")
+  if G0AH_SYNTHETIC_BAD_CONTROL=1 PATH="$tmp/bin:$PATH" probe SYNTHETIC "$tmp/old.pdf" 1 first >"$tmp/probe-negative"; then exit 1; fi
+)
+grep -Fq 'G0AH_REPLACEMENT_OR_CONTROL kind=CONTROL codepoint=U+000C page=3' "$tmp/probe-negative"
 echo 'PASS G0AH_ACTUAL_PROBE_NOUNSET_512_PAGE_SYNTHETIC_REPLAY'
 python3 -m py_compile "$root/tool/c500_g0_decoded_text_window_audit.py"
 python3 - "$root/.github/workflows/c500_g0_source_lab.yml" <<'PY'

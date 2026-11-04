@@ -23,6 +23,7 @@ def audit(directory: pathlib.Path, start: int, count: int) -> str:
     total_bytes = 0
     token_count = 0
     pages_with_tokens = 0
+    page_terminators = 0
     increases = decreases = equals = 0
     last = None
     for page in range(start, start + count):
@@ -36,9 +37,26 @@ def audit(directory: pathlib.Path, start: int, count: int) -> str:
             decoded = raw.decode("utf-8", errors="strict")
         except UnicodeDecodeError as exc:
             raise ValueError("G0AH_INVALID_UTF8") from exc
-        if "\ufffd" in decoded or any(ord(c) < 32 and c not in "\n\r\t" for c in decoded):
-            raise ValueError("G0AH_REPLACEMENT_OR_CONTROL")
-        candidates = TOKEN.findall(decoded)
+        # MuPDF may append one structural form feed at the end of a page.
+        # Reject embedded/repeated controls and U+FFFD; hash original bytes.
+        if decoded.endswith("\f\r\n"):
+            text = decoded[:-3]
+            page_terminators += 1
+        elif decoded.endswith("\f\n"):
+            text = decoded[:-2]
+            page_terminators += 1
+        elif decoded.endswith("\f"):
+            text = decoded[:-1]
+            page_terminators += 1
+        else:
+            text = decoded
+        bad = next((c for c in text if c == "\ufffd" or
+                    (ord(c) < 32 and c not in "\n\r\t")), None)
+        if bad is not None:
+            kind = "REPLACEMENT" if bad == "\ufffd" else "CONTROL"
+            raise ValueError(f"G0AH_REPLACEMENT_OR_CONTROL kind={kind} "
+                             f"codepoint=U+{ord(bad):04X} page={page}")
+        candidates = TOKEN.findall(text)
         if len(candidates) > 8192:
             raise ValueError("G0AH_TOKEN_COUNT_BOUND")
         if candidates:
@@ -63,7 +81,8 @@ def audit(directory: pathlib.Path, start: int, count: int) -> str:
             f"pages_with_eight_digit_candidates={pages_with_tokens} "
             f"eight_digit_candidates={token_count} increases={increases} "
             f"decreases={decreases} equals={equals} order={ordering} "
-            f"bytes={total_bytes} text_manifest_sha256={manifest.hexdigest()} "
+            f"bytes={total_bytes} terminal_formfeed_pages={page_terminators} "
+            f"text_manifest_sha256={manifest.hexdigest()} "
             "UNICODE_SEMANTICS=UNPROVEN AWARD_RECORDS=UNVERIFIED GLOBAL_NOT_WIN=HOLD")
 
 

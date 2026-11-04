@@ -29,7 +29,8 @@ probe() {
   if (( rc == 0 )); then python3 "$root/tool/c500_g0_decoded_text_window_audit.py" "$out" "$start" 512 >"$summary" 2>>"$log" || rc=$?; fi
   echo "G0AH_CASE period=$period segment=$label pages=$start-$end vm_kib=3145728 timeout_s=180 exit=$rc peak_rss_kib=$rss"
   if (( rc == 0 )); then cat "$summary"; return 0; fi
-  grep -oE 'G0AH_[A-Z_]+' "$log" | head -n 1 || true
+  # Print a bounded typed audit marker, never source text or engine logs.
+  grep -m1 -E '^G0AH_[A-Z_]+( |$)' "$log" | cut -c 1-160 || true
   echo "G0AH_FIRST_FAILURE=ENGINE_OR_TEXT_AUDIT period=$period segment=$label GLOBAL_NOT_WIN=HOLD"
   return 49
 }
