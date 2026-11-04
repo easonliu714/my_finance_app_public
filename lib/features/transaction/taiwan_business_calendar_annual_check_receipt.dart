@@ -38,10 +38,14 @@ class TaiwanBusinessCalendarAnnualCheckReceiptStore {
           v['target_sha256'] !=
               TaiwanBusinessCalendarOfficial116Stage.pinnedSha256 ||
           v['checked_at'] is! String ||
-          !(v['checked_at'] as String).endsWith('Z')) return null;
+          !(v['checked_at'] as String).endsWith('Z')) {
+        return null;
+      }
       final checked = DateTime.tryParse(v['checked_at'] as String);
       if (checked == null || checked.isAfter(now.toUtc()) ||
-          _day(checked) != _day(now)) return null;
+          _day(checked) != _day(now)) {
+        return null;
+      }
       return checked.toUtc();
     } on FormatException {
       return null;

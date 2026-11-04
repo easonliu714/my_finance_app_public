@@ -110,7 +110,9 @@ class _TaiwanBusinessCalendarStatusPageState
   // Advisory preferences may fail; absence MUST allow explicit manual check.
   Future<DateTime?> _receipt(CalendarPackageStatus? current, DateTime now) async {
     if (current == null || !current.isContiguous ||
-        current.sequence < 1 || current.digest.isEmpty) return null;
+        current.sequence < 1 || current.digest.isEmpty) {
+      return null;
+    }
     try {
       return await _receiptStore.readVerified(
         year: current.year, digest: current.digest, now: now);
@@ -331,6 +333,27 @@ class _TaiwanBusinessCalendarStatusPageState
       if (stillEligible != CalendarAnnualUpdateDecision.checkOfficialSource) {
         setState(() => _annualCheckResult =
             '來源已核對但年度條件改變；未建立檢查紀錄或安裝。');
+        await _loadReadOnlyStatus();
+        return;
+      }
+      // B2.14d: the network request may race an independently installed
+      // current-year revision. Recheck the canonical package identity before
+      // persisting even an advisory same-day receipt. This is not a database
+      // transaction or installation authority; a later revision invalidates
+      // the digest-bound receipt on the next read.
+      final freshCurrent = await _service.status(db, year);
+      if (!mounted) return;
+      if (current == null || freshCurrent == null ||
+          !freshCurrent.isContiguous ||
+          freshCurrent.year != current.year ||
+          freshCurrent.sequence != current.sequence ||
+          freshCurrent.revision != current.revision ||
+          freshCurrent.digest != current.digest ||
+          freshCurrent.rowCount != current.rowCount ||
+          freshCurrent.sourceUrl != current.sourceUrl) {
+        setState(() => _annualCheckResult =
+            '核對期間本年度日曆來源身分已變更；未保存檢查紀錄，'
+            '也未安裝或修改日曆。請重新手動檢查。');
         await _loadReadOnlyStatus();
         return;
       }

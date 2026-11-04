@@ -204,6 +204,53 @@ void main() {
     expect(checks, 1);
     expect(db.writes, 0);
   });
+  testWidgets('B2.14d current-year revision swap during GET cannot persist stale receipt',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; });
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+        officialSourceCheck: () async {
+          checks++;
+          // Simulate an independently committed full-year revision while
+          // official HTTPS verification is in flight. No formal DB writes.
+          final metadata = jsonDecode(
+              db.current.first['source_revision'] as String)
+              as Map<String, dynamic>;
+          metadata['revision_sequence'] = 2;
+          metadata['sha256'] = List<String>.filled(64, 'b').join();
+          final replacement = jsonEncode(metadata);
+          for (var i = 0; i < db.current.length; i++) {
+            db.current[i] = <String, Object?>{
+              ...db.current[i], 'source_revision': replacement,
+            };
+          }
+          return const TaiwanBusinessCalendarAnnualSourceResult(
+            sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+            days: 365, holidays: 121);
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget);
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(raw, isNull, reason: 'Stale source identity must not be persisted.');
+    expect(find.textContaining('本年度日曆來源身分已變更'), findsOneWidget);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget, reason: 'A fresh explicit check remains possible.');
+    expect(db.writes, 0);
+  });
+
 }
 
 /// Read-only synthetic SQLite fixture. No real official year is inferred.
