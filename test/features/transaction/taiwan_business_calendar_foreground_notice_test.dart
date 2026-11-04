@@ -68,9 +68,16 @@ void main() {
       (tester) async {
     final db = _ReadOnlyDb(verified: true);
     var checks = 0;
+    // Widget tests must not await the platform SharedPreferences channel.
+    // Exercise the same production receipt contract with isolated storage.
+    String? raw;
+    final receiptStore = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; });
     await tester.pumpWidget(MaterialApp(
       home: TaiwanBusinessCalendarStatusPage(
         databaseProvider: () async => db,
+        receiptStore: receiptStore,
         clock: () => DateTime.utc(2026, 11, 30, 16, 1),
         officialSourceCheck: () async {
           checks++;
@@ -89,6 +96,7 @@ void main() {
     await tester.tap(check);
     await tester.pumpAndSettle();
     expect(checks, 1);
+    expect(raw, isNotNull, reason: 'Explicit success must persist a verified advisory receipt.');
     expect(check, findsNothing, reason: 'Same-day retry must be suppressed.');
     expect(find.textContaining('未安裝 2027 年日曆'), findsOneWidget);
     expect(db.writes, 0);
@@ -98,9 +106,16 @@ void main() {
       (tester) async {
     final db = _ReadOnlyDb(verified: true);
     var checks = 0;
+    // Widget tests must not await the platform SharedPreferences channel.
+    // Exercise the same production receipt contract with isolated storage.
+    String? raw;
+    final receiptStore = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; });
     await tester.pumpWidget(MaterialApp(
       home: TaiwanBusinessCalendarStatusPage(
         databaseProvider: () async => db,
+        receiptStore: receiptStore,
         clock: () => DateTime.utc(2026, 11, 30, 16, 1),
         officialSourceCheck: () async {
           checks++;
@@ -113,6 +128,7 @@ void main() {
     await tester.tap(check);
     await tester.pumpAndSettle();
     expect(checks, 1);
+    expect(raw, isNull, reason: 'Untrusted official source must never persist a receipt.');
     expect(check, findsOneWidget, reason: 'Failure must permit explicit retry.');
     expect(find.textContaining('SHA／年度結構驗證失敗'), findsOneWidget);
     expect(db.writes, 0);
