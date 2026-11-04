@@ -17,6 +17,8 @@ on:
       - 'tool/c500_g0_qpdf_preflight_contract_test.sh'
       - 'tool/c500_g0_mutool_spread_page_probe.sh'
       - 'tool/c500_g0_mutool_spread_page_probe_contract_test.sh'
+      - 'tool/c500_g0_mutool_vm_recovery_probe.sh'
+      - 'tool/c500_g0_mutool_vm_recovery_contract_test.sh'
       - 'tool/c500_g0_qpdf_resource_ladder.sh'
       - 'tool/c500_g0_qpdf_resource_ladder_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
@@ -86,6 +88,7 @@ jobs:
           bash tool/c500_g0_qpdf_resource_ladder_contract_test.sh
           bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_spread_page_probe_contract_test.sh
+          bash tool/c500_g0_mutool_vm_recovery_contract_test.sh
 
       - name: G0l bounded XRef synthetic positive/negative contract
         if: ${{ steps.gate.outputs.run_lab == 'true' }}
@@ -210,6 +213,16 @@ jobs:
         run: |
           set -euo pipefail
           bash tool/c500_g0_mutool_spread_page_probe.sh
+
+      # G0aa: controlled failure and independent recovery on BOTH SHA-pinned
+      # official middle pages. Never infer PDFBox/PDFium root cause.
+      - name: G0aa pinned MuPDF controlled VM failure and stable recovery (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_mutool_vm_recovery_probe.sh
 
       - name: G0l pinned official XRef-stream bounded access (NOT page proof)
         if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
