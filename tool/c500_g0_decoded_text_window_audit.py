@@ -9,7 +9,7 @@ TOKEN = re.compile(r"(?<![0-9])[0-9]{8}(?![0-9])")
 
 
 def audit(directory: pathlib.Path, start: int, count: int) -> str:
-    if not directory.is_dir() or directory.is_symlink() or count != 512 or start < 1:
+    if not directory.is_dir() or directory.is_symlink() or not 1 <= count <= 512 or start < 1:
         raise ValueError("G0AH_WINDOW_ARGUMENT_INVALID")
     files = list(directory.iterdir())
     if len(files) != count:

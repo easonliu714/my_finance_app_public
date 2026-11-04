@@ -38,6 +38,8 @@ on:
       - 'tool/c500_g0_decoded_text_window_audit.py'
       - 'tool/c500_g0_decoded_text_window_probe.sh'
       - 'tool/c500_g0_decoded_text_window_contract_test.sh'
+      - 'tool/c500_g0_full_text_stream.py'
+      - 'tool/c500_g0_full_text_stream_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
 
@@ -109,6 +111,7 @@ jobs:
           bash tool/c500_g0_page_identity_4g_contract_test.sh
           bash tool/c500_g0_page_content_graph_4g_contract_test.sh
           bash tool/c500_g0_decoded_text_window_contract_test.sh
+          bash tool/c500_g0_full_text_stream_contract_test.sh
           bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_spread_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_vm_recovery_contract_test.sh
@@ -319,6 +322,16 @@ jobs:
         run: |
           set -euo pipefail
           bash tool/c500_g0_decoded_text_window_probe.sh
+
+      # G0ai: full 77K+87K genuine pages, 512/page bounded MuPDF windows.
+      # Fail-closed UTF-8 and source SHA; NOT Android or award-semantic proof.
+      - name: G0ai pinned full 164000-page UTF8 lexical coverage (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 24
+        run: |
+          set -euo pipefail
+          python3 tool/c500_g0_full_text_stream.py
 
       - name: G0l pinned official XRef-stream bounded access (NOT page proof)
         if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
