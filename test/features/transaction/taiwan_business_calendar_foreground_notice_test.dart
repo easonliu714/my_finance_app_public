@@ -212,12 +212,21 @@ void main() {
     await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
     await tester.pumpAndSettle();
     expect(find.textContaining('檢查紀錄未能保存'), findsOneWidget);
+    // B2.14e: failed advisory storage must not suppress a second explicit
+    // check in the SAME mounted page; no official data or SQLite is written.
+    final manualCheck = find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey);
+    expect(manualCheck, findsOneWidget);
+    await tester.tap(manualCheck);
+    await tester.pumpAndSettle();
+    expect(checks, 2, reason: 'Failed receipt must permit same-page manual retry.');
+    expect(find.textContaining('檢查紀錄未能保存'), findsOneWidget);
+    expect(db.writes, 0);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpWidget(page());
     await tester.pumpAndSettle();
     expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
         findsOneWidget);
-    expect(checks, 1);
+    expect(checks, 2);
     expect(db.writes, 0);
   });
   testWidgets('B2.14d current-year revision swap during GET cannot persist stale receipt',
