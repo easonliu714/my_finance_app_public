@@ -359,7 +359,7 @@ class _TaiwanBusinessCalendarStatusPageState
       }
       var durable = false;
       try {
-        if (current != null && current.isContiguous &&
+        if (current.isContiguous &&
             current.year == year && current.sequence > 0 &&
             current.digest.isNotEmpty) {
           await _receiptStore.writeVerified(
