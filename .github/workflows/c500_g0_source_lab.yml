@@ -25,6 +25,8 @@ on:
       - 'tool/c500_g0_qpdf_resource_ladder_contract_test.sh'
       - 'tool/c500_g0_object_boundary_probe.sh'
       - 'tool/c500_g0_object_boundary_contract_test.sh'
+      - 'tool/c500_g0_recovery_isolation.sh'
+      - 'tool/c500_g0_recovery_isolation_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
 
@@ -91,6 +93,7 @@ jobs:
           bash tool/c500_g0_workflow_gate_contract_test.sh
           bash tool/c500_g0_qpdf_resource_ladder_contract_test.sh
           bash tool/c500_g0_object_boundary_contract_test.sh
+          bash tool/c500_g0_recovery_isolation_contract_test.sh
           bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_spread_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_vm_recovery_contract_test.sh
@@ -209,6 +212,17 @@ jobs:
         run: |
           set -euo pipefail
           bash tool/c500_g0_object_boundary_probe.sh
+
+      # G0ad: distinguish qpdf recovery-path allocation from full graph traversal.
+      # Run BOTH modes against each exact source in independent 3-GiB/65-s children.
+      # A difference is a root-cause hypothesis, never a global parser proof.
+      - name: G0ad pinned qpdf recovery-disabled vs default full-check isolation
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_recovery_isolation.sh
 
       # G0y: source-backed alternative renderer root-feasibility; never a global proof.
       - name: G0y independent pinned MuPDF first-page engine feasibility (NOT G0 PASS)
