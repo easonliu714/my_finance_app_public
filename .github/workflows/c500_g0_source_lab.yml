@@ -23,6 +23,8 @@ on:
       - 'tool/c500_g0_mutool_vm_recovery_contract_test.sh'
       - 'tool/c500_g0_qpdf_resource_ladder.sh'
       - 'tool/c500_g0_qpdf_resource_ladder_contract_test.sh'
+      - 'tool/c500_g0_object_boundary_probe.sh'
+      - 'tool/c500_g0_object_boundary_contract_test.sh'
       - '.github/workflows/c500_g0_source_lab.yml'
   workflow_dispatch:
 
@@ -88,6 +90,7 @@ jobs:
           bash tool/c500_g0_android_renderer_lab_contract_test.sh
           bash tool/c500_g0_workflow_gate_contract_test.sh
           bash tool/c500_g0_qpdf_resource_ladder_contract_test.sh
+          bash tool/c500_g0_object_boundary_contract_test.sh
           bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_spread_page_probe_contract_test.sh
           bash tool/c500_g0_mutool_vm_recovery_contract_test.sh
@@ -197,6 +200,15 @@ jobs:
         run: |
           set -euo pipefail
           bash tool/c500_g0_qpdf_resource_ladder.sh
+
+      # G0ac: source-backed qpdf first-error object vs independent MuPDF.
+      - name: G0ac pinned first qpdf error object and MuPDF bounded recovery
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_object_boundary_probe.sh
 
       # G0y: source-backed alternative renderer root-feasibility; never a global proof.
       - name: G0y independent pinned MuPDF first-page engine feasibility (NOT G0 PASS)
