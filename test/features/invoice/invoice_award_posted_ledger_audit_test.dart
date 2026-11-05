@@ -64,6 +64,19 @@ void main() {
           )
           .status;
 
+  test('Owner C rejects new cloud-500 posting before SQLite', () async {
+    await expectLater(
+      const InvoiceAwardFormalIncomePostingService().post(
+        proposal: proposal,
+        receipt: receipt,
+        authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
+      ),
+      throwsA(predicate((error) =>
+          error is StateError &&
+          error.toString().contains('CLOUD500_PRODUCTION_DEFERRED_OWNER_OPTION_C'))),
+    );
+  });
+
   test('canonical matching posted entry is local-only, never bank verified', () {
     final result = audit.evaluate(
       proposal: proposal,

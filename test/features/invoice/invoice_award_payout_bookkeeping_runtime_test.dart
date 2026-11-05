@@ -101,7 +101,8 @@ void main() {
     );
     expect(blocked.single.status,
         InvoiceAwardPayoutBookkeepingReadinessStatus
-            .cloudEligibilityConfirmationRequired);
+            .officialAuthorityIncomplete);
+    expect(blocked.single.proposal, isNull);
 
     final confirmation = InvoiceAwardCloudEligibilityConfirmation(
       periodId: '115-05-06',
@@ -138,6 +139,35 @@ void main() {
     expect(ready.single.status,
         InvoiceAwardPayoutBookkeepingReadinessStatus.officialAuthorityIncomplete);
     expect(ready.single.proposal, isNull);
+  });
+
+  test('general prize proposal survives cloud-500 suspension', () {
+    final candidate = _candidate();
+    final result = const InvoiceAwardPayoutBookkeepingPlanner().evaluate(
+      period: InvoiceAwardRecentPeriodCatalog.period1150708,
+      nowUtc: DateTime.utc(2026, 10, 7),
+      settings: const InvoiceAwardPayoutBookkeepingSettings(
+        automaticBookkeepingEnabled: true,
+        externalMofRemittanceConfigured: true,
+        localAccountId: 'bank-1',
+      ),
+      generalAuthorityComplete: true,
+      cloudAuthorityComplete: false,
+      generalDataset: _dataset(),
+      generalEvaluations: <ExistingInvoiceAwardGeneralEvaluation>[
+        ExistingInvoiceAwardGeneralEvaluation(
+          candidate: candidate,
+          status: ExistingInvoiceAwardGeneralEvaluationStatus.winner,
+          matchKind: OfficialInvoiceAwardMatchKind.sixth,
+        ),
+      ],
+      cloudEvaluations: const <ExistingInvoiceAwardCloudEvaluation>[],
+      cloudEligibilityConfirmations:
+          const <String, InvoiceAwardCloudEligibilityConfirmation>{},
+    );
+    expect(result.single.status,
+        InvoiceAwardPayoutBookkeepingReadinessStatus.readyProposal);
+    expect(result.single.proposal?.grossAmount, 200);
   });
 
   test('preflight fails closed when external remittance is not configured', () {

@@ -171,7 +171,8 @@ class InvoiceAwardWinningNotificationService {
         skippedBecauseAuthorityIncomplete: false,
       );
     }
-    if (!generalDatasetValidated || !cloudDatasetValidated) {
+    // General-award authority is independent of deferred cloud-500.
+    if (!generalDatasetValidated) {
       return const InvoiceAwardWinningNotificationResult(
         deliveredCount: 0,
         skippedDuplicateCount: 0,
@@ -199,7 +200,7 @@ class InvoiceAwardWinningNotificationService {
         periodLabel: periodLabel,
         candidateKey: candidateKey,
         general: generalByCandidate[candidateKey],
-        cloud: cloudByCandidate[candidateKey],
+        cloud: cloudDatasetValidated ? cloudByCandidate[candidateKey] : null,
       );
       if (confirmed != null) {
         if (sent.contains(confirmed.dedupeKey)) {
@@ -213,7 +214,7 @@ class InvoiceAwardWinningNotificationService {
       }
 
       final cloud = cloudByCandidate[candidateKey];
-      if (cloud == null) {
+      if (cloud == null || !cloudDatasetValidated) {
         continue;
       }
       final review = _selectEligibilityReview(
@@ -243,7 +244,7 @@ class InvoiceAwardWinningNotificationService {
     return InvoiceAwardWinningNotificationResult(
       deliveredCount: delivered,
       skippedDuplicateCount: duplicates,
-      skippedBecauseAuthorityIncomplete: false,
+      skippedBecauseAuthorityIncomplete: !cloudDatasetValidated,
     );
   }
 
@@ -258,7 +259,9 @@ class InvoiceAwardWinningNotificationService {
     if (general?.isWinner == true && general!.grossAmount > 0) {
       options.add((tier: general.tierLabel, amount: general.grossAmount));
     }
-    if (cloud?.isConfirmedCloudNumberMatch == true && cloud!.grossAmount > 0) {
+    if (cloud?.isConfirmedCloudNumberMatch == true &&
+        cloud!.selectedTierCode != 'cloud-500' &&
+        cloud.grossAmount > 0) {
       options.add((
         tier: _cloudTierLabel(cloud.selectedTierCode),
         amount: cloud.grossAmount,
@@ -289,7 +292,8 @@ class InvoiceAwardWinningNotificationService {
     required String candidateKey,
     required ExistingInvoiceAwardCloudEvaluation cloud,
   }) {
-    if (cloud.status !=
+    if (cloud.selectedTierCode == 'cloud-500' ||
+        cloud.status !=
             ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired ||
         cloud.selectedTierCode == null ||
         cloud.grossAmount <= 0 ||

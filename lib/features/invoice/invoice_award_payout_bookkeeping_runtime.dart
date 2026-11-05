@@ -142,6 +142,18 @@ class InvoiceAwardPayoutBookkeepingPlanner {
         generalDataset: generalDataset,
       );
       if (selected == null) {
+        if (cloud?.selectedTierCode == 'cloud-500') {
+          // Old 500 observation stays visible, never a new payout proposal.
+          results.add(InvoiceAwardPayoutBookkeepingReadiness(
+            invoiceIdentity: candidateKey,
+            prizeTier: 'cloud-500',
+            grossAmount: 500,
+            status: InvoiceAwardPayoutBookkeepingReadinessStatus
+                .officialAuthorityIncomplete,
+            externalRemittanceEligibleAt: eligibleAt,
+          ));
+          continue;
+        }
         if (cloud?.status ==
             ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired) {
           final confirmation = cloudEligibilityConfirmations[
@@ -167,6 +179,7 @@ class InvoiceAwardPayoutBookkeepingPlanner {
         settings: settings,
         generalAuthorityComplete: generalAuthorityComplete,
         cloudAuthorityComplete: cloudAuthorityComplete,
+        selectedGeneralPrize: selected.prizeTier.startsWith('general-'),
         nowUtc: nowUtc,
         eligibleAt: eligibleAt,
       );
@@ -228,6 +241,7 @@ class InvoiceAwardPayoutBookkeepingPlanner {
     required InvoiceAwardPayoutBookkeepingSettings settings,
     required bool generalAuthorityComplete,
     required bool cloudAuthorityComplete,
+    required bool selectedGeneralPrize,
     required DateTime nowUtc,
     required DateTime eligibleAt,
   }) {
@@ -242,7 +256,9 @@ class InvoiceAwardPayoutBookkeepingPlanner {
       return InvoiceAwardPayoutBookkeepingReadinessStatus
           .externalRemittanceNotConfigured;
     }
-    if (!generalAuthorityComplete || !cloudAuthorityComplete) {
+    // Cloud-500 deferral cannot block an independently verified general prize.
+    if (!generalAuthorityComplete ||
+        (!selectedGeneralPrize && !cloudAuthorityComplete)) {
       return InvoiceAwardPayoutBookkeepingReadinessStatus
           .officialAuthorityIncomplete;
     }
@@ -280,7 +296,8 @@ class InvoiceAwardPayoutBookkeepingPlanner {
     }
 
     if (cloud?.hasCloudNumberMatch == true &&
-        cloud!.grossAmount > 0 &&
+        cloud!.selectedTierCode != 'cloud-500' &&
+        cloud.grossAmount > 0 &&
         cloud.selectedTierCode != null &&
         cloud.pdfSha256 != null &&
         RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(cloud.pdfSha256!)) {

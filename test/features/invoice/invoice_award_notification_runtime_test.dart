@@ -49,7 +49,7 @@ void main() {
     expect(port.notifications, isEmpty);
   });
 
-  test('incomplete authority never emits a winner notification', () async {
+  test('verified general award notifies despite deferred cloud-500', () async {
     await repository.setWinningNotificationsEnabled(true);
     final value = candidate('AB12345678');
     final general = ExistingInvoiceAwardGeneralEvaluation(
@@ -68,10 +68,31 @@ void main() {
     );
 
     expect(result.skippedBecauseAuthorityIncomplete, isTrue);
+    expect(result.deliveredCount, 1);
+    expect(port.notifications.single.body, contains('六獎'));
+  });
+
+  test('unverified general award never notifies', () async {
+    await repository.setWinningNotificationsEnabled(true);
+    final value = candidate('AB12345678');
+    final general = ExistingInvoiceAwardGeneralEvaluation(
+      candidate: value,
+      status: ExistingInvoiceAwardGeneralEvaluationStatus.winner,
+      matchKind: OfficialInvoiceAwardMatchKind.sixth,
+    );
+    final result = await service.deliverAwardNotifications(
+      periodId: '115-07-08',
+      periodLabel: '115年07-08月',
+      generalDatasetValidated: false,
+      cloudDatasetValidated: true,
+      generalEvaluations: <ExistingInvoiceAwardGeneralEvaluation>[general],
+      cloudEvaluations: const <ExistingInvoiceAwardCloudEvaluation>[],
+    );
+    expect(result.skippedBecauseAuthorityIncomplete, isTrue);
     expect(port.notifications, isEmpty);
   });
 
-  test('confirmed result is private and idempotent', () async {
+  test('confirmed result is private and idempotent',
     await repository.setWinningNotificationsEnabled(true);
     final value = candidate('CR30912111');
     final general = ExistingInvoiceAwardGeneralEvaluation(
@@ -101,7 +122,7 @@ void main() {
     expect(notification.body, isNot(contains('txn-')));
   });
 
-  test('review-required cloud number match emits review notification', () async {
+  test('Owner C blocks forged cloud-500 review notifications', () async {
     await repository.setWinningNotificationsEnabled(true);
     final value = candidate('BM23888900');
     final cloud = ExistingInvoiceAwardCloudEvaluation(
@@ -111,6 +132,29 @@ void main() {
       matchedTierCodes: const <String>{'cloud-500'},
       selectedTierCode: 'cloud-500',
       grossAmount: 500,
+      pdfSha256: 'a' * 64,
+    );
+    await service.deliverAwardNotifications(
+      periodId: '115-05-06',
+      periodLabel: '115年05-06月',
+      generalDatasetValidated: true,
+      cloudDatasetValidated: true,
+      generalEvaluations: const <ExistingInvoiceAwardGeneralEvaluation>[],
+      cloudEvaluations: <ExistingInvoiceAwardCloudEvaluation>[cloud],
+    );
+    expect(port.notifications, isEmpty);
+  });
+
+  test('review-required cloud number match emits review notification',
+    await repository.setWinningNotificationsEnabled(true);
+    final value = candidate('BM23888900');
+    final cloud = ExistingInvoiceAwardCloudEvaluation(
+      candidate: value,
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired,
+      missingTierCodes: const <String>{},
+      matchedTierCodes: const <String>{'cloud-800'},
+      selectedTierCode: 'cloud-800',
+      grossAmount: 800,
       pdfSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
 
@@ -128,7 +172,7 @@ void main() {
     expect(notification.kind,
         InvoiceAwardNotificationKind.eligibilityReviewRequired);
     expect(notification.body, contains('可能中獎，請確認資格'));
-    expect(notification.body, contains('NT\$500'));
+    expect(notification.body, contains('NT\$800'));
     expect(notification.body, isNot(contains('BM23888900')));
     expect(notification.body, isNot(contains('不應出現在通知')));
   });
