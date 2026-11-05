@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'existing_invoice_award_cloud_batch_matcher.dart';
+import 'invoice_award_cloud500_production_policy.dart';
 
 enum InvoiceAwardCloudEligibilityUserDecision { eligible, ineligible }
 
@@ -45,7 +47,21 @@ class InvoiceAwardCloudEligibilityConfirmation {
   bool get confirmsIneligibility =>
       decision == InvoiceAwardCloudEligibilityUserDecision.ineligible &&
       hasValidProvenance;
-  bool get canAuthorizeFutureBookkeepingEligibility => confirmsEligibility;
+  // Owner C: a historical user decision is evidence, never release authority
+  // for a deferred cloud-500 award. Other cloud tiers retain their consent.
+  bool canAuthorizeFutureBookkeepingEligibilityForBuild({
+    required bool isReleaseBuild,
+  }) =>
+      confirmsEligibility &&
+      !Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: tierCode,
+        isReleaseBuild: isReleaseBuild,
+      );
+
+  bool get canAuthorizeFutureBookkeepingEligibility =>
+      canAuthorizeFutureBookkeepingEligibilityForBuild(
+        isReleaseBuild: kReleaseMode,
+      );
 
   Map<String, Object?> toJson() => <String, Object?>{
         'contract_version': reviewContractVersion,
@@ -118,6 +134,11 @@ class InvoiceAwardCloudEligibilityConfirmationRepository {
   }) {
     final tier=evaluation.selectedTierCode;
     final sha=evaluation.pdfSha256;
+    // Reject stale release authority before reading historical preferences.
+    if (tier != null &&
+        Cloud500ProductionPolicy.blocksCloud500Persistence(tier)) {
+      return null;
+    }
     if (tier == null ||
         sha == null ||
         evaluation.status !=
@@ -143,6 +164,11 @@ class InvoiceAwardCloudEligibilityConfirmationRepository {
   }) async {
     final tier=evaluation.selectedTierCode;
     final sha=evaluation.pdfSha256;
+    // Fail before any preferences write; never delete old 500 audit records.
+    if (tier != null &&
+        Cloud500ProductionPolicy.blocksCloud500Persistence(tier)) {
+      throw StateError(Cloud500ProductionPolicy.deferredCode);
+    }
     if(evaluation.status!=
           ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired ||
        tier==null || evaluation.grossAmount<=0 || sha==null ||

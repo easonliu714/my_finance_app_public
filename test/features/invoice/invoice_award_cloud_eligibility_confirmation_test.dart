@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -47,6 +48,74 @@ void main() {
       periodId: '115-05-06', evaluation: value);
     expect(readBack?.confirmsEligibility, isTrue);
     expect(readBack?.officialPdfSha256, value.pdfSha256);
+  });
+
+
+  test('Owner C release cannot authorize historic 500 consent; other tiers survive', () async {
+    final preferences = await SharedPreferences.getInstance();
+    final repository =
+        InvoiceAwardCloudEligibilityConfirmationRepository(preferences);
+    final legacy = evaluation();
+    final legacyRecord = await repository.saveDecision(
+      periodId: '115-05-06',
+      evaluation: legacy,
+      decision: InvoiceAwardCloudEligibilityUserDecision.eligible,
+      confirmedAtUtc: DateTime.utc(2026, 10, 6, 8),
+    );
+    expect(
+      legacyRecord.canAuthorizeFutureBookkeepingEligibilityForBuild(
+        isReleaseBuild: true,
+      ),
+      isFalse,
+    );
+    expect(
+      legacyRecord.canAuthorizeFutureBookkeepingEligibilityForBuild(
+        isReleaseBuild: false,
+      ),
+      isTrue,
+    );
+    expect(legacyRecord.canAuthorizeFutureBookkeepingEligibility, !kReleaseMode);
+
+    final otherTier = ExistingInvoiceAwardCloudEvaluation(
+      candidate: legacy.candidate,
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired,
+      missingTierCodes: const <String>{},
+      matchedTierCodes: const <String>{'cloud-800'},
+      selectedTierCode: 'cloud-800',
+      grossAmount: 800,
+      pdfSha256: List<String>.filled(64, 'a').join(),
+    );
+    final otherRecord = await repository.saveDecision(
+      periodId: '115-05-06',
+      evaluation: otherTier,
+      decision: InvoiceAwardCloudEligibilityUserDecision.eligible,
+      confirmedAtUtc: DateTime.utc(2026, 10, 6, 9),
+    );
+    expect(
+      otherRecord.canAuthorizeFutureBookkeepingEligibilityForBuild(
+        isReleaseBuild: true,
+      ),
+      isTrue,
+    );
+    // Saving another tier must not prune the old 500 evidence from storage.
+    expect(
+      repository.loadAll().map((item) => item.tierCode).toSet(),
+      <String>{'cloud-500', 'cloud-800'},
+    );
+    expect(
+      repository.readForEvaluation(
+        periodId: '115-05-06',
+        evaluation: legacy,
+      ),
+      kReleaseMode ? isNull : isNotNull,
+    );
+    expect(
+      repository.readForEvaluation(
+        periodId: '115-05-06',
+        evaluation: otherTier,
+      ),
+      isNotNull,
+    );
   });
 
   test('ineligible decision cannot authorize future bookkeeping', () async {
