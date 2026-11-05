@@ -62,6 +62,58 @@ def fields(schema, defs, seen=None):
                 result.update(fields(child, defs, seen))
     return result
 
+
+def json_success_response_fields(op, components):
+    """Enumerate bounded 2xx JSON response schemas, including local response refs.
+
+    This is source-discovery evidence only. Unresolved refs are counted as
+    unknown, never as evidence that no official award-record API exists.
+    """
+    responses = op.get("responses", {})
+    if not isinstance(responses, dict):
+        return set(), 0, 1
+    response_defs = components.get("responses", {})
+    schema_defs = components.get("schemas", {})
+    if not isinstance(response_defs, dict):
+        response_defs = {}
+    if not isinstance(schema_defs, dict):
+        schema_defs = {}
+    found, scanned, unresolved = set(), 0, 0
+    for status, response in responses.items():
+        status = str(status)
+        if len(status) != 3 or not status.isdigit() or not status.startswith("2"):
+            continue
+        visited = set()
+        while isinstance(response, dict) and "$ref" in response:
+            ref = response["$ref"]
+            prefix = "#/components/responses/"
+            if not isinstance(ref, str) or not ref.startswith(prefix):
+                unresolved += 1
+                response = None
+                break
+            name = ref[len(prefix):]
+            if not name or name in visited or name not in response_defs:
+                unresolved += 1
+                response = None
+                break
+            visited.add(name)
+            response = response_defs[name]
+        if not isinstance(response, dict):
+            unresolved += 1 if response is not None else 0
+            continue
+        content = response.get("content", {})
+        if not isinstance(content, dict):
+            unresolved += 1
+            continue
+        for media_type, media in content.items():
+            if not isinstance(media_type, str) or not isinstance(media, dict):
+                continue
+            kind = media_type.split(";", 1)[0].strip().lower()
+            if kind == "application/json" or (kind.startswith("application/") and kind.endswith("+json")):
+                scanned += 1
+                found.update(fields(media.get("schema"), schema_defs))
+    return found, scanned, unresolved
+
 def audit_spec(data):
     try:
         doc = json.loads(data.decode("utf-8-sig"))
@@ -70,21 +122,30 @@ def audit_spec(data):
     if not isinstance(doc, dict) or not str(doc.get("openapi","")).startswith("3."):
         raise AuditError("INVALID_OPENAPI_VERSION")
     paths = doc.get("paths")
-    defs = doc.get("components",{}).get("schemas",{})
+    components = doc.get("components", {})
+    if not isinstance(components, dict):
+        raise AuditError("MISSING_PATHS_OR_SCHEMAS")
+    defs = components.get("schemas", {})
     if not isinstance(paths, dict) or not isinstance(defs, dict):
         raise AuditError("MISSING_PATHS_OR_SCHEMAS")
     total, prize, candidate = 0, [], []
+    scanned_json_schemas = unresolved_response_refs = 0
     for path, methods in sorted(paths.items()):
         op = methods.get("get") if isinstance(methods, dict) else None
         if not isinstance(op, dict):
             continue
         total += 1
-        if not ("prize" in path.lower() or "獎" in str(op.get("tags",[])) or "獎" in str(op.get("summary",""))):
+        # Do not silently exclude an official cloud/award endpoint merely
+        # because its route omits the English word "prize".
+        hint = path.lower()
+        if not (any(word in hint for word in ("prize", "award", "cloud", "500", "獎")) or
+                "獎" in str(op.get("tags", [])) or
+                "獎" in str(op.get("summary", ""))):
             continue
         prize.append(path)
-        resp = op.get("responses",{}).get("200",{})
-        media = resp.get("content",{}).get("application/json",{}) if isinstance(resp,dict) else {}
-        k = fields(media.get("schema"), defs)
+        k, scanned, unresolved = json_success_response_fields(op, components)
+        scanned_json_schemas += scanned
+        unresolved_response_refs += unresolved
         if (k & {"invoiceno","invoicenumber","invnum","發票號碼","中獎號碼"} and
             k & {"period","invoiceym","awarddatenm","發票歸屬期別","開獎期別"} and
             k & {"prizetier","awardtier","awardname","prizenm","獎別"}):
@@ -92,8 +153,10 @@ def audit_spec(data):
     if not total:
         raise AuditError("NO_GET_OPERATIONS")
     return {"get_operations":total,"prize_paths":prize,
-            "possible_record_schema_paths":candidate,"record_count_proven":False,
-            "tier_completeness_proven":False}
+            "possible_record_schema_paths":candidate,
+            "json_success_schemas_scanned":scanned_json_schemas,
+            "unresolved_response_refs":unresolved_response_refs,
+            "record_count_proven":False,"tier_completeness_proven":False}
 
 class Anchors(HTMLParser):
     def __init__(self):

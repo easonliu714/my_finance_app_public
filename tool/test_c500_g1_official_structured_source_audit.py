@@ -30,6 +30,45 @@ class Tests(unittest.TestCase):
         self.assertFalse(result["option4_no_go"])
         self.assertFalse(result["openapi"]["record_count_proven"])
         self.assertEqual(result["global_not_win"],"HOLD")
+
+    def test_206_vendor_json_response_ref_is_not_false_negative(self):
+        # Previous 200-only direct application/json logic missed this real
+        # OpenAPI shape. It remains a candidate, never complete authority.
+        document = {"openapi":"3.0.1","paths":{"/cloud500": {
+            "get":{"responses":{"206":{"$ref":"#/components/responses/CloudRows"}}}}},
+            "components":{"responses":{"CloudRows":{"content":{
+                "application/vnd.mof.records+json; charset=utf-8":{"schema":{
+                    "type":"array","items":{"type":"object","properties":{
+                        "invoiceNo":{},"period":{},"prizeTier":{}}}}}}}},
+                "schemas":{}}}
+        result = audit_spec(json.dumps(document).encode())
+        self.assertEqual(result["possible_record_schema_paths"], ["/cloud500"])
+        self.assertEqual(result["json_success_schemas_scanned"], 1)
+        self.assertEqual(result["unresolved_response_refs"], 0)
+        self.assertFalse(result["record_count_proven"])
+
+    def test_unresolved_and_cyclic_response_refs_are_explicit_unknown(self):
+        document = {"openapi":"3.0.1","paths":{"/prize": {"get":{
+            "responses":{"200":{"$ref":"#/components/responses/Loop"},
+                         "206":{"$ref":"#/components/responses/Missing"}}}}},
+            "components":{"schemas":{},"responses":{
+                "Loop":{"$ref":"#/components/responses/Loop"}}}}
+        result = audit_spec(json.dumps(document).encode())
+        self.assertEqual(result["unresolved_response_refs"], 2)
+        self.assertEqual(result["possible_record_schema_paths"], [])
+        self.assertEqual(result["json_success_schemas_scanned"], 0)
+
+    def test_non_success_and_non_json_are_not_award_record_schemas(self):
+        document = {"openapi":"3.0.1","paths":{"/award": {"get":{
+            "responses":{"400":{"content":{"application/json":{"schema":{
+                "properties":{"invoiceNo":{},"period":{},"prizeTier":{}}}}}},
+                "200":{"content":{"text/html":{"schema":{
+                "properties":{"invoiceNo":{},"period":{},"prizeTier":{}}}}}}}}}},
+            "components":{"schemas":{}}}
+        result = audit_spec(json.dumps(document).encode())
+        self.assertEqual(result["possible_record_schema_paths"], [])
+        self.assertEqual(result["json_success_schemas_scanned"], 0)
+
     def test_pdf_only_index(self):
         self.assertEqual(audit_index(b'<a href="x.pdf">x</a>')["csv_json_links"],0)
     def test_csv_is_not_completeness(self):
