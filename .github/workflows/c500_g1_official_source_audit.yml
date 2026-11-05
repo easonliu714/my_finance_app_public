@@ -1,0 +1,47 @@
+name: C500 G1 Official Structured Source Scope Audit
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/c500_g1_official_structured_source_audit.py'
+      - 'tool/test_c500_g1_official_structured_source_audit.py'
+      - '.github/workflows/c500_g1_official_source_audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: c500-g1-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+jobs:
+  scope-audit:
+    name: Published MOF OpenAPI and cloud index (NOT G1 PASS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact PR HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Source audit intent
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)"
+          source=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "$(git log -1 --format=%s)" == *"[G1-SOURCE-AUDIT]"* ]]; then source=true; fi
+          echo "source=$source" >> "$GITHUB_OUTPUT"
+          echo "G1_SOURCE_ENABLED=$source"
+      - name: Synthetic positive and negative contracts
+        run: python3 -m unittest -v tool/test_c500_g1_official_structured_source_audit.py
+      - name: Official published source bounded acquisition
+        if: ${{ steps.gate.outputs.source == 'true' }}
+        run: |
+          set -euo pipefail
+          python3 tool/c500_g1_official_structured_source_audit.py
+          echo "G1=HOLD. Only two published source surfaces audited, not all MOF data." >> "$GITHUB_STEP_SUMMARY"
+          echo "Global NOT_WIN and G5 Owner choice remain HOLD." >> "$GITHUB_STEP_SUMMARY"
+      - name: Explicitly classify non-source runs
+        if: ${{ steps.gate.outputs.source != 'true' }}
+        run: echo "G1_SOURCE_NOT_RUN; synthetic-only." >> "$GITHUB_STEP_SUMMARY"
