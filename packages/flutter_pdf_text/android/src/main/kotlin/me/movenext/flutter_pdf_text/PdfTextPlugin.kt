@@ -23,6 +23,18 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
 
+/**
+ * Owner option C native fail-closed boundary. A release APK must never
+ * dispatch a cloud-500 worker, even if a stale MethodChannel caller bypasses
+ * the Dart policy. Only debuggable builds may exercise historical diagnostics;
+ * this is not a cloud-500 award authority or release opt-in.
+ */
+internal object Cloud500NativeProductionGate {
+  const val DEFERRED_CODE = "CLOUD500_PRODUCTION_DEFERRED_OWNER_OPTION_C"
+  fun isDeferred(applicationFlags: Int): Boolean =
+    (applicationFlags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
+}
+
 /** PdfTextPlugin */
 class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
 
@@ -365,6 +377,17 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     candidateUniverseSha256: String
   ) {
     try {
+      // Reject before filesystem, result sidecar, Intent or foreground worker.
+      if (Cloud500NativeProductionGate.isDeferred(applicationContext.applicationInfo.flags)) {
+        Handler(Looper.getMainLooper()).post {
+          result.error(
+            Cloud500NativeProductionGate.DEFERRED_CODE,
+            "Cloud NT\$500 candidate workers are disabled in production",
+            null
+          )
+        }
+        return
+      }
       val source = File(path)
       if (!source.isFile) {
         Handler(Looper.getMainLooper()).post {
@@ -499,6 +522,17 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     candidateUniverseSha256: String
   ) {
     try {
+      // Reject before filesystem, result sidecar, Intent or foreground worker.
+      if (Cloud500NativeProductionGate.isDeferred(applicationContext.applicationInfo.flags)) {
+        Handler(Looper.getMainLooper()).post {
+          result.error(
+            Cloud500NativeProductionGate.DEFERRED_CODE,
+            "Cloud NT\$500 candidate workers are disabled in production",
+            null
+          )
+        }
+        return
+      }
       val source = File(path)
       if (!source.isFile) {
         Handler(Looper.getMainLooper()).post {
