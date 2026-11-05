@@ -92,7 +92,7 @@ void main() {
     expect(port.notifications, isEmpty);
   });
 
-  test('confirmed result is private and idempotent',
+  test('confirmed result is private and idempotent', () async {
     await repository.setWinningNotificationsEnabled(true);
     final value = candidate('CR30912111');
     final general = ExistingInvoiceAwardGeneralEvaluation(
@@ -145,7 +145,7 @@ void main() {
     expect(port.notifications, isEmpty);
   });
 
-  test('review-required cloud number match emits review notification',
+  test('review-required cloud number match emits review notification', () async {
     await repository.setWinningNotificationsEnabled(true);
     final value = candidate('BM23888900');
     final cloud = ExistingInvoiceAwardCloudEvaluation(
