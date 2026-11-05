@@ -39,6 +39,56 @@ class InvoiceAwardRunningTaskSnapshot {
   final List<ExistingInvoiceAwardGeneralEvaluation> generalEvaluations;
   final List<ExistingInvoiceAwardCloudEvaluation> cloudEvaluations;
   final Map<String, InvoiceAwardCloudEligibilityConfirmation> confirmations;
+
+  /// Route reentry must not resurrect pre-deferral cloud-500 WIN/NOT_WIN.
+  /// This is a read-only copy: the original snapshot and audit records remain
+  /// untouched, while general and independently verified other-tier evidence
+  /// remains available. Production calls this only with compile-time release.
+  InvoiceAwardRunningTaskSnapshot withoutDeferredCloud500Authority() {
+    final safeEvaluations = cloudEvaluations.map((value) {
+      final deferredMatch = value.selectedTierCode == 'cloud-500';
+      final selectedTier = deferredMatch ? null : value.selectedTierCode;
+      final incomplete = deferredMatch ||
+          value.status == ExistingInvoiceAwardCloudEvaluationStatus.notMatched;
+      return ExistingInvoiceAwardCloudEvaluation(
+        candidate: value.candidate,
+        status: incomplete
+            ? ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete
+            : value.status,
+        missingTierCodes: Set<String>.unmodifiable(
+          <String>{...value.missingTierCodes, 'cloud-500'},
+        ),
+        matchedTierCodes: Set<String>.unmodifiable(
+          <String>{...value.matchedTierCodes}..remove('cloud-500'),
+        ),
+        selectedTierCode: selectedTier,
+        grossAmount: selectedTier == null ? 0 : value.grossAmount,
+        indexSha256: selectedTier == null ? null : value.indexSha256,
+        pdfSha256: selectedTier == null ? null : value.pdfSha256,
+      );
+    }).toList(growable: false);
+    return InvoiceAwardRunningTaskSnapshot(
+      periodId: periodId,
+      status: status,
+      cloudStatus: '雲端 500 元獎正式功能暫緩；其他獎別仍需各自驗證。',
+      scanStatus: '雲端 500 元獎無完整判定；一般獎依已驗證官方資料顯示。',
+      tierSummaries: Map<String, String>.unmodifiable(
+        <String, String>{...tierSummaries}..remove('cloud-500'),
+      ),
+      activeTierCode: activeTierCode == 'cloud-500' ? null : activeTierCode,
+      cloudComplete: false,
+      generalDataset: generalDataset,
+      candidates: candidates,
+      generalEvaluations: generalEvaluations,
+      cloudEvaluations: List<ExistingInvoiceAwardCloudEvaluation>.unmodifiable(
+        safeEvaluations,
+      ),
+      confirmations: Map<String, InvoiceAwardCloudEligibilityConfirmation>.unmodifiable(
+        <String, InvoiceAwardCloudEligibilityConfirmation>{...confirmations}
+          ..removeWhere((_, value) => value.tierCode == 'cloud-500'),
+      ),
+    );
+  }
 }
 
 /// One in-process publisher; any number of UI routes may safely subscribe.
@@ -61,8 +111,16 @@ class InvoiceAwardRunningTaskBridge extends ChangeNotifier {
 
   bool activeFor(String periodId) => _active && _periodId == periodId;
 
-  InvoiceAwardRunningTaskSnapshot? snapshotFor(String periodId) =>
-      _periodId == periodId ? _snapshot : null;
+  // A stale in-process snapshot is never a release cloud-500 authority.
+  // Debug diagnostics retain their historical replay behavior.
+  InvoiceAwardRunningTaskSnapshot? snapshotFor(String periodId) {
+    if (_periodId != periodId) return null;
+    final snapshot = _snapshot;
+    if (snapshot == null) return null;
+    return kReleaseMode
+        ? snapshot.withoutDeferredCloud500Authority()
+        : snapshot;
+  }
 
   bool begin(String periodId) {
     if (_active) return false;
