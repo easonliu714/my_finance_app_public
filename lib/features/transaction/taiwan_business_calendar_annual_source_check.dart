@@ -27,6 +27,53 @@ class TaiwanBusinessCalendarAnnualSourceCheck {
     );
   }
 
+  // B2.14e: Stream.timeout only bounds idle gaps, not total download time.
+  // A slow-drip server could otherwise keep a manual HTTPS check alive
+  // indefinitely. Enforce an independent deadline and cancel the stream.
+  // This remains read-only: no calendar or finance SQLite write.
+  static Future<Uint8List> readBoundedOfficialCsvStream(
+    Stream<List<int>> source, {
+    Duration maxElapsed = const Duration(seconds: 45),
+  }) async {
+    if (maxElapsed <= Duration.zero) {
+      throw ArgumentError.value(maxElapsed, 'maxElapsed');
+    }
+    final bytes = BytesBuilder(copy: false);
+    final completed = Completer<Uint8List>();
+    final subscription = source.listen(
+      (chunk) {
+        if (completed.isCompleted) return;
+        if (bytes.length + chunk.length >
+            TaiwanBusinessCalendarOfficialCsvCodec.maxCsvBytes) {
+          completed.completeError(
+            const FormatException('Official CSV response exceeds cap.'),
+          );
+          return;
+        }
+        bytes.add(chunk);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!completed.isCompleted) completed.completeError(error, stack);
+      },
+      onDone: () {
+        if (!completed.isCompleted) completed.complete(bytes.takeBytes());
+      },
+    );
+    final deadline = Timer(maxElapsed, () {
+      if (!completed.isCompleted) {
+        completed.completeError(
+          TimeoutException('Official CSV total download deadline exceeded.'),
+        );
+      }
+    });
+    try {
+      return await completed.future;
+    } finally {
+      deadline.cancel();
+      await subscription.cancel();
+    }
+  }
+
   static Future<Uint8List> _downloadPinned116() async {
     final uri = Uri.parse(TaiwanBusinessCalendarPinned116Installer.sourceUrl);
     if (uri.scheme != 'https' ||
@@ -58,17 +105,9 @@ class TaiwanBusinessCalendarAnnualSourceCheck {
           'Official CSV response rejected before parsing.',
         );
       }
-      final buffer = BytesBuilder(copy: false);
-      await for (final chunk in response.timeout(
-        const Duration(seconds: 30),
-      )) {
-        if (buffer.length + chunk.length >
-            TaiwanBusinessCalendarOfficialCsvCodec.maxCsvBytes) {
-          throw const FormatException('Official CSV response exceeds cap.');
-        }
-        buffer.add(chunk);
-      }
-      return buffer.takeBytes();
+      return readBoundedOfficialCsvStream(
+        response.timeout(const Duration(seconds: 30)),
+      );
     } finally {
       client.close(force: true);
     }

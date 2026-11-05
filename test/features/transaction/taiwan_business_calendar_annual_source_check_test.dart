@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -35,4 +36,51 @@ void main() {
       );
     }
   });
+  test('B2.14e bounded official stream preserves bytes and order', () async {
+    final result =
+        await TaiwanBusinessCalendarAnnualSourceCheck.readBoundedOfficialCsvStream(
+      Stream<List<int>>.fromIterable(<List<int>>[
+        <int>[0xef, 0xbb],
+        <int>[0xbf, 0x31, 0x32],
+      ]),
+      maxElapsed: const Duration(seconds: 1),
+    );
+    expect(result, orderedEquals(<int>[0xef, 0xbb, 0xbf, 0x31, 0x32]));
+  });
+
+  test('B2.14e stalled stream hits total deadline and cancels', () async {
+    var cancelled = false;
+    final source = StreamController<List<int>>(
+      onCancel: () { cancelled = true; },
+    );
+    final watch = Stopwatch()..start();
+    await expectLater(
+      TaiwanBusinessCalendarAnnualSourceCheck.readBoundedOfficialCsvStream(
+        source.stream,
+        maxElapsed: const Duration(milliseconds: 25),
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
+    watch.stop();
+    expect(cancelled, isTrue, reason: 'Timeout must release HTTP stream');
+    expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+    await source.close();
+  });
+
+  test('B2.14e oversized stream cancels before unbounded buffering', () async {
+    var cancelled = false;
+    final source = StreamController<List<int>>(
+      onCancel: () { cancelled = true; },
+    );
+    final result =
+        TaiwanBusinessCalendarAnnualSourceCheck.readBoundedOfficialCsvStream(
+      source.stream,
+      maxElapsed: const Duration(seconds: 1),
+    );
+    source.add(List<int>.filled(256 * 1024 + 1, 0));
+    await expectLater(result, throwsA(isA<FormatException>()));
+    expect(cancelled, isTrue);
+    await source.close();
+  });
+
 }
