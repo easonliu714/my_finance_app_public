@@ -42,18 +42,33 @@ class ExistingInvoiceAwardCloudEvaluation {
   final String? indexSha256;
   final String? pdfSha256;
 
-  bool get hasCloudNumberMatch => selectedTierCode != null;
+  // Owner option C: legacy evaluation objects may still exist in memory.
+  // Never let their derived getters re-authorize a release cloud-500 result.
+  bool get hasCloudNumberMatch =>
+      selectedTierCode != null &&
+      !Cloud500ProductionPolicy.blocksCloud500Persistence(selectedTierCode!);
 
-  bool get hasCompleteAuthority => missingTierCodes.isEmpty;
+  // Cloud-500 is unavailable in release: a complete global NOT_WIN is
+  // impossible even when a historical object claims no missing tiers.
+  bool get hasCompleteAuthority =>
+      missingTierCodes.isEmpty &&
+      !Cloud500ProductionPolicy.blocksCloud500Persistence('cloud-500');
 
   bool get isConfirmedCloudNumberMatch =>
-      status == ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible;
+      status == ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible &&
+      hasCloudNumberMatch &&
+      !(Cloud500ProductionPolicy.blocksCloud500Persistence('cloud-500') &&
+          matchedTierCodes.contains('cloud-500'));
 
   bool get requiresReview =>
       status == ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete ||
       status == ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired ||
       status == ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired ||
-      status == ExistingInvoiceAwardCloudEvaluationStatus.invalidPeriod;
+      status == ExistingInvoiceAwardCloudEvaluationStatus.invalidPeriod ||
+      (Cloud500ProductionPolicy.blocksCloud500Persistence('cloud-500') &&
+          (status == ExistingInvoiceAwardCloudEvaluationStatus.notMatched ||
+              selectedTierCode == 'cloud-500' ||
+              matchedTierCodes.contains('cloud-500')));
 }
 
 /// Second-chance cloud-exclusive matching for existing formal transactions.

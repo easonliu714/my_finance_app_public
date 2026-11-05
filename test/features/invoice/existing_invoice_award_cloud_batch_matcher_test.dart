@@ -1,11 +1,14 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/existing_invoice_award_candidate_repository.dart';
 import 'package:my_finance_app/features/invoice/existing_invoice_award_cloud_batch_matcher.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_candidate_scope.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_index_lkg_repository.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_index.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud500_production_policy.dart';
 
 void main() {
   late Directory tempDir;
@@ -105,6 +108,78 @@ void main() {
         }) async =>
             snapshots['$periodId|$tierCode'],
       );
+
+  test('Owner C legacy evaluation getters fail closed without losing other tiers',
+      () {
+    final oldCandidate = candidate();
+    ExistingInvoiceAwardCloudEvaluation legacy({
+      required String? selected,
+      required Set<String> matched,
+      required ExistingInvoiceAwardCloudEvaluationStatus status,
+    }) =>
+        ExistingInvoiceAwardCloudEvaluation(
+          candidate: oldCandidate,
+          status: status,
+          missingTierCodes: const <String>{},
+          matchedTierCodes: matched,
+          selectedTierCode: selected,
+          grossAmount: selected == 'cloud-500' ? 500 : 800,
+        );
+
+    // The same compile-time policy used by production is checked for both
+    // build modes; no caller-controlled build flag is exposed on the model.
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: 'cloud-500',
+        isReleaseBuild: true,
+      ),
+      isTrue,
+    );
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: 'cloud-500',
+        isReleaseBuild: false,
+      ),
+      isFalse,
+    );
+
+    final stale500 = legacy(
+      selected: 'cloud-500',
+      matched: const <String>{'cloud-500'},
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(stale500.hasCloudNumberMatch, !kReleaseMode);
+    expect(stale500.isConfirmedCloudNumberMatch, !kReleaseMode);
+    expect(stale500.hasCompleteAuthority, !kReleaseMode);
+    expect(stale500.requiresReview, kReleaseMode);
+
+    final staleGlobalMiss = legacy(
+      selected: null,
+      matched: const <String>{},
+      status: ExistingInvoiceAwardCloudEvaluationStatus.notMatched,
+    );
+    expect(staleGlobalMiss.hasCloudNumberMatch, isFalse);
+    expect(staleGlobalMiss.hasCompleteAuthority, !kReleaseMode);
+    expect(staleGlobalMiss.requiresReview, kReleaseMode);
+
+    final independentlyMatched800 = legacy(
+      selected: 'cloud-800',
+      matched: const <String>{'cloud-800'},
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(independentlyMatched800.hasCloudNumberMatch, isTrue);
+    expect(independentlyMatched800.isConfirmedCloudNumberMatch, isTrue);
+    expect(independentlyMatched800.requiresReview, isFalse);
+    expect(independentlyMatched800.hasCompleteAuthority, !kReleaseMode);
+
+    final staleMixed = legacy(
+      selected: 'cloud-800',
+      matched: const <String>{'cloud-800', 'cloud-500'},
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(staleMixed.isConfirmedCloudNumberMatch, !kReleaseMode);
+    expect(staleMixed.requiresReview, kReleaseMode);
+  });
 
   test('Owner C rejects stale cloud-500 LKG as WIN and global NOT_WIN',
       () async {
