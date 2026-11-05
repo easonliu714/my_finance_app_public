@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'existing_invoice_award_cloud_batch_matcher.dart';
@@ -41,27 +40,16 @@ class InvoiceAwardCloudEligibilityConfirmation {
       RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(officialPdfSha256) &&
       confirmedAtUtc.isUtc;
 
+  // A legacy 500 consent record is retained for audit, but it cannot
+  // authorize a release award result even through a direct model caller.
   bool get confirmsEligibility =>
       decision == InvoiceAwardCloudEligibilityUserDecision.eligible &&
-      hasValidProvenance;
+      hasValidProvenance &&
+      !Cloud500ProductionPolicy.blocksCloud500Persistence(tierCode);
   bool get confirmsIneligibility =>
       decision == InvoiceAwardCloudEligibilityUserDecision.ineligible &&
       hasValidProvenance;
-  // Owner C: a historical user decision is evidence, never release authority
-  // for a deferred cloud-500 award. Other cloud tiers retain their consent.
-  bool canAuthorizeFutureBookkeepingEligibilityForBuild({
-    required bool isReleaseBuild,
-  }) =>
-      confirmsEligibility &&
-      !Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
-        tierCode: tierCode,
-        isReleaseBuild: isReleaseBuild,
-      );
-
-  bool get canAuthorizeFutureBookkeepingEligibility =>
-      canAuthorizeFutureBookkeepingEligibilityForBuild(
-        isReleaseBuild: kReleaseMode,
-      );
+  bool get canAuthorizeFutureBookkeepingEligibility => confirmsEligibility;
 
   Map<String, Object?> toJson() => <String, Object?>{
         'contract_version': reviewContractVersion,

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_finance_app/features/invoice/existing_invoice_award_candidate_repository.dart';
 import 'package:my_finance_app/features/invoice/existing_invoice_award_cloud_batch_matcher.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_eligibility_confirmation.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud500_production_policy.dart';
 
 void main() {
   setUp(() { SharedPreferences.setMockInitialValues(<String, Object>{}); });
@@ -62,18 +63,23 @@ void main() {
       decision: InvoiceAwardCloudEligibilityUserDecision.eligible,
       confirmedAtUtc: DateTime.utc(2026, 10, 6, 8),
     );
+    // Test both release and diagnostic policy decisions without exposing a
+    // caller-supplied build-mode override on the production model.
     expect(
-      legacyRecord.canAuthorizeFutureBookkeepingEligibilityForBuild(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: 'cloud-500',
         isReleaseBuild: true,
-      ),
-      isFalse,
-    );
-    expect(
-      legacyRecord.canAuthorizeFutureBookkeepingEligibilityForBuild(
-        isReleaseBuild: false,
       ),
       isTrue,
     );
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: 'cloud-500',
+        isReleaseBuild: false,
+      ),
+      isFalse,
+    );
+    expect(legacyRecord.confirmsEligibility, !kReleaseMode);
     expect(legacyRecord.canAuthorizeFutureBookkeepingEligibility, !kReleaseMode);
 
     final otherTier = ExistingInvoiceAwardCloudEvaluation(
@@ -92,11 +98,13 @@ void main() {
       confirmedAtUtc: DateTime.utc(2026, 10, 6, 9),
     );
     expect(
-      otherRecord.canAuthorizeFutureBookkeepingEligibilityForBuild(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: 'cloud-800',
         isReleaseBuild: true,
       ),
-      isTrue,
+      isFalse,
     );
+    expect(otherRecord.canAuthorizeFutureBookkeepingEligibility, isTrue);
     // Saving another tier must not prune the old 500 evidence from storage.
     expect(
       repository.loadAll().map((item) => item.tierCode).toSet(),
