@@ -105,7 +105,9 @@ class TaiwanBusinessCalendarAnnualSourceCheck {
           'Official CSV response rejected before parsing.',
         );
       }
-      return readBoundedOfficialCsvStream(
+      // Await inside try so the HttpClient is not closed before the
+      // bounded response finishes (and satisfy strict analyzer contract).
+      return await readBoundedOfficialCsvStream(
         response.timeout(const Duration(seconds: 30)),
       );
     } finally {
