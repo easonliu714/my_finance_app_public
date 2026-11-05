@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_artifact_downloader.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud500_production_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_publication_parser.dart';
 
 void main() {
@@ -52,6 +54,71 @@ void main() {
     expect(result.sizeBytes, payload.length);
     expect(result.sha256, hasLength(64));
     expect(result.reference.tierCode, 'cloud-800');
+  });
+
+  test('Owner C direct cloud-500 source is release-blocked before network and file access', () async {
+    final cloud500 = OfficialCloudAwardArtifactReference(
+      artifactId: '20260506_20260725124620_sorted_AI_D.pdf',
+      sourceUri: Uri.parse(
+        'https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124620_sorted_AI_D.pdf',
+      ),
+      periodId: '115-05-06',
+      tierCode: 'cloud-500',
+    );
+    expect(cloud500.isApprovedOfficialSource, isTrue);
+    // Pure negative/positive release policy: diagnostic-mode flags are never
+    // accepted from the downloader caller to override the actual build.
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: cloud500.tierCode,
+        isReleaseBuild: true,
+      ),
+      isTrue,
+    );
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: cloud500.tierCode,
+        isReleaseBuild: false,
+      ),
+      isFalse,
+    );
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: reference().tierCode,
+        isReleaseBuild: true,
+      ),
+      isFalse,
+    );
+    final client = _StreamingClient(payload: pdfBytes());
+    final destination = File('${tempDir.path}/cloud500.partial');
+    final downloader = MinistryOfFinanceCloudAwardArtifactDownloader(
+      client: client,
+    );
+    if (kReleaseMode) {
+      await expectLater(
+        downloader.download(
+          reference: cloud500,
+          destinationTempFile: destination,
+        ),
+        throwsA(isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          Cloud500ProductionPolicy.deferredCode,
+        )),
+      );
+      expect(client.requests, 0);
+      expect(await destination.exists(), isFalse);
+    } else {
+      // Existing non-release G0 acquisition diagnostics remain possible;
+      // this simulated stream is NOT genuine official PDF evidence.
+      final result = await downloader.download(
+        reference: cloud500,
+        destinationTempFile: destination,
+      );
+      expect(client.requests, 1);
+      expect(result.reference.tierCode, 'cloud-500');
+      expect(result.sizeBytes, pdfBytes().length);
+    }
   });
 
   test('rejects non-official host before network use', () async {

@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:http/http.dart' as http;
 
 import 'invoice_award_cloud_publication_parser.dart';
+import 'invoice_award_cloud500_production_policy.dart';
 
 typedef CloudAwardArtifactDownloadProgressCallback = void Function(
   CloudAwardArtifactDownloadProgress progress,
@@ -67,6 +68,13 @@ class MinistryOfFinanceCloudAwardArtifactDownloader {
     // acquisition boundary remains compatible with lifecycle-governed callers.
     // Native PDFium cancellation is enforced separately by the candidate lookup;
     // an interrupted HTTP stream is never promoted until the full PDF gates pass.
+    // Owner option C: a direct caller must not bypass the foreground guard
+    // and download the unproven cloud-500 PDF in a shipped release. Reject
+    // before any HTTP request or filesystem access; isolated Lab remains
+    // independent and non-release diagnostics keep their existing behavior.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(reference.tierCode)) {
+      throw StateError(Cloud500ProductionPolicy.deferredCode);
+    }
     if (!reference.isApprovedOfficialSource) {
       await _deleteIfExists(destinationTempFile);
       throw StateError('CLOUD_AWARD_ARTIFACT_SOURCE_NOT_ALLOWED');
