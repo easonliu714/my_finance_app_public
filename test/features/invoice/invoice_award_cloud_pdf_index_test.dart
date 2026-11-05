@@ -1,7 +1,10 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_artifact_downloader.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud500_production_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_index.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud_publication_parser.dart';
 
@@ -18,7 +21,7 @@ void main() {
     }
   });
 
-  OfficialCloudAwardDownloadedArtifact artifact() {
+  OfficialCloudAwardDownloadedArtifact artifact({String tierCode = 'cloud-800'}) {
     final pdf = File('${tempDir.path}/official.pdf')..writeAsStringSync('%PDF-fixture');
     return OfficialCloudAwardDownloadedArtifact(
       reference: OfficialCloudAwardArtifactReference(
@@ -27,13 +30,65 @@ void main() {
           'https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124532_sorted_AI_E.pdf',
         ),
         periodId: '115-05-06',
-        tierCode: 'cloud-800',
+        tierCode: tierCode,
       ),
       file: pdf,
       sizeBytes: pdf.lengthSync(),
       sha256: 'a' * 64,
     );
   }
+
+  test(
+    'Owner C direct cloud-500 index build is blocked before PDF decode or output I/O in release',
+    () async {
+      final output = File('${tempDir.path}/cloud500.index.candidate')
+        ..writeAsStringSync('historical-candidate-preserved');
+      final extractor = _CountingExtractor();
+
+      // A caller cannot override the compile-time release policy.
+      expect(
+        Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+          tierCode: 'cloud-500',
+          isReleaseBuild: true,
+        ),
+        isTrue,
+      );
+      expect(
+        Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+          tierCode: 'cloud-500',
+          isReleaseBuild: false,
+        ),
+        isFalse,
+      );
+
+      final operation = CloudAwardPdfIndexBuilder(
+        extractor: extractor,
+      ).buildCandidate(
+        artifact: artifact(tierCode: 'cloud-500'),
+        candidateIndexFile: output,
+      );
+      if (kReleaseMode) {
+        await expectLater(
+          operation,
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              Cloud500ProductionPolicy.deferredCode,
+            ),
+          ),
+        );
+        expect(extractor.calls, 0);
+        expect(output.readAsStringSync(), 'historical-candidate-preserved');
+      } else {
+        // Debug diagnostics remain usable; this does not authorize release.
+        final result = await operation;
+        expect(result.manifest.tierCode, 'cloud-500');
+        expect(extractor.calls, 1);
+        expect(output.readAsLinesSync(), <String>['AD00166192']);
+      }
+    },
+  );
 
   test('builds candidate index page by page with exact provenance', () async {
     final output = File('${tempDir.path}/cloud-800.index.candidate');
@@ -131,6 +186,23 @@ void main() {
       throwsA(isA<StateError>()),
     );
   });
+}
+
+class _CountingExtractor extends CloudAwardPdfTextExtractor {
+  int calls = 0;
+
+  @override
+  String get extractorVersion => 'counting-page-extractor-v1';
+
+  @override
+  Future<void> forEachPage(
+    File pdfFile,
+    CloudAwardPdfPageCallback onPage, {
+    CloudAwardPdfExtractorProgressCallback? onProgress,
+  }) async {
+    calls += 1;
+    await onPage(1, 1, 'AD00166192');
+  }
 }
 
 class _FakeExtractor extends CloudAwardPdfTextExtractor {

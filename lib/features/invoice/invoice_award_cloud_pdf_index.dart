@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_pdf_text/flutter_pdf_text.dart';
 
 import 'invoice_award_cloud_artifact_downloader.dart';
+import 'invoice_award_cloud500_production_policy.dart';
 
 typedef CloudAwardPdfPageCallback = FutureOr<void> Function(
   int pageNumber,
@@ -296,6 +297,14 @@ class CloudAwardPdfIndexBuilder {
     CloudAwardPdfExtractorProgressCallback? onExtractorProgress,
     DateTime? builtAt,
   }) async {
+    // Owner option C: a direct builder caller must not decode a deferred
+    // cloud-500 PDF or create a candidate index in a shipped release.
+    // Check before reading the source or touching any existing output file.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(
+      artifact.reference.tierCode,
+    )) {
+      throw StateError(Cloud500ProductionPolicy.deferredCode);
+    }
     if (!artifact.reference.isApprovedOfficialSource ||
         !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(artifact.sha256)) {
       await _deleteIfExists(candidateIndexFile);
