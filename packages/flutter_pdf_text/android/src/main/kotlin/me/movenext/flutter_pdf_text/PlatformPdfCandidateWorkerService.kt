@@ -61,6 +61,12 @@ class PlatformPdfCandidateWorkerService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    // A direct same-app Intent must not bypass Owner C Dart/MethodChannel gates.
+    // Do not create a notification, source handle, result sidecar or worker.
+    if (Cloud500NativeProductionGate.isDeferred(applicationInfo.flags)) {
+      stopSelf(startId)
+      return START_NOT_STICKY
+    }
     if (intent == null) {
       // A newer null start must never stop an older active foreground owner.
       if (!startLease.isActive()) stopSelf(startId)
