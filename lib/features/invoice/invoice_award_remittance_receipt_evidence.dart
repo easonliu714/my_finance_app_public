@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'invoice_award_payout_bookkeeping_contract.dart';
+import 'invoice_award_cloud500_production_policy.dart';
 
 /// Manual observation, not MOF or bank-verified settlement.
 class InvoiceAwardRemittanceReceiptEvidence {
@@ -122,6 +123,12 @@ class InvoiceAwardRemittanceReceiptRepository {
     required DateTime receivedAtUtc,
     required DateTime confirmedAtUtc,
   }) async {
+    // Owner option C: block new cloud-500 receipt writes at the repository
+    // boundary, including direct callers bypassing the proposal planner.
+    // Historical observations remain readable for audit and are not deleted.
+    if (proposal.prizeTier == 'cloud-500') {
+      throw StateError(Cloud500ProductionPolicy.deferredCode);
+    }
     if (!proposal.hasValidProvenance || !receivedAtUtc.isUtc ||
         !confirmedAtUtc.isUtc ||
         receivedAtUtc.isBefore(proposal.externalRemittanceEligibleAt) ||
