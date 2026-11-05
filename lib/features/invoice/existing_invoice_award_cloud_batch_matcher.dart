@@ -1,5 +1,6 @@
 import 'existing_invoice_award_candidate_repository.dart';
 import 'invoice_award_cloud_candidate_scope.dart';
+import 'invoice_award_cloud500_production_policy.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_cloud_pdf_index.dart';
 
@@ -64,10 +65,12 @@ class ExistingInvoiceAwardCloudBatchMatcher {
   ExistingInvoiceAwardCloudBatchMatcher({
     required CloudAwardLatestSnapshotReader readLatest,
     this.lookup = const CloudAwardLocalIndexLookup(),
+    this.allowCloud500Diagnostic = false,
   }) : _readLatest = readLatest;
 
   final CloudAwardLatestSnapshotReader _readLatest;
   final CloudAwardLocalIndexLookup lookup;
+  final bool allowCloud500Diagnostic;
 
   static const List<String> tierPriority = <String>[
     'cloud-1000000',
@@ -138,6 +141,14 @@ class ExistingInvoiceAwardCloudBatchMatcher {
       final snapshots = <String, CloudAwardValidatedIndexSnapshot>{};
 
       for (final tier in tierPriority) {
+        if (tier == 'cloud-500' &&
+            Cloud500ProductionPolicy.isDeferred(
+              allowDiagnostic: allowCloud500Diagnostic,
+            )) {
+          // Even a previously cached index cannot establish WIN or NOT_WIN.
+          missingTiers.add(tier);
+          continue;
+        }
         CloudAwardCandidateScopedAuthority? scopedAuthority;
         for (final candidateAuthority in scopedAuthorities) {
           if (candidateAuthority.periodId == periodId &&

@@ -94,14 +94,31 @@ void main() {
         cloudEligibility: eligibility,
       );
 
-  ExistingInvoiceAwardCloudBatchMatcher matcher() =>
+  ExistingInvoiceAwardCloudBatchMatcher matcher({
+    bool allowCloud500Diagnostic = true,
+  }) =>
       ExistingInvoiceAwardCloudBatchMatcher(
+        allowCloud500Diagnostic: allowCloud500Diagnostic,
         readLatest: ({
           required String periodId,
           required String tierCode,
         }) async =>
             snapshots['$periodId|$tierCode'],
       );
+
+  test('Owner C rejects stale cloud-500 LKG as WIN and global NOT_WIN',
+      () async {
+    await addAllTiers(fiveHundred: 'AB12345678');
+    final result = (await matcher(allowCloud500Diagnostic: false).evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+    )).single;
+    expect(result.status, ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete);
+    expect(result.missingTierCodes, contains('cloud-500'));
+    expect(result.selectedTierCode, isNull);
+    expect(result.grossAmount, 0);
+    expect(result.isConfirmedCloudNumberMatch, isFalse);
+    expect(result.hasCompleteAuthority, isFalse);
+  });
 
   test('eligible cloud invoice gets confirmed second-chance tier match',
       () async {

@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'invoice_award_cloud_artifact_downloader.dart';
 import 'invoice_award_cloud_candidate_scope.dart';
+import 'invoice_award_cloud500_production_policy.dart';
 import 'invoice_award_cloud_candidate_scope_repository.dart';
 import 'invoice_award_cloud_index_lkg_repository.dart';
 import 'invoice_award_cloud_pdf_cache_repository.dart';
@@ -162,7 +163,9 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     DateTime Function()? clock,
     Uri? publicationUri,
     this.maxPublicationBytes = 1024 * 1024,
-  })  : _client = client,
+    bool allowCloud500Diagnostic = false,
+  })  : _allowCloud500Diagnostic = allowCloud500Diagnostic,
+        _client = client,
         _repository = repository,
         _indexBuilder = indexBuilder ??
             const CloudAwardPdfIndexBuilder(
@@ -206,6 +209,7 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
   final DateTime Function() _clock;
   final Uri _publicationUri;
   final int maxPublicationBytes;
+  final bool _allowCloud500Diagnostic;
 
   Future<CloudAwardForegroundRefreshResult> refresh({
     required String periodId,
@@ -217,15 +221,21 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     final normalizedCandidates =
         normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
     final nowUtc = _clock().toUtc();
-    try {
-      await _pdfCacheRepository.pruneExpired(nowUtc: nowUtc);
-    } catch (_) {
-      // Cache cleanup is best effort and must not block a refresh.
-    }
-    try {
-      await _candidateScopeRepository.pruneExpired(nowUtc: nowUtc);
-    } catch (_) {
-      // Candidate-authority cleanup is best effort and must not block refresh.
+    final cloud500Deferred = Cloud500ProductionPolicy.isDeferred(
+      allowDiagnostic: _allowCloud500Diagnostic,
+    );
+    // Do not prune old cloud-500 evidence while the production path is paused.
+    if (!cloud500Deferred) {
+      try {
+        await _pdfCacheRepository.pruneExpired(nowUtc: nowUtc);
+      } catch (_) {
+        // Diagnostic cache cleanup is best effort.
+      }
+      try {
+        await _candidateScopeRepository.pruneExpired(nowUtc: nowUtc);
+      } catch (_) {
+        // Diagnostic candidate cleanup is best effort.
+      }
     }
     onProgress?.call(
       const CloudAwardForegroundProgress(
@@ -267,6 +277,21 @@ class MinistryOfFinanceCloudAwardForegroundAcquisitionService {
     final results = <CloudAwardTierRefreshResult>[];
     for (final reference in publication.artifacts) {
       cancellation?.throwIfCancelled();
+      if (reference.tierCode == 'cloud-500' && cloud500Deferred) {
+        // Block before cache, download, native worker or LKG promotion.
+        results.add(CloudAwardTierRefreshResult(
+          tierCode: reference.tierCode,
+          status: CloudAwardTierRefreshStatus.failed,
+          sourceUri: reference.sourceUri,
+          failureCode: Cloud500ProductionPolicy.deferredCode,
+        ));
+        onProgress?.call(const CloudAwardForegroundProgress(
+          stage: CloudAwardForegroundStage.failed,
+          tierCode: 'cloud-500',
+          message: '雲端500元獎正式功能暫停；未驗證結果維持 UNKNOWN',
+        ));
+        continue;
+      }
       if (reference.tierCode == 'cloud-500' &&
           normalizedCandidates.isEmpty) {
         results.add(

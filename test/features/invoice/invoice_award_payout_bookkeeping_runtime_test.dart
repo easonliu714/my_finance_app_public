@@ -134,9 +134,10 @@ void main() {
       },
     );
 
+    // Historical 500 review remains visible, but cannot create a new proposal.
     expect(ready.single.status,
-        InvoiceAwardPayoutBookkeepingReadinessStatus.readyProposal);
-    expect(ready.single.proposal?.grossAmount, 500);
+        InvoiceAwardPayoutBookkeepingReadinessStatus.officialAuthorityIncomplete);
+    expect(ready.single.proposal, isNull);
   });
 
   test('preflight fails closed when external remittance is not configured', () {

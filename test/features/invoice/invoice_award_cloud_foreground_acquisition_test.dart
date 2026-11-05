@@ -36,6 +36,7 @@ void main() {
     Uri? publicationUri,
     CloudAwardPdfIndexBuilder? indexBuilder,
     CloudAwardSortedPdfCandidateLookup? sortedCandidateLookup,
+    bool allowCloud500Diagnostic = true,
   }) =>
       MinistryOfFinanceCloudAwardForegroundAcquisitionService(
         client: client,
@@ -46,9 +47,38 @@ void main() {
               extractor: _FixtureExtractor(),
             ),
         sortedCandidateLookup: sortedCandidateLookup,
+        allowCloud500Diagnostic: allowCloud500Diagnostic,
         temporaryDirectoryProvider: () async => tempDir,
         clock: () => DateTime.utc(2026, 9, 25, 6),
       );
+
+  test('Owner C never fetches cloud-500 PDF in production mode', () async {
+    final requests = <Uri>[];
+    final client = MockClient((request) async {
+      requests.add(request.url);
+      if (request.url.path == '/cloudNowNumber.html') {
+        return _html(_publicationFixture);
+      }
+      if (request.url.path.startsWith('/pdf/')) return _pdf();
+      return http.Response('unexpected', 404);
+    });
+    final result = await service(
+      client: client,
+      allowCloud500Diagnostic: false,
+    ).refresh(
+      periodId: '115-07-08',
+      candidateInvoiceNumbers: const <String>['AB12345678'],
+    );
+    final paused = result.tiers.singleWhere((tier) => tier.tierCode == 'cloud-500');
+    expect(paused.status, CloudAwardTierRefreshStatus.failed);
+    expect(paused.failureCode, 'CLOUD500_PRODUCTION_DEFERRED_OWNER_OPTION_C');
+    expect(paused.snapshot, isNull);
+    expect(paused.candidateAuthority, isNull);
+    expect(result.isComplete, isFalse);
+    expect(result.tiers.where((tier) => tier.tierCode != 'cloud-500')
+        .every((tier) => tier.isReady), isTrue);
+    expect(requests.any((uri) => uri.path.contains('_sorted_AI_D.pdf')), isFalse);
+  });
 
   test('zero cloud-500 candidates skip giant PDF and other tiers promote',
       () async {

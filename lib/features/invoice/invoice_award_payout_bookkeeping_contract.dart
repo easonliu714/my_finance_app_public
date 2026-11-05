@@ -67,7 +67,10 @@ class InvoiceAwardPayoutBookkeepingProposalBuilder {
     required bool explicitUserAuthorization,
     required bool externalMofRemittanceConfigured,
   }) {
-    if (!explicitUserAuthorization || !externalMofRemittanceConfigured) {
+    // A valid old SHA/receipt does not re-enable cloud-500 under Owner C.
+    if (candidate.prizeTier == 'cloud-500' ||
+        !explicitUserAuthorization ||
+        !externalMofRemittanceConfigured) {
       return null;
     }
     if (!candidate.isEligibleForBookkeepingProposalAt(now)) return null;

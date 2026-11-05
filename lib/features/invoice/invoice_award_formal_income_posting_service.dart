@@ -45,6 +45,10 @@ class InvoiceAwardFormalIncomePostingService {
     required InvoiceAwardRemittanceReceiptEvidence receipt,
     required DateTime authorizedAtUtc,
   }) async {
+    // Reject before any account/SQLite access; preserve historical POSTED rows.
+    if (proposal.prizeTier == 'cloud-500') {
+      throw StateError('CLOUD500_PRODUCTION_DEFERRED_OWNER_OPTION_C');
+    }
     if (!authorizedAtUtc.isUtc ||
         authorizedAtUtc.isBefore(receipt.confirmedAtUtc) ||
         authorizedAtUtc.isBefore(receipt.receivedAtUtc) ||
