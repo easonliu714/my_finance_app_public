@@ -343,7 +343,7 @@ jobs:
             printf 'CLOUD_500_BACKGROUND_FOREGROUND_SERVICE=PASS\n'
             printf 'CLOUD_500_HEARTBEAT_LIVENESS=PASS\n'
             printf 'CLOUD_500_FIXED_TOTAL_TIMEOUT_ABSENT=PASS\n'
-            printf 'CLOUD_500_PLATFORM_RENDERER_BOUNDED_BINARY_SEARCH=PASS\n'
+            printf 'CLOUD_500_PLATFORM_RENDERER_BOUNDED_BINARY_SEARCH=CONTRACT_ONLY_GLOBAL_PROOF_HOLD\n'
             printf 'CLOUD_500_PLATFORM_RENDERER_SINGLE_OPEN_PER_WORKER=PASS\n'
             printf 'CLOUD_FOUR_TIER_SUMMARY=PASS\n'
             printf 'CLOUD_TIER_FAILURE_EVIDENCE=PASS\n'
@@ -372,6 +372,13 @@ jobs:
             printf 'GCIS_RELEASE_DEPENDENCY=false\n'
             # B1/B2 signed device candidate is not C500 global NOT_WIN proof.
             printf 'B1_B2_DEVICE_CANDIDATE_ONLY=TRUE\n'
+            # B2 signed candidate is not C500 production authority.
+            # Explicit source/Android/global proof HOLD cannot be replaced by synthetic contracts.
+            printf 'C500_G0=HOLD_OFFICIAL_SEMANTIC_COMPLETENESS\n'
+            printf 'C500_G1=HOLD_OFFICIAL_COMPLETE_RECORD_FEED_UNPROVEN\n'
+            printf 'C500_G2_G4=HOLD_ANDROID_GLOBAL_PROOF_UNPROVEN\n'
+            printf 'C500_ANDROID_RESOURCE=NO_GO_TESTED_DIRECT_ENGINES_ONLY\n'
+            printf 'C500_G6=BLOCKED_OWNER_TECHNICAL_CHOICE_AND_SECURITY\n'
             printf 'C500_GLOBAL_NOT_WIN=HOLD\n'
             printf 'C500_G5_OWNER_CHOICE=HOLD\n'
             printf 'B1_B2_OWNER_UPGRADE_DATA_RETENTION=HOLD\n'
@@ -394,7 +401,7 @@ jobs:
             'CLOUD_500_BACKGROUND_FOREGROUND_SERVICE=PASS' \
             'CLOUD_500_HEARTBEAT_LIVENESS=PASS' \
             'CLOUD_500_FIXED_TOTAL_TIMEOUT_ABSENT=PASS' \
-            'CLOUD_500_PLATFORM_RENDERER_BOUNDED_BINARY_SEARCH=PASS' \
+            'CLOUD_500_PLATFORM_RENDERER_BOUNDED_BINARY_SEARCH=CONTRACT_ONLY_GLOBAL_PROOF_HOLD' \
             'CLOUD_500_PLATFORM_RENDERER_SINGLE_OPEN_PER_WORKER=PASS' \
             'CLOUD_FOUR_TIER_SUMMARY=PASS' \
             'CLOUD_TIER_FAILURE_EVIDENCE=PASS' \

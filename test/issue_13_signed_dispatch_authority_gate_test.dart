@@ -11,6 +11,25 @@ void main() {
       '.github/workflows/issue_13_invoice_award_mvp_signed_canary.yml',
     ).readAsStringSync();
     expect(workflow, contains("default: 'NO_SIGN'"));
+    // Prevent a signed B2 canary from claiming unproven C500 authority.
+    expect(workflow, isNot(contains(
+      'CLOUD_500_PLATFORM_RENDERER_BOUNDED_BINARY_SEARCH=PASS',
+    )));
+    expect(workflow, contains(
+      'CLOUD_500_PLATFORM_RENDERER_BOUNDED_BINARY_SEARCH=CONTRACT_ONLY_GLOBAL_PROOF_HOLD',
+    ));
+    for (final hold in [
+      'C500_G0=HOLD_OFFICIAL_SEMANTIC_COMPLETENESS',
+      'C500_G1=HOLD_OFFICIAL_COMPLETE_RECORD_FEED_UNPROVEN',
+      'C500_G2_G4=HOLD_ANDROID_GLOBAL_PROOF_UNPROVEN',
+      'C500_ANDROID_RESOURCE=NO_GO_TESTED_DIRECT_ENGINES_ONLY',
+      'C500_GLOBAL_NOT_WIN=HOLD',
+      'C500_G5_OWNER_CHOICE=HOLD',
+      'C500_G6=BLOCKED_OWNER_TECHNICAL_CHOICE_AND_SECURITY',
+    ]) {
+      expect(workflow, contains(hold), reason: hold);
+    }
+
     expect(workflow, contains(
       "inputs.owner_signing_authorization == 'AUTHORIZE_SIGNED_CANDIDATE_ONLY'",
     ));
