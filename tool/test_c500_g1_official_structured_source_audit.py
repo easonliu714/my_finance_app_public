@@ -1,8 +1,10 @@
 """Synthetic G1 authority contracts; never real-source evidence."""
 import json
 import unittest
+from unittest.mock import patch
+from urllib.request import Request
 from tool.c500_g1_official_structured_source_audit import (
-    SPEC, MAX_BYTES, AuditError, audit_spec, audit_index, audit_pair, fetch, fields)
+    SPEC, MAX_BYTES, AuditError, NoRedirect, audit_spec, audit_index, audit_pair, fetch, fields)
 
 def fixture(names):
     return json.dumps({"openapi":"3.0.1","paths":{"/api/v1/PrizeStatic":{
@@ -38,6 +40,24 @@ class Tests(unittest.TestCase):
     def test_redirect(self):
         with self.assertRaisesRegex(AuditError,"REDIRECT"):
             fetch(SPEC,opener=lambda *a,**k:Response(b"{}",url="https://evil.test"))
+    def test_default_opener_uses_no_redirect_handler(self):
+        # Verify the real default path, not only a fake injected opener.
+        with patch("tool.c500_g1_official_structured_source_audit.build_opener") as builder:
+            builder.return_value.open.return_value = Response(b"{}", url=SPEC)
+            self.assertEqual(fetch(SPEC), b"{}")
+            self.assertIsInstance(builder.call_args.args[0], NoRedirect)
+
+    def test_redirect_rejected_before_any_follow_up_request(self):
+        # Exercise the actual urllib redirect handler for both same-origin and foreign targets.
+        handler = NoRedirect()
+        for code in (301, 302, 303, 307, 308):
+            for target in (SPEC + "?next=1", "https://evil.test/collect"):
+                with self.subTest(code=code, target=target):
+                    with self.assertRaisesRegex(AuditError, "HTTP_REDIRECT_REJECTED"):
+                        handler.http_error_302(
+                            Request(SPEC), None, code, "Redirect",
+                            {"Location": target}, None)
+
     def test_oversize(self):
         with self.assertRaisesRegex(AuditError,"OVERSIZE"):
             fetch(SPEC,opener=lambda *a,**k:Response(b"x"*(MAX_BYTES+1)))

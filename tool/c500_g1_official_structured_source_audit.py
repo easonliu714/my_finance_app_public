@@ -4,7 +4,7 @@ import hashlib
 from html.parser import HTMLParser
 import json
 import sys
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 SPEC = "https://www.einvoice.nat.gov.tw/portal/ods/openapi.json"
 INDEX = "https://invoice.etax.nat.gov.tw/cloudListNumber.html"
@@ -13,9 +13,17 @@ MAX_BYTES = 2000000
 class AuditError(Exception):
     pass
 
-def fetch(url, opener=urlopen):
+# Fail closed before an HTTP redirect can send a second request to any host.
+# Checking the final URL after urlopen follows redirects is insufficient.
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise AuditError("HTTP_REDIRECT_REJECTED")
+
+def fetch(url, opener=None):
     if url not in (SPEC, INDEX):
         raise AuditError("UNAPPROVED_URL")
+    if opener is None:
+        opener = build_opener(NoRedirect()).open
     try:
         with opener(Request(url, headers={"User-Agent":"C500-G1-readonly/1.0"}), timeout=25) as r:
             if r.geturl() != url or r.status != 200:
