@@ -51,6 +51,14 @@ void main() {
     expect(workflow.indexOf('Fail fast on independent installed-upgrade signer continuity'), lessThan(workflow.indexOf('Wait for exact-head Flutter Android CI authority')));
     expect(pins.toSet(), hasLength(1));
     expect(workflow, contains('docs/public_release_signing_security.md'));
+    // PR synchronizations and branch pushes cannot enter the secret-bearing
+    // job. Only an explicit manual workflow dispatch by the repository Owner.
+    expect(workflow, contains("github.event_name == 'workflow_dispatch'"));
+    expect(workflow, contains("github.actor == 'easonliu714'"));
+    expect(workflow, contains("needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && github.actor == 'easonliu714'"));
+    expect(preflight, contains('HOLD_VERSION_CODE_NOT_GREATER_THAN_OWNER_495'));
+    expect(preflight, contains('HOLD_RELEASE_VERSION_MALFORMED'));
+    expect(preflight, contains('owner_installed_version_code=495'));
     expect(workflow, contains('SIGNER_UPGRADE_COMPATIBILITY=HOLD_DOC_PIN_MISMATCH'));
     expect(
       workflow,
@@ -96,7 +104,15 @@ void main() {
         '${root.path}/docs/public_release_signing_security.md',
       );
       baseline.parent.createSync(recursive: true);
-      Future<ProcessResult> invoke(String fixture, {bool trustFixture = false}) async {
+      final versionFixture = File('${root.path}/pubspec.yaml');
+      Future<ProcessResult> invoke(
+        String fixture, {
+        bool trustFixture = false,
+        String version = '4.20.38+496',
+      }) async {
+        // Synthetic version is used only for a local preflight test; no
+        // production version bump, APK signing, or installed app mutation.
+        versionFixture.writeAsStringSync('name: synthetic_gate\nversion: $version\n');
         baseline.writeAsStringSync(fixture);
         final digestResult = await Process.run('git', ['hash-object', baseline.path]);
         expect(digestResult.exitCode, 0);
@@ -114,6 +130,22 @@ void main() {
           workingDirectory: root.path,
         );
       }
+
+      final currentOwnerCode = await invoke(security, version: '4.20.37+495');
+      expect(currentOwnerCode.exitCode, isNot(0));
+      expect(currentOwnerCode.stderr.toString(), contains('HOLD_VERSION_CODE_NOT_GREATER_THAN_OWNER_495'));
+      final downgradeCode = await invoke(security, version: '4.20.36+494');
+      expect(downgradeCode.exitCode, isNot(0));
+      expect(downgradeCode.stderr.toString(), contains('HOLD_VERSION_CODE_NOT_GREATER_THAN_OWNER_495'));
+      final oversizedCode = await invoke(security, version: '4.20.38+2100000001');
+      expect(oversizedCode.exitCode, isNot(0));
+      expect(oversizedCode.stderr.toString(), contains('HOLD_VERSION_CODE_NOT_GREATER_THAN_OWNER_495'));
+      final malformedCode = await invoke(security, version: '4.20.38+0496');
+      expect(malformedCode.exitCode, isNot(0));
+      expect(malformedCode.stderr.toString(), contains('HOLD_RELEASE_VERSION_MALFORMED'));
+      final duplicateCode = await invoke(security, version: '4.20.38+496\nversion: 4.20.38+497');
+      expect(duplicateCode.exitCode, isNot(0));
+      expect(duplicateCode.stderr.toString(), contains('HOLD_RELEASE_VERSION_MALFORMED'));
 
       final baselineResult = await invoke(security);
       expect(baselineResult.exitCode, 0);

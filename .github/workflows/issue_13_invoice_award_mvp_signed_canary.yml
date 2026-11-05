@@ -145,7 +145,7 @@ jobs:
   signed-apk:
     name: Build and inspect Issue #13 signed APK
     needs: validate
-    if: ${{ needs.validate.result == 'success' }}
+    if: ${{ needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && github.actor == 'easonliu714' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 70
     steps:
