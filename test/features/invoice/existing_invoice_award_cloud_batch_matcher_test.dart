@@ -207,7 +207,7 @@ void main() {
     expect(result.isConfirmedCloudNumberMatch, isFalse);
   });
 
-  test('candidate-scoped 500 authority closes the missing-tier gap', () async {
+  test('candidate-scoped 500 miss cannot prove global NOT_WIN', () async {
     await addTier('cloud-1000000', const <String>['ZX00000001']);
     await addTier('cloud-2000', const <String>['ZX00000002']);
     await addTier('cloud-800', const <String>['ZX00000003']);
@@ -230,9 +230,14 @@ void main() {
     ))
         .single;
 
-    expect(result.status, ExistingInvoiceAwardCloudEvaluationStatus.notMatched);
-    expect(result.missingTierCodes, isEmpty);
-    expect(result.hasCompleteAuthority, isTrue);
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete,
+    );
+    expect(result.missingTierCodes, contains('cloud-500'));
+    expect(result.hasCompleteAuthority, isFalse);
+    expect(result.selectedTierCode, isNull);
+    expect(result.grossAmount, 0);
   });
 
   test('candidate-scoped 500 match remains eligible and exact-set bound',
@@ -251,6 +256,7 @@ void main() {
       candidateUniverseSha256: 'd' * 64,
       candidateNumbers: const <String>{'AB12345678'},
       matchedInvoiceNumbers: const <String>{'AB12345678'},
+      matchedPageNumbers: const <String, int>{'AB12345678': 42},
     );
 
     final result = (await matcher().evaluate(
@@ -319,6 +325,8 @@ void main() {
           candidateNumbers: <String>{knownInvoice},
           matchedInvoiceNumbers:
               matched ? <String>{knownInvoice} : const <String>{},
+          matchedPageNumbers:
+              matched ? <String, int>{knownInvoice: 1} : const <String, int>{},
         );
 
     final knownCandidate = candidate(
@@ -336,8 +344,9 @@ void main() {
 
     expect(
       noOfficialMatch.status,
-      ExistingInvoiceAwardCloudEvaluationStatus.notMatched,
+      ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete,
     );
+    expect(noOfficialMatch.missingTierCodes, contains('cloud-500'));
     expect(noOfficialMatch.selectedTierCode, isNull);
     expect(noOfficialMatch.grossAmount, 0);
 

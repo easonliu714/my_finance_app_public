@@ -39,8 +39,19 @@ class CloudAwardCandidateScopedAuthority {
   }) {
     if (this.periodId != periodId || this.tierCode != tierCode) return false;
     final normalized = normalizeCloudCandidateNumbers(invoiceNumbers);
-    return normalized.length == candidateNumbers.length &&
-        normalized.containsAll(candidateNumbers);
+    if (normalized.isEmpty ||
+        normalized.length != candidateNumbers.length ||
+        !normalized.containsAll(candidateNumbers)) {
+      return false;
+    }
+    // C500: candidate-scoped binary search proves only exact page-backed
+    // positives. A missing candidate is UNKNOWN until global NOT_WIN is proven.
+    // Validate at the final consumer too; do not rely only on LKG promotion.
+    return matchedInvoiceNumbers.length == candidateNumbers.length &&
+        matchedInvoiceNumbers.containsAll(candidateNumbers) &&
+        matchedPageNumbers.length == candidateNumbers.length &&
+        matchedPageNumbers.keys.toSet().containsAll(candidateNumbers) &&
+        matchedPageNumbers.values.every((page) => page > 0);
   }
 }
 

@@ -122,10 +122,52 @@ void main() {
         tierCode: 'cloud-500',
         invoiceNumbers: const <String>['cd87654321', 'ab12345678'],
       ),
-      isTrue,
+      isFalse,
+    );
+
+    // A fully positive, page-backed exact universe remains usable.
+    final complete = CloudAwardCandidateScopedAuthority(
+      periodId: '115-05-06',
+      tierCode: 'cloud-500',
+      officialSourceUri: authority.officialSourceUri,
+      pdfSha256: authority.pdfSha256,
+      candidateUniverseSha256: authority.candidateUniverseSha256,
+      candidateNumbers: authority.candidateNumbers,
+      matchedInvoiceNumbers: authority.candidateNumbers,
+      matchedPageNumbers: const <String, int>{
+        'AB12345678': 1,
+        'CD87654321': 2,
+      },
     );
     expect(
-      authority.covers(
+      complete.covers(
+        periodId: '115-05-06',
+        tierCode: 'cloud-500',
+        invoiceNumbers: const <String>['cd87654321', 'ab12345678'],
+      ),
+      isTrue,
+    );
+
+    // Even all-positive identity strings cannot bypass missing page evidence.
+    final unbacked = CloudAwardCandidateScopedAuthority(
+      periodId: complete.periodId,
+      tierCode: complete.tierCode,
+      officialSourceUri: complete.officialSourceUri,
+      pdfSha256: complete.pdfSha256,
+      candidateUniverseSha256: complete.candidateUniverseSha256,
+      candidateNumbers: complete.candidateNumbers,
+      matchedInvoiceNumbers: complete.matchedInvoiceNumbers,
+    );
+    expect(
+      unbacked.covers(
+        periodId: '115-05-06',
+        tierCode: 'cloud-500',
+        invoiceNumbers: const <String>['AB12345678', 'CD87654321'],
+      ),
+      isFalse,
+    );
+    expect(
+      complete.covers(
         periodId: '115-05-06',
         tierCode: 'cloud-500',
         invoiceNumbers: const <String>['AB12345678'],
@@ -133,7 +175,7 @@ void main() {
       isFalse,
     );
     expect(
-      authority.covers(
+      complete.covers(
         periodId: '115-07-08',
         tierCode: 'cloud-500',
         invoiceNumbers: const <String>['AB12345678', 'CD87654321'],
