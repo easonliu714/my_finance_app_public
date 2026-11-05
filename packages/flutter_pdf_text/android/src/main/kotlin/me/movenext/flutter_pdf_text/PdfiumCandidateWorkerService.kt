@@ -55,13 +55,21 @@ class PdfiumCandidateWorkerService : Service() {
 
   override fun onCreate() {
     super.onCreate()
-    pdfiumCore = PdfiumCore(applicationContext)
-    ensureNotificationChannel()
+    // Release must not even initialize the cloud-500 native PDF engine.
+    if (!Cloud500NativeProductionGate.isDeferred(applicationInfo.flags)) {
+      pdfiumCore = PdfiumCore(applicationContext)
+      ensureNotificationChannel()
+    }
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    // Reject direct internal starts before any source or result is touched.
+    if (Cloud500NativeProductionGate.isDeferred(applicationInfo.flags)) {
+      stopSelf(startId)
+      return START_NOT_STICKY
+    }
     if (intent == null) {
       if (!startLease.isActive()) stopSelf(startId)
       return START_NOT_STICKY
