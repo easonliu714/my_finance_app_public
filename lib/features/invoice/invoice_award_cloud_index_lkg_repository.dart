@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:cryptography/cryptography.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'invoice_award_cloud500_production_policy.dart';
+
 import 'invoice_award_cloud_pdf_index.dart';
 
 enum CloudAwardIndexPromotionStatus {
@@ -63,6 +65,11 @@ class CloudAwardIndexLkgRepository {
     required CloudAwardIndexBuildResult build,
   }) async {
     final manifest = build.manifest;
+    // Owner option C: a release must not read or promote legacy cloud-500
+    // durable authority, even when a caller bypasses the foreground service.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(manifest.tierCode)) {
+      throw StateError(Cloud500ProductionPolicy.deferredCode);
+    }
     _validateManifestAuthority(manifest);
 
     final candidateAudit = await _auditIndex(build.candidateIndexFile);
@@ -150,6 +157,8 @@ class CloudAwardIndexLkgRepository {
     required String tierCode,
   }) async {
     _validatePeriodTier(periodId, tierCode);
+    // Old cloud-500 LKG files remain intact but cannot become release authority.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(tierCode)) return null;
     final directory = await _tierDirectory(
       periodId: periodId,
       tierCode: tierCode,

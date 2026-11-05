@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'invoice_award_cloud500_production_policy.dart';
+
 import 'invoice_award_cloud_candidate_scope.dart';
 import 'invoice_award_cloud_publication_parser.dart';
 
@@ -21,6 +23,8 @@ class CloudAwardCandidateScopeRepository {
     required Iterable<String> candidateInvoiceNumbers,
     DateTime? nowUtc,
   }) async {
+    // Do not reuse legacy cloud-500 candidate authority in a release build.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(reference.tierCode)) return null;
     if (!reference.isApprovedOfficialSource || reference.tierCode != 'cloud-500') return null;
     final normalized = normalizeCloudCandidateNumbers(candidateInvoiceNumbers);
     if (normalized.isEmpty) return null;
@@ -98,6 +102,11 @@ class CloudAwardCandidateScopeRepository {
     required DateTime verifiedAtUtc,
     DateTime? retentionUntilUtc,
   }) async {
+    // Owner option C: a release must not read or promote legacy cloud-500
+    // durable authority, even when a caller bypasses the foreground service.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(reference.tierCode)) {
+      throw StateError(Cloud500ProductionPolicy.deferredCode);
+    }
     if (!verifiedAtUtc.isUtc ||
         (retentionUntilUtc != null && !retentionUntilUtc.isUtc) ||
         !reference.isApprovedOfficialSource ||

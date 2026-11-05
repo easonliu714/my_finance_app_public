@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:cryptography/cryptography.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'invoice_award_cloud500_production_policy.dart';
+
 import 'invoice_award_cloud_artifact_downloader.dart';
 import 'invoice_award_cloud_publication_parser.dart';
 
@@ -146,6 +148,8 @@ class CloudAwardPdfCacheRepository {
   Future<CloudAwardCachedPdfSnapshot?> readValidated({
     required OfficialCloudAwardArtifactReference reference,
   }) async {
+    // Preserve old cloud-500 PDFs without exposing them as release inputs.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(reference.tierCode)) return null;
     if (!reference.isApprovedOfficialSource) return null;
     final directory = await _tierDirectory(reference);
     if (!await directory.exists()) return null;
@@ -181,6 +185,11 @@ class CloudAwardPdfCacheRepository {
     required DateTime downloadedAtUtc,
     DateTime? retentionUntilUtc,
   }) async {
+    // Owner option C: a release must not read or promote legacy cloud-500
+    // durable authority, even when a caller bypasses the foreground service.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(artifact.reference.tierCode)) {
+      throw StateError(Cloud500ProductionPolicy.deferredCode);
+    }
     if (!downloadedAtUtc.isUtc ||
         (retentionUntilUtc != null && !retentionUntilUtc.isUtc)) {
       throw StateError('CLOUD_AWARD_PDF_CACHE_TIME_NOT_UTC');
