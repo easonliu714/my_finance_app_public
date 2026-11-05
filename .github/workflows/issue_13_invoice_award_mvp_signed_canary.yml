@@ -2,6 +2,15 @@ name: Issue #13 9/24 Existing Transaction Award MVP Signed Canary
 
 on:
   workflow_dispatch:
+    inputs:
+      owner_signing_authorization:
+        description: 'Explicit Owner approval for PR45 signed candidate, not install or merge'
+        required: true
+        type: choice
+        default: 'NO_SIGN'
+        options:
+          - 'NO_SIGN'
+          - 'AUTHORIZE_SIGNED_CANDIDATE_ONLY'
   push:
     branches:
       - issue-13-invoice-award-official-data
@@ -145,7 +154,7 @@ jobs:
   signed-apk:
     name: Build and inspect Issue #13 signed APK
     needs: validate
-    if: ${{ needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && github.actor == 'easonliu714' }}
+    if: ${{ needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && github.actor == 'easonliu714' && github.ref == 'refs/heads/issue-13-invoice-award-official-data' && inputs.owner_signing_authorization == 'AUTHORIZE_SIGNED_CANDIDATE_ONLY' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 70
     steps:
@@ -154,6 +163,21 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      # Live branch authority is checked before any signing secret is mapped.
+      - name: Recheck Owner explicit signing consent and live PR45 head before secrets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER_SIGNING_AUTHORIZATION: ${{ inputs.owner_signing_authorization }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 2 --retry-delay 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/45" |
+            python3 tool/issue_13_signed_dispatch_authority_gate.py
 
       - name: Exact head and Issue #13 metadata gate
         shell: bash
