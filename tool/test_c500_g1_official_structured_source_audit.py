@@ -56,7 +56,7 @@ class Tests(unittest.TestCase):
                     with self.assertRaisesRegex(AuditError, "HTTP_REDIRECT_REJECTED"):
                         handler.http_error_302(
                             Request(SPEC), None, code, "Redirect",
-                            {"Location": target}, None)
+                            {"location": target})
 
     def test_oversize(self):
         with self.assertRaisesRegex(AuditError,"OVERSIZE"):
