@@ -18,6 +18,44 @@ class C500WitnessSignerVerifyTest(unittest.TestCase):
     def test_exact_single_debug_certificate_matches(self):
         verify_disposable_debug_signer(self.report, self.cert)
 
+    def test_actual_android_v2_signer_output_matches_debug_der(self):
+        # Exact observed #1393 apksigner output shape.
+        report = (
+            "V2 Signer: certificate DN: C=US, O=Android, CN=Android Debug\n"
+            f"V2 Signer: certificate SHA-256 digest: {self.digest}\n"
+            "V2 Signer: certificate SHA-1 digest: 0123456789\n"
+            "V2 Signer: certificate MD5 digest: 0123456789\n"
+        )
+        verify_disposable_debug_signer(report, self.cert)
+
+    def test_v2_signer_mismatched_der_fails_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "SIGNER_MISMATCH"):
+            verify_disposable_debug_signer(
+                f"V2 Signer: certificate SHA-256 digest: {self.digest}\n",
+                self.cert + b"x",
+            )
+
+    def test_two_v2_signer_digests_fail_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer(
+                f"V2 Signer: certificate SHA-256 digest: {self.digest}\n" * 2,
+                self.cert,
+            )
+
+    def test_mixed_legacy_and_v2_signer_lines_fail_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer(
+                self.report + f"V2 Signer: certificate SHA-256 digest: {self.digest}\n",
+                self.cert,
+            )
+
+    def test_foreign_signer_without_sha256_digest_fails_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer(
+                self.report + "Signer #2 certificate DN: CN=Unexpected\n",
+                self.cert,
+            )
+
     def test_sha256_label_variant_is_accepted(self):
         verify_disposable_debug_signer(
             f"Signer #1 certificate SHA256 digest: {self.digest.upper()}\n",
