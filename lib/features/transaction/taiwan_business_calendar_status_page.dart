@@ -368,6 +368,21 @@ class _TaiwanBusinessCalendarStatusPageState
           final confirmed = await _receiptStore.readVerified(
             year: year, digest: current.digest, now: checkedAt);
           durable = confirmed?.isAtSameMomentAs(checkedAt) ?? false;
+          if (durable) {
+            // B2.14i: a receipt written for an old calendar revision
+            // must not be presented as current after a concurrent install.
+            // The stored receipt remains digest-bound and cannot authorize
+            // a later revision on the next read.
+            final afterWrite = await _service.status(db, year);
+            durable = afterWrite != null &&
+                afterWrite.isContiguous &&
+                afterWrite.year == current.year &&
+                afterWrite.sequence == current.sequence &&
+                afterWrite.revision == current.revision &&
+                afterWrite.digest == current.digest &&
+                afterWrite.rowCount == current.rowCount &&
+                afterWrite.sourceUrl == current.sourceUrl;
+          }
         }
       } catch (_) {
         // Storage failure never promotes source authority or calendar LKG.
@@ -380,8 +395,8 @@ class _TaiwanBusinessCalendarStatusPageState
         _annualCheckResult = durable
             ? '官方 116 年來源核對通過：365 日／121 放假日；'
                 '本機當日檢查紀錄已保存，未安裝 2027 年日曆。'
-            : '官方 116 年來源核對通過，但本機檢查紀錄未能保存；'
-                '未安裝 2027 年日曆。';
+            : '官方 116 年來源核對通過，但本機檢查紀錄未能保存'
+                '或未能確認目前年度來源；未安裝 2027 年日曆。';
       });
       await _loadReadOnlyStatus();
     } catch (_) {

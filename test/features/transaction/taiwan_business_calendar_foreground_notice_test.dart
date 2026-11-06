@@ -492,6 +492,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(checks, 1);
     expect(raw, isNotNull);
+    // B2.14i: a revision changed during advisory persistence cannot be
+    // presented as a successful current-year durable source check.
+    expect(find.textContaining('當日檢查紀錄已保存'), findsNothing);
+    expect(find.textContaining('或未能確認目前年度來源'), findsOneWidget);
     expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
         findsOneWidget, reason: 'New digest invalidates old advisory receipt.');
     expect(db.writes, 0);
