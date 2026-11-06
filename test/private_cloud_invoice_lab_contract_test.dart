@@ -183,7 +183,7 @@ void main() {
     expect(witness, contains('System.getenv(\"HOME\")'));
     expect(witness, contains('storeFile = file(\"\$witnessHome/.android/debug.keystore\")'));
     expect(witness, contains('HOLD_WITNESS_EXPLICIT_DEBUG_KEY_MISSING'));
-    expect(witness, contains('HOLD_WITNESS_DEBUG_SIGNER_MISMATCH') == false, isTrue);
+    expect(witness, isNot(contains('HOLD_WITNESS_DEBUG_SIGNER_MISMATCH')));
     expect(witness, contains('flutter build apk --release'));
     expect(witness, isNot(contains('secrets.')));
     expect(witness, isNot(contains('actions/upload-artifact')));
