@@ -247,6 +247,73 @@ void main() {
     expect(db.writes, 0);
   });
 
+  testWidgets('B2.14k resume refreshes newly installed current-year authority '
+      'without automatic network or SQLite writes', (tester) async {
+    final db = _ReadOnlyDb(verified: false);
+    var checks = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: TaiwanBusinessCalendarAnnualCheckReceiptStore(
+          readRaw: () async => null,
+        ),
+        clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+        officialSourceCheck: () async {
+          checks++;
+          throw StateError('resume must not invoke official GET');
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsNothing);
+    db.current.addAll(_ReadOnlyDb._year(2026));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget, reason: 'Resume must refresh independent installed authority.');
+    expect(checks, 0);
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14k resume after Taipei midnight restores manual check '
+      'without automatic GET or SQLite writes', (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var now = DateTime.utc(2026, 11, 30, 16, 1);
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; },
+    );
+    await store.writeVerified(
+      year: 2026,
+      digest: List<String>.filled(64, 'a').join(),
+      checkedAt: now,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => now,
+        officialSourceCheck: () async {
+          checks++;
+          throw StateError('resume must not invoke official GET');
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsNothing, reason: 'Verified same-day receipt suppresses duplicate check.');
+    now = DateTime.utc(2026, 12, 1, 16, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget, reason: 'Yesterday receipt must not suppress today.');
+    expect(checks, 0);
+    expect(db.writes, 0);
+  });
+
   testWidgets('B2.14b explicit same-day check is idempotent and read-only',
       (tester) async {
     final db = _ReadOnlyDb(verified: true);

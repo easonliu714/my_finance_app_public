@@ -48,12 +48,17 @@ class TaiwanBusinessCalendarStatusPage extends StatefulWidget {
 }
 
 class _TaiwanBusinessCalendarStatusPageState
-    extends State<TaiwanBusinessCalendarStatusPage> {
+    extends State<TaiwanBusinessCalendarStatusPage>
+    with WidgetsBindingObserver {
   static const _official116Digest =
       'e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3';
   static const _maxBytes = TaiwanBusinessCalendarOfficialCsvCodec.maxCsvBytes;
   static const _service = TaiwanBusinessCalendarPackageService();
 
+  // B2.14k: a resumed app may have a new Taipei day or externally
+  // installed calendar revision. Only the latest asynchronous status read
+  // may update the visible eligibility and status labels.
+  int _statusGeneration = 0;
   bool _loading = true;
   bool _checking = false;
   bool _annualChecking = false;
@@ -68,7 +73,24 @@ class _TaiwanBusinessCalendarStatusPageState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadReadOnlyStatus();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_checking && !_annualChecking) {
+      // Refresh only local, read-only authority. Never trigger official GET,
+      // CSV installation, advisory writes or financial SQLite mutations.
+      _loadReadOnlyStatus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _statusGeneration++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<DatabaseExecutor> _database() async =>
@@ -121,6 +143,7 @@ class _TaiwanBusinessCalendarStatusPageState
   }
 
   Future<void> _loadReadOnlyStatus() async {
+    final generation = ++_statusGeneration;
     try {
       final db = await _database();
       final now = (widget.clock ?? DateTime.now)();
@@ -133,7 +156,7 @@ class _TaiwanBusinessCalendarStatusPageState
       final decision = await _service.annualUpdateDecision(
         db, now, lastCheckedAt: saved,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _statusGeneration) return;
       setState(() {
         _currentStatus = '$taipeiYear 年：${_coverage(current)}';
         _nextStatus = '${taipeiYear + 1} 年：${_coverage(next)}';
@@ -143,7 +166,7 @@ class _TaiwanBusinessCalendarStatusPageState
         _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _statusGeneration) return;
       setState(() {
         _currentStatus = '讀取失敗；不推定年度資料已驗證';
         _nextStatus = '讀取失敗；不推定年度資料已驗證';
