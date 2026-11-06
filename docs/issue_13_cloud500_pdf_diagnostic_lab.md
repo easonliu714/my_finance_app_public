@@ -108,3 +108,32 @@ integration, C13/C17/C18, signed upgrade and Owner device all remain HOLD.
 No financial data, release signing secrets, production code or main branch
 are modified. The PR45 canonical CURRENT documents require reconciliation
 in a subsequent PR45-only Writer round; this round writes Lab only.
+
+
+## L1 offline official PDF evidence auditor — partial CODE+TEST, not L1 PASS
+
+The Lab-only `tools/issue13_lab_l1_official_pdf_audit.py` is a read-only
+fail-closed audit of **one exact official PDF** (115-07-08, cloud-500,
+135200798 bytes, SHA256
+`f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`)
+and a future Android API35 `PdfRenderer` full-page text JSONL export.
+It streams the PDF in 1 MiB chunks; it never uploads or writes the source.
+For each JSONL line the exact schema is:
+`{"page":1,"page_count":N,"pdf_sha256":"<exact official digest>","engine":"android.graphics.pdf.PdfRenderer","period":"115-07-08","tier":"cloud-500","text":"<raw extracted page text>"}`.
+Every page 1..N must be present in order, with identical count and scope,
+canonical ASCII two-letter/eight-digit tokens, no Unicode compatibility
+ambiguity, no duplicate tokens and monotonic page ranges. A mismatch, empty
+page, malformed JSON, duplicate JSON key, missing page, or source hash drift
+is HOLD. **Page text provenance is not independently attested by JSONL
+alone**: even a structural audit PASS leaves extraction completeness,
+official publication period/tier provenance, global NOT_WIN, production
+integration, C13/C17/C18 and Owner device HOLD.
+
+Offline use after an independently authorized local full-page export:
+`python3 tools/issue13_lab_l1_official_pdf_audit.py --official-pdf <local-official.pdf> --pages-jsonl <local-pages.jsonl> --output <local-audit.json>`.
+A nonzero exit 49 is a HOLD, not a negative prize result. No official PDF
+or native full-page JSONL is available in public CI, so the workflow runs
+**12 synthetic positive/negative contract tests only**; this must never be
+reported as official L1 source/runtime PASS. The native API35 full-page
+bounded export and true 77k/87k official-source completeness remain the next
+separate implementation/evidence gates. Do not send real financial data.

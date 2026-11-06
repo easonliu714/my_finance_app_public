@@ -43,6 +43,15 @@ jobs:
           echo "LAB_L0_PRODUCTION_SOURCE_HEAD=$AFTER" >> "$GITHUB_STEP_SUMMARY"
           echo "LAB_L0_EVIDENCE_ONLY_NOT_INTEGRATION_PASS=TRUE" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: L1 offline official PDF evidence contract (synthetic negatives only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools -p 'test_issue13_lab_l1_official_pdf_audit.py' -v
+          echo "LAB_L1_OFFLINE_AUDITOR_CONTRACT=PASS_SYNTHETIC_ONLY" >> "$GITHUB_STEP_SUMMARY"
+          echo "LAB_L1_OFFICIAL_PDF_BYTES_AND_API35_FULL_PAGE_EXTRACTION=HOLD" >> "$GITHUB_STEP_SUMMARY"
+          echo "LAB_L1_GLOBAL_NOT_WIN_AND_PRODUCTION_INTEGRATION=HOLD" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
