@@ -408,6 +408,84 @@ void main() {
     expect(db.writes, 0);
   });
 
+  // B2.14m: the first preferences read completes after Taipei midnight.
+  // The stale Dec-1 receipt must not suppress the Dec-2 manual action.
+  testWidgets('B2.14m read-only status crossing midnight retries new day',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    final dec1 = DateTime.utc(2026, 11, 30, 16, 1);
+    var now = dec1;
+    String? raw;
+    var reads = 0;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async {
+        if (++reads == 1) now = DateTime.utc(2026, 12, 1, 16, 1);
+        return raw;
+      },
+      writeRaw: (value) async { raw = value; },
+    );
+    await store.writeVerified(
+      year: 2026,
+      digest: List<String>.filled(64, 'a').join(),
+      checkedAt: dec1,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => now,
+        officialSourceCheck: () async {
+          checks++;
+          throw StateError('read-only refresh must not GET');
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(reads, greaterThanOrEqualTo(2));
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget);
+    expect(find.textContaining('今日已檢查'), findsNothing);
+    expect(find.textContaining('2026 年：'), findsOneWidget);
+    expect(checks, 0);
+    expect(db.writes, 0);
+  });
+
+  // B2.14m: New Year rollover must refresh BOTH displayed year labels,
+  // not merely invalidate the old same-day receipt.
+  testWidgets('B2.14m read-only New Year rollover rebinds year labels',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true, nextInstalled: true);
+    var now = DateTime.utc(2026, 12, 31, 15, 59);
+    var reads = 0;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async {
+        if (++reads == 1) now = DateTime.utc(2026, 12, 31, 16, 1);
+        return null;
+      },
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => now,
+        officialSourceCheck: () async {
+          checks++;
+          throw StateError('read-only rollover must not GET');
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('2026 年：'), findsNothing);
+    expect(find.textContaining('2027 年：'), findsOneWidget);
+    expect(find.textContaining('2028 年：'), findsOneWidget);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsNothing);
+    expect(checks, 0);
+    expect(db.writes, 0);
+  });
+
   testWidgets('B2.14b explicit same-day check is idempotent and read-only',
       (tester) async {
     final db = _ReadOnlyDb(verified: true);

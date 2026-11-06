@@ -1,4 +1,16 @@
-## CURRENT — 2026-11-07 04:19 Asia/Taipei | B2.14l revoke stale saved-today success after resume; #1400 first failure NDK ZIP infrastructure
+## CURRENT — 2026-11-07 | B2.14m bounded Taipei-day snapshot consistency after async status reads
+
+**Fresh read before commit:** PR45 OPEN/DRAFT `9b0a825695152380f2fd87dee6d0011b66467f7f`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, Lab `6e64c674333b8820f335c16f14133e5534d46574`; Issues #4/#13/#19 OPEN. Writer PR45-only, no main/Lab writes, no signing/version bump/merge.
+
+**Exact-head CI:** [Flutter #1401](https://github.com/easonliu714/my_finance_app_public/actions/runs/42287746910) for parent `9b0a825695152380f2fd87dee6d0011b66467f7f` completed all three jobs SUCCESS (Analyze/Test/Debug APK, independent API35 native, bounded Release-AOT API35). Prior #1400 NDK download corrupt ZIP was infrastructure-only and is not promoted to a source fix. Parent CI cannot validate this new commit; successor exact-head CI required.
+
+**B2.14m PRODUCT+TEST:** A local read-only calendar status/receipt snapshot could start on Taipei Dec-1 and settle on Dec-2, incorrectly displaying yesterday's checked-today decision; a New Year rollover could also bind labels to the prior year. `_loadReadOnlyStatus` now checks the Taipei date after asynchronous DB/receipt/decision reads, retries at most once on day change, and otherwise displays HOLD with manual check disabled until a fresh foreground read. Two widget regressions cover midnight receipt invalidation and 2026→2027 year-label rebinding, without official GET or financial SQLite writes. Same-day valid receipt and independent source revisions remain protected. No new installation, official GET, receipt mutation, formal ledger write or signing.
+
+**Unresolved:** `A_C500_PRODUCTION_ISOLATED=PARTIAL/HOLD`, `C500_PROD_NONCONVERGING=TRUE` (bounded synthetic Release witness is not production main/UI/Provider/posted-ledger/SQLite/LKG/NT$700 E2E), `C13/C17/C18=HOLD`; Lab L0 CI/APK/signer and L1 offline synthetic PASS but true official 135200798-byte PDF/native full-page L1 and L2–L4 HOLD. ROC116 DGPA SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3` / 365 days / 121 holidays is existing source pin, not product progress. `TRUSTED_SIGNED=HOLD_VERSION_CODE_NOT_GREATER_THAN_OWNER_495`, `OWNER_DEVICE=HOLD`, Issue #4 OPEN, `MERGE_READY=NO`.
+
+**NEXT_MEASURABLE_GATE:** successor exact-head Flutter Analyze/focused/full, Native/API35, debug APK and bounded Release-AOT; repair first failure. Then prioritize real production Release main/UI/Provider/ledger/SQLite/LKG no-write E2E or separately scoped Lab official PDF native full-page evidence. No docs-only or repeated CI-only signer fixture counted as product progress.
+
+### HISTORY (former CURRENT) — 2026-11-07 04:19 Asia/Taipei | B2.14l revoke stale saved-today success after resume; #1400 first failure NDK ZIP infrastructure
 
 **Fresh authority (pre-commit):** PR45 OPEN/DRAFT `4f694f968d89f2a63849ce89f276f4d981066b62`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, Lab `6e64c674333b8820f335c16f14133e5534d46574`. Issues #4/#13/#19 OPEN. Sole Writer targets PR45; no main/Lab write, force push, merge, signing or version bump.
 

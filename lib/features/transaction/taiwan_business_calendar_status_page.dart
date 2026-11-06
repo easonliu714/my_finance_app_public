@@ -142,37 +142,60 @@ class _TaiwanBusinessCalendarStatusPageState
     }
   }
 
+  // B2.14m: an asynchronous local status/receipt read may straddle Taipei
+  // midnight or New Year. Never commit a checked-today or year label from
+  // an earlier day; retry the read-only snapshot at most once, then HOLD.
   Future<void> _loadReadOnlyStatus() async {
     final generation = ++_statusGeneration;
     try {
       final db = await _database();
-      final now = (widget.clock ?? DateTime.now)();
-      // B2: status labels and database years must use the same Taiwan date
-      // as annualUpdateDecision, including UTC year-end rollover.
-      final taipeiYear = now.toUtc().add(const Duration(hours: 8)).year;
-      final current = await _service.status(db, taipeiYear);
-      final next = await _service.status(db, taipeiYear + 1);
-      final saved = await _receipt(current, now);
-      final decision = await _service.annualUpdateDecision(
-        db, now, lastCheckedAt: saved,
-      );
-      if (!mounted || generation != _statusGeneration) return;
-      setState(() {
-        _currentStatus = '$taipeiYear 年：${_coverage(current)}';
-        _nextStatus = '${taipeiYear + 1} 年：${_coverage(next)}';
-        _annualDecision = _decision(decision);
-        _annualEligible =
-            decision == CalendarAnnualUpdateDecision.checkOfficialSource;
-        // B2.14l: revoke an obsolete saved-today success after midnight,
-        // an independent calendar revision or lost source authority.
-        // This is display-only: never rewrite preferences or financial SQLite.
-        if (decision != CalendarAnnualUpdateDecision.checkedToday &&
-            _annualCheckResult.contains('本機當日檢查紀錄已保存')) {
-          _annualCheckResult =
-              '先前檢查紀錄不適用目前日期或日曆來源；請重新手動核對。';
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final now = (widget.clock ?? DateTime.now)();
+        final readDay = now.toUtc().add(const Duration(hours: 8));
+        final taipeiYear = readDay.year;
+        final current = await _service.status(db, taipeiYear);
+        final next = await _service.status(db, taipeiYear + 1);
+        final saved = await _receipt(current, now);
+        final decision = await _service.annualUpdateDecision(
+          db, now, lastCheckedAt: saved,
+        );
+        final settledDay = (widget.clock ?? DateTime.now)()
+            .toUtc().add(const Duration(hours: 8));
+        if (!mounted || generation != _statusGeneration) return;
+        if (readDay.year != settledDay.year ||
+            readDay.month != settledDay.month ||
+            readDay.day != settledDay.day) {
+          if (attempt == 0) continue;
+          setState(() {
+            _currentStatus = '台北日期於讀取期間變更；年度資料待重新確認';
+            _nextStatus = '台北日期於讀取期間變更；次年度資料待重新確認';
+            _annualDecision = '年度檢查暫停；請返回前景重新讀取';
+            _annualEligible = false;
+            if (_annualCheckResult.contains('本機當日檢查紀錄已保存')) {
+              _annualCheckResult =
+                  '日期變更；先前檢查紀錄不得視為目前有效。';
+            }
+            _loading = false;
+          });
+          return;
         }
-        _loading = false;
-      });
+        setState(() {
+          _currentStatus = '$taipeiYear 年：${_coverage(current)}';
+          _nextStatus = '${taipeiYear + 1} 年：${_coverage(next)}';
+          _annualDecision = _decision(decision);
+          _annualEligible =
+              decision == CalendarAnnualUpdateDecision.checkOfficialSource;
+          // B2.14l: revoke a saved-today claim invalidated by a new day,
+          // source revision or unavailable authority. No preferences writes.
+          if (decision != CalendarAnnualUpdateDecision.checkedToday &&
+              _annualCheckResult.contains('本機當日檢查紀錄已保存')) {
+            _annualCheckResult =
+                '先前檢查紀錄不適用目前日期或日曆來源；請重新手動核對。';
+          }
+          _loading = false;
+        });
+        return;
+      }
     } catch (_) {
       if (!mounted || generation != _statusGeneration) return;
       setState(() {
@@ -180,7 +203,6 @@ class _TaiwanBusinessCalendarStatusPageState
         _nextStatus = '讀取失敗；不推定年度資料已驗證';
         _annualDecision = '資料庫狀態不可確認；保持 HOLD';
         _annualEligible = false;
-        // A failed read cannot preserve a prior affirmative "saved today".
         if (_annualCheckResult.contains('本機當日檢查紀錄已保存')) {
           _annualCheckResult =
               '年度狀態讀取失敗；先前檢查紀錄不得視為目前有效。';
