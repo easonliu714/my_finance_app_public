@@ -683,14 +683,38 @@ jobs:
           echo "C500_RELEASE_WITNESS_APK_SHA256=$(sha256sum build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)"
           # Require the generated debug certificate, never a production signer.
           sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          test -n "$sdk"
-          apksigner="$(find "$sdk/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
-          test -n "$apksigner"
-          apk_cert="$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | awk '/Signer #1 certificate SHA-256 digest:/{print tolower($NF); exit}')"
-          debug_cert="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android -keypass android | awk '/SHA256:/{sub(/^.*SHA256:[[:space:]]*/, ""); gsub(":", ""); print tolower($0); exit}')"
-          test -n "$apk_cert"
-          test -n "$debug_cert"
-          test "$apk_cert" = "$debug_cert"
+          if [[ -z "$sdk" || ! -d "$sdk/build-tools" ]]; then
+            echo 'HOLD_WITNESS_ANDROID_SDK_BUILD_TOOLS_MISSING' >&2
+            exit 65
+          fi
+          # Android build-tools may expose apksigner as a symlink; never silently fail on an empty find.
+          apksigner="$(find "$sdk/build-tools" -maxdepth 2 -name apksigner \( -type f -o -type l \) | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" || ! -x "$apksigner" ]]; then
+            echo 'HOLD_WITNESS_APKSIGNER_NOT_FOUND' >&2
+            exit 65
+          fi
+          if [[ ! -f "$HOME/.android/debug.keystore" ]]; then
+            echo 'HOLD_WITNESS_DEBUG_KEYSTORE_MISSING' >&2
+            exit 65
+          fi
+          if ! apk_info="$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk 2>&1)"; then
+            echo 'HOLD_WITNESS_APK_SIGNATURE_INVALID' >&2
+            exit 65
+          fi
+          if ! debug_info="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android -keypass android 2>&1)"; then
+            echo 'HOLD_WITNESS_DEBUG_KEYSTORE_UNREADABLE' >&2
+            exit 65
+          fi
+          apk_cert="$(printf '%s\n' "$apk_info" | awk '/Signer #1 certificate SHA-256 digest:/{print tolower($NF); exit}')"
+          debug_cert="$(printf '%s\n' "$debug_info" | awk '/SHA256:/{sub(/^.*SHA256:[[:space:]]*/, ""); gsub(":", ""); print tolower($0); exit}')"
+          if [[ -z "$apk_cert" || -z "$debug_cert" ]]; then
+            echo 'HOLD_WITNESS_CERTIFICATE_PARSE_FAILED' >&2
+            exit 65
+          fi
+          if [[ "$apk_cert" != "$debug_cert" ]]; then
+            echo 'HOLD_WITNESS_DEBUG_SIGNER_MISMATCH' >&2
+            exit 65
+          fi
           echo 'C500_WITNESS_DEBUG_SIGNER_MATCH'
           echo 'CI-only emulator witness. No production signing or artifact publication.'
       - name: Execute real release-AOT on disposable Android API35 emulator

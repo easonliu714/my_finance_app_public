@@ -163,12 +163,16 @@ void main() {
     expect(jobs, hasLength(2));
     expect(jobs.first, isNot(contains('flutter build apk --release')));
     final witness = jobs.last;
-    expect(witness, contains("github.event.pull_request.number == 45"));
+    expect(witness, contains('github.event.pull_request.number == 45'));
     expect(witness, contains('persist-credentials: false'));
     expect(witness, contains('contents: read'));
     expect(witness, contains('--target=tool/c500_release_witness.dart'));
     expect(witness, contains('--dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false'));
     expect(witness, contains('C500_WITNESS_DEBUG_SIGNER_MATCH'));
+    expect(witness, contains('HOLD_WITNESS_APKSIGNER_NOT_FOUND'));
+    expect(witness, contains('HOLD_WITNESS_DEBUG_KEYSTORE_MISSING'));
+    expect(witness, contains('HOLD_WITNESS_CERTIFICATE_PARSE_FAILED'));
+    expect(witness, contains('HOLD_WITNESS_DEBUG_SIGNER_MISMATCH'));
     expect(witness, contains('c500-witness-proguard.pro'));
     expect(witness, contains('flutter build apk --release'));
     expect(witness, isNot(contains('secrets.')));
