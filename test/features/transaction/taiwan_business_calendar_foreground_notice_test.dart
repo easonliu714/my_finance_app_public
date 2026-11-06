@@ -829,8 +829,6 @@ void main() {
     expect(db.writes, 0);
   });
 
-}
-
 
   // B2.14n: annualUpdateDecision is intentionally year-generic, but the
   // production manual GET and SHA are pinned to ROC116 (2027) only.
@@ -875,6 +873,7 @@ void main() {
     expect(checks, 0);
     expect(db.writes, 0);
   });
+}
 
 /// Read-only synthetic SQLite fixture. No real official year is inferred.
 class _ReadOnlyDb implements DatabaseExecutor {

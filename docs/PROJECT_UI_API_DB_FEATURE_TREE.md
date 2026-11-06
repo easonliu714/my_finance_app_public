@@ -1,4 +1,14 @@
-## CURRENT — 2026-11-07 06:15 Asia/Taipei | B2.14n ROC116 official source year pin fail-closed
+## CURRENT — 2026-11-07 07:12 Asia/Taipei | B2.14n analyzer first-failure minimal regression scope correction
+
+**Authority verified before write:** PR45 OPEN/DRAFT `b87d791e44355438f4a2b13160b61ffe0d97678d`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, independent Lab `6e64c674333b8820f335c16f14133e5534d46574`; Issue #4/#13/#19 OPEN. Only PR45 branch written. No main/Lab writes, merge, signing, version bump or Owner device action.
+
+**Exact-head first failure:** [Flutter #1403](https://github.com/easonliu714/my_finance_app_public/actions/runs/42303478241) on `b87d791e44355438f4a2b13160b61ffe0d97678d` completed FAILURE. Android independent-process API35 job SUCCESS and bounded ephemeral Release-AOT API35 job SUCCESS, but Analyze/Test/Build APK failed at **flutter analyze** with 11 analyzer findings beginning at `test/features/transaction/taiwan_business_calendar_foreground_notice_test.dart:837:15` (`missing_identifier`), followed by missing function body and duplicate `testWidgets`. The two new B2.14n `testWidgets` were accidentally placed after the closing brace of `main()`. Full Flutter tests and debug APK for this exact HEAD were NOT executed. Parent #1402 green cannot substitute for #1403.
+
+**Minimal corrective TEST change:** relocate the closing `main()` brace to after both B2.14n negative widget regressions, preserving their bodies/assertions and all existing positive tests. This corrects lexical scope only; it is not new product behavior, nor proof that B2.14n passes until successor exact-head Analyze/focused/full Flutter/Native JVM/debug APK/API35/bounded Release-AOT CI completes. The B2.14n production source-year pin remains unchanged. No skip, weakened assertion, CI fixture, official GET, receipt/SQLite mutation or source-pin change.
+
+**Scope and release governance:** C500 Owner plan C production disabled pending full production UI/Provider/posted-ledger/SQLite/LKG/NT$700 no-write E2E; `A_C500_PRODUCTION_ISOLATED=PARTIAL/HOLD`, `C500_PROD_NONCONVERGING=TRUE`, C13/C17/C18 HOLD. Lab L0 build/diagnostic signer and L1 synthetic offline contract pass; official 135200798-byte PDF/77k+87k full-page native proof and L2–L4 HOLD. ROC116 DGPA pinned SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3` / 365 days / 121 holidays is source evidence only. Production 4.20.37+495 equals Owner installed 495; trusted 9BA2 signed successor >495, Owner device, Issue #4 and MERGE_READY remain HOLD. Next after exact-head CI: production Release real-path no-write E2E CODE+TEST or separate Lab native official-PDF full-page evidence, no CI-only/Docs-only false progress.
+
+## ARCHIVED CHECKPOINT — 2026-11-07 06:15 Asia/Taipei | B2.14n ROC116 official source year pin fail-closed
 
 **Fresh authority before commit:** PR45 OPEN/DRAFT `93d3945d8899467cd96624eab6a416ff5fe2ce32`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, existing Lab `6e64c674333b8820f335c16f14133e5534d46574`; Issues #4/#13/#19 OPEN. Sole Writer PR45 branch only, no main/Lab write, force push, signing, version bump or merge.
 
