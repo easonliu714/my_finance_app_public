@@ -89,3 +89,22 @@ persistent logs.
 Critical native log checkpoints use append + flush + fsync before returning,
 maximizing survival of the last BEGIN/heartbeat record if a native process
 terminates.
+
+
+## L0 read-only source crosswalk (evidence only)
+
+A Lab-only Python tool and five focused positive/negative tests compare the
+current production PR45 ref with this Lab's exact source commit. The JSON
+records version, PDFium/PDFBox versions, SDK, isolated Android process names,
+source-file SHA-256, independent diagnostic applicationId and public signer
+fingerprint. A moving PR45 ref during fetch is rejected. The existing Lab
+diagnostic APK artifact carries the crosswalk JSON only after build gates pass.
+
+L0_CROSSWALK_CAPTURED is NOT L0 runtime PASS. Lab 4.20.18+476 and PR45
+4.20.37+495 use different PDF engines/dependencies and IPC routes.
+Production generated-host applicationId and effective signer are explicitly
+unverified; official PDF and Android runtime are not revalidated. Production
+integration, C13/C17/C18, signed upgrade and Owner device all remain HOLD.
+No financial data, release signing secrets, production code or main branch
+are modified. The PR45 canonical CURRENT documents require reconciliation
+in a subsequent PR45-only Writer round; this round writes Lab only.

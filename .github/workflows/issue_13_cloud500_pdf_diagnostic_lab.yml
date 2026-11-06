@@ -24,6 +24,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: L0 source/version/engine/IPC/signer crosswalk (evidence only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_REF=refs/heads/issue-13-invoice-award-official-data
+          BEFORE="$(git ls-remote origin "$SOURCE_REF" | awk '{print $1}')"
+          test -n "$BEFORE"
+          git fetch --no-tags origin "+$SOURCE_REF:refs/remotes/origin/issue-13-invoice-award-official-data"
+          AFTER="$(git ls-remote origin "$SOURCE_REF" | awk '{print $1}')"
+          test "$BEFORE" = "$AFTER"
+          test "$(git rev-parse origin/issue-13-invoice-award-official-data)" = "$AFTER"
+          python3 -m unittest discover -s tools -p 'test_issue13_lab_l0_crosswalk.py' -v
+          python3 tools/issue13_lab_l0_crosswalk.py \
+            --lab-ref HEAD \
+            --production-ref origin/issue-13-invoice-award-official-data \
+            --output issue13-lab-l0-crosswalk.json
+          echo "LAB_L0_PRODUCTION_SOURCE_HEAD=$AFTER" >> "$GITHUB_STEP_SUMMARY"
+          echo "LAB_L0_EVIDENCE_ONLY_NOT_INTEGRATION_PASS=TRUE" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -228,6 +247,7 @@ jobs:
             build/app/outputs/flutter-apk/app-debug.apk
             issue13-cloud500-diag.apk.sha256
             issue13-cloud500-diag-authority.txt
+            issue13-lab-l0-crosswalk.json
             issue13-cloud500-diag.signer.txt
           if-no-files-found: error
           retention-days: 5
