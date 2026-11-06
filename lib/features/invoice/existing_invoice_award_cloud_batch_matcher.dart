@@ -193,6 +193,7 @@ class ExistingInvoiceAwardCloudBatchMatcher {
         }
         snapshots[tier] = snapshot;
         matchesByTier[tier] = await lookup.findMatches(
+          tierCode: tier,
           indexFile: snapshot.indexFile,
           invoiceNumbers: invoiceNumbers,
         );

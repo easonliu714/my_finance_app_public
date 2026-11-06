@@ -407,9 +407,15 @@ class CloudAwardLocalIndexLookup {
   const CloudAwardLocalIndexLookup();
 
   Future<Set<String>> findMatches({
+    required String tierCode,
     required File indexFile,
     required Iterable<String> invoiceNumbers,
   }) async {
+    // Owner option C: a direct lookup must not resurrect a legacy cloud-500
+    // match from a local index in a shipped release. Reject before file I/O.
+    if (Cloud500ProductionPolicy.blocksCloud500Persistence(tierCode)) {
+      throw StateError(Cloud500ProductionPolicy.deferredCode);
+    }
     final wanted = <String>{
       for (final raw in invoiceNumbers)
         raw.replaceAll(RegExp(r'[\s-]'), '').toUpperCase(),

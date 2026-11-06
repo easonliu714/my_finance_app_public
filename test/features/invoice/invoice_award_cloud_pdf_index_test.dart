@@ -118,6 +118,41 @@ void main() {
     );
   });
 
+  test('Owner C direct cloud-500 local-index lookup fails closed in release',
+      () async {
+    final historical = File('${tempDir.path}/historical500.index')
+      ..writeAsStringSync('AD00166192\\n');
+    final missing = File('${tempDir.path}/missing500.index');
+    final operation = const CloudAwardLocalIndexLookup().findMatches(
+      tierCode: 'cloud-500',
+      indexFile: kReleaseMode ? missing : historical,
+      invoiceNumbers: const <String>['AD00166192'],
+    );
+
+    if (kReleaseMode) {
+      await expectLater(
+        operation,
+        throwsA(isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          Cloud500ProductionPolicy.deferredCode,
+        )),
+      );
+      expect(await missing.exists(), isFalse);
+    } else {
+      // The independent Lab diagnostic path is not release authority.
+      expect(await operation, <String>{'AD00166192'});
+    }
+    expect(historical.readAsStringSync(), 'AD00166192\\n');
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: 'cloud-500',
+        isReleaseBuild: true,
+      ),
+      isTrue,
+    );
+  });
+
   test('lookup streams index and returns exact track plus 8-digit matches', () async {
     final index = File('${tempDir.path}/index.txt')
       ..writeAsStringSync(
@@ -127,6 +162,7 @@ void main() {
       );
 
     final matches = await const CloudAwardLocalIndexLookup().findMatches(
+      tierCode: 'cloud-800',
       indexFile: index,
       invoiceNumbers: const <String>[
         'AD-00169681',
@@ -143,6 +179,7 @@ void main() {
 
     await expectLater(
       const CloudAwardLocalIndexLookup().findMatches(
+        tierCode: 'cloud-800',
         indexFile: index,
         invoiceNumbers: const <String>['ZZ99999999'],
       ),
