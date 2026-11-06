@@ -123,9 +123,15 @@ class _TaiwanBusinessCalendarForegroundNoticeState
                   '已到年度檢查時段，請手動核對官方來源。'),
             ),
             TextButton(
-              onPressed: () => context.pushNamed(
-                TaiwanBusinessCalendarStatusPage.routeName,
-              ),
+              onPressed: () async {
+                // B2.14g: popping the status route does not trigger an
+                // Android lifecycle resume. Re-read the advisory receipt
+                // and installed-year status without network or DB writes.
+                await context.pushNamed<void>(
+                  TaiwanBusinessCalendarStatusPage.routeName,
+                );
+                if (mounted) await _refresh();
+              },
               child: const Text('查看日曆'),
             ),
           ],

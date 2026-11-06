@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_foreground_notice.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_status_page.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_annual_check_receipt.dart';
@@ -133,6 +134,116 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
         findsOneWidget);
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14g returning from verified manual check immediately '
+      'hides foreground notice without lifecycle resume or SQLite writes',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    final now = DateTime.utc(2026, 11, 30, 16, 1);
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; },
+    );
+    final router = GoRouter(routes: <RouteBase>[
+      GoRoute(
+        path: '/',
+        builder: (context, state) => Scaffold(
+          body: TaiwanBusinessCalendarForegroundNotice(
+            databaseProvider: () async => db,
+            clock: () => now,
+            receiptStore: store,
+          ),
+        ),
+      ),
+      GoRoute(
+        name: TaiwanBusinessCalendarStatusPage.routeName,
+        path: TaiwanBusinessCalendarStatusPage.routePath,
+        builder: (context, state) => TaiwanBusinessCalendarStatusPage(
+          databaseProvider: () async => db,
+          receiptStore: store,
+          clock: () => now,
+          officialSourceCheck: () async {
+            checks++;
+            return const TaiwanBusinessCalendarAnnualSourceResult(
+              sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+              days: 365,
+              holidays: 121,
+            );
+          },
+        ),
+      ),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsOneWidget);
+    await tester.tap(find.text('查看日曆'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(raw, isNotNull);
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsNothing, reason: 'Route pop must refresh the saved receipt.');
+    expect(checks, 1, reason: 'Foreground must never repeat official GET.');
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14g failed manual check leaves notice eligible on route pop',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    final now = DateTime.utc(2026, 11, 30, 16, 1);
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; },
+    );
+    final router = GoRouter(routes: <RouteBase>[
+      GoRoute(
+        path: '/',
+        builder: (context, state) => Scaffold(
+          body: TaiwanBusinessCalendarForegroundNotice(
+            databaseProvider: () async => db,
+            clock: () => now,
+            receiptStore: store,
+          ),
+        ),
+      ),
+      GoRoute(
+        name: TaiwanBusinessCalendarStatusPage.routeName,
+        path: TaiwanBusinessCalendarStatusPage.routePath,
+        builder: (context, state) => TaiwanBusinessCalendarStatusPage(
+          databaseProvider: () async => db,
+          receiptStore: store,
+          clock: () => now,
+          officialSourceCheck: () async {
+            checks++;
+            throw const FormatException('untrusted official source');
+          },
+        ),
+      ),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('查看日曆'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(raw, isNull);
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsOneWidget, reason: 'Failed source check must not hide notice.');
     expect(db.writes, 0);
   });
 
