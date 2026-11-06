@@ -45,6 +45,16 @@ class C500WitnessSignerVerifyTest(unittest.TestCase):
                 f"Signer #2 certificate SHA-256 digest: {self.digest}\n", self.cert
             )
 
+    def test_unknown_apksigner_line_reports_shape_without_digest(self):
+        report = f"Signer #1 certificate SHA-256 digest: 0x{self.digest}\n"
+        with self.assertRaisesRegex(
+            WitnessSignerError, "PARSE_OR_CARDINALITY"
+        ) as failure:
+            verify_disposable_debug_signer(report, self.cert)
+        self.assertIn("signer_lines=1", str(failure.exception))
+        self.assertIn("<digest-redacted>", str(failure.exception))
+        self.assertNotIn(self.digest, str(failure.exception))
+
     def test_missing_debug_certificate_fails_closed(self):
         with self.assertRaisesRegex(WitnessSignerError, "DER_MISSING"):
             verify_disposable_debug_signer(self.report, b"")

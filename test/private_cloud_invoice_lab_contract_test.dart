@@ -168,11 +168,15 @@ void main() {
     expect(witness, contains('contents: read'));
     expect(witness, contains('--target=tool/c500_release_witness.dart'));
     expect(witness, contains('--dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false'));
-    expect(witness, contains('C500_WITNESS_DEBUG_SIGNER_MATCH'));
+    // The success marker belongs to the invoked verifier, not YAML itself.
+    expect(witness, contains('tool/c500_witness_signer_verify.py'));
+    final verifier = File('tool/c500_witness_signer_verify.py').readAsStringSync();
+    expect(verifier, contains('C500_WITNESS_DEBUG_SIGNER_MATCH'));
+    expect(verifier, contains('HOLD_WITNESS_APK_CERT_PARSE_OR_CARDINALITY'));
     expect(witness, contains('HOLD_WITNESS_APKSIGNER_NOT_FOUND'));
     expect(witness, contains('HOLD_WITNESS_DEBUG_KEYSTORE_MISSING'));
-    expect(witness, contains('HOLD_WITNESS_CERTIFICATE_PARSE_FAILED'));
-    expect(witness, contains('HOLD_WITNESS_DEBUG_SIGNER_MISMATCH'));
+    expect(witness, contains('HOLD_WITNESS_CERTIFICATE_VERIFICATION_FAILED'));
+    expect(verifier, contains('HOLD_WITNESS_DEBUG_SIGNER_MISMATCH'));
     expect(witness, contains('c500-witness-proguard.pro'));
     expect(witness, contains('flutter build apk --release'));
     expect(witness, isNot(contains('secrets.')));

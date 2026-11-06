@@ -24,7 +24,22 @@ def verify_disposable_debug_signer(apksigner_output: str, debug_cert_der: bytes)
     """Require exactly one APK signer whose cert DER matches the debug key."""
     matches = _APK_CERT_RE.findall(apksigner_output)
     if len(matches) != 1 or matches[0][0] != "1":
-        raise WitnessSignerError("HOLD_WITNESS_APK_CERT_PARSE_OR_CARDINALITY")
+        # Diagnose the actual apksigner format without logging certificate
+        # fingerprints, private keys, or signing credentials. Keep HOLD.
+        signer_lines = [
+            line.strip()
+            for line in apksigner_output.splitlines()
+            if re.search(r"\bsigner\b|certificate", line, re.IGNORECASE)
+        ]
+        shapes = [
+            re.sub(r"[0-9a-fA-F]{32,}", "<digest-redacted>", line)[:140]
+            for line in signer_lines[:4]
+        ]
+        raise WitnessSignerError(
+            "HOLD_WITNESS_APK_CERT_PARSE_OR_CARDINALITY "
+            f"matched={len(matches)} signer_lines={len(signer_lines)} "
+            f"line_shapes={shapes!r}"
+        )
     if len(debug_cert_der) < 64:
         raise WitnessSignerError("HOLD_WITNESS_DEBUG_CERT_DER_MISSING")
     apk_digest = matches[0][1].lower()
