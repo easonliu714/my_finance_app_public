@@ -383,6 +383,14 @@ class _TaiwanBusinessCalendarStatusPageState
                 afterWrite.rowCount == current.rowCount &&
                 afterWrite.sourceUrl == current.sourceUrl;
           }
+          if (durable) {
+            // B2.14j: a preferences write may cross Taipei midnight.
+            // Yesterday's receipt cannot be claimed as saved for today.
+            final displayNow = (widget.clock ?? DateTime.now)();
+            final sameDayReceipt = await _receiptStore.readVerified(
+              year: year, digest: current.digest, now: displayNow);
+            durable = sameDayReceipt?.isAtSameMomentAs(checkedAt) ?? false;
+          }
         }
       } catch (_) {
         // Storage failure never promotes source authority or calendar LKG.

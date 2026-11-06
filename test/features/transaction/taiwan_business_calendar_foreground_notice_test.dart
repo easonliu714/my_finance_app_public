@@ -501,6 +501,48 @@ void main() {
     expect(db.writes, 0);
   });
 
+  testWidgets('B2.14j midnight during advisory write cannot claim today saved',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var now = DateTime.utc(2026, 11, 30, 16, 1); // Taipei Dec 1, 00:01.
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async {
+        raw = value;
+        // A slow local preferences write crosses Taipei midnight.
+        now = DateTime.utc(2026, 12, 1, 16, 1); // Taipei Dec 2, 00:01.
+      },
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => now,
+        officialSourceCheck: () async {
+          checks++;
+          return const TaiwanBusinessCalendarAnnualSourceResult(
+            sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+            days: 365,
+            holidays: 121,
+          );
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(raw, isNotNull, reason: 'Yesterday receipt remains advisory only.');
+    expect(find.textContaining('當日檢查紀錄已保存'), findsNothing,
+        reason: 'Yesterday must never be presented as today after midnight.');
+    expect(find.textContaining('檢查紀錄未能保存'), findsOneWidget);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget, reason: 'New Taipei day allows explicit retry.');
+    expect(db.writes, 0);
+  });
+
   testWidgets('B2.14d current-year revision swap during GET cannot persist stale receipt',
       (tester) async {
     final db = _ReadOnlyDb(verified: true);
