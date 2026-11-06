@@ -652,6 +652,28 @@ jobs:
           PY
       - name: Resolve Flutter dependencies
         run: flutter pub get
+      - name: Apply exact optional OCR R8 rules to ephemeral witness only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          marker = 'signingConfig = signingConfigs.getByName("debug")'
+          if text.count(marker) != 1:
+              raise SystemExit('HOLD_WITNESS_DEBUG_SIGNING_CONFIG_DRIFT')
+          text = text.replace(marker, 'proguardFiles("c500-witness-proguard.pro")\n            ' + marker, 1)
+          gradle.write_text(text)
+          Path('android/app/c500-witness-proguard.pro').write_text(
+              '-dontwarn com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions\n'
+              '-dontwarn com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions$Builder\n'
+              '-dontwarn com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions\n'
+              '-dontwarn com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions$Builder\n'
+              '-dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions\n'
+              '-dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions$Builder\n'
+          )
+          PY
       - name: Build ephemeral release-AOT witness with default debug key only
         shell: bash
         run: |
@@ -659,6 +681,17 @@ jobs:
           flutter build apk --release --target=tool/c500_release_witness.dart --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false
           test -s build/app/outputs/flutter-apk/app-release.apk
           echo "C500_RELEASE_WITNESS_APK_SHA256=$(sha256sum build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)"
+          # Require the generated debug certificate, never a production signer.
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$sdk"
+          apksigner="$(find "$sdk/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          apk_cert="$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | awk '/Signer #1 certificate SHA-256 digest:/{print tolower($NF); exit}')"
+          debug_cert="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android -keypass android | awk '/SHA256:/{sub(/^.*SHA256:[[:space:]]*/, ""); gsub(":", ""); print tolower($0); exit}')"
+          test -n "$apk_cert"
+          test -n "$debug_cert"
+          test "$apk_cert" = "$debug_cert"
+          echo 'C500_WITNESS_DEBUG_SIGNER_MATCH'
           echo 'CI-only emulator witness. No production signing or artifact publication.'
       - name: Execute real release-AOT on disposable Android API35 emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d

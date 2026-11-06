@@ -157,7 +157,23 @@ void main() {
     expect(source, isNot(contains('ANDROID_KEYSTORE_PASSWORD')));
     expect(source, isNot(contains('ANDROID_KEY_ALIAS')));
     expect(source, isNot(contains('ANDROID_KEY_PASSWORD')));
-    expect(source, isNot(contains('flutter build apk --release')));
+    // Only the PR45 disposable AOT witness may use the generated debug signer.
+    // All other public CI jobs still prohibit release builds and signing secrets.
+    final jobs = source.split('\n  c500-release-aot-witness:\n');
+    expect(jobs, hasLength(2));
+    expect(jobs.first, isNot(contains('flutter build apk --release')));
+    final witness = jobs.last;
+    expect(witness, contains("github.event.pull_request.number == 45"));
+    expect(witness, contains('persist-credentials: false'));
+    expect(witness, contains('contents: read'));
+    expect(witness, contains('--target=tool/c500_release_witness.dart'));
+    expect(witness, contains('--dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false'));
+    expect(witness, contains('C500_WITNESS_DEBUG_SIGNER_MATCH'));
+    expect(witness, contains('c500-witness-proguard.pro'));
+    expect(witness, contains('flutter build apk --release'));
+    expect(witness, isNot(contains('secrets.')));
+    expect(witness, isNot(contains('actions/upload-artifact')));
+    expect(source.split('flutter build apk --release'), hasLength(2));
     expect(source, isNot(contains('Prepare signing files')));
     expect(source, isNot(contains('Verify signed release manifest permissions')));
   });
