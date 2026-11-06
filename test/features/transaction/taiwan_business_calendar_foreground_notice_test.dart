@@ -10,10 +10,20 @@ import 'package:my_finance_app/features/transaction/taiwan_business_calendar_off
 import 'package:sqflite/sqflite.dart';
 
 void main() {
-  Widget harness(_ReadOnlyDb db, DateTime Function() clock) => MaterialApp(
+  Widget harness(
+    _ReadOnlyDb db,
+    DateTime Function() clock, {
+    TaiwanBusinessCalendarAnnualCheckReceiptStore? receiptStore,
+  }) => MaterialApp(
     home: Scaffold(
       body: TaiwanBusinessCalendarForegroundNotice(
-        databaseProvider: () async => db, clock: clock,
+        databaseProvider: () async => db,
+        clock: clock,
+        // Never depend on a real platform preferences channel in widget tests.
+        receiptStore: receiptStore ??
+            TaiwanBusinessCalendarAnnualCheckReceiptStore(
+              readRaw: () async => null,
+            ),
       ),
     ),
   );
@@ -64,6 +74,68 @@ void main() {
         findsNothing);
     expect(db.writes, 0);
   });
+
+  testWidgets('B2.14f verified same-day receipt suppresses foreground notice '
+      'until the current-year digest changes', (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    final now = DateTime.utc(2026, 11, 30, 16, 1);
+    String? raw;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; },
+    );
+    await store.writeVerified(
+      year: 2026,
+      digest: List<String>.filled(64, 'a').join(),
+      checkedAt: now,
+    );
+    await tester.pumpWidget(harness(db, () => now, receiptStore: store));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsNothing, reason: 'Verified same-day manual check suppresses notice.');
+    expect(db.writes, 0);
+
+    // Simulate a newly installed, independently verified current-year
+    // revision. The old advisory receipt cannot suppress the new notice.
+    final metadata = jsonDecode(db.current.first['source_revision'] as String)
+        as Map<String, dynamic>;
+    metadata['sha256'] = List<String>.filled(64, 'b').join();
+    final replacement = jsonEncode(metadata);
+    for (var i = 0; i < db.current.length; i++) {
+      db.current[i] = <String, Object?>{
+        ...db.current[i],
+        'source_revision': replacement,
+      };
+    }
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsOneWidget);
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14f corrupt or unavailable advisory receipt never hides '
+      'the manual foreground notice', (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    final now = DateTime.utc(2026, 11, 30, 16, 1);
+    final corrupt = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => '{corrupt',
+    );
+    await tester.pumpWidget(harness(db, () => now, receiptStore: corrupt));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsOneWidget);
+    final unavailable = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => throw StateError('preferences unavailable'),
+    );
+    await tester.pumpWidget(harness(db, () => now, receiptStore: unavailable));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsOneWidget);
+    expect(db.writes, 0);
+  });
+
   testWidgets('B2.14b explicit same-day check is idempotent and read-only',
       (tester) async {
     final db = _ReadOnlyDb(verified: true);

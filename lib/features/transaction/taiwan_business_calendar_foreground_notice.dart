@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'taiwan_business_calendar_annual_check_receipt.dart';
 import 'taiwan_business_calendar_package_service.dart';
 import 'taiwan_business_calendar_status_page.dart';
 import 'transaction_repository.dart';
@@ -13,11 +14,13 @@ class TaiwanBusinessCalendarForegroundNotice extends StatefulWidget {
     super.key,
     this.databaseProvider,
     this.clock,
+    this.receiptStore,
   });
 
   static const noticeKey = Key('b2-annual-foreground-notice');
   final Future<DatabaseExecutor> Function()? databaseProvider;
   final DateTime Function()? clock;
+  final TaiwanBusinessCalendarAnnualCheckReceiptStore? receiptStore;
 
   @override
   State<TaiwanBusinessCalendarForegroundNotice> createState() =>
@@ -51,10 +54,45 @@ class _TaiwanBusinessCalendarForegroundNoticeState
           ? widget.databaseProvider!()
           : TransactionRepository.instance.database);
       final now = (widget.clock ?? DateTime.now)();
-      final decision = await _service.annualUpdateDecision(db, now);
+      final year = now.toUtc().add(const Duration(hours: 8)).year;
+      // B2.14f: foreground eligibility must honor the same verified
+      // digest-bound, same-Taipei-day receipt as the manual status page.
+      // An advisory preferences failure cannot suppress a manual check.
+      final current = await _service.status(db, year);
+      DateTime? checkedAt;
+      if (current != null &&
+          current.isContiguous &&
+          current.sequence > 0 &&
+          current.digest.isNotEmpty) {
+        try {
+          checkedAt = await (widget.receiptStore ??
+                  const TaiwanBusinessCalendarAnnualCheckReceiptStore())
+              .readVerified(year: year, digest: current.digest, now: now);
+        } catch (_) {
+          // Fail open for the manual notice only; never infer a source check.
+        }
+      }
+      var decision = await _service.annualUpdateDecision(
+        db, now, lastCheckedAt: checkedAt,
+      );
+      if (checkedAt != null &&
+          decision == CalendarAnnualUpdateDecision.checkedToday) {
+        // A concurrent year-package replacement invalidates the old
+        // receipt. Re-evaluate without it rather than hiding the notice.
+        final latest = await _service.status(db, year);
+        if (latest == null ||
+            !latest.isContiguous ||
+            latest.sequence != current?.sequence ||
+            latest.revision != current?.revision ||
+            latest.digest != current?.digest ||
+            latest.sourceUrl != current?.sourceUrl ||
+            latest.rowCount != current?.rowCount) {
+          decision = await _service.annualUpdateDecision(db, now);
+        }
+      }
       if (!mounted || generation != _generation) return;
       setState(() {
-        _nextYear = now.toUtc().add(const Duration(hours: 8)).year + 1;
+        _nextYear = year + 1;
         _eligible =
             decision == CalendarAnnualUpdateDecision.checkOfficialSource;
       });
