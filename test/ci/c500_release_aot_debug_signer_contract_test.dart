@@ -33,8 +33,15 @@ void main() {
 
     final verify = job.substring(job.indexOf(build));
     expect(verify, contains('HOLD_WITNESS_APK_SIGNATURE_INVALID'));
-    expect(verify, contains('HOLD_WITNESS_DEBUG_SIGNER_MISMATCH'));
-    expect(verify, contains('C500_WITNESS_DEBUG_SIGNER_MATCH'));
+    expect(verify, contains('keytool -exportcert'));
+    expect(verify, contains('tool/c500_witness_signer_verify.py'));
+    expect(verify, contains('HOLD_WITNESS_CERTIFICATE_VERIFICATION_FAILED'));
+    expect(job, contains('Test C500 disposable signer certificate parity parser'));
+    expect(job, contains('test_c500_witness_signer_verify.py'));
+    final helper = File('tool/c500_witness_signer_verify.py').readAsStringSync();
+    expect(helper, contains('HOLD_WITNESS_DEBUG_SIGNER_MISMATCH'));
+    expect(helper, contains('C500_WITNESS_DEBUG_SIGNER_MATCH'));
+    expect(helper, contains('len(matches) != 1'));
     expect(verify, contains('Execute real release-AOT on disposable Android API35 emulator'));
     expect(job, contains("github.event_name == 'pull_request' && github.event.pull_request.number == 45"));
     expect(job, isNot(contains('secrets.')));

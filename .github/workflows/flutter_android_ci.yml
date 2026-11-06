@@ -674,6 +674,10 @@ jobs:
               '-dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions$Builder\n'
           )
           PY
+      # Parse only public certificate digests; fail closed on absent/multiple signers.
+      - name: Test C500 disposable signer certificate parity parser
+        shell: bash
+        run: python3 -m unittest discover -s tool -p 'test_c500_witness_signer_verify.py'
       # This CI-only signer is disposable and unrelated to the trusted 9BA2 release key.
       # Generate it BEFORE Gradle's release-AOT build, not after the APK is produced.
       - name: Provision disposable debug signer for C500 release-AOT witness
@@ -724,21 +728,21 @@ jobs:
             echo 'HOLD_WITNESS_APK_SIGNATURE_INVALID' >&2
             exit 65
           fi
-          if ! debug_info="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android -keypass android 2>&1)"; then
-            echo 'HOLD_WITNESS_DEBUG_KEYSTORE_UNREADABLE' >&2
+          # DER SHA-256 is the certificate fingerprint; avoid locale-sensitive
+          # keytool -list formatting. This is the disposable debug key only.
+          if ! keytool -exportcert -keystore "$HOME/.android/debug.keystore" \
+              -alias androiddebugkey -storepass android \
+              > "$RUNNER_TEMP/c500-witness-debug-cert.der" 2>/dev/null; then
+            echo 'HOLD_WITNESS_DEBUG_CERT_EXPORT_FAILED' >&2
             exit 65
           fi
-          apk_cert="$(printf '%s\n' "$apk_info" | awk '/Signer #1 certificate SHA-256 digest:/{print tolower($NF); exit}')"
-          debug_cert="$(printf '%s\n' "$debug_info" | awk '/SHA256:/{sub(/^.*SHA256:[[:space:]]*/, ""); gsub(":", ""); print tolower($0); exit}')"
-          if [[ -z "$apk_cert" || -z "$debug_cert" ]]; then
-            echo 'HOLD_WITNESS_CERTIFICATE_PARSE_FAILED' >&2
+          # Require exactly one APK signer, and match its cert to the DER bytes.
+          if ! printf '%s\n' "$apk_info" | python3 tool/c500_witness_signer_verify.py \
+              "$RUNNER_TEMP/c500-witness-debug-cert.der"; then
+            echo 'HOLD_WITNESS_CERTIFICATE_VERIFICATION_FAILED' >&2
             exit 65
           fi
-          if [[ "$apk_cert" != "$debug_cert" ]]; then
-            echo 'HOLD_WITNESS_DEBUG_SIGNER_MISMATCH' >&2
-            exit 65
-          fi
-          echo 'C500_WITNESS_DEBUG_SIGNER_MATCH'
+          rm -f "$RUNNER_TEMP/c500-witness-debug-cert.der"
           echo 'CI-only emulator witness. No production signing or artifact publication.'
       - name: Execute real release-AOT on disposable Android API35 emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
