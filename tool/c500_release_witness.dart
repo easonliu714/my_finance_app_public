@@ -2,7 +2,7 @@
  // No user data, official PDF download, production signing or formal DB writes.
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:flutter/foundation.dart' show kReleaseMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
@@ -50,7 +50,7 @@ Future<void> _runWitness() async {
         return sandboxDir;
       },
     );
-    final candidate = File(sandboxDir.path + '/legacy.index');
+    final candidate = File('${sandboxDir.path}/legacy.index');
     await candidate.writeAsString('AA12345678\n', flush: true);
     final originalCandidate = await candidate.readAsBytes();
     _require(await lkg.readLatest(periodId: '115-05-06',
@@ -120,12 +120,12 @@ Future<void> _runWitness() async {
         'CLOUD500_SQLITE_FILES_MUTATED');
 
     // This bounded runtime witness is NOT full C13/C17/C18 or Owner UAT.
-    print('C500_RELEASE_WITNESS_PASS release=true ui=3 lkg=2 '
+    debugPrint('C500_RELEASE_WITNESS_PASS release=true ui=3 lkg=2 '
         'receipt_blocked=true posting_blocked=true '
         'preferences_unchanged=true sqlite_files_unchanged=true');
   } catch (error, stack) {
-    print('C500_RELEASE_WITNESS_FAIL ' + error.toString());
-    print(stack);
+    debugPrint('C500_RELEASE_WITNESS_FAIL $error');
+    debugPrint(stack.toString());
   } finally {
     if (sandbox != null && await sandbox.exists()) {
       await sandbox.delete(recursive: true);
