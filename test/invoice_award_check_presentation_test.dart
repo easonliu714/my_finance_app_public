@@ -59,7 +59,10 @@ void main() {
     });
   });
 
+    // Keep this regression self-contained: it intentionally sits outside the group.
+    // Release must reject legacy cloud-500 UI authority; debug diagnosis stays available.
     test('direct legacy cloud-500 projection cannot render in release', () {
+      const builder = InvoiceAwardCheckPresentationBuilder();
       final legacy = InvoiceAwardMatchProjection(
         periodId: '115-07-08',
         domain: InvoiceAwardProjectionDomain.cloudExclusive,
