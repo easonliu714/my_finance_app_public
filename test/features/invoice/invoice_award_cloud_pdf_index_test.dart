@@ -121,7 +121,7 @@ void main() {
   test('Owner C direct cloud-500 local-index lookup fails closed in release',
       () async {
     final historical = File('${tempDir.path}/historical500.index')
-      ..writeAsStringSync('AD00166192\\n');
+      ..writeAsStringSync('AD00166192\n');
     final missing = File('${tempDir.path}/missing500.index');
     final operation = const CloudAwardLocalIndexLookup().findMatches(
       tierCode: 'cloud-500',
@@ -143,7 +143,7 @@ void main() {
       // The independent Lab diagnostic path is not release authority.
       expect(await operation, <String>{'AD00166192'});
     }
-    expect(historical.readAsStringSync(), 'AD00166192\\n');
+    expect(historical.readAsStringSync(), 'AD00166192\n');
     expect(
       Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
         tierCode: 'cloud-500',

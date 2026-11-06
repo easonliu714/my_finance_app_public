@@ -6,6 +6,8 @@
 
 **Gates:** \`SCHEDULE_RUN=EXECUTED\`, \`CODE_PROGRESS=ONE_ATOMIC_CODE_TEST_COMMIT\`, \`A_NEW_DELTA=DIRECT_LEGACY_INDEX_LOOKUP_RELEASE_READ_BOUNDARY\`, \`A_C500_PRODUCTION_ISOLATED=PARTIAL/HOLD\`, \`A_LAB_RESEARCH=L0_HOLD\`, \`G5_OWNER_DIRECTION=C_SELECTED\`, \`G0-G4/G6=HOLD\`, \`GLOBAL_NOT_WIN=HOLD\`, \`C13/C17/C18=STRICT_PARENT_HOLD\`, \`B2.13/14=CODE_PRESENT_SIGNED_OWNER_HOLD\`, \`B_NEW_DELTA=0\`, \`ISSUE4_NEW_DELTA=0\`, \`SIGNED=HOLD_VERSION_CODE_NOT_GREATER_THAN_OWNER_495\`, \`OWNER_DEVICE=HOLD\`, \`MERGE_READY=NO\`. Lab remains independently isolated; its research is not formal source authority.
 
+**Same-slice test fixture correction:** The direct lookup test uses a real Dart newline escape in the historical index fixture; a double-escaped literal would produce an invalid index and a false debug failure. This is a focused test fix, not a second production feature or a CI PASS.
+
 **NEXT single measurable DoD:** Successor exact-head Flutter Analyze, focused index lookup/batch matcher regression, full Flutter tests, native JVM and API35 must actually execute/PASS. Fix the first failure if any. Then obtain real release-build fail-closed evidence and audit UI/Provider/posting residual reachability. No version-only bump, signing, installation, Lab promotion or merge without independent gates.
 
 ### HISTORY (former CURRENT) — 2026-11-06 07:15 Asia/Taipei | Owner C direct cloud-500 candidate-index builder release decode boundary (CODE+TEST; exact-head CI pending)
