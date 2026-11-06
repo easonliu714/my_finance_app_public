@@ -674,6 +674,29 @@ jobs:
               '-dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions$Builder\n'
           )
           PY
+      # This CI-only signer is disposable and unrelated to the trusted 9BA2 release key.
+      # Generate it BEFORE Gradle's release-AOT build, not after the APK is produced.
+      - name: Provision disposable debug signer for C500 release-AOT witness
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.android"
+          if [[ -e "$HOME/.android/debug.keystore" ]]; then
+            echo 'HOLD_WITNESS_UNEXPECTED_PREEXISTING_DEBUG_KEY' >&2
+            exit 65
+          fi
+          keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" \
+            -alias androiddebugkey -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 2
+          test -s "$HOME/.android/debug.keystore" || {
+            echo 'HOLD_WITNESS_DEBUG_KEY_GENERATION_FAILED' >&2
+            exit 65
+          }
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" \
+            -alias androiddebugkey -storepass android -keypass android >/dev/null
+          echo 'C500_WITNESS_DISPOSABLE_DEBUG_KEY_READY'
       - name: Build ephemeral release-AOT witness with default debug key only
         shell: bash
         run: |
