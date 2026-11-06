@@ -58,7 +58,6 @@ class _TaiwanBusinessCalendarStatusPageState
   bool _checking = false;
   bool _annualChecking = false;
   bool _annualEligible = false;
-  DateTime? _lastCheckedAtInThisPage;
   String _annualCheckResult = '官方來源尚未由本頁手動檢查。';
   Uint8List? _verifiedCsv;
   String _currentStatus = '讀取中…';
@@ -132,7 +131,7 @@ class _TaiwanBusinessCalendarStatusPageState
       final next = await _service.status(db, taipeiYear + 1);
       final saved = await _receipt(current, now);
       final decision = await _service.annualUpdateDecision(
-        db, now, lastCheckedAt: saved ?? _lastCheckedAtInThisPage,
+        db, now, lastCheckedAt: saved,
       );
       if (!mounted) return;
       setState(() {
@@ -304,7 +303,7 @@ class _TaiwanBusinessCalendarStatusPageState
       final current = await _service.status(db, year);
       final saved = await _receipt(current, now);
       final decision = await _service.annualUpdateDecision(
-        db, now, lastCheckedAt: saved ?? _lastCheckedAtInThisPage,
+        db, now, lastCheckedAt: saved,
       );
       if (decision != CalendarAnnualUpdateDecision.checkOfficialSource) {
         if (mounted) {
@@ -327,7 +326,7 @@ class _TaiwanBusinessCalendarStatusPageState
       final checkedAt = (widget.clock ?? DateTime.now)();
       // A calendar install or Taipei midnight may occur during HTTPS GET.
       final stillEligible = await _service.annualUpdateDecision(
-        db, checkedAt, lastCheckedAt: saved ?? _lastCheckedAtInThisPage,
+        db, checkedAt, lastCheckedAt: saved,
       );
       if (!mounted) return;
       if (stillEligible != CalendarAnnualUpdateDecision.checkOfficialSource) {
@@ -364,7 +363,11 @@ class _TaiwanBusinessCalendarStatusPageState
             current.digest.isNotEmpty) {
           await _receiptStore.writeVerified(
             year: year, digest: current.digest, checkedAt: checkedAt);
-          durable = true;
+          // B2.14h: only an exact-context read-back makes this advisory
+          // receipt durable. An unverified timestamp cannot suppress retry.
+          final confirmed = await _receiptStore.readVerified(
+            year: year, digest: current.digest, now: checkedAt);
+          durable = confirmed?.isAtSameMomentAs(checkedAt) ?? false;
         }
       } catch (_) {
         // Storage failure never promotes source authority or calendar LKG.
@@ -374,9 +377,6 @@ class _TaiwanBusinessCalendarStatusPageState
         // An advisory receipt write failure is NOT a successful same-day
         // check. Keep the manual action eligible on this page for a retry;
         // only a durably stored verified receipt may suppress another GET.
-        if (durable) {
-          _lastCheckedAtInThisPage = checkedAt;
-        }
         _annualCheckResult = durable
             ? '官方 116 年來源核對通過：365 日／121 放假日；'
                 '本機當日檢查紀錄已保存，未安裝 2027 年日曆。'

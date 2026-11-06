@@ -412,6 +412,91 @@ void main() {
     expect(checks, 2);
     expect(db.writes, 0);
   });
+  testWidgets('B2.14h unverified receipt readback never suppresses manual retry',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var checks = 0;
+    var writes = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      // A nominally successful write without verifiable read-back is HOLD.
+      readRaw: () async => null,
+      writeRaw: (_) async { writes++; },
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+        officialSourceCheck: () async {
+          checks++;
+          return const TaiwanBusinessCalendarAnnualSourceResult(
+            sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+            days: 365, holidays: 121,
+          );
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(writes, 1);
+    expect(find.textContaining('檢查紀錄未能保存'), findsOneWidget);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget, reason: 'Unverified receipt cannot suppress manual retry.');
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(checks, 2);
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14h revision swap during receipt write restores manual action',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async {
+        raw = value;
+        // Simulate a separately verified current-year revision after GET.
+        final metadata = jsonDecode(
+            db.current.first['source_revision'] as String)
+            as Map<String, dynamic>;
+        metadata['revision_sequence'] = 2;
+        metadata['sha256'] = List<String>.filled(64, 'b').join();
+        final replacement = jsonEncode(metadata);
+        for (var i = 0; i < db.current.length; i++) {
+          db.current[i] = <String, Object?>{
+            ...db.current[i], 'source_revision': replacement,
+          };
+        }
+      },
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => DateTime.utc(2026, 11, 30, 16, 1),
+        officialSourceCheck: () async {
+          checks++;
+          return const TaiwanBusinessCalendarAnnualSourceResult(
+            sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+            days: 365, holidays: 121,
+          );
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(checks, 1);
+    expect(raw, isNotNull);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget, reason: 'New digest invalidates old advisory receipt.');
+    expect(db.writes, 0);
+  });
+
   testWidgets('B2.14d current-year revision swap during GET cannot persist stale receipt',
       (tester) async {
     final db = _ReadOnlyDb(verified: true);
