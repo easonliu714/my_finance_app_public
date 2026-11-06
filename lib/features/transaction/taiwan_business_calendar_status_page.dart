@@ -182,8 +182,17 @@ class _TaiwanBusinessCalendarStatusPageState
         setState(() {
           _currentStatus = '$taipeiYear 年：${_coverage(current)}';
           _nextStatus = '${taipeiYear + 1} 年：${_coverage(next)}';
-          _annualDecision = _decision(decision);
-          _annualEligible =
+          // B2.14n: only the pinned ROC116 (2027) source can be checked
+          // by this screen. Generic annual eligibility for 2028+ must not
+          // authorize downloading or recording a 2027-source receipt.
+          final pinned116Year =
+              taipeiYear + 1 == TaiwanBusinessCalendarOfficial116Stage.sourceYear;
+          _annualDecision = !pinned116Year &&
+                  (decision == CalendarAnnualUpdateDecision.checkOfficialSource ||
+                   decision == CalendarAnnualUpdateDecision.checkedToday)
+              ? '尚未釘選 ${taipeiYear + 1} 年官方來源；不可用 116 年 CSV 核對'
+              : _decision(decision);
+          _annualEligible = pinned116Year &&
               decision == CalendarAnnualUpdateDecision.checkOfficialSource;
           // B2.14l: revoke a saved-today claim invalidated by a new day,
           // source revision or unavailable authority. No preferences writes.
@@ -358,6 +367,16 @@ class _TaiwanBusinessCalendarStatusPageState
       final db = await _database();
       final now = (widget.clock ?? DateTime.now)();
       final year = now.toUtc().add(const Duration(hours: 8)).year;
+      // The pinned official URL and SHA identify ROC116 only. A stale
+      // manual action must not reuse those bytes for any later target year.
+      if (year + 1 != TaiwanBusinessCalendarOfficial116Stage.sourceYear) {
+        if (mounted) {
+          setState(() => _annualCheckResult =
+              '次年度官方來源尚未釘選；未讀取官方檔案，也未寫入檢查紀錄。');
+          await _loadReadOnlyStatus();
+        }
+        return;
+      }
       final current = await _service.status(db, year);
       final saved = await _receipt(current, now);
       final decision = await _service.annualUpdateDecision(

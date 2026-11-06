@@ -1,4 +1,16 @@
-## CURRENT — 2026-11-07 | B2.14m bounded Taipei-day snapshot consistency after async status reads
+## CURRENT — 2026-11-07 06:15 Asia/Taipei | B2.14n ROC116 official source year pin fail-closed
+
+**Fresh authority before commit:** PR45 OPEN/DRAFT `93d3945d8899467cd96624eab6a416ff5fe2ce32`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, existing Lab `6e64c674333b8820f335c16f14133e5534d46574`; Issues #4/#13/#19 OPEN. Sole Writer PR45 branch only, no main/Lab write, force push, signing, version bump or merge.
+
+**Exact parent-head CI:** [Flutter #1402](https://github.com/easonliu714/my_finance_app_public/actions/runs/42295121091) completed three jobs SUCCESS on `93d3945d8899467cd96624eab6a416ff5fe2ce32`: Analyze/focused/full Flutter 2368 PASS/1 skipped, debug APK and Native JVM PASS, independent API35 9 tests PASS, bounded ephemeral Release-AOT API35 `C500_WITNESS_DEBUG_SIGNER_MATCH` and `C500_RELEASE_WITNESS_PASS`. This is not production main/UI/Provider/ledger/SQLite/LKG end-to-end proof. Successor exact-head CI required for B2.14n.
+
+**B2.14n PRODUCT+TEST root cause and change:** `annualUpdateDecision` is deliberately generic for every December, but the actual manual official-source checker downloads and validates ONLY the fixed ROC116 (2027) DGPA URL/SHA. In December 2027 with a verified 2027 calendar and no 2028 calendar, the status page and foreground could offer a misleading "manual ROC116 check" for 2028 and save a 2027-source receipt against 2027. Both production UI entrypoints now require target year == `TaiwanBusinessCalendarOfficial116Stage.sourceYear` (2027); stale manual callbacks recheck before network, and unsupported years show an explicit unpinned-source status. Two new Widget negative regressions use a synthetic verified 2027 calendar and assert no 2028 check prompt, no official GET and zero SQLite writes; existing December 2026 positive tests remain. No auto GET/install, formal ledger write, signing or version bump. New tests require successor exact-head CI.
+
+**Gate boundaries:** `A_C500_PRODUCTION_ISOLATED=PARTIAL/HOLD`, `C500_PROD_NONCONVERGING=TRUE` (full production Release UI/Provider/posted-ledger/SQLite/LKG/NT$700 no-write E2E absent), `C13/C17/C18=HOLD`; Lab L0 build/signer and L1 synthetic contract PASS but official 135200798-byte PDF/full-page native L1 and L2–L4 HOLD. ROC116 DGPA SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3`, 365 days/121 holidays is existing source pin, not new product progress. `TRUSTED_SIGNED=HOLD_VERSION_CODE_NOT_GREATER_THAN_OWNER_495`, `OWNER_DEVICE=HOLD`, Issue #4 OPEN, `MERGE_READY=NO`.
+
+**NEXT_MEASURABLE_GATE:** new exact-head Analyze/Widget/full Flutter, Native/API35, debug APK, bounded Release-AOT; fix first true failure. Then move the same sole Writer to production Release main/UI/Provider/ledger/SQLite/LKG/NT$700 actual no-write E2E or separate existing Lab official-PDF native extraction, not another small B2 guard/CI fixture. OWNER_HELP=NONE at this stage.
+
+### HISTORY (former CURRENT) — 2026-11-07 | B2.14m bounded Taipei-day snapshot consistency after async status reads
 
 **Fresh read before commit:** PR45 OPEN/DRAFT `9b0a825695152380f2fd87dee6d0011b66467f7f`, main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`, Lab `6e64c674333b8820f335c16f14133e5534d46574`; Issues #4/#13/#19 OPEN. Writer PR45-only, no main/Lab writes, no signing/version bump/merge.
 

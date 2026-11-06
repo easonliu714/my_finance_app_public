@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'taiwan_business_calendar_annual_check_receipt.dart';
+import 'taiwan_business_calendar_official_116_stage.dart';
 import 'taiwan_business_calendar_package_service.dart';
 import 'taiwan_business_calendar_status_page.dart';
 import 'transaction_repository.dart';
@@ -93,7 +94,10 @@ class _TaiwanBusinessCalendarForegroundNoticeState
       if (!mounted || generation != _generation) return;
       setState(() {
         _nextYear = year + 1;
+        // B2.14n: a generic December decision is not permission to
+        // reuse the fixed 116-year DGPA source for 2028 or later.
         _eligible =
+            year + 1 == TaiwanBusinessCalendarOfficial116Stage.sourceYear &&
             decision == CalendarAnnualUpdateDecision.checkOfficialSource;
       });
     } catch (_) {

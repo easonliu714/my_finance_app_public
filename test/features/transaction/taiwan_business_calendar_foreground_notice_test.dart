@@ -831,6 +831,51 @@ void main() {
 
 }
 
+
+  // B2.14n: annualUpdateDecision is intentionally year-generic, but the
+  // production manual GET and SHA are pinned to ROC116 (2027) only.
+  testWidgets('B2.14n future-year foreground cannot reuse ROC116 source',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: false);
+    db.next.addAll(_ReadOnlyDb._year(2027));
+    await tester.pumpWidget(
+        harness(db, () => DateTime.utc(2027, 11, 30, 16, 1)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsNothing,
+        reason: '2028 has no pinned source; do not advertise a 116 check.');
+    expect(db.reads, greaterThan(0));
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14n future-year status blocks stale ROC116 manual GET',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: false);
+    db.next.addAll(_ReadOnlyDb._year(2027));
+    var checks = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: TaiwanBusinessCalendarAnnualCheckReceiptStore(
+          readRaw: () async => null,
+        ),
+        clock: () => DateTime.utc(2027, 11, 30, 16, 1),
+        officialSourceCheck: () async {
+          checks++;
+          throw StateError('Unpinned 2028 source must not GET ROC116');
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('2027 年：'), findsOneWidget);
+    expect(find.textContaining('2028 年：'), findsOneWidget);
+    expect(find.textContaining('尚未釘選 2028 年官方來源'), findsOneWidget);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsNothing);
+    expect(checks, 0);
+    expect(db.writes, 0);
+  });
+
 /// Read-only synthetic SQLite fixture. No real official year is inferred.
 class _ReadOnlyDb implements DatabaseExecutor {
   _ReadOnlyDb({required bool verified, bool partial = false,
