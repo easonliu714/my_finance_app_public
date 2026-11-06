@@ -518,3 +518,154 @@ jobs:
           path: android-api35-evidence/
           if-no-files-found: warn
           retention-days: 7
+
+  c500-release-aot-witness:
+    name: C500 release-AOT fail-closed runtime (ephemeral API35, not signed release)
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 45 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact PR source HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify exact source HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          echo "C500_RELEASE_WITNESS_HEAD=$(git rev-parse HEAD)"
+      - name: Enable API35 emulator acceleration
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate isolated Android host
+        run: flutter create --platforms=android .
+      - name: Patch Android permissions and desugaring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          permissions = [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+          ]
+          missing = [permission for permission in permissions if permission not in text]
+          if missing:
+              text = text.replace(
+                  marker,
+                  marker + ''.join(f'\n    {permission}' for permission in missing),
+                  1,
+              )
+          manifest.write_text(text)
+
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+
+          def patch_compile_options(source: str) -> str:
+              if 'isCoreLibraryDesugaringEnabled = true' in source:
+                  return source
+              lines = source.splitlines()
+              output = []
+              i = 0
+              patched = False
+              while i < len(lines):
+                  line = lines[i]
+                  output.append(line)
+                  if line.strip() == 'compileOptions {':
+                      block_start_indent = line[: len(line) - len(line.lstrip())]
+                      inner_indent = block_start_indent + '    '
+                      i += 1
+                      block_lines = []
+                      depth = 1
+                      while i < len(lines):
+                          current = lines[i]
+                          stripped = current.strip()
+                          if stripped.endswith('{'):
+                              depth += stripped.count('{')
+                          if stripped == '}':
+                              depth -= 1
+                              if depth == 0:
+                                  if not any(
+                                      'isCoreLibraryDesugaringEnabled = true' in item
+                                      for item in block_lines
+                                  ):
+                                      block_lines.append(
+                                          inner_indent
+                                          + 'isCoreLibraryDesugaringEnabled = true'
+                                      )
+                                  output.extend(block_lines)
+                                  output.append(current)
+                                  patched = True
+                                  break
+                          block_lines.append(current)
+                          i += 1
+                  i += 1
+
+              if patched:
+                  return '\n'.join(output) + ('\n' if source.endswith('\n') else '')
+
+              android_marker = 'android {'
+              if android_marker not in source:
+                  raise SystemExit('Unable to patch desugaring: android block not found')
+              replacement = (
+                  'android {\n'
+                  '    compileOptions {\n'
+                  '        sourceCompatibility = JavaVersion.VERSION_11\n'
+                  '        targetCompatibility = JavaVersion.VERSION_11\n'
+                  '        isCoreLibraryDesugaringEnabled = true\n'
+                  '    }'
+              )
+              return source.replace(android_marker, replacement, 1)
+
+          text = patch_compile_options(text)
+
+          dependency = (
+              'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          )
+          if dependency not in text:
+              marker = 'dependencies {'
+              if marker in text:
+                  text = text.replace(marker, marker + '\n    ' + dependency, 1)
+              else:
+                  text += '\n\ndependencies {\n    ' + dependency + '\n}\n'
+          gradle.write_text(text)
+          PY
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Build ephemeral release-AOT witness with default debug key only
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build apk --release --target=tool/c500_release_witness.dart --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          echo "C500_RELEASE_WITNESS_APK_SHA256=$(sha256sum build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)"
+          echo 'CI-only emulator witness. No production signing or artifact publication.'
+      - name: Execute real release-AOT on disposable Android API35 emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disk-size: 4096M
+          disable-animations: true
+          script: bash tool/run_c500_release_witness_android.sh build/app/outputs/flutter-apk/app-release.apk
