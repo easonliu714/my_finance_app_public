@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_match_projection.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud500_production_policy.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 
 void main() {
   const builder = InvoiceAwardMatchProjectionBuilder();
@@ -71,5 +73,46 @@ void main() {
     expect(projection!.requiresReview, isTrue);
     expect(projection.exclusionWarnings, hasLength(1));
     expect(projection.canCreateFormalTransaction, isFalse);
+  });
+
+  test('Owner C blocks legacy cloud-500 prize projections in release', () {
+    bool blocked({
+      required bool release,
+      required bool cloud,
+      required int amount,
+      required String label,
+    }) =>
+        Cloud500ProductionPolicy.blocksCloud500PrizeProjectionForBuild(
+          isReleaseBuild: release,
+          isCloudExclusive: cloud,
+          grossAmount: amount,
+          tierLabel: label,
+        );
+
+    expect(blocked(release: true, cloud: true, amount: 500,
+        label: '雲端發票專屬獎 500 元'), isTrue);
+    expect(blocked(release: true, cloud: true, amount: 800,
+        label: 'cloud-500'), isTrue);
+    expect(blocked(release: true, cloud: true, amount: 800,
+        label: '雲端發票專屬獎 800 元'), isFalse);
+    expect(blocked(release: true, cloud: false, amount: 500,
+        label: '一般發票 500 元'), isFalse);
+    expect(blocked(release: false, cloud: true, amount: 500,
+        label: '雲端發票專屬獎 500 元'), isFalse);
+
+    // Direct constructors must use the same build-mode authority guard.
+    final legacy = InvoiceAwardMatchProjection(
+      periodId: '115-07-08',
+      domain: InvoiceAwardProjectionDomain.cloudExclusive,
+      tierLabel: '雲端發票專屬獎 500 元',
+      grossAmount: 500,
+      redemptionStart: DateTime.utc(2026, 10, 6),
+      redemptionEnd: DateTime.utc(2027, 1, 5),
+      officialDatasetFingerprint: 'sha256:legacy-cloud500',
+      parserRuleVersion: 'legacy',
+      eligibilityWarning: null,
+      exclusionWarnings: const <String>[],
+    );
+    expect(legacy.hasValidProvenance, !kReleaseMode);
   });
 }

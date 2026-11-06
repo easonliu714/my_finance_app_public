@@ -1,3 +1,5 @@
+import 'invoice_award_cloud500_production_policy.dart';
+
 enum InvoiceAwardProjectionDomain {
   general,
   cloudExclusive,
@@ -40,7 +42,12 @@ class InvoiceAwardMatchProjection {
       redemptionEnd.isUtc &&
       !redemptionEnd.isBefore(redemptionStart) &&
       officialDatasetFingerprint.trim().isNotEmpty &&
-      parserRuleVersion.trim().isNotEmpty;
+      parserRuleVersion.trim().isNotEmpty &&
+      !Cloud500ProductionPolicy.blocksCloud500PrizeProjection(
+        isCloudExclusive: domain == InvoiceAwardProjectionDomain.cloudExclusive,
+        grossAmount: grossAmount,
+        tierLabel: tierLabel,
+      );
 
   bool get requiresReview =>
       !hasValidProvenance ||

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:my_finance_app/features/invoice/invoice_award_check_presentation.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_match_projection.dart';
 
@@ -57,4 +58,20 @@ void main() {
       expect(builder.build(invalid), isNull);
     });
   });
+
+    test('direct legacy cloud-500 projection cannot render in release', () {
+      final legacy = InvoiceAwardMatchProjection(
+        periodId: '115-07-08',
+        domain: InvoiceAwardProjectionDomain.cloudExclusive,
+        tierLabel: '雲端發票專屬獎 500 元',
+        grossAmount: 500,
+        redemptionStart: DateTime.utc(2026, 10, 6),
+        redemptionEnd: DateTime.utc(2027, 1, 5),
+        officialDatasetFingerprint: 'sha256:legacy-cloud500',
+        parserRuleVersion: 'legacy',
+        eligibilityWarning: null,
+        exclusionWarnings: const <String>[],
+      );
+      expect(builder.build(legacy), kReleaseMode ? isNull : isNotNull);
+    });
 }

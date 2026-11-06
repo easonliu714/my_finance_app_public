@@ -24,4 +24,30 @@ class Cloud500ProductionPolicy {
         tierCode: tierCode,
         isReleaseBuild: kReleaseMode,
       );
+
+  /// Owner C: historical cloud-500 projections must not be rendered as
+  /// validated prizes in a shipped release, including direct constructors.
+  /// Check both amount and label so inconsistent legacy records fail closed.
+  static bool blocksCloud500PrizeProjectionForBuild({
+    required bool isReleaseBuild,
+    required bool isCloudExclusive,
+    required int grossAmount,
+    required String tierLabel,
+  }) {
+    if (!isReleaseBuild || !isCloudExclusive) return false;
+    return grossAmount == 500 ||
+        RegExp(r'(^|[^0-9])500([^0-9]|$)').hasMatch(tierLabel.trim());
+  }
+
+  static bool blocksCloud500PrizeProjection({
+    required bool isCloudExclusive,
+    required int grossAmount,
+    required String tierLabel,
+  }) =>
+      blocksCloud500PrizeProjectionForBuild(
+        isReleaseBuild: kReleaseMode,
+        isCloudExclusive: isCloudExclusive,
+        grossAmount: grossAmount,
+        tierLabel: tierLabel,
+      );
 }
