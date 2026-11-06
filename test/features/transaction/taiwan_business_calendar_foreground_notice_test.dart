@@ -314,6 +314,100 @@ void main() {
     expect(db.writes, 0);
   });
 
+  testWidgets('B2.14l resume invalidates yesterday saved-today claim '
+      'without GET or SQLite writes', (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var now = DateTime.utc(2026, 11, 30, 16, 1);
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; },
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => now,
+        officialSourceCheck: () async {
+          checks++;
+          return const TaiwanBusinessCalendarAnnualSourceResult(
+            sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+            days: 365,
+            holidays: 121,
+          );
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('本機當日檢查紀錄已保存'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('本機當日檢查紀錄已保存'), findsOneWidget,
+        reason: 'Same-day verified receipt remains truthful.');
+    now = DateTime.utc(2026, 12, 1, 16, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('本機當日檢查紀錄已保存'), findsNothing);
+    expect(find.textContaining('先前檢查紀錄不適用'), findsOneWidget);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget);
+    expect(checks, 1, reason: 'Resume must never invoke official GET.');
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2.14l independent calendar revision revokes old success '
+      'without automatic GET or SQLite writes', (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    final now = DateTime.utc(2026, 11, 30, 16, 1);
+    String? raw;
+    var checks = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async => raw,
+      writeRaw: (value) async { raw = value; },
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: TaiwanBusinessCalendarStatusPage(
+        databaseProvider: () async => db,
+        receiptStore: store,
+        clock: () => now,
+        officialSourceCheck: () async {
+          checks++;
+          return const TaiwanBusinessCalendarAnnualSourceResult(
+            sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
+            days: 365,
+            holidays: 121,
+          );
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('本機當日檢查紀錄已保存'), findsOneWidget);
+    final metadata = jsonDecode(
+        db.current.first['source_revision'] as String) as Map<String, dynamic>;
+    metadata['revision_sequence'] = 2;
+    metadata['sha256'] = List<String>.filled(64, 'b').join();
+    final replacement = jsonEncode(metadata);
+    for (var i = 0; i < db.current.length; i++) {
+      db.current[i] = <String, Object?>{
+        ...db.current[i],
+        'source_revision': replacement,
+      };
+    }
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('本機當日檢查紀錄已保存'), findsNothing);
+    expect(find.textContaining('先前檢查紀錄不適用'), findsOneWidget);
+    expect(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey),
+        findsOneWidget);
+    expect(checks, 1);
+    expect(db.writes, 0);
+  });
+
   testWidgets('B2.14b explicit same-day check is idempotent and read-only',
       (tester) async {
     final db = _ReadOnlyDb(verified: true);

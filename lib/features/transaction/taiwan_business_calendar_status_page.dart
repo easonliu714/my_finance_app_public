@@ -163,6 +163,14 @@ class _TaiwanBusinessCalendarStatusPageState
         _annualDecision = _decision(decision);
         _annualEligible =
             decision == CalendarAnnualUpdateDecision.checkOfficialSource;
+        // B2.14l: revoke an obsolete saved-today success after midnight,
+        // an independent calendar revision or lost source authority.
+        // This is display-only: never rewrite preferences or financial SQLite.
+        if (decision != CalendarAnnualUpdateDecision.checkedToday &&
+            _annualCheckResult.contains('本機當日檢查紀錄已保存')) {
+          _annualCheckResult =
+              '先前檢查紀錄不適用目前日期或日曆來源；請重新手動核對。';
+        }
         _loading = false;
       });
     } catch (_) {
@@ -172,6 +180,11 @@ class _TaiwanBusinessCalendarStatusPageState
         _nextStatus = '讀取失敗；不推定年度資料已驗證';
         _annualDecision = '資料庫狀態不可確認；保持 HOLD';
         _annualEligible = false;
+        // A failed read cannot preserve a prior affirmative "saved today".
+        if (_annualCheckResult.contains('本機當日檢查紀錄已保存')) {
+          _annualCheckResult =
+              '年度狀態讀取失敗；先前檢查紀錄不得視為目前有效。';
+        }
         _loading = false;
       });
     }
