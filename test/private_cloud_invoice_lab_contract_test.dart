@@ -180,8 +180,8 @@ void main() {
     expect(witness, contains('c500-witness-proguard.pro'));
     // Bind release-AOT Gradle signing to the same disposable HOME debug key.
     // Reject drift instead of weakening DER certificate equality.
-    expect(witness, contains('System.getenv(\"HOME\")'));
-    expect(witness, contains('storeFile = file(\"\$witnessHome/.android/debug.keystore\")'));
+    expect(witness, contains('System.getenv("HOME")'));
+    expect(witness, contains(r'storeFile = file("$witnessHome/.android/debug.keystore")'));
     expect(witness, contains('HOLD_WITNESS_EXPLICIT_DEBUG_KEY_MISSING'));
     expect(witness, isNot(contains('HOLD_WITNESS_DEBUG_SIGNER_MISMATCH')));
     expect(witness, contains('flutter build apk --release'));
