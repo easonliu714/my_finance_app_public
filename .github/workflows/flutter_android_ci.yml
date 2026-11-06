@@ -663,7 +663,22 @@ jobs:
           marker = 'signingConfig = signingConfigs.getByName("debug")'
           if text.count(marker) != 1:
               raise SystemExit('HOLD_WITNESS_DEBUG_SIGNING_CONFIG_DRIFT')
-          text = text.replace(marker, 'proguardFiles("c500-witness-proguard.pro")\n            ' + marker, 1)
+          # Explicitly bind Gradle's effective release-AOT signingConfig to the
+          # disposable key provisioned and DER-exported by this same job.
+          # Do not rely on AGP's implicit debug-keystore search path.
+          witness_signing = (
+              'signingConfig = signingConfigs.getByName("debug").apply {\n'
+              '                val witnessHome = System.getenv("HOME")\n'
+              '                    ?: throw GradleException("HOLD_WITNESS_HOME_UNSET")\n'
+              '                storeFile = file("$witnessHome/.android/debug.keystore")\n'
+              '                if (storeFile?.isFile != true) {\n'
+              '                    throw GradleException("HOLD_WITNESS_EXPLICIT_DEBUG_KEY_MISSING")\n'
+              '                }\n'
+              '            }'
+          )
+          if text.count(marker) != 1:
+              raise SystemExit('HOLD_WITNESS_DEBUG_SIGNING_CONFIG_DRIFT')
+          text = text.replace(marker, 'proguardFiles("c500-witness-proguard.pro")\n            ' + witness_signing, 1)
           gradle.write_text(text)
           Path('android/app/c500-witness-proguard.pro').write_text(
               '-dontwarn com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions\n'
