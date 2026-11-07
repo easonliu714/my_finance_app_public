@@ -7,6 +7,10 @@ import 'package:flutter/foundation.dart' show kReleaseMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:my_finance_app/main.dart' show buildProductionApp;
+import 'package:my_finance_app/routing/app_router.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_check_page.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_production_page.dart';
 import 'package:my_finance_app/database/production_schema_v24.dart';
 import 'package:my_finance_app/features/account/account_record.dart';
 import 'package:my_finance_app/features/backup/full_backup_scope.dart';
@@ -128,6 +132,7 @@ Future<void> _runWitness() async {
         'CLOUD500_SQLITE_FILES_MUTATED');
 
     await _runV24LedgerWitness(sandboxDir, prefs);
+    await _runProductionRouterWitness(prefs);
 
     // This bounded runtime witness is NOT full C13/C17/C18 or Owner UAT.
     debugPrint('C500_RELEASE_WITNESS_PASS release=true ui=3 lkg=2 '
@@ -141,6 +146,41 @@ Future<void> _runWitness() async {
       await sandbox.delete(recursive: true);
     }
   }
+}
+
+// Actual production ProviderScope -> MyFinanceApp -> GoRouter -> award page,
+// exercised in a disposable Android Release-AOT process. This is a route
+// authority witness, NOT an Owner database, signed release or complete UI-to-
+// ledger no-write E2E. Do not use a synthetic MaterialApp as a substitute.
+Future<void> _runProductionRouterWitness(SharedPreferences prefs) async {
+  const receiptKey = 'issue13_remittance_observations_v1';
+  const lkgKey = 'invoice_award.general_lkg.v1.115-05-06';
+  final receiptBefore = prefs.getString(receiptKey);
+  final lkgBefore = prefs.getString(lkgKey);
+  runApp(buildProductionApp());
+  WidgetsBinding.instance.scheduleFrame();
+  await WidgetsBinding.instance.endOfFrame;
+  appRouter.go(InvoiceAwardCheckPage.routePath);
+  WidgetsBinding.instance.scheduleFrame();
+  await WidgetsBinding.instance.endOfFrame;
+  // Await a further scheduled frame for GoRouter's route transition.
+  WidgetsBinding.instance.scheduleFrame();
+  await WidgetsBinding.instance.endOfFrame;
+  var found = false;
+  void inspect(Element element) {
+    if (element.widget is InvoiceAwardProductionPage) found = true;
+    element.visitChildElements(inspect);
+  }
+  final root = WidgetsBinding.instance.rootElement;
+  _require(root != null, 'PRODUCTION_ROUTER_ROOT_NOT_MOUNTED');
+  inspect(root!);
+  _require(found, 'PRODUCTION_AWARD_ROUTE_NOT_RENDERED');
+  _require(prefs.getString(receiptKey) == receiptBefore &&
+      prefs.getString(lkgKey) == lkgBefore,
+      'PRODUCTION_ROUTE_RECEIPT_OR_LKG_MUTATED');
+  debugPrint('C500_RELEASE_MAIN_ROUTER_PASS '
+      'root=production provider_scope=true award_route_rendered=true '
+      'receipt_unchanged=true lkg_unchanged=true owner_data=false');
 }
 
 InvoiceAwardMatchProjection _projection(

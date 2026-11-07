@@ -24,7 +24,11 @@ for attempt in $(seq 1 90); do
       echo 'C500_RELEASE_V24_LEDGER_MARKER_MISSING' >&2
       exit 67
     fi
-    echo "$logs" | grep -E 'C500_RELEASE_(V24_LEDGER|WITNESS)_PASS'
+    if ! grep -Fq 'C500_RELEASE_MAIN_ROUTER_PASS' <<< "$logs"; then
+      echo 'C500_RELEASE_MAIN_ROUTER_MARKER_MISSING' >&2
+      exit 68
+    fi
+    echo "$logs" | grep -E 'C500_RELEASE_(MAIN_ROUTER|V24_LEDGER|WITNESS)_PASS'
     exit 0
   fi
   sleep 2
