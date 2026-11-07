@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/production_database_coordinator.dart';
@@ -11,7 +12,30 @@ import 'invoice_award_remittance_receipt_evidence.dart';
 /// Explicit user-triggered, one-shot bank-receipt ledger credit.
 /// Old v4.20.24 observations never invoke this service automatically.
 class InvoiceAwardFormalIncomePostingService {
-  const InvoiceAwardFormalIncomePostingService();
+  const InvoiceAwardFormalIncomePostingService()
+      : _isolatedDatabaseProvider = null,
+        _isolatedAccountsProvider = null;
+
+  // Only the isolated regression harness may supply dependencies. The
+  // production constructor always uses the canonical account/SQLite stores;
+  // neither constructor can bypass the Owner-C guard before store access.
+  @visibleForTesting
+  const InvoiceAwardFormalIncomePostingService.forIsolatedTest({
+    required Future<Database> Function() databaseProvider,
+    required Future<List<AccountRecord>> Function() accountsProvider,
+  })  : _isolatedDatabaseProvider = databaseProvider,
+        _isolatedAccountsProvider = accountsProvider;
+
+  final Future<Database> Function()? _isolatedDatabaseProvider;
+  final Future<List<AccountRecord>> Function()? _isolatedAccountsProvider;
+
+  Future<Database> _database() =>
+      _isolatedDatabaseProvider?.call() ??
+      ProductionDatabaseCoordinator.instance.database;
+
+  Future<List<AccountRecord>> _accounts() =>
+      _isolatedAccountsProvider?.call() ??
+      AccountRepository.instance.listAccounts();
 
   static String stableRecordId(InvoiceAwardPayoutBookkeepingProposal p) =>
       'invoice-award-income:${p.idempotencyKey}';
@@ -25,7 +49,7 @@ class InvoiceAwardFormalIncomePostingService {
         .map(stableRecordId)
         .toSet();
     if (ids.isEmpty) return <String>{};
-    final db = await ProductionDatabaseCoordinator.instance.database;
+    final db = await _database();
     final posted = <String>{};
     for (final id in ids) {
       final rows = await db.query(
@@ -56,7 +80,7 @@ class InvoiceAwardFormalIncomePostingService {
         !proposal.hasValidProvenance) {
       throw StateError('INVOICE_AWARD_POSTING_EVIDENCE_INVALID');
     }
-    final accounts = await AccountRepository.instance.listAccounts();
+    final accounts = await _accounts();
     final matches = accounts.where((a) =>
         a.id == proposal.localAccountId &&
         !a.isArchived &&
@@ -90,7 +114,7 @@ class InvoiceAwardFormalIncomePostingService {
       currency: CurrencyCode.twd,
       exchangeRateToBase: 1,
     );
-    final db = await ProductionDatabaseCoordinator.instance.database;
+    final db = await _database();
     return db.transaction<bool>((txn) async {
       final existing = await txn.query(
         'transactions',

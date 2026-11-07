@@ -126,7 +126,7 @@ class InvoiceAwardRemittanceReceiptRepository {
     // Owner option C: block new cloud-500 receipt writes at the repository
     // boundary, including direct callers bypassing the proposal planner.
     // Historical observations remain readable for audit and are not deleted.
-    if (proposal.prizeTier == 'cloud-500') {
+    if (proposal.isDeferredCloud500Prize) {
       throw StateError(Cloud500ProductionPolicy.deferredCode);
     }
     if (!proposal.hasValidProvenance || !receivedAtUtc.isUtc ||
