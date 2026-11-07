@@ -470,15 +470,27 @@ Future<void> _runProductionButtonV24Witness(
         before && (await db.rawQuery(
         'SELECT total_changes() AS n')).single['n'] == beforeChanges &&
         signals.isEmpty, 'FULL_PATH_CANCEL_WROTE_LEDGER');
+    final oldObservation = receiptRepo.readForProposal(fixture.stale)!;
+    _require(oldObservation.observationRevision != null,
+        'FULL_PATH_INITIAL_RECEIPT_REVISION_MISSING');
     await _pressProductionPostingButton(fixture.stale.invoiceIdentity);
     await receiptRepo.revokeForProposal(fixture.stale);
+    // Same timestamps, different durable revision: stale consent must
+    // reject before any formal SQLite write.
+    final renewed = await receiptRepo.confirmObservedCredit(
+      proposal: fixture.stale,
+      receivedAtUtc: oldObservation.receivedAtUtc,
+      confirmedAtUtc: oldObservation.confirmedAtUtc,
+    );
+    _require(!oldObservation.sameObservationAs(renewed),
+        'FULL_PATH_RECONFIRM_REVISION_REUSED');
     await _tapProductionDialogAction('確認新增正式收入');
     await Future<void>.delayed(const Duration(milliseconds: 350));
     _require(jsonEncode(await db.query('transactions', orderBy: 'id')) ==
         before && (await db.rawQuery(
         'SELECT total_changes() AS n')).single['n'] == beforeChanges &&
         signals.isEmpty, 'FULL_PATH_STALE_WROTE_LEDGER');
-    final receiptAfterRevoke =
+    final receiptAfterReconfirmation =
         prefs.getString('issue13_remittance_observations_v1');
     await _pressProductionPostingButton(fixture.positive.invoiceIdentity);
     await _tapProductionDialogAction('確認新增正式收入');
@@ -504,7 +516,7 @@ Future<void> _runProductionButtonV24Witness(
     _require(prefs.getString('invoice_award.general_lkg.v1.115-07-08') ==
         lkgBefore &&
         prefs.getString('issue13_remittance_observations_v1') ==
-        receiptAfterRevoke, 'FULL_PATH_PREFS_CHANGED_BY_POST');
+        receiptAfterReconfirmation, 'FULL_PATH_PREFS_CHANGED_BY_POST');
     _require(!await const InvoiceAwardFormalIncomePostingService().post(
         proposal: fixture.positive,
         receipt: receiptRepo.readForProposal(fixture.positive)!,
@@ -516,7 +528,7 @@ Future<void> _runProductionButtonV24Witness(
     debugPrint('C500_RELEASE_PRODUCTION_BUTTON_V24_PASS '
         'root=production own_filled_button_callback=true '
         'consent=explicit durable_receipt_revision=true '
-        'schema=24 cancel_stale_zero_write=true cloud500_no_button=true '
+        'schema=24 cancel_stale_same_timestamp_reconfirm_zero_write=true cloud500_no_button=true '
         'general_200_once=true provider_new_only=true '
         'historical_500_700_unchanged=true lkg_unchanged=true '
         'synthetic_official_fixture=true owner_data=false');

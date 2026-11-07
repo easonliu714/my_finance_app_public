@@ -137,6 +137,68 @@ void main() {
         proposal: proposal, observation: replacement), isTrue);
   });
 
+  test('same-timestamp revoke/reconfirm rotates durable consent revision', () async {
+    final prefs = await SharedPreferences.getInstance();
+    final repo = InvoiceAwardRemittanceReceiptRepository(prefs);
+    final proposal = candidate();
+    final received = DateTime.utc(2026, 10, 7);
+    final confirmed = DateTime.utc(2026, 10, 8);
+    final first = await repo.confirmObservedCredit(
+      proposal: proposal, receivedAtUtc: received, confirmedAtUtc: confirmed,
+    );
+    expect(first.observationRevision, matches(RegExp(r'^[0-9a-f]{32}$')));
+    await repo.revokeForProposal(proposal);
+    final replacement = await repo.confirmObservedCredit(
+      proposal: proposal, receivedAtUtc: received, confirmedAtUtc: confirmed,
+    );
+    expect(first.receivedAtUtc, replacement.receivedAtUtc);
+    expect(first.confirmedAtUtc, replacement.confirmedAtUtc);
+    expect(replacement.observationRevision, isNot(first.observationRevision));
+    expect(first.sameObservationAs(replacement), isFalse);
+    expect(repo.isCurrentObservation(
+        proposal: proposal, observation: first), isFalse);
+    expect(repo.isCurrentObservation(
+        proposal: proposal, observation: replacement), isTrue);
+    expect(repo.readForProposal(proposal)!.observationRevision,
+        replacement.observationRevision);
+  });
+
+  test('legacy receipt remains readable and malformed revision fails closed', () async {
+    final proposal = candidate();
+    final legacy = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+    );
+    final bytes = jsonEncode(<Object>[legacy.toJson()]);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'issue13_remittance_observations_v1': bytes,
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final repo = InvoiceAwardRemittanceReceiptRepository(prefs);
+    expect(repo.isCurrentObservation(
+        proposal: proposal, observation: legacy), isTrue);
+    expect(prefs.getString('issue13_remittance_observations_v1'), bytes);
+    final malformed = <String, Object>{
+      ...legacy.toJson(), 'observation_revision': 'not-a-valid-revision',
+    };
+    expect(InvoiceAwardRemittanceReceiptEvidence.fromJson(malformed), isNull);
+    await repo.revokeForProposal(proposal);
+    final fresh = await repo.confirmObservedCredit(
+      proposal: proposal,
+      receivedAtUtc: legacy.receivedAtUtc,
+      confirmedAtUtc: legacy.confirmedAtUtc,
+    );
+    expect(legacy.sameObservationAs(fresh), isFalse);
+    expect(repo.isCurrentObservation(
+        proposal: proposal, observation: legacy), isFalse);
+  });
+
   test('dates fail closed and revoke clears receipt', () async {
     final prefs = await SharedPreferences.getInstance();
     final repo = InvoiceAwardRemittanceReceiptRepository(prefs);

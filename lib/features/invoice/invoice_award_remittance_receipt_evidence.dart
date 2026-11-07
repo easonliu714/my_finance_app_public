@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'invoice_award_payout_bookkeeping_contract.dart';
 import 'invoice_award_cloud500_production_policy.dart';
@@ -14,6 +15,7 @@ class InvoiceAwardRemittanceReceiptEvidence {
     required this.officialFingerprint,
     required this.receivedAtUtc,
     required this.confirmedAtUtc,
+    this.observationRevision,
   });
 
   static const contractVersion = 'issue13-remittance-observation-v1';
@@ -25,6 +27,8 @@ class InvoiceAwardRemittanceReceiptEvidence {
   final String officialFingerprint;
   final DateTime receivedAtUtc;
   final DateTime confirmedAtUtc;
+  // Legacy observations have no revision; new receipts always have one.
+  final String? observationRevision;
 
   bool matches(InvoiceAwardPayoutBookkeepingProposal proposal) =>
       proposal.hasValidProvenance &&
@@ -51,7 +55,8 @@ class InvoiceAwardRemittanceReceiptEvidence {
       grossAmount == other.grossAmount &&
       officialFingerprint == other.officialFingerprint &&
       receivedAtUtc == other.receivedAtUtc &&
-      confirmedAtUtc == other.confirmedAtUtc;
+      confirmedAtUtc == other.confirmedAtUtc &&
+      observationRevision == other.observationRevision;
 
   Map<String, Object> toJson() => <String, Object>{
         'version': contractVersion,
@@ -63,6 +68,8 @@ class InvoiceAwardRemittanceReceiptEvidence {
         'fingerprint': officialFingerprint,
         'received_utc': receivedAtUtc.toIso8601String(),
         'confirmed_utc': confirmedAtUtc.toIso8601String(),
+        if (observationRevision != null)
+          'observation_revision': observationRevision!,
       };
 
   static InvoiceAwardRemittanceReceiptEvidence? fromJson(Object? raw) {
@@ -73,6 +80,13 @@ class InvoiceAwardRemittanceReceiptEvidence {
     final received = DateTime.tryParse(raw['received_utc']?.toString() ?? '');
     final confirmed = DateTime.tryParse(raw['confirmed_utc']?.toString() ?? '');
     final fingerprint = raw['fingerprint']?.toString() ?? '';
+    final revision = raw['observation_revision'];
+    // Preserve old revisionless rows, but fail closed on invalid new metadata.
+    if (revision != null &&
+        (revision is! String ||
+            !RegExp(r'^[0-9a-f]{32}$').hasMatch(revision))) {
+      return null;
+    }
     if (amount is! int || amount <= 0 || received == null ||
         confirmed == null || !received.isUtc || !confirmed.isUtc ||
         received.isAfter(confirmed) ||
@@ -88,6 +102,7 @@ class InvoiceAwardRemittanceReceiptEvidence {
       officialFingerprint: fingerprint,
       receivedAtUtc: received,
       confirmedAtUtc: confirmed,
+      observationRevision: revision as String?,
     );
     if (item.proposalKey.isEmpty || item.awardPeriodId.isEmpty ||
         item.localAccountId.isEmpty || item.prizeTier.isEmpty) {
@@ -95,6 +110,14 @@ class InvoiceAwardRemittanceReceiptEvidence {
     }
     return item;
   }
+}
+
+// New manual consent gets a fresh 128-bit identity independent of timestamps.
+String _newObservationRevision() {
+  final random = Random.secure();
+  return List<int>.generate(16, (_) => random.nextInt(256))
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
 }
 
 class InvoiceAwardRemittanceReceiptRepository {
@@ -172,6 +195,7 @@ class InvoiceAwardRemittanceReceiptRepository {
       officialFingerprint: proposal.officialDatasetFingerprint,
       receivedAtUtc: receivedAtUtc,
       confirmedAtUtc: confirmedAtUtc,
+      observationRevision: _newObservationRevision(),
     );
     final rows = loadAll()
         .where((value) => value.proposalKey != record.proposalKey)

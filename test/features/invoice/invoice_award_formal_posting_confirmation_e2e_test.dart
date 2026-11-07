@@ -107,7 +107,7 @@ void main() {
       final general = _proposal('general-ui-200', 'general-sixth', 200);
       var receipt = _receipt(general);
       final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
-      await repository.confirmObservedCredit(
+      receipt = await repository.confirmObservedCredit(
         proposal: general,
         receivedAtUtc: receipt.receivedAtUtc,
         confirmedAtUtc: receipt.confirmedAtUtc,
@@ -196,11 +196,12 @@ void main() {
           initialChanges);
       expect(signals, isEmpty);
 
-      // Same proposal, different confirmation: old consent stays revoked.
+      // Same proposal and identical timestamps: only the durable revision
+      // distinguishes the replacement from the old modal's consent.
       await repository.confirmObservedCredit(
         proposal: general,
         receivedAtUtc: receipt.receivedAtUtc,
-        confirmedAtUtc: DateTime.utc(2026, 10, 9, 2),
+        confirmedAtUtc: receipt.confirmedAtUtc,
       );
       await tester.tap(find.byKey(const Key('launch_formal_post')));
       await tester.pumpAndSettle();
