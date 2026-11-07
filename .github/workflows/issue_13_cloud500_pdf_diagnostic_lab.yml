@@ -207,7 +207,7 @@ jobs:
           grep -Fq 'startPlatformPdfProbe' lib/issue13_cloud500_diag_main.dart
           grep -Fq 'android.graphics.pdf.PdfRenderer' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
           grep -Fq 'L1_PAGE_TEXT_BUDGET_EXCEEDED' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
-          grep -Fq 'L1_OFFICIAL_SHA_MISMATCH' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
+          grep -Fq 'L1_OFFICIAL_SHA_MISMATCH' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/LabOfficialPdfPreflight.kt
           grep -Fq '_exportNextL1Batch' lib/issue13_cloud500_diag_main.dart
           grep -Fq 'android:process=":platform_pdf_probe"' packages/flutter_pdf_text/android/src/main/AndroidManifest.xml
           grep -Fq 'output.fd.sync()' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
