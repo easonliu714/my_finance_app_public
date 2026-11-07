@@ -1,0 +1,272 @@
+package me.movenext.flutter_pdf_text
+
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+
+/** Synthetic JVM positive/negative native writer tests; not Android device evidence. */
+class PlatformResultAtomicWriterTest {
+  @get:Rule val folder = TemporaryFolder()
+
+  @Test fun uniqueSameDirectoryTempsAndReplace() {
+    val dir = folder.newFolder("replace")
+    val target = dir.resolve("result.json")
+    target.writeText("previous")
+    val names = mutableListOf<String>()
+    val syncs = AtomicInteger()
+    val writer = PlatformResultAtomicWriter(protectTerminal = false, 
+      atomicReplace = { tmp, dst ->
+        assertEquals(dir.canonicalPath, tmp.parent.toFile().canonicalPath)
+        names.add(tmp.fileName.toString())
+        Files.move(tmp, dst, StandardCopyOption.ATOMIC_MOVE,
+          StandardCopyOption.REPLACE_EXISTING)
+      },
+      syncParent = { parent ->
+        assertEquals(dir.canonicalPath, parent.toFile().canonicalPath)
+        syncs.incrementAndGet()
+      })
+    writer.write(target.path, "first")
+    writer.write(target.path, "second")
+    assertEquals("second", target.readText())
+    assertEquals(2, names.toSet().size)
+    assertEquals(2, syncs.get())
+    assertFalse(dir.listFiles().orEmpty().any { it.name.endsWith(".tmp") })
+  }
+
+  @Test fun injectedRenameFailurePreservesTrustedTarget() {
+    val dir = folder.newFolder("rename")
+    val target = dir.resolve("result.json")
+    target.writeText("trusted")
+    val syncs = AtomicInteger()
+    val writer = PlatformResultAtomicWriter(protectTerminal = false, 
+      atomicReplace = { _, _ -> throw IOException("INJECTED_RENAME_FAILURE") },
+      syncParent = { syncs.incrementAndGet() })
+    assertThrows(IOException::class.java) { writer.write(target.path, "untrusted") }
+    assertEquals("trusted", target.readText())
+    assertEquals(0, syncs.get())
+    assertFalse(dir.listFiles().orEmpty().any { it.name.endsWith(".tmp") })
+  }
+
+  @Test fun directorySyncFailurePropagatesWithoutSuccessClaim() {
+    val dir = folder.newFolder("sync")
+    val target = dir.resolve("result.json")
+    val writer = PlatformResultAtomicWriter(protectTerminal = false, 
+      syncParent = { throw IOException("INJECTED_PARENT_FSYNC_FAILURE") })
+    assertThrows(IOException::class.java) { writer.write(target.path, "unverified") }
+    // A rename may already have occurred; durability is NOT proven.
+    assertFalse(dir.listFiles().orEmpty().any { it.name.endsWith(".tmp") })
+  }
+
+  @Test fun concurrentCallsOnOneWriterAreSerialized() {
+    val dir = folder.newFolder("serial")
+    val target = dir.resolve("result.json")
+    val entered = CountDownLatch(1)
+    val release = CountDownLatch(1)
+    val active = AtomicInteger()
+    val peak = AtomicInteger()
+    val writer = PlatformResultAtomicWriter(protectTerminal = false, 
+      atomicReplace = { tmp, dst ->
+        val current = active.incrementAndGet()
+        peak.updateAndGet { old -> maxOf(old, current) }
+        try {
+          entered.countDown()
+          assertTrue(release.await(5, TimeUnit.SECONDS))
+          Files.move(tmp, dst, StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING)
+        } finally { active.decrementAndGet() }
+      },
+      syncParent = {})
+    val pool = Executors.newFixedThreadPool(2)
+    try {
+      val first = pool.submit { writer.write(target.path, "first") }
+      assertTrue(entered.await(3, TimeUnit.SECONDS))
+      val second = pool.submit { writer.write(target.path, "second") }
+      release.countDown()
+      first.get(5, TimeUnit.SECONDS)
+      second.get(5, TimeUnit.SECONDS)
+      assertEquals(1, peak.get())
+      assertTrue(target.readText() in setOf("first", "second"))
+      assertFalse(dir.listFiles().orEmpty().any { it.name.endsWith(".tmp") })
+    } finally {
+      release.countDown()
+      pool.shutdownNow()
+    }
+  }
+  /**
+   * C12 adversarial witness: a pathname-based atomic move can publish a
+   * different inode after parent replacement. Readback must reject success,
+   * but a forged target can still be visible. Full Native Gate remains HOLD;
+   * this is NOT an Android independent-process or device security proof.
+   */
+  @Test fun replacedTemporaryBytesFailReadbackBeforeDirectorySync() {
+    val dir = folder.newFolder("inplace-temporary-swap")
+    val target = dir.resolve("result.json")
+    var parentSyncCalled = false
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      atomicReplace = { temp, destination ->
+        Files.write(temp, "TAMPERED".toByteArray(Charsets.UTF_8))
+        Files.move(temp, destination,
+          StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+      },
+      syncParent = { parentSyncCalled = true }
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.path, "TRUSTED")
+    }
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    assertFalse("Forged result must not be falsely certified by parent fsync", parentSyncCalled)
+    assertFalse("Unverified temp bytes must be quarantined", Files.exists(target.toPath()))
+  }
+
+
+  /**
+   * C17 negative: quarantine removes a forged symlink entry without
+   * following it into an unrelated trusted file. Same-UID recreation
+   * remains an independent security HOLD.
+   */
+  @Test fun failedReadbackQuarantineNeverFollowsResultSymlink() {
+    val dir = folder.newFolder("c17-symlink-quarantine").toPath()
+    val outside = folder.newFile("trusted-outside.txt").toPath()
+    Files.write(outside, "KEEP_TRUSTED".toByteArray(Charsets.UTF_8))
+    val target = dir.resolve("result.json")
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      atomicReplace = { temp, destination ->
+        Files.delete(temp)
+        Files.createSymbolicLink(destination, outside)
+      },
+      syncParent = { throw AssertionError("Unverified symlink must not be fsynced") }
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.toString(), "TRUSTED_RESULT")
+    }
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    assertFalse("Forged result symlink must be removed", Files.exists(target))
+    assertEquals("KEEP_TRUSTED", outside.toFile().readText(Charsets.UTF_8))
+  }
+
+  @Test fun parentReplacementMustNotReturnSuccessfulPublication() {
+    val parent = folder.newFolder("swappable-parent").toPath()
+    val displaced = parent.resolveSibling("displaced-parent")
+    val target = parent.resolve("result.json")
+    val trustedContent = "TRUSTED_NATIVE_RESULT"
+    var injected = false
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      atomicReplace = { temp, destination ->
+        // The original fsynced temp remains in the displaced directory.
+        Files.move(parent, displaced, StandardCopyOption.ATOMIC_MOVE)
+        Files.createDirectory(parent)
+        // The same pathname now resolves to an attacker-controlled inode.
+        Files.write(parent.resolve(temp.fileName), "FORGED_RESULT".toByteArray(Charsets.UTF_8))
+        injected = true
+        Files.move(temp, destination,
+          StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+      },
+      syncParent = {}
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.toString(), trustedContent)
+    }
+    assertTrue("The parent/temp pathname swap must have been injected", injected)
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    // A failed readback now quarantines the forged public pathname. A
+    // continuously hostile same-UID writer can still recreate it: P0 HOLD.
+    assertFalse("C17_FORGED_RESULT_MUST_BE_QUARANTINED", Files.exists(target))
+  }
+
+
+  /**
+   * C17 RED witness for the missing publication-integrity invariant:
+   * a thrown writer exception is not sufficient when a forged result remains
+   * visible at the consumer's result pathname. This is a deterministic JVM
+   * pathname/inode fault injection, NOT an Android process/device PASS.
+   * Do not weaken this assertion to checking only the exception.
+   */
+  @Test fun failedPublicationMustNotLeaveForgedResultVisible() {
+    val parent = folder.newFolder("c17-publication-fail-closed").toPath()
+    val displaced = parent.resolveSibling("c17-original-parent")
+    val target = parent.resolve("result.json")
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      atomicReplace = { temp, destination ->
+        Files.move(parent, displaced, StandardCopyOption.ATOMIC_MOVE)
+        Files.createDirectory(parent)
+        Files.write(parent.resolve(temp.fileName),
+          "FORGED_RESULT".toByteArray(Charsets.UTF_8))
+        Files.move(temp, destination,
+          StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+      },
+      syncParent = { throw AssertionError("Untrusted bytes must never be fsynced as valid") }
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.toString(), "TRUSTED_RESULT")
+    }
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    assertFalse("C17_FORGED_RESULT_VISIBLE_AFTER_FAILED_PUBLICATION",
+      Files.exists(target))
+  }
+
+  /**
+   * C20 positive: the default production publisher uses a directory-anchored
+   * CREATE_NEW temp and rename, not the legacy pathname Files.move fallback.
+   */
+  @Test fun defaultAnchoredMovePublishesExactBytesWithoutInjection() {
+    val dir = folder.newFolder("c20-anchored-normal")
+    val target = dir.resolve("result.json")
+    PlatformResultAtomicWriter(protectTerminal = false, syncParent = {})
+      .write(target.absolutePath, "TRUSTED_RESULT")
+    assertEquals("TRUSTED_RESULT", target.readText(Charsets.UTF_8))
+    assertFalse(dir.listFiles().orEmpty().any { it.name.endsWith(".tmp") })
+  }
+
+  /**
+   * C20 deterministic JVM negative: after secure temp creation and fsync,
+   * replace the parent and plant a fake temp in the new directory. The
+   * default production move must publish only to the held original directory.
+   * The public path can still be forged directly by a hostile same-UID
+   * actor; C17/C18 strict RED assertions are intentionally preserved.
+   */
+  @Test fun defaultAnchoredMoveCannotPublishForgedNewParentTemp() {
+    val parent = folder.newFolder("c20-anchored-swap").toPath()
+    val displaced = parent.resolveSibling("c20-original-parent")
+    val target = parent.resolve("result.json")
+    var injected = false
+    val writer = PlatformResultAtomicWriter(
+      protectTerminal = false,
+      syncParent = { throw AssertionError("Swapped parent must not be fsynced") },
+      beforeAnchoredMoveForTest = { temp, _ ->
+        Files.move(parent, displaced, StandardCopyOption.ATOMIC_MOVE)
+        Files.createDirectory(parent)
+        Files.write(parent.resolve(temp.fileName),
+          "FORGED_RESULT".toByteArray(Charsets.UTF_8))
+        injected = true
+      }
+    )
+    val failure = assertThrows(IOException::class.java) {
+      writer.write(target.toString(), "TRUSTED_RESULT")
+    }
+    assertTrue("C20 parent/temp swap must be injected", injected)
+    assertEquals("RESULT_PUBLICATION_CONTENT_MISMATCH", failure.message)
+    assertEquals("TRUSTED_RESULT",
+      displaced.resolve("result.json").toFile().readText(Charsets.UTF_8))
+    assertFalse("Writer must not publish fake temp into replacement parent",
+      Files.exists(target))
+    assertEquals("FORGED_RESULT",
+      parent.toFile().listFiles().orEmpty().single { it.name.endsWith(".tmp") }
+        .readText(Charsets.UTF_8))
+  }
+
+}

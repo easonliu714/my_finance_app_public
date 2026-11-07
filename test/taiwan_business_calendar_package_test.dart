@@ -128,6 +128,64 @@ void main() {
     );
   });
 
+  test('B2.2 package provenance rejects unapproved HTTPS and host confusion',
+      () async {
+    final days = _daysForYear(2028);
+    for (final sourceUrl in <String>[
+      'https://example.org/office-calendar.csv',
+      'https://www.dgpa.gov.tw.attacker.example/calendar.csv',
+      'https://www.dgpa.gov.tw@attacker.example/calendar.csv',
+      'https://www.dgpa.gov.tw:8443/calendar.csv',
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: sourceUrl,
+          sourcePublishedAt: '2027-06-30',
+          generatedAt: '2027-07-01T00:00:00.000Z',
+          days: days,
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('approved official authority'),
+        )),
+      );
+    }
+
+    // The official government open-data host is a permitted source locator,
+    // not a claim that this synthetic test has downloaded real annual data.
+    final officialMirror = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://data.gov.tw/dataset/official-calendar',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: days,
+    );
+    expect((await codec.decodeAndValidate(officialMirror.encode())).sourceUrl,
+        officialMirror.sourceUrl);
+
+    // Decoder must reject an attacker URL before considering a package hash.
+    final poisoned = Map<String, Object?>.from(
+      jsonDecode(officialMirror.encode()) as Map,
+    );
+    final source = Map<String, Object?>.from(poisoned['source']! as Map);
+    source['url'] = 'https://attacker.example/forged-calendar.json';
+    poisoned['source'] = source;
+    await expectLater(
+      codec.decodeAndValidate(jsonEncode(poisoned)),
+      throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+        (error) => error.message,
+        'message',
+        contains('approved official authority'),
+      )),
+    );
+  });
+
   test('stored metadata round-trips and legacy text stays detectable', () async {
     final package = await codec.build(
       sourceYear: 2028,

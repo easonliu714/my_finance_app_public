@@ -26,6 +26,9 @@ class OfficialInvoiceDetailDraftImportPage extends StatefulWidget {
   static Key estimatedTaxConfirmationKey(String invoiceNumber) =>
       ValueKey<String>('official_detail_estimated_tax_$invoiceNumber');
 
+  static Key manualDifferenceConfirmationKey(String invoiceNumber) =>
+      ValueKey<String>('official_detail_manual_difference_$invoiceNumber');
+
   static Key deletedFormalNoticeKey(String invoiceNumber) =>
       ValueKey<String>('official_detail_deleted_formal_$invoiceNumber');
 
@@ -40,6 +43,7 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
   OfficialInvoiceDetailImportPreflightSnapshot? preflight;
   final Set<String> selectedInvoiceNumbers = <String>{};
   final Set<String> confirmedEstimatedTaxInvoiceNumbers = <String>{};
+  final Set<String> confirmedManualDifferenceInvoiceNumbers = <String>{};
   String? selectedAccountId;
   bool loading = true;
   bool staging = false;
@@ -75,12 +79,24 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
     return true;
   }
 
+  bool get allSelectedManualDifferencesConfirmed {
+    for (final item in selectableItems) {
+      if (!selectedInvoiceNumbers.contains(item.invoiceNumber)) continue;
+      if (item.requiresManualDifferenceConfirmation &&
+          !confirmedManualDifferenceInvoiceNumbers.contains(item.invoiceNumber)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool get canStage =>
       !loading &&
       !staging &&
       confirmed &&
       selectedInvoiceNumbers.isNotEmpty &&
-      allSelectedEstimatesConfirmed;
+      allSelectedEstimatesConfirmed &&
+      allSelectedManualDifferencesConfirmed;
 
   @override
   void initState() {
@@ -102,6 +118,7 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
           ..clear()
           ..addAll(loaded.selectableItems.map((item) => item.invoiceNumber));
         confirmedEstimatedTaxInvoiceNumbers.clear();
+        confirmedManualDifferenceInvoiceNumbers.clear();
         if (selectedAccountId != null &&
             !loaded.accounts.any((item) => item.id == selectedAccountId)) {
           selectedAccountId = null;
@@ -128,6 +145,7 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
       if (!selectedInvoiceNumbers.add(invoiceNumber)) {
         selectedInvoiceNumbers.remove(invoiceNumber);
         confirmedEstimatedTaxInvoiceNumbers.remove(invoiceNumber);
+        confirmedManualDifferenceInvoiceNumbers.remove(invoiceNumber);
       }
       _resetReview();
     });
@@ -139,6 +157,17 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
         confirmedEstimatedTaxInvoiceNumbers.add(invoiceNumber);
       } else {
         confirmedEstimatedTaxInvoiceNumbers.remove(invoiceNumber);
+      }
+      _resetReview();
+    });
+  }
+
+  void _setManualDifferenceConfirmation(String invoiceNumber, bool value) {
+    setState(() {
+      if (value) {
+        confirmedManualDifferenceInvoiceNumbers.add(invoiceNumber);
+      } else {
+        confirmedManualDifferenceInvoiceNumbers.remove(invoiceNumber);
       }
       _resetReview();
     });
@@ -157,6 +186,7 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
     setState(() {
       selectedInvoiceNumbers.clear();
       confirmedEstimatedTaxInvoiceNumbers.clear();
+      confirmedManualDifferenceInvoiceNumbers.clear();
       _resetReview();
     });
   }
@@ -175,6 +205,9 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
         invoiceNumbers: Set<String>.unmodifiable(selectedInvoiceNumbers),
         confirmedEstimatedTaxInvoiceNumbers: Set<String>.unmodifiable(
           confirmedEstimatedTaxInvoiceNumbers,
+        ),
+        confirmedManualDifferenceInvoiceNumbers: Set<String>.unmodifiable(
+          confirmedManualDifferenceInvoiceNumbers,
         ),
         account: account,
         finalConfirmation: confirmed,
@@ -314,12 +347,26 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
                   const SizedBox(height: 8),
                 ],
               ],
+              if (snapshot.rejectedItems.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _sectionTitle('目前不可導入正式交易'),
+                for (final item in snapshot.rejectedItems) ...[
+                  _buildStatusCard(
+                    item,
+                    icon: Icons.block_outlined,
+                    label:
+                        '不可導入：${officialInvoiceDetailFailureLabel(item.message ?? 'OFFICIAL_DETAIL_NOT_ELIGIBLE')}',
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ],
               CheckboxListTile(
                 key: OfficialInvoiceDetailDraftImportPage.confirmationKey,
                 value: confirmed,
                 onChanged: staging ||
                         selectedInvoiceNumbers.isEmpty ||
-                        !allSelectedEstimatesConfirmed
+                        !allSelectedEstimatesConfirmed ||
+                        !allSelectedManualDifferencesConfirmed
                     ? null
                     : (value) => setState(() => confirmed = value ?? false),
                 contentPadding: EdgeInsets.zero,
@@ -491,6 +538,8 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
     final estimatedTax = enrichment.positiveEstimatedTaxAmount;
     final estimateConfirmed =
         confirmedEstimatedTaxInvoiceNumbers.contains(invoiceNumber);
+    final manualDifferenceConfirmed =
+        confirmedManualDifferenceInvoiceNumbers.contains(invoiceNumber);
     return Card.outlined(
       child: Column(
         children: [
@@ -551,6 +600,28 @@ class _State extends State<OfficialInvoiceDetailDraftImportPage> {
                 '－品項小計 '
                 '${_formatAmount(enrichment.lineItemSubtotal, enrichment.currencyCode)}。'
                 '此數值不是官方明示稅額，只作為交易內容輔助。',
+              ),
+            ),
+          ],
+          if (item.requiresManualDifferenceConfirmation) ...[
+            const Divider(height: 1),
+            CheckboxListTile(
+              key: OfficialInvoiceDetailDraftImportPage
+                  .manualDifferenceConfirmationKey(invoiceNumber),
+              value: manualDifferenceConfirmed,
+              onChanged: staging || !selected
+                  ? null
+                  : (value) => _setManualDifferenceConfirmation(
+                        invoiceNumber,
+                        value ?? false,
+                      ),
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('允許建立「差額待覆核」草稿'),
+              subtitle: Text(
+                '官方總額與已解析品項仍有未分配差額 '
+                '${_formatAmount(enrichment.unallocatedDifference, enrichment.currencyCode)}。'
+                '系統不會自動視為稅額或推算稅率；只保留官方總額、品項與差額警示，'
+                '後續由你決定如何調整記帳。',
               ),
             ),
           ],

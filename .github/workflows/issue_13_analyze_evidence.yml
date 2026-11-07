@@ -1,0 +1,68 @@
+name: Issue #13 Exact-Head Analyze Evidence
+
+on:
+  push:
+    branches:
+      - issue-13-invoice-award-official-data
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-13-analyze-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-evidence:
+    name: Capture exact-head Flutter analyze evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+
+      - name: Analyze with durable evidence
+        id: analyze
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter analyze 2>&1 | tee flutter-analyze.log
+
+      - name: Summarize analyzer evidence
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          {
+            echo '## Issue #13 exact-head Flutter analyze evidence'
+            echo
+            echo "HEAD=${{ github.sha }}"
+            echo
+            echo '```text'
+            tail -n 200 flutter-analyze.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload analyzer evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-13-flutter-analyze-${{ github.sha }}
+          path: flutter-analyze.log
+          if-no-files-found: error
+          retention-days: 3

@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../plan/loan_disbursement_service.dart';
 import '../transaction/transaction_providers.dart';
 import 'account_detail_page.dart';
+import 'account_group_balance_semantics.dart';
 import 'account_providers.dart';
 import 'debit_card_account_sheet.dart';
 import 'account_record.dart';
@@ -52,6 +53,9 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             balances[account.id] = balance;
             return sum + balance * account.currency.defaultRateToTwd;
           });
+          final hasForeignCurrency = items.any(
+            (account) => account.currency != CurrencyCode.twd,
+          );
           final grouped = _groupAccounts(items);
           return RefreshIndicator(
             onRefresh: () async {
@@ -64,7 +68,11 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
               children: [
-                _AccountSummaryCard(total: total, count: items.length),
+                _AccountSummaryCard(
+                  total: total,
+                  count: items.length,
+                  hasForeignCurrency: hasForeignCurrency,
+                ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -983,10 +991,15 @@ class _AccountPageState extends ConsumerState<AccountPage> {
 }
 
 class _AccountSummaryCard extends StatelessWidget {
-  const _AccountSummaryCard({required this.total, required this.count});
+  const _AccountSummaryCard({
+    required this.total,
+    required this.count,
+    required this.hasForeignCurrency,
+  });
 
   final double total;
   final int count;
+  final bool hasForeignCurrency;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -1003,7 +1016,16 @@ class _AccountSummaryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('帳戶總覽'),
-                    Text('共 $count 個啟用帳戶・以 TWD 換算目前餘額'),
+                    Text(
+                      '共 $count 個帳戶・'
+                      '${AccountGroupBalanceSemantics.amountHeading(hasForeignCurrency: hasForeignCurrency)}',
+                    ),
+                    Text(
+                      AccountGroupBalanceSemantics.overviewNote(
+                        hasForeignCurrency: hasForeignCurrency,
+                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ],
                 ),
               ),
@@ -1050,6 +1072,9 @@ class _AccountTypeSection extends StatelessWidget {
           (balances[account.id] ?? account.initialBalance) *
               account.currency.defaultRateToTwd,
     );
+    final hasForeignCurrency = accounts.any(
+      (account) => account.currency != CurrencyCode.twd,
+    );
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -1061,9 +1086,22 @@ class _AccountTypeSection extends StatelessWidget {
               type.label,
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
-            subtitle: Text(
-              '${accounts.length} 個帳戶・TWD 換算淨額 '
-              '${NumberFormat('#,##0.##').format(groupTotalTwd)}',
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${accounts.length} 個帳戶・'
+                  '${AccountGroupBalanceSemantics.amountHeading(hasForeignCurrency: hasForeignCurrency)} '
+                  '${NumberFormat('#,##0.##').format(groupTotalTwd)}',
+                ),
+                Text(
+                  AccountGroupBalanceSemantics.groupNote(
+                    type,
+                    hasForeignCurrency: hasForeignCurrency,
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ),
             trailing: Icon(
               collapsed

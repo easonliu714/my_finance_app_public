@@ -1,0 +1,142 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:sqflite/sqflite.dart';
+
+import '../../database/production_database_coordinator.dart';
+import '../account/account_record.dart';
+import '../account/account_repository.dart';
+import '../transaction/transaction_record.dart';
+import '../transaction/transaction_ledger_refresh_signal.dart';
+import '../transaction/transaction_type.dart';
+import 'invoice_award_payout_bookkeeping_contract.dart';
+import 'invoice_award_remittance_receipt_evidence.dart';
+
+/// Explicit user-triggered, one-shot bank-receipt ledger credit.
+/// Old v4.20.24 observations never invoke this service automatically.
+class InvoiceAwardFormalIncomePostingService {
+  const InvoiceAwardFormalIncomePostingService()
+      : _isolatedDatabaseProvider = null,
+        _isolatedAccountsProvider = null;
+
+  // Only the isolated regression harness may supply dependencies. The
+  // production constructor always uses the canonical account/SQLite stores;
+  // neither constructor can bypass the Owner-C guard before store access.
+  @visibleForTesting
+  const InvoiceAwardFormalIncomePostingService.forIsolatedTest({
+    required Future<Database> Function() databaseProvider,
+    required Future<List<AccountRecord>> Function() accountsProvider,
+  })  : _isolatedDatabaseProvider = databaseProvider,
+        _isolatedAccountsProvider = accountsProvider;
+
+  final Future<Database> Function()? _isolatedDatabaseProvider;
+  final Future<List<AccountRecord>> Function()? _isolatedAccountsProvider;
+
+  Future<Database> _database() =>
+      _isolatedDatabaseProvider?.call() ??
+      ProductionDatabaseCoordinator.instance.database;
+
+  Future<List<AccountRecord>> _accounts() =>
+      _isolatedAccountsProvider?.call() ??
+      AccountRepository.instance.listAccounts();
+
+  static String stableRecordId(InvoiceAwardPayoutBookkeepingProposal p) =>
+      'invoice-award-income:${p.idempotencyKey}';
+
+  /// The canonical formal ledger is the only POSTED authority.
+  /// Never infer POSTED from SharedPreferences receipt observations.
+  Future<Set<String>> readPostedIds(
+      Iterable<InvoiceAwardPayoutBookkeepingProposal> proposals) async {
+    final ids = proposals
+        .where((proposal) => proposal.hasValidProvenance)
+        .map(stableRecordId)
+        .toSet();
+    if (ids.isEmpty) return <String>{};
+    final db = await _database();
+    final posted = <String>{};
+    for (final id in ids) {
+      final rows = await db.query(
+        'transactions',
+        columns: const <String>['id'],
+        where: 'id = ?',
+        whereArgs: <Object?>[id],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) posted.add(id);
+    }
+    return posted;
+  }
+
+  Future<bool> post({
+    required InvoiceAwardPayoutBookkeepingProposal proposal,
+    required InvoiceAwardRemittanceReceiptEvidence receipt,
+    required DateTime authorizedAtUtc,
+  }) async {
+    // Reject before any account/SQLite access; preserve historical POSTED rows.
+    if (proposal.isDeferredCloud500Prize) {
+      throw StateError('CLOUD500_PRODUCTION_DEFERRED_OWNER_OPTION_C');
+    }
+    if (!authorizedAtUtc.isUtc ||
+        authorizedAtUtc.isBefore(receipt.confirmedAtUtc) ||
+        authorizedAtUtc.isBefore(receipt.receivedAtUtc) ||
+        !receipt.matches(proposal) ||
+        !proposal.hasValidProvenance) {
+      throw StateError('INVOICE_AWARD_POSTING_EVIDENCE_INVALID');
+    }
+    final accounts = await _accounts();
+    final matches = accounts.where((a) =>
+        a.id == proposal.localAccountId &&
+        !a.isArchived &&
+        a.currency == CurrencyCode.twd &&
+        (a.type == AccountType.bank || a.type == AccountType.debitCard))
+        .toList(growable: false);
+    if (matches.length != 1) {
+      throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_UNAVAILABLE');
+    }
+    final account = matches.single;
+    // The ledger uses displayName, so reject ambiguous account labels.
+    if (accounts.where((a) =>
+        !a.isArchived && a.displayName == account.displayName).length != 1) {
+      throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_NAME_AMBIGUOUS');
+    }
+    final record = TransactionRecord(
+      id: stableRecordId(proposal),
+      type: TransactionType.income,
+      amount: proposal.grossAmount.toDouble(),
+      category: '發票兌獎',
+      occurredAt: receipt.receivedAtUtc.toLocal(),
+      accountName: account.displayName,
+      memberName: '自己',
+      merchantName: '',
+      tagName: '',
+      note: '發票獎金入帳；期別=${proposal.awardPeriodId}；'
+          '獎別=${proposal.prizeTier}；'
+          '來源SHA256=${proposal.officialDatasetFingerprint}；'
+          '候選=${proposal.invoiceIdentity}；'
+          '手動銀行收款確認（非銀行API驗證）',
+      currency: CurrencyCode.twd,
+      exchangeRateToBase: 1,
+    );
+    final db = await _database();
+    // The formal ledger owns the provider refresh event: publish only after
+    // the SQLite transaction commits a genuinely new row, never for a
+    // rejected Owner-C proposal or an idempotent duplicate.
+    final inserted = await db.transaction<bool>((txn) async {
+      final existing = await txn.query(
+        'transactions',
+        columns: const <String>['id'],
+        where: 'id = ?',
+        whereArgs: <Object?>[record.id],
+        limit: 1,
+      );
+      if (existing.isNotEmpty) return false;
+      // ABORT, not REPLACE: no overwrite on concurrency or repeated posts.
+      await txn.insert(
+        'transactions',
+        record.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.abort,
+      );
+      return true;
+    });
+    if (inserted) TransactionLedgerRefreshSignal.instance.emit();
+    return inserted;
+  }
+}

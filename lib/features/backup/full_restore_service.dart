@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/production_schema_v20_wallet_top_up_tables.dart';
+import '../category/expense_category_schema.dart';
 
 import 'full_backup_scope.dart';
 import 'full_backup_service.dart';
@@ -54,6 +55,11 @@ class FullRestoreService {
     final rawData = envelope['data']! as Map<String, Object?>;
     final data = _normalizedManagedData(metadata, rawData);
     final backupCounts = _managedBackupCounts(data);
+    // B3 V29: capture managed schema before external custody I/O. A newly
+    // installed private trigger/index or altered managed DDL must not inherit
+    // authority from the older pre-restore backup snapshot.
+    final preRestoreManagedSchema =
+        await backupService.captureManagedSchema(db);
     final preRestoreBackupEnvelope = await backupService.buildFullBackupEnvelope(
       db,
       createdAt: preRestoreBackupCreatedAt,
@@ -65,13 +71,32 @@ class FullRestoreService {
 
     ReferentialIntegrityAudit? audit;
     await db.transaction((txn) async {
+      // B3 V27: abort before ANY trigger drop or destructive DML if another
+      // writer changed managed data after the pre-restore custody snapshot.
+      if (!await backupService.managedSchemaMatches(
+            txn, preRestoreManagedSchema,
+          ) ||
+          !await backupService.managedSnapshotMatches(
+            txn, preRestoreBackupEnvelope,
+          )) {
+        throw const FullRestoreException(
+          '還原前備份快照與目前資料不一致；請重新確認備份後再還原',
+        );
+      }
       await _assertRequiredTablesExist(txn);
+      // The category table is lazy-created on some installations. Materialize
+      // it only inside the destructive restore transaction, so a V9 category
+      // payload can never be silently skipped and any failure rolls back DDL.
+      await ensureExpenseCategorySchema(txn);
       final hasWalletTopUpAudits =
           await _tableExists(txn, 'wallet_top_up_audits');
       if (hasWalletTopUpAudits) {
         await dropWalletTopUpAuditImmutabilityTriggers(txn);
       }
       try {
+        // Restore-only trigger changes must remain inside the same atomic
+        // transaction; never expose an unguarded pre-restore custody window.
+        await beforeManagedRestoreTransaction(txn);
         await _clearTables(txn);
         for (final tableName in FullBackupService.backupTableNames) {
           await _restoreTableRows(txn, tableName, data[tableName]);
@@ -86,8 +111,12 @@ class FullRestoreService {
         }
         audit = transactionAudit;
       } finally {
-        if (hasWalletTopUpAudits) {
-          await createWalletTopUpAuditImmutabilityTriggers(txn);
+        try {
+          await afterManagedRestoreTransaction(txn);
+        } finally {
+          if (hasWalletTopUpAudits) {
+            await createWalletTopUpAuditImmutabilityTriggers(txn);
+          }
         }
       }
     });
@@ -101,6 +130,13 @@ class FullRestoreService {
           ),
     );
   }
+
+  // Versioned restore services override these hooks to temporarily release
+  // immutable-row triggers ONLY within the destructive SQLite transaction.
+  // On rollback, SQLite restores the original trigger schema atomically.
+  Future<void> beforeManagedRestoreTransaction(DatabaseExecutor txn) async {}
+
+  Future<void> afterManagedRestoreTransaction(DatabaseExecutor txn) async {}
 
   Future<ReferentialIntegrityAudit> auditReferentialIntegrity(
     DatabaseExecutor db,
@@ -462,6 +498,9 @@ class FullRestoreService {
       3 => FullBackupScope.legacyScopeV3TableNames,
       4 => FullBackupScope.legacyScopeV4TableNames,
       5 => FullBackupScope.legacyScopeV5TableNames,
+      6 => FullBackupScope.legacyScopeV6TableNames,
+      7 => FullBackupScope.legacyScopeV7TableNames,
+      8 => FullBackupScope.legacyScopeV8TableNames,
       _ => FullBackupService.backupTableNames,
     };
     final includedNames = includedTables.whereType<String>().toSet();
