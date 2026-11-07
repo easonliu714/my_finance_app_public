@@ -180,6 +180,9 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: L1 cursor recovery regression (synthetic only)
+        run: flutter test test/issue13_lab_l1_cursor_test.dart
+
       - name: Lab v4 source authority gates
         shell: bash
         run: |

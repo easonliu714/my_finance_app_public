@@ -185,3 +185,18 @@ renderer extraction completeness and publication period/tier remain
 UNATTESTED, global NOT_WIN and production integration remain HOLD. This
 change does not request finance records, run the 135 MB PDF in CI, alter
 production PR45, or authorize a signed release.
+
+
+## L1 native cursor recovery and JSONL structural preflight (synthetic only)
+
+The Android Lab UI now validates each completed app-private JSONL batch
+before moving its durable cursor: exact official SHA metadata, period/tier,
+engine, sequential pages, complete four-page-or-terminal coverage, stable
+page count, bounded bytes and text, and no symlink/path escape. A native
+batch finalized before UI crash is recovered once rather than re-exported.
+Duplicate starts, partial output and metadata drift HOLD. Cursor updates
+use a flushed same-directory temporary file and atomic rename.
+
+Existing Lab CI runs new Flutter regressions. This is LAB_CODE_TEST, not
+actual official PDF page extraction or renderer completeness evidence.
+L1 official/L2–L4/global NOT_WIN/production release/Owner UAT remain HOLD.

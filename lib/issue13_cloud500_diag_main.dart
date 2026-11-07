@@ -14,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 import 'features/invoice/invoice_award_cloud_artifact_downloader.dart';
 import 'features/invoice/invoice_award_cloud_candidate_scope.dart';
 import 'features/invoice/invoice_award_cloud_publication_parser.dart';
+import 'issue13_lab_l1_cursor.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -451,6 +452,15 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     if (first == null || first < 1 || first > 100000) {
       throw StateError('L1_CURSOR_INVALID_OR_COMPLETE');
     }
+    // A finalized batch may exist even if the UI crashed before cursor save.
+    final recovered = await LabL1Cursor.recover(lab, first, _expectedSha256);
+    if (recovered != null) {
+      await _persistL1Cursor(cursor, recovered.last + 1);
+      _lastL1BatchFile = recovered.file;
+      await _log('L1_RECOVERED_COMPLETED_BATCH first=$first '
+          'last=${recovered.last} global_not_win=HOLD');
+      return;
+    }
     final result = await _runPlatformProbe(candidate: 'LAB_L1_EXPORT:$first');
     if (result['status'] != 'complete' ||
         result['start_page'] != first ||
@@ -459,15 +469,24 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       throw StateError('L1_NATIVE_BATCH_HOLD result=$result');
     }
     final last = (result['end_page'] as num?)?.toInt();
+    final count = (result['page_count'] as num?)?.toInt();
     final path = result['export_path']?.toString() ?? '';
-    if (last == null || last < first || last > first + 3 ||
-        path.isEmpty || !await File(path).exists()) {
+    if (last == null || count == null || path.isEmpty) {
       throw StateError('L1_NATIVE_BATCH_INCOMPLETE');
     }
-    await cursor.writeAsString('${last + 1}', flush: true);
-    _lastL1BatchFile = File(path);
-    await _log('L1_PARTIAL_BATCH_CAPTURED first=$first last=$last '
-        'total=${result['page_count']} global_not_win=HOLD');
+    final checked = await LabL1Cursor.verify(
+      lab, File(path), first, _expectedSha256, last: last, count: count,
+    );
+    await _persistL1Cursor(cursor, checked.last + 1);
+    _lastL1BatchFile = checked.file;
+    await _log('L1_PARTIAL_BATCH_CAPTURED first=$first last=${checked.last} '
+        'total=${checked.count} global_not_win=HOLD');
+  }
+
+  Future<void> _persistL1Cursor(File cursor, int next) async {
+    final pending = File('${cursor.path}.part');
+    await pending.writeAsString('$next\n', flush: true);
+    await pending.rename(cursor.path);
   }
 
   Future<void> _shareL1Batch() async {
