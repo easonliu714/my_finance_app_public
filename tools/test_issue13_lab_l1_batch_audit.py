@@ -15,6 +15,10 @@ class BatchTest(unittest.TestCase):
         self.assertEqual(result["global_not_win"], "HOLD")
         self.assertEqual(result["full_page_coverage"], "HOLD")
 
+    def test_intra_page_inversion_rejected(self):
+        with self.assertRaisesRegex(ValueError, "L1_BATCH_INTRA_PAGE_SORT_UNPROVEN"):
+            audit_batch([page(1, 1, "CD12345678 AB12345678")], first=1)
+
     def test_missing_page(self):
         with self.assertRaisesRegex(ValueError, "L1_BATCH_RANGE_ORDER"):
             audit_batch([page(2, 8, "AB12345678")], first=1)

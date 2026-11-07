@@ -23,6 +23,10 @@ class L1AuditTest(unittest.TestCase):
         self.assertEqual(result["global_not_win_authority"], "HOLD")
         self.assertEqual(result["extraction_completeness"], "UNATTESTED")
 
+    def test_intra_page_inversion_rejected_before_monotonic_claim(self):
+        with self.assertRaisesRegex(ValueError, "INTRA_PAGE_SORT_ORDER_UNPROVEN"):
+            audit_pages([page(1, 1, "CD12345678 AB12345678")])
+
     def test_missing_page_rejected(self):
         with self.assertRaisesRegex(ValueError, "INCOMPLETE_PAGE_COVERAGE"):
             audit_pages([page(1, 2, "AB12345678")])

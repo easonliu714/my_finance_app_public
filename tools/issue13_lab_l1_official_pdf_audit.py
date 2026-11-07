@@ -86,6 +86,10 @@ def audit_pages(records, *, pdf_sha256=EXPECTED_SHA256):
             raise ValueError("PAGE_WITHOUT_CANONICAL_TOKENS")
         if len(tokens) != len(set(tokens)) or any(v in seen for v in tokens):
             raise ValueError("DUPLICATE_INVOICE_TOKEN")
+        # Renderer text-piece order is not an attested sorted sequence.
+        # Never label a page MONOTONIC using only its min/max token.
+        if tokens != sorted(tokens):
+            raise ValueError("INTRA_PAGE_SORT_ORDER_UNPROVEN")
         low, high = min(tokens), max(tokens)
         if previous_max is not None and low <= previous_max:
             raise ValueError("GLOBAL_PAGE_SORT_ORDER_UNPROVEN")

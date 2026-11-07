@@ -49,6 +49,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tools -p 'test_issue13_lab_l1_official_pdf_audit.py' -v
           python3 -m unittest discover -s tools -p 'test_issue13_lab_l1_batch_audit.py' -v
+          python3 -m unittest discover -s tools -p 'test_issue13_lab_l1_batch_chain_audit.py' -v
           echo "LAB_L1_OFFLINE_AUDITOR_CONTRACT=PASS_SYNTHETIC_ONLY" >> "$GITHUB_STEP_SUMMARY"
           echo "LAB_L1_OFFICIAL_PDF_BYTES_AND_API35_FULL_PAGE_EXTRACTION=HOLD" >> "$GITHUB_STEP_SUMMARY"
           echo "LAB_L1_GLOBAL_NOT_WIN_AND_PRODUCTION_INTEGRATION=HOLD" >> "$GITHUB_STEP_SUMMARY"

@@ -36,6 +36,8 @@ def audit_batch(rows, *, first):
             raise ValueError("L1_BATCH_NO_TOKENS")
         if len(tokens) != len(set(tokens)) or any(x in seen for x in tokens):
             raise ValueError("L1_BATCH_DUPLICATE")
+        if tokens != sorted(tokens):
+            raise ValueError("L1_BATCH_INTRA_PAGE_SORT_UNPROVEN")
         if previous is not None and min(tokens) <= previous:
             raise ValueError("L1_BATCH_SORT_UNPROVEN")
         previous = max(tokens)

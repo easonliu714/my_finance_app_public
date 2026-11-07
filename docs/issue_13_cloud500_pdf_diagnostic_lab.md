@@ -158,3 +158,30 @@ still possible. No public CI has the exact official PDF or Android API35
 full-page runtime export. A missing batch, crash, token ambiguity, order drift,
 or incomplete coverage keeps official L1, global NOT_WIN, production
 integration, C13/C17/C18 and Owner UAT on HOLD. PR45 and main are untouched.
+
+
+## L1 multi-batch chain audit — fail-closed structural convergence
+
+The existing API35 native export produces at most four pages per JSONL batch.
+A new **Lab-only** streaming chain auditor accepts a separate directory of
+unmodified native `l1-pages-START-REQUEST.jsonl` files and the exact official
+PDF. It verifies PDF bytes/SHA before page processing, rejects missing or
+overlapping batches, inconsistent page counts, incomplete nonterminal batches,
+malformed/oversized JSONL, duplicate keys, untrusted entries, Unicode token
+ambiguity, within-page inversions, cross-page inversions and duplicate tokens.
+Each batch remains capped at 4 MB / four pages, each line at 1 MB; no full PDF
+or page-text corpus is loaded into memory. Synthetic tests exercise the chain.
+
+```bash
+python3 tools/issue13_lab_l1_batch_chain_audit.py \
+  --official-pdf /path/to/verified-official.pdf \
+  --batch-dir /path/to/native-jsonl-only-directory \
+  --output /path/outside-batch-directory/l1-chain-report.json
+```
+
+**Scope:** CI synthetic chain tests are not an official-source or Android
+runtime PASS. Even a complete native JSONL chain is only structural evidence:
+renderer extraction completeness and publication period/tier remain
+UNATTESTED, global NOT_WIN and production integration remain HOLD. This
+change does not request finance records, run the 135 MB PDF in CI, alter
+production PR45, or authorize a signed release.
