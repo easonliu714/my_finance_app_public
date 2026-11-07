@@ -15,6 +15,7 @@ import 'features/invoice/invoice_award_cloud_artifact_downloader.dart';
 import 'features/invoice/invoice_award_cloud_candidate_scope.dart';
 import 'features/invoice/invoice_award_cloud_publication_parser.dart';
 import 'issue13_lab_l1_cursor.dart';
+import 'issue13_lab_l1_bounded_run.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -443,7 +444,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
 
   // A durable cursor advances only after a complete native four-page batch.
   // Restart, native death and partial output cannot silently skip a page.
-  Future<void> _exportNextL1Batch() async {
+  Future<LabL1Batch> _exportNextL1Batch() async {
     final lab = _labDirectory;
     if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
     final cursor = File('${lab.path}/l1-next-page.txt');
@@ -459,8 +460,9 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       _lastL1BatchFile = recovered.file;
       await _log('L1_RECOVERED_COMPLETED_BATCH first=$first '
           'last=${recovered.last} global_not_win=HOLD');
-      return;
+      return recovered;
     }
+    await _requireL1ExportStorageBudget();
     final result = await _runPlatformProbe(candidate: 'LAB_L1_EXPORT:$first');
     if (result['status'] != 'complete' ||
         result['start_page'] != first ||
@@ -481,6 +483,57 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     _lastL1BatchFile = checked.file;
     await _log('L1_PARTIAL_BATCH_CAPTURED first=$first last=${checked.last} '
         'total=${checked.count} global_not_win=HOLD');
+    return checked;
+  }
+
+
+  // Include interrupted .part files in the retained-evidence quota. Do not
+  // delete audit evidence automatically or claim an incomplete chain is done.
+  Future<int> _l1RetainedBytes() async {
+    final lab = _labDirectory;
+    if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    var total = 0;
+    await for (final entry in lab.list(followLinks: false)) {
+      final name = entry.uri.pathSegments.last;
+      if (!name.startsWith('l1-pages-') ||
+          !(name.endsWith('.jsonl') || name.endsWith('.jsonl.part'))) {
+        continue;
+      }
+      if (entry is! File) throw StateError('L1_RETAINED_ENTRY_UNTRUSTED');
+      total += await entry.length();
+      if (total > LabL1BoundedRun.maxRetainedBytes) return total;
+    }
+    return total;
+  }
+
+  Future<void> _requireL1ExportStorageBudget() async {
+    final retained = await _l1RetainedBytes();
+    if (retained >
+        LabL1BoundedRun.maxRetainedBytes - LabL1BoundedRun.maxBatchBytes) {
+      throw StateError('L1_RETAINED_STORAGE_BUDGET_HOLD');
+    }
+  }
+
+  Future<int> _readL1NextPage() async {
+    final lab = _labDirectory;
+    if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    final cursor = File('${lab.path}/l1-next-page.txt');
+    final raw = await cursor.exists() ? await cursor.readAsString() : '1';
+    return int.tryParse(raw.trim()) ?? 0;
+  }
+
+  // At most 8 native four-page batches, 256 MiB retained JSONL and 2 min
+  // per native batch. Timeout is an unknown-process HOLD, never auto-retry.
+  Future<void> _exportBoundedL1Run() async {
+    final result = await LabL1BoundedRun.run(
+      readNextPage: _readL1NextPage,
+      retainedBytes: _l1RetainedBytes,
+      captureNext: _exportNextL1Batch,
+    );
+    await _log('L1_BOUNDED_RUN batches=${result.batches} '
+        'next_page=${result.nextPage} total=${result.pageCount} '
+        'cursor_reached_end=${result.reachedFinalPage} '
+        'official_full_page_evidence=HOLD global_not_win=HOLD');
   }
 
   Future<void> _persistL1Cursor(File cursor, int next) async {
@@ -792,8 +845,15 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       ),
       FilledButton.tonal(
         onPressed: _busy ? null : () => _run(
-          'L1 API35 bounded page export', _exportNextL1Batch),
+          'L1 API35 bounded page export', () async {
+            await _exportNextL1Batch();
+          }),
         child: const Text('L1. 擷取下一批最多 4 頁（非完整判定）'),
+      ),
+      FilledButton.tonal(
+        onPressed: _busy ? null : () => _run(
+          'L1 bounded multi-batch export', _exportBoundedL1Run),
+        child: const Text('L1. 有界連續擷取最多 32 頁（非官方驗收）'),
       ),
       OutlinedButton(
         onPressed: _busy ? null : () => _run(
