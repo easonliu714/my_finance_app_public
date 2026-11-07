@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../database/production_database_coordinator.dart';
 import '../account/account_record.dart';
@@ -81,6 +82,19 @@ class InvoiceAwardFormalIncomePostingService {
         !proposal.hasValidProvenance) {
       throw StateError('INVOICE_AWARD_POSTING_EVIDENCE_INVALID');
     }
+    // Service-level authority: a caller cannot bypass the UI modal with a
+    // fabricated, revoked, or replaced receipt. Owner-C is rejected above,
+    // before even opening preferences or the formal SQLite store.
+    final preferences = await SharedPreferences.getInstance();
+    final receiptRepository =
+        InvoiceAwardRemittanceReceiptRepository(preferences);
+    void requireCurrentReceipt() {
+      if (!receiptRepository.isCurrentObservation(
+          proposal: proposal, observation: receipt)) {
+        throw StateError('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT');
+      }
+    }
+    requireCurrentReceipt();
     final accounts = await _accounts();
     final matches = accounts.where((a) =>
         a.id == proposal.localAccountId &&
@@ -116,6 +130,10 @@ class InvoiceAwardFormalIncomePostingService {
       exchangeRateToBase: 1,
     );
     final db = await _database();
+    // Recheck after asynchronous account/database acquisition. This narrows
+    // the revocation TOCTOU window; SharedPreferences and SQLite are still
+    // separate stores and this is NOT cross-process atomicity.
+    requireCurrentReceipt();
     // The formal ledger owns the provider refresh event: publish only after
     // the SQLite transaction commits a genuinely new row, never for a
     // rejected Owner-C proposal or an idempotent duplicate.
@@ -128,6 +146,9 @@ class InvoiceAwardFormalIncomePostingService {
         limit: 1,
       );
       if (existing.isNotEmpty) return false;
+      // Last in-isolate check immediately before the formal insert; a stale
+      // receipt must not create a new row or emit a Provider refresh.
+      requireCurrentReceipt();
       // ABORT, not REPLACE: no overwrite on concurrency or repeated posts.
       await txn.insert(
         'transactions',

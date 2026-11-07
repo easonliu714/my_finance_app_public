@@ -742,7 +742,31 @@ Future<void> _runV24LedgerWitness(
         backupBefore, 'V24_CLOUD500_BACKUP_MUTATED');
 
     final general = _v24Proposal('general-200', 'general-sixth', 200);
-    final generalReceipt = _v24Receipt(general);
+    // A direct service call without a persisted manual receipt must fail
+    // before SQLite, even on the disposable Release-AOT witness.
+    var unconfirmedRejected = false;
+    try {
+      await service.post(
+        proposal: general,
+        receipt: _v24Receipt(general),
+        authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
+      );
+    } on StateError catch (error) {
+      unconfirmedRejected = error.toString().contains(
+          'INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT');
+    }
+    _require(unconfirmedRejected &&
+        jsonEncode(await db.query('transactions', orderBy: 'id')) ==
+            rowsBefore && signals.isEmpty,
+        'V24_UNCONFIRMED_DIRECT_POST_NOT_REJECTED');
+    final generalReceipt =
+        await InvoiceAwardRemittanceReceiptRepository(prefs)
+            .confirmObservedCredit(
+      proposal: general,
+      receivedAtUtc: DateTime.utc(2026, 10, 9),
+      confirmedAtUtc: DateTime.utc(2026, 10, 9, 1),
+    );
+    final receiptAfterGeneral = prefs.getString(receiptKey);
     _require(await service.post(
       proposal: general,
       receipt: generalReceipt,
@@ -769,7 +793,7 @@ Future<void> _runV24LedgerWitness(
         'V24_REGISTRY_CACHE_MUTATED');
     _require((await db.rawQuery('PRAGMA foreign_key_check')).isEmpty,
         'V24_FOREIGN_KEY_BROKEN');
-    _require(prefs.getString(receiptKey) == receiptBefore &&
+    _require(prefs.getString(receiptKey) == receiptAfterGeneral &&
         prefs.getString(lkgKey) == lkgBefore,
         'V24_PREFERENCES_OR_LKG_MUTATED');
     debugPrint('C500_RELEASE_V24_LEDGER_PASS schema=24 '

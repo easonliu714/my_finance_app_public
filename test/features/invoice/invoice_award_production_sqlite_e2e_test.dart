@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -255,6 +256,67 @@ void main() {
     expect(finalBackup['transactions'] as List, hasLength(3));
     expect(finalBackup, isNot(contains('business_registry_official_details')));
     expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+
+    // Direct service callers cannot bypass durable manual receipt authority.
+    // A revoked receipt during an awaited account read also cannot reach the
+    // SQLite transaction, even if the UI previously approved the same key.
+    final beforeRaceRows = await db.query('transactions', orderBy: 'id');
+    final beforeRaceChanges =
+        (await db.rawQuery('SELECT total_changes() AS n')).single['n'];
+    final beforeRaceSignals = ledgerSignals.length;
+    final missing = _proposal('unconfirmed-direct-200', 'general-sixth', 200);
+    await expectLater(
+      service.post(
+        proposal: missing,
+        receipt: _receipt(missing),
+        authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
+      ),
+      throwsA(isA<StateError>().having(
+        (e) => e.toString(), 'durable receipt required',
+        contains('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT'),
+      )),
+    );
+    final racing = _proposal('revoked-inflight-200', 'general-sixth', 200);
+    final racingReceipt = await receipts.confirmObservedCredit(
+      proposal: racing,
+      receivedAtUtc: DateTime.utc(2026, 10, 9),
+      confirmedAtUtc: DateTime.utc(2026, 10, 9, 1),
+    );
+    final accountReadStarted = Completer<void>();
+    final resumeAccountRead = Completer<void>();
+    final racingService = InvoiceAwardFormalIncomePostingService.forIsolatedTest(
+      databaseProvider: () async => db,
+      accountsProvider: () async {
+        accountReadStarted.complete();
+        await resumeAccountRead.future;
+        return <AccountRecord>[
+          const AccountRecord(
+            id: 'bank-1', name: '測試銀行', type: AccountType.bank,
+            initialBalance: 0, sortOrder: 0,
+          ),
+        ];
+      },
+    );
+    final pendingPost = racingService.post(
+      proposal: racing,
+      receipt: racingReceipt,
+      authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
+    );
+    await accountReadStarted.future;
+    await receipts.revokeForProposal(racing);
+    resumeAccountRead.complete();
+    await expectLater(
+      pendingPost,
+      throwsA(isA<StateError>().having(
+        (e) => e.toString(), 'revoked while account read awaited',
+        contains('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT'),
+      )),
+    );
+    expect(await db.query('transactions', orderBy: 'id'), beforeRaceRows);
+    expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+        beforeRaceChanges);
+    expect(ledgerSignals, hasLength(beforeRaceSignals));
+    expect((await lkg.read('115-05-06'))?.payload, lkgPayload);
   });
 }
 
