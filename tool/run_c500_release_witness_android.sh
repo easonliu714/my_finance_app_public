@@ -20,7 +20,11 @@ for attempt in $(seq 1 90); do
     exit 65
   fi
   if grep -Fq 'C500_RELEASE_WITNESS_PASS' <<< "$logs"; then
-    echo "$logs" | grep -F 'C500_RELEASE_WITNESS_PASS'
+    if ! grep -Fq 'C500_RELEASE_V24_LEDGER_PASS' <<< "$logs"; then
+      echo 'C500_RELEASE_V24_LEDGER_MARKER_MISSING' >&2
+      exit 67
+    fi
+    echo "$logs" | grep -E 'C500_RELEASE_(V24_LEDGER|WITNESS)_PASS'
     exit 0
   fi
   sleep 2

@@ -192,6 +192,38 @@ void main() {
       receivedAtUtc: DateTime.utc(2026, 10, 9),
       confirmedAtUtc: DateTime.utc(2026, 10, 9, 1),
     );
+    // A real SQLite trigger simulates a transaction abort. A failed formal
+    // post must leave rows, backups, LKG and Provider state untouched.
+    final generalId =
+        InvoiceAwardFormalIncomePostingService.stableRecordId(general);
+    await db.execute('''
+      CREATE TRIGGER reject_general_income BEFORE INSERT ON transactions
+      WHEN NEW.id = '$generalId'
+      BEGIN SELECT RAISE(ABORT, 'synthetic-rollback'); END
+    ''');
+    final rollbackChanges =
+        (await db.rawQuery('SELECT total_changes() AS n')).single['n'];
+    final rollbackRows = jsonEncode(await db.query('transactions', orderBy: 'id'));
+    await expectLater(
+      service.post(
+        proposal: general,
+        receipt: generalReceipt,
+        authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
+      ),
+      throwsA(predicate(
+          (error) => error.toString().contains('synthetic-rollback'))),
+    );
+    expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+        rollbackChanges);
+    expect(jsonEncode(await db.query('transactions', orderBy: 'id')),
+        rollbackRows);
+    expect(ledgerSignals, isEmpty, reason: 'aborted SQLite post must not refresh');
+    expect((await lkg.read('115-05-06'))?.payload, lkgPayload);
+    expect(jsonEncode((await const FullBackupService()
+        .buildFullBackupEnvelope(db, sourcePlatform: 'isolated-test'))['data']),
+        userBackupBefore);
+    await db.execute('DROP TRIGGER reject_general_income');
+
     expect(await service.post(
       proposal: general,
       receipt: generalReceipt,
@@ -206,8 +238,6 @@ void main() {
     ), isFalse);
     expect(ledgerSignals, hasLength(1),
         reason: 'idempotent duplicate must not issue a second refresh');
-    final generalId =
-        InvoiceAwardFormalIncomePostingService.stableRecordId(general);
     expect(await service.readPostedIds(<InvoiceAwardPayoutBookkeepingProposal>[
       legacy, general,
     ]), containsAll(<String>[historicalId, generalId]));

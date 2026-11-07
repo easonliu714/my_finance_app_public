@@ -1,4 +1,16 @@
-## CURRENT — 2026-11-07 10:15 Asia/Taipei | C500 V24 SQLite + ledger Provider signal integration (PRODUCT+TEST, CI pending)
+## CURRENT — 2026-11-07 11:15 Asia/Taipei | C500 Release-AOT Android V24 SQLite/Provider witness (CODE+TEST, exact-head CI pending)
+
+**Fresh prewrite authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT parent `ae8409ccb1a578aa5cf9aba08c1faee357d5bee9`; Lab `6e64c674333b8820f335c16f14133e5534d46574`. Issue #4/#13/#19 OPEN. One Writer PR45-only; main/Lab untouched; no force, merge, signed release, version bump or Owner device impersonation.
+
+**Parent exact-head CI:** Flutter Android #1407 run 42328116635 at `ae8409cc` three jobs SUCCESS; Flutter full **2373 PASS / 1 skipped**, Analyze/focused/debug APK/Native JVM PASS, API35 independent native PASS, bounded Release-AOT API35 debug signer parity and existing C500 witness PASS. This proves parent only.
+
+**New measurable source/test slice:** extend existing release-AOT Android API35 witness with an actual isolated on-device SQLite file using canonical V24 extension, transaction-core fixture, actual formal posting service, SharedPreferences receipt boundary, historical NT$500/NT$700 POSTED rows, backup scope/cache checks, Provider signal and general NT$200 idempotent post. Assert C500 aliases do not change SQLite `total_changes()`, rows, backup, preferences/LKG or Provider; print distinct `C500_RELEASE_V24_LEDGER_PASS` only after checks. Android runner now requires BOTH original and V24 markers. Add SQLite trigger ABORT rollback negative to FFI integration test: no ledger/backup/LKG/Provider mutation on failure, then normal NT$200 post succeeds. This is CODE+TEST and must be proved by NEW exact-head Flutter/Android CI; no local Flutter SDK. No production account/SQLite writes, no trusted signer, no official PDF.
+
+**Scope honesty:** this is real release-AOT Android SQLite/Provider execution in a disposable sandbox, NOT the production `main()` UI route, actual installed V24 database, trusted 9BA2 signing or Owner UAT. `A_C500_PRODUCTION_ISOLATED=PARTIAL/HOLD`, `C500_PROD_NONCONVERGING=TRUE`, C13/C17/C18 HOLD. Lab L0 and L1 synthetic 12/12 PASS; official PDF/full-page Android L1, L2-L4 HOLD. ROC116 DGPA pinned SHA `e30df188649bf5347db3ec43fa989af2cc8d93d793fbe5c9891601e6cce4acf3` remains source-only. App `4.20.37+495` = Owner installed 495; 9BA2 Trusted Signed >495/Owner Device/Issue4/MERGE_READY HOLD. Signing doc still says 493: `GOVERNANCE_INSTALLED_VERSION_MISMATCH=REVIEW_PENDING`; no silent edit.
+
+**Next:** fresh-read new HEAD CI; first failure repair if RED, otherwise production `main()`/UI→Provider→ledger/SQLite/LKG no-write Release E2E or serial Lab L1 official-data native extraction. Do not call this a full production E2E closure.
+
+## HISTORY — 2026-11-07 10:15 Asia/Taipei | C500 V24 SQLite + ledger Provider signal integration (PRODUCT+TEST, CI pending)
 
 **Authority (fresh prewrite):** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT parent `bc7ee4fb1cdd7b7397409e9e8a8d844a74ea8dfd`; Lab `6e64c674333b8820f335c16f14133e5534d46574`; Issue #4/#13/#19 OPEN. Single Writer PR45-only, FF expected-SHA lease; no main/Lab write, merge, signing, Owner-device substitution, or version bump.
 
