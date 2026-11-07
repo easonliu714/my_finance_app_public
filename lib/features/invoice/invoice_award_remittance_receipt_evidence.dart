@@ -125,23 +125,40 @@ class InvoiceAwardRemittanceReceiptRepository {
   final SharedPreferences preferences;
   static const _key = 'issue13_remittance_observations_v1';
 
-  List<InvoiceAwardRemittanceReceiptEvidence> loadAll() {
+  // Corrupt or duplicated persisted observations invalidate the entire
+  // authorization snapshot, not merely the individual malformed row.
+  List<InvoiceAwardRemittanceReceiptEvidence>? _decodeAllStrict() {
     final source = preferences.getString(_key);
-    if (source == null || source.isEmpty) {
+    if (source == null) {
       return const <InvoiceAwardRemittanceReceiptEvidence>[];
     }
+    if (source.trim().isEmpty) return null;
     try {
       final raw = jsonDecode(source);
-      if (raw is! List<dynamic>) {
-        return const <InvoiceAwardRemittanceReceiptEvidence>[];
+      if (raw is! List<dynamic>) return null;
+      final rows = <InvoiceAwardRemittanceReceiptEvidence>[];
+      final seen = <String>{};
+      for (final value in raw) {
+        final item = InvoiceAwardRemittanceReceiptEvidence.fromJson(value);
+        if (item == null || !seen.add(item.proposalKey)) return null;
+        rows.add(item);
       }
-      return List<InvoiceAwardRemittanceReceiptEvidence>.unmodifiable(
-        raw.map(InvoiceAwardRemittanceReceiptEvidence.fromJson)
-            .whereType<InvoiceAwardRemittanceReceiptEvidence>(),
-      );
+      return List<InvoiceAwardRemittanceReceiptEvidence>.unmodifiable(rows);
     } on FormatException {
-      return const <InvoiceAwardRemittanceReceiptEvidence>[];
+      return null;
     }
+  }
+
+  List<InvoiceAwardRemittanceReceiptEvidence> loadAll() =>
+      _decodeAllStrict() ?? const <InvoiceAwardRemittanceReceiptEvidence>[];
+
+  // Mutations must preserve corrupt original bytes for independent audit.
+  List<InvoiceAwardRemittanceReceiptEvidence> _readAllForMutation() {
+    final rows = _decodeAllStrict();
+    if (rows == null) {
+      throw StateError('REMITTANCE_OBSERVATION_STORE_CORRUPT');
+    }
+    return rows;
   }
 
   InvoiceAwardRemittanceReceiptEvidence? readForProposal(
@@ -182,9 +199,15 @@ class InvoiceAwardRemittanceReceiptRepository {
         receivedAtUtc.isAfter(confirmedAtUtc)) {
       throw StateError('REMITTANCE_OBSERVATION_NOT_AUTHORIZED');
     }
-    final existing = readForProposal(proposal);
-    if (existing != null) {
-      return existing;
+    final persisted = _readAllForMutation();
+    for (final item in persisted) {
+      if (item.proposalKey == proposal.idempotencyKey) {
+        // An existing key with a different identity is not an overwrite grant.
+        if (!item.matches(proposal)) {
+          throw StateError('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT');
+        }
+        return item;
+      }
     }
     final record = InvoiceAwardRemittanceReceiptEvidence(
       proposalKey: proposal.idempotencyKey,
@@ -197,7 +220,7 @@ class InvoiceAwardRemittanceReceiptRepository {
       confirmedAtUtc: confirmedAtUtc,
       observationRevision: _newObservationRevision(),
     );
-    final rows = loadAll()
+    final rows = persisted
         .where((value) => value.proposalKey != record.proposalKey)
         .toList(growable: true)
       ..add(record);
@@ -209,7 +232,7 @@ class InvoiceAwardRemittanceReceiptRepository {
 
   Future<void> revokeForProposal(
       InvoiceAwardPayoutBookkeepingProposal proposal) async {
-    final rows = loadAll()
+    final rows = _readAllForMutation()
         .where((value) => value.proposalKey != proposal.idempotencyKey)
         .toList();
     await preferences.setString(_key,

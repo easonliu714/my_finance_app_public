@@ -219,4 +219,91 @@ void main() {
     await repo.revokeForProposal(proposal);
     expect(repo.readForProposal(proposal), isNull);
   });
+  test('corrupt receipt snapshots fail closed and preserve exact audit bytes',
+      () async {
+    final proposal = candidate();
+    final valid = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+    );
+    final malformed = <String, Object>{
+      ...valid.toJson(),
+      'observation_revision': 'invalid-revision',
+    };
+    const key = 'issue13_remittance_observations_v1';
+    for (final bytes in <String>[
+      '',
+      'not-json',
+      '{}',
+      '[null]',
+      jsonEncode(<Object>[valid.toJson(), malformed]),
+      jsonEncode(<Object>[valid.toJson(), valid.toJson()]),
+    ]) {
+      SharedPreferences.setMockInitialValues(<String, Object>{key: bytes});
+      final prefs = await SharedPreferences.getInstance();
+      final repository = InvoiceAwardRemittanceReceiptRepository(prefs);
+      expect(repository.loadAll(), isEmpty);
+      expect(repository.readForProposal(proposal), isNull);
+      await expectLater(
+        repository.confirmObservedCredit(
+          proposal: proposal,
+          receivedAtUtc: valid.receivedAtUtc,
+          confirmedAtUtc: valid.confirmedAtUtc,
+        ),
+        throwsA(isA<StateError>().having(
+          (error) => error.toString(), 'corrupt store',
+          contains('REMITTANCE_OBSERVATION_STORE_CORRUPT'),
+        )),
+      );
+      await expectLater(
+        repository.revokeForProposal(proposal),
+        throwsA(isA<StateError>().having(
+          (error) => error.toString(), 'corrupt store',
+          contains('REMITTANCE_OBSERVATION_STORE_CORRUPT'),
+        )),
+      );
+      expect(prefs.getString(key), bytes);
+    }
+  });
+
+  test('same proposal key with conflicting identity is not overwritten',
+      () async {
+    final proposal = candidate();
+    final record = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: 'another-bank',
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+    );
+    final bytes = jsonEncode(<Object>[record.toJson()]);
+    const key = 'issue13_remittance_observations_v1';
+    SharedPreferences.setMockInitialValues(<String, Object>{key: bytes});
+    final prefs = await SharedPreferences.getInstance();
+    final repository = InvoiceAwardRemittanceReceiptRepository(prefs);
+    expect(repository.loadAll(), hasLength(1));
+    await expectLater(
+      repository.confirmObservedCredit(
+        proposal: proposal,
+        receivedAtUtc: record.receivedAtUtc,
+        confirmedAtUtc: record.confirmedAtUtc,
+      ),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(), 'identity conflict',
+        contains('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT'),
+      )),
+    );
+    expect(prefs.getString(key), bytes);
+    expect(repository.readForProposal(proposal), isNull);
+  });
+
 }
