@@ -6,14 +6,16 @@ void main() {
 
   InvoiceAwardPayoutBookkeepingProposal candidate({
     DateTime? eligibleAt,
+    String prizeTier = 'general-first',
+    int grossAmount = 200000,
     String fingerprint =
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   }) {
     return InvoiceAwardPayoutBookkeepingProposal(
       invoiceIdentity: 'AB12345678',
       awardPeriodId: '2026-07-08',
-      prizeTier: 'general-first',
-      grossAmount: 200000,
+      prizeTier: prizeTier,
+      grossAmount: grossAmount,
       localAccountId: 'bank-local-1',
       externalRemittanceEligibleAt:
           eligibleAt ?? DateTime.utc(2026, 10, 6),
@@ -85,6 +87,31 @@ void main() {
       ),
       isNull,
     );
+  });
+
+  test('Owner C rejects cloud-500 aliases before proposal creation', () {
+    for (final tier in <String>[
+      'cloud-500', 'CLOUD-500', ' cloud-500 ', 'cloud-0500', 'cloud500',
+      'cloud-800',
+    ]) {
+      final value = candidate(prizeTier: tier, grossAmount: 500);
+      expect(value.isDeferredCloud500Prize, isTrue, reason: tier);
+      expect(builder.build(
+        candidate: value,
+        now: DateTime.utc(2026, 10, 6),
+        explicitUserAuthorization: true,
+        externalMofRemittanceConfigured: true,
+      ), isNull, reason: tier);
+    }
+    expect(candidate().isDeferredCloud500Prize, isFalse);
+    final independent = candidate(prizeTier: 'cloud-800', grossAmount: 800);
+    expect(independent.isDeferredCloud500Prize, isFalse);
+    expect(builder.build(
+      candidate: independent,
+      now: DateTime.utc(2026, 10, 6),
+      explicitUserAuthorization: true,
+      externalMofRemittanceConfigured: true,
+    ), same(independent));
   });
 
   test('returns proposal only after all fail-closed gates pass', () {

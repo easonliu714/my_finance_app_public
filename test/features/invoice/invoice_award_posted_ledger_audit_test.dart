@@ -77,6 +77,46 @@ void main() {
     );
   });
 
+  test('Owner C rejects alias and mismatched 500 amounts before DB access', () async {
+    for (final tier in <String>[
+      'CLOUD-500', ' cloud-500 ', 'cloud-0500', 'cloud500', 'cloud-800',
+    ]) {
+      final alias = InvoiceAwardPayoutBookkeepingProposal(
+        invoiceIdentity: proposal.invoiceIdentity,
+        awardPeriodId: proposal.awardPeriodId,
+        prizeTier: tier,
+        grossAmount: 500,
+        localAccountId: proposal.localAccountId,
+        externalRemittanceEligibleAt: proposal.externalRemittanceEligibleAt,
+        officialDatasetFingerprint: proposal.officialDatasetFingerprint,
+        parserRuleVersion: proposal.parserRuleVersion,
+      );
+      final aliasReceipt = InvoiceAwardRemittanceReceiptEvidence(
+        proposalKey: alias.idempotencyKey,
+        awardPeriodId: alias.awardPeriodId,
+        localAccountId: alias.localAccountId,
+        prizeTier: alias.prizeTier,
+        grossAmount: alias.grossAmount,
+        officialFingerprint: alias.officialDatasetFingerprint,
+        receivedAtUtc: credited,
+        confirmedAtUtc: confirmed,
+      );
+      expect(alias.hasValidProvenance, isTrue, reason: tier);
+      await expectLater(
+        const InvoiceAwardFormalIncomePostingService().post(
+          proposal: alias,
+          receipt: aliasReceipt,
+          authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
+        ),
+        throwsA(predicate((error) => error is StateError &&
+            error.toString().contains('CLOUD500_PRODUCTION_DEFERRED_OWNER_OPTION_C'))),
+        reason: tier,
+      );
+    }
+    // Historical POSTED rows remain read-only audit evidence, never deleted.
+    expect(status(posted()), InvoiceAwardPostedLedgerAuditStatus.postedLocalOnly);
+  });
+
   test('canonical matching posted entry is local-only, never bank verified', () {
     final result = audit.evaluate(
       proposal: proposal,

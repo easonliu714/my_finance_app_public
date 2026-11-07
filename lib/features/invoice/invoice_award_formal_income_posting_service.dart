@@ -46,7 +46,7 @@ class InvoiceAwardFormalIncomePostingService {
     required DateTime authorizedAtUtc,
   }) async {
     // Reject before any account/SQLite access; preserve historical POSTED rows.
-    if (proposal.prizeTier == 'cloud-500') {
+    if (proposal.isDeferredCloud500Prize) {
       throw StateError('CLOUD500_PRODUCTION_DEFERRED_OWNER_OPTION_C');
     }
     if (!authorizedAtUtc.isUtc ||

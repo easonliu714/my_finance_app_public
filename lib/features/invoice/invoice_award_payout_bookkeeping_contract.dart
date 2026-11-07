@@ -32,6 +32,15 @@ class InvoiceAwardPayoutBookkeepingProposal {
   String get idempotencyKey =>
       'invoice-award:$awardPeriodId:$invoiceIdentity:$prizeTier';
 
+  // Owner option C: aliases and inconsistent cloud amounts must not bypass
+  // the formal ledger's deferred 500-tier boundary. Preserve raw provenance
+  // and historical idempotency keys; only new proposal/post authority is denied.
+  bool get isDeferredCloud500Prize {
+    final tier = prizeTier.trim().toLowerCase();
+    return tier == 'cloud-500' ||
+        (tier.startsWith('cloud') && grossAmount == 500);
+  }
+
   bool get hasValidProvenance =>
       invoiceIdentity.trim().isNotEmpty &&
       awardPeriodId.trim().isNotEmpty &&
@@ -68,7 +77,7 @@ class InvoiceAwardPayoutBookkeepingProposalBuilder {
     required bool externalMofRemittanceConfigured,
   }) {
     // A valid old SHA/receipt does not re-enable cloud-500 under Owner C.
-    if (candidate.prizeTier == 'cloud-500' ||
+    if (candidate.isDeferredCloud500Prize ||
         !explicitUserAuthorization ||
         !externalMofRemittanceConfigured) {
       return null;
