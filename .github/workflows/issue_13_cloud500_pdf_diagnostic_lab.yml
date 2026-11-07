@@ -48,6 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools -p 'test_issue13_lab_l1_official_pdf_audit.py' -v
+          python3 -m unittest discover -s tools -p 'test_issue13_lab_l1_batch_audit.py' -v
           echo "LAB_L1_OFFLINE_AUDITOR_CONTRACT=PASS_SYNTHETIC_ONLY" >> "$GITHUB_STEP_SUMMARY"
           echo "LAB_L1_OFFICIAL_PDF_BYTES_AND_API35_FULL_PAGE_EXTRACTION=HOLD" >> "$GITHUB_STEP_SUMMARY"
           echo "LAB_L1_GLOBAL_NOT_WIN_AND_PRODUCTION_INTEGRATION=HOLD" >> "$GITHUB_STEP_SUMMARY"
@@ -186,6 +187,9 @@ jobs:
           grep -Fq 'Cloud500 PDF Lab $_runtimeVersion' lib/issue13_cloud500_diag_main.dart
           grep -Fq 'startPlatformPdfProbe' lib/issue13_cloud500_diag_main.dart
           grep -Fq 'android.graphics.pdf.PdfRenderer' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
+          grep -Fq 'L1_PAGE_TEXT_BUDGET_EXCEEDED' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
+          grep -Fq 'L1_OFFICIAL_SHA_MISMATCH' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
+          grep -Fq '_exportNextL1Batch' lib/issue13_cloud500_diag_main.dart
           grep -Fq 'android:process=":platform_pdf_probe"' packages/flutter_pdf_text/android/src/main/AndroidManifest.xml
           grep -Fq 'output.fd.sync()' packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt
           echo 'LAB_RUNTIME_VERSION_UI_GATE=PASS'

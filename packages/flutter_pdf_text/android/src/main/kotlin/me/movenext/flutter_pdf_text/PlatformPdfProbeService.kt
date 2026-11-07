@@ -11,6 +11,7 @@ import android.os.SystemClock
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -139,6 +140,106 @@ class PlatformPdfProbeService : Service() {
         "request=$requestId page_count=$pageCount elapsed_ms=" +
           (SystemClock.elapsedRealtime() - startedAt)
       )
+
+
+      // Lab L1: bounded native API35 extraction. No full-PDF or NOT_WIN
+      // authority is inferred from a partial batch, even on a valid SHA.
+      if (candidate.startsWith("LAB_L1_EXPORT:")) {
+        val first = candidate.removePrefix("LAB_L1_EXPORT:").toIntOrNull()
+          ?: throw IllegalStateException("L1_START_PAGE_INVALID")
+        if (first < 1 || first > pageCount || pageCount > 100000) {
+          throw IllegalStateException("L1_START_PAGE_OUT_OF_RANGE")
+        }
+        if (source.length() != 135200798L) {
+          throw IllegalStateException("L1_OFFICIAL_BYTES_MISMATCH")
+        }
+        stage.set("L1_SOURCE_HASH")
+        val digest = MessageDigest.getInstance("SHA-256")
+        source.inputStream().buffered(1024 * 1024).use { input ->
+          val block = ByteArray(1024 * 1024)
+          while (true) {
+            val n = input.read(block)
+            if (n < 0) break
+            digest.update(block, 0, n)
+          }
+        }
+        val sha = digest.digest().joinToString("") {
+          "%02x".format(it.toInt() and 255)
+        }
+        if (sha != "f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571") {
+          throw IllegalStateException("L1_OFFICIAL_SHA_MISMATCH")
+        }
+        val root = applicationContext.filesDir.canonicalFile
+        val parent = File(resultPath).parentFile.canonicalFile
+        if (!parent.canonicalPath.startsWith(root.canonicalPath + File.separator)) {
+          throw IllegalStateException("L1_EXPORT_OUTSIDE_APP_FILES")
+        }
+        val target = File(parent, "l1-pages-${first}-${requestId}.jsonl")
+        val pending = File(parent, target.name + ".part")
+        if (target.exists() || pending.exists()) {
+          throw IllegalStateException("L1_EXPORT_TARGET_COLLISION")
+        }
+        val last = minOf(pageCount, first + 3)
+        var totalBytes = 0
+        try {
+          FileOutputStream(pending).use { output ->
+            for (number in first..last) {
+              currentPage.set(number)
+              stage.set("L1_PAGE_TEXT")
+              snapshot("running", JSONObject().put("page_count", pageCount))
+              val text = StringBuilder()
+              renderer.openPage(number - 1).use { page ->
+                for (piece in page.textContents) {
+                  val part = piece.text
+                  if (text.length + part.length + 1 > 250000) {
+                    throw IllegalStateException("L1_PAGE_TEXT_BUDGET_EXCEEDED")
+                  }
+                  if (text.isNotEmpty()) text.append('\n')
+                  text.append(part)
+                }
+              }
+              if (text.isEmpty()) {
+                throw IllegalStateException("L1_PAGE_TEXT_EMPTY")
+              }
+              val record = JSONObject()
+                .put("page", number)
+                .put("page_count", pageCount)
+                .put("pdf_sha256", sha)
+                .put("engine", "android.graphics.pdf.PdfRenderer")
+                .put("period", "115-07-08")
+                .put("tier", "cloud-500")
+                .put("text", text.toString())
+              val bytes = (record.toString() + "\n").toByteArray(Charsets.UTF_8)
+              if (bytes.size > 1000000 || totalBytes + bytes.size > 4000000) {
+                throw IllegalStateException("L1_BATCH_BYTES_BUDGET_EXCEEDED")
+              }
+              output.write(bytes)
+              totalBytes += bytes.size
+              pagesRead.incrementAndGet()
+            }
+            output.flush()
+            output.fd.sync()
+          }
+          if (!pending.renameTo(target)) {
+            throw IllegalStateException("L1_EXPORT_ATOMIC_RENAME_FAILED")
+          }
+        } finally {
+          if (pending.exists()) pending.delete()
+        }
+        stage.set("L1_PARTIAL_BATCH_COMPLETE")
+        alive.set(false)
+        heartbeat.interrupt()
+        heartbeat.join(1000)
+        snapshot("complete", JSONObject()
+          .put("page_count", pageCount)
+          .put("start_page", first)
+          .put("end_page", last)
+          .put("pdf_sha256", sha)
+          .put("export_path", target.absolutePath)
+          .put("batch_only", true)
+          .put("global_not_win", "HOLD"))
+        return
+      }
 
       if (candidate.isBlank()) {
         stage.set("PLATFORM_OPEN_COMPLETE")

@@ -137,3 +137,24 @@ or native full-page JSONL is available in public CI, so the workflow runs
 reported as official L1 source/runtime PASS. The native API35 full-page
 bounded export and true 77k/87k official-source completeness remain the next
 separate implementation/evidence gates. Do not send real financial data.
+
+
+## L1 bounded native page-batch export — CODE+TEST, runtime HOLD
+
+The existing isolated `:platform_pdf_probe` API35 service now supports a
+Lab-only `LAB_L1_EXPORT:<first>` request. It verifies the exact 135200798-byte
+PDF and SHA256 with 1 MiB streaming buffers, then extracts **at most four
+consecutive pages** using Android PdfRenderer. Per-page text is limited to
+250000 characters / 1 MB JSONL, and each batch to 4 MB. The output is
+flushed, fsynced and atomically renamed; incomplete `.part` files are
+deleted. The Lab UI persists a next-page cursor only after native completion
+and offers sharing the last partial JSONL. Eight new negative/positive batch
+contract tests run in Lab CI; the APK build compiles the native service.
+
+
+The batch is not complete-PDF evidence. Native PdfRenderer may allocate
+internally before the post-extraction limit, so an isolated process crash is
+still possible. No public CI has the exact official PDF or Android API35
+full-page runtime export. A missing batch, crash, token ambiguity, order drift,
+or incomplete coverage keeps official L1, global NOT_WIN, production
+integration, C13/C17/C18 and Owner UAT on HOLD. PR45 and main are untouched.

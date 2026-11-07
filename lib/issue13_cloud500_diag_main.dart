@@ -70,6 +70,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   Directory? _labDirectory;
   File? _dartLogFile;
   File? _pdfFile;
+  File? _lastL1BatchFile;
   OfficialCloudAwardArtifactReference? _reference;
   bool _busy = false;
   String _status = '初始化中…';
@@ -438,6 +439,48 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     }
   }
 
+
+  // A durable cursor advances only after a complete native four-page batch.
+  // Restart, native death and partial output cannot silently skip a page.
+  Future<void> _exportNextL1Batch() async {
+    final lab = _labDirectory;
+    if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    final cursor = File('${lab.path}/l1-next-page.txt');
+    final raw = await cursor.exists() ? await cursor.readAsString() : '1';
+    final first = int.tryParse(raw.trim());
+    if (first == null || first < 1 || first > 100000) {
+      throw StateError('L1_CURSOR_INVALID_OR_COMPLETE');
+    }
+    final result = await _runPlatformProbe(candidate: 'LAB_L1_EXPORT:$first');
+    if (result['status'] != 'complete' ||
+        result['start_page'] != first ||
+        result['batch_only'] != true ||
+        result['pdf_sha256'] != _expectedSha256) {
+      throw StateError('L1_NATIVE_BATCH_HOLD result=$result');
+    }
+    final last = (result['end_page'] as num?)?.toInt();
+    final path = result['export_path']?.toString() ?? '';
+    if (last == null || last < first || last > first + 3 ||
+        path.isEmpty || !await File(path).exists()) {
+      throw StateError('L1_NATIVE_BATCH_INCOMPLETE');
+    }
+    await cursor.writeAsString('${last + 1}', flush: true);
+    _lastL1BatchFile = File(path);
+    await _log('L1_PARTIAL_BATCH_CAPTURED first=$first last=$last '
+        'total=${result['page_count']} global_not_win=HOLD');
+  }
+
+  Future<void> _shareL1Batch() async {
+    final file = _lastL1BatchFile;
+    if (file == null || !await file.exists()) {
+      throw StateError('L1_NO_COMPLETED_BATCH');
+    }
+    await SharePlus.instance.share(ShareParams(
+      subject: 'Issue13 Lab L1 partial Android PDF page evidence',
+      files: <XFile>[XFile(file.path)],
+    ));
+  }
+
   Future<void> _testPlatformOpenOnly() async {
     final result = await _runPlatformProbe(candidate: '');
     if (result['status'] != 'complete') {
@@ -727,6 +770,16 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
                   _platformBinarySearch,
                 ),
         child: const Text('4. Android PdfRenderer 指定號碼二分搜尋'),
+      ),
+      FilledButton.tonal(
+        onPressed: _busy ? null : () => _run(
+          'L1 API35 bounded page export', _exportNextL1Batch),
+        child: const Text('L1. 擷取下一批最多 4 頁（非完整判定）'),
+      ),
+      OutlinedButton(
+        onPressed: _busy ? null : () => _run(
+          'Share partial L1 JSONL', _shareL1Batch),
+        child: const Text('分享上一批 L1 JSONL'),
       ),
       const ListTile(
         contentPadding: EdgeInsets.zero,
