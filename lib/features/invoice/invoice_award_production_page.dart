@@ -22,7 +22,6 @@ import 'invoice_award_notification_runtime.dart';
 import 'invoice_award_payout_bookkeeping_runtime.dart';
 import 'invoice_award_remittance_receipt_evidence.dart';
 import 'invoice_award_formal_income_posting_service.dart';
-import '../transaction/transaction_ledger_refresh_signal.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_runtime_scheduler.dart';
@@ -1006,8 +1005,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
             receipt: receipt,
             authorizedAtUtc: _now().toUtc(),
           );
-      // The page is a StatefulWidget; notify the ledger's subscribed provider.
-      TransactionLedgerRefreshSignal.instance.emit();
+      // The posting service emits the provider refresh only after a new
+      // committed row; duplicate and rejected posts must remain silent.
       await _reloadPostedLedgerState();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(

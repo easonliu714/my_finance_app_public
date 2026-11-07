@@ -5,6 +5,7 @@ import '../../database/production_database_coordinator.dart';
 import '../account/account_record.dart';
 import '../account/account_repository.dart';
 import '../transaction/transaction_record.dart';
+import '../transaction/transaction_ledger_refresh_signal.dart';
 import '../transaction/transaction_type.dart';
 import 'invoice_award_payout_bookkeeping_contract.dart';
 import 'invoice_award_remittance_receipt_evidence.dart';
@@ -115,7 +116,10 @@ class InvoiceAwardFormalIncomePostingService {
       exchangeRateToBase: 1,
     );
     final db = await _database();
-    return db.transaction<bool>((txn) async {
+    // The formal ledger owns the provider refresh event: publish only after
+    // the SQLite transaction commits a genuinely new row, never for a
+    // rejected Owner-C proposal or an idempotent duplicate.
+    final inserted = await db.transaction<bool>((txn) async {
       final existing = await txn.query(
         'transactions',
         columns: const <String>['id'],
@@ -132,5 +136,7 @@ class InvoiceAwardFormalIncomePostingService {
       );
       return true;
     });
+    if (inserted) TransactionLedgerRefreshSignal.instance.emit();
+    return inserted;
   }
 }
