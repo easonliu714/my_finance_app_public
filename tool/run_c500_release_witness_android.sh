@@ -32,7 +32,11 @@ for attempt in $(seq 1 90); do
       echo 'C500_RELEASE_MAIN_CONSENT_NO_WRITE_MARKER_MISSING' >&2
       exit 69
     fi
-    echo "$logs" | grep -E 'C500_RELEASE_(MAIN_ROUTER|MAIN_CONSENT_NO_WRITE|V24_LEDGER|WITNESS)_PASS'
+    if ! grep -Fq 'C500_RELEASE_PRODUCTION_BUTTON_V24_PASS' <<< "$logs"; then
+      echo 'C500_RELEASE_PRODUCTION_BUTTON_V24_MARKER_MISSING' >&2
+      exit 70
+    fi
+    echo "$logs" | grep -E 'C500_RELEASE_(PRODUCTION_BUTTON_V24|MAIN_ROUTER|MAIN_CONSENT_NO_WRITE|V24_LEDGER|WITNESS)_PASS'
     exit 0
   fi
   sleep 2

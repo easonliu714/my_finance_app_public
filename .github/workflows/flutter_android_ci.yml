@@ -720,7 +720,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          flutter build apk --release --target=tool/c500_release_witness.dart --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false
+          flutter build apk --release --target=tool/c500_release_witness.dart --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false --dart-define=C500_FULL_PATH_WITNESS=true
           test -s build/app/outputs/flutter-apk/app-release.apk
           echo "C500_RELEASE_WITNESS_APK_SHA256=$(sha256sum build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)"
           # Require the generated debug certificate, never a production signer.

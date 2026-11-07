@@ -28,6 +28,19 @@ import 'package:my_finance_app/features/invoice/invoice_award_remittance_receipt
 import 'package:my_finance_app/features/invoice/invoice_award_formal_income_posting_service.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_formal_posting_confirmation.dart';
 
+import 'package:my_finance_app/database/production_database_coordinator.dart';
+import 'package:my_finance_app/features/account/account_repository.dart';
+import 'package:my_finance_app/features/invoice/existing_invoice_award_candidate_repository.dart';
+import 'package:my_finance_app/features/invoice/existing_invoice_award_general_batch_matcher.dart';
+import 'package:my_finance_app/features/invoice/existing_invoice_award_cloud_batch_matcher.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_official_dataset.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_period_catalog.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_payout_bookkeeping_runtime.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_running_task_bridge.dart';
+
+const bool _fullPathWitnessEnabled =
+    bool.fromEnvironment('C500_FULL_PATH_WITNESS', defaultValue: false);
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MaterialApp(
@@ -156,6 +169,7 @@ Future<void> _runWitness() async {
 Future<void> _runProductionRouterWitness(SharedPreferences prefs) async {
   const receiptKey = 'issue13_remittance_observations_v1';
   const lkgKey = 'invoice_award.general_lkg.v1.115-05-06';
+  final fixture = await _seedProductionButtonWitness(prefs);
   final receiptBefore = prefs.getString(receiptKey);
   final lkgBefore = prefs.getString(lkgKey);
   runApp(buildProductionApp());
@@ -186,6 +200,7 @@ Future<void> _runProductionRouterWitness(SharedPreferences prefs) async {
   debugPrint('C500_RELEASE_MAIN_ROUTER_PASS '
       'root=production provider_scope=true award_route_rendered=true '
       'receipt_unchanged=true lkg_unchanged=true owner_data=false');
+  await _runProductionButtonV24Witness(fixture, prefs);
 }
 
 // This uses the same production confirmation implementation on the real
@@ -264,6 +279,250 @@ Future<void> _runProductionConsentNoWriteWitness(
       'cloud500_deferred=true posting_started=0 '
       'receipt_lkg_unchanged=true sqlite_file_lengths_unchanged=true '
       'owner_data=false');
+}
+
+
+class _ProductionButtonFixture {
+  const _ProductionButtonFixture(this.db, this.stale, this.positive,
+      this.historical, this.cloudIdentity);
+  final Database db;
+  final InvoiceAwardPayoutBookkeepingProposal stale;
+  final InvoiceAwardPayoutBookkeepingProposal positive;
+  final String historical;
+  final String cloudIdentity;
+}
+
+// No product injection seam: only the separate tool/ CI entrypoint can seed
+// this synthetic, disposable emulator fixture. It is NOT MOF evidence or
+// an Owner installation. The page and posting service remain unmodified.
+Future<_ProductionButtonFixture> _seedProductionButtonWitness(
+    SharedPreferences prefs) async {
+  _require(_fullPathWitnessEnabled, 'FULL_PATH_COMPILE_GATE_MISSING');
+  final db = await ProductionDatabaseCoordinator.instance.database;
+  _require((await db.rawQuery('PRAGMA user_version')).single.values.first ==
+      canonicalProductionSchemaVersion, 'FULL_PATH_SCHEMA_NOT_V24');
+  _require((await db.query('transactions')).isEmpty,
+      'FULL_PATH_NOT_A_FRESH_DISPOSABLE_DATABASE');
+  final banks = (await AccountRepository.instance.listAccounts())
+      .where((a) => a.type == AccountType.bank && !a.isArchived &&
+          a.currency == CurrencyCode.twd).toList(growable: false);
+  _require(banks.length == 1, 'FULL_PATH_BANK_NOT_UNIQUE');
+  final settings = InvoiceAwardPayoutBookkeepingSettings(
+      automaticBookkeepingEnabled: true,
+      externalMofRemittanceConfigured: true,
+      localAccountId: banks.single.id);
+  await InvoiceAwardPayoutBookkeepingSettingsRepository(prefs).save(settings);
+  final now = DateTime.now().toUtc();
+  final period = InvoiceAwardRecentPeriodCatalog.defaultAt(now.toLocal());
+  _require(period.isRedeemableAt(now.toLocal()),
+      'FULL_PATH_PERIOD_NOT_REDEEMABLE');
+  final invoiceDate = DateTime.utc(
+      period.period.rocYear + 1911, period.period.startMonth, 7);
+  ExistingInvoiceAwardCandidate candidate(String id, String number,
+          ExistingInvoiceAwardIdentitySource source) =>
+      ExistingInvoiceAwardCandidate(
+        transactionId: id, invoiceNumber: number,
+        invoiceDate: invoiceDate,
+        awardPeriod: period.candidateAwardPeriodLabel,
+        identitySource: source,
+        sourceProvenance: 'disposable-release-fixture',
+        cloudEligibility: source == ExistingInvoiceAwardIdentitySource.cloudMetadata
+            ? ExistingInvoiceAwardCloudEligibility.unknownReviewRequired
+            : ExistingInvoiceAwardCloudEligibility.ineligible);
+  final negative = candidate('release-negative', 'AB12345678',
+      ExistingInvoiceAwardIdentitySource.governedReviewNote);
+  final positive = candidate('release-positive', 'CD12345678',
+      ExistingInvoiceAwardIdentitySource.governedReviewNote);
+  final cloud = candidate('release-cloud500', 'EF87654321',
+      ExistingInvoiceAwardIdentitySource.cloudMetadata);
+  final dataset = OfficialInvoiceAwardDataset(
+      period: period.period,
+      provenance: OfficialInvoiceAwardProvenance(
+          sourceId: OfficialInvoiceAwardProvenance.ministryOfFinanceSourceId,
+          fetchedAt: now, parserVersion: 'disposable-release-fixture',
+          contentSha256: 'a' * 64),
+      rules: const <OfficialInvoiceAwardRule>[
+        OfficialInvoiceAwardRule(
+            kind: OfficialInvoiceAwardRuleKind.special, number: '11111111'),
+        OfficialInvoiceAwardRule(
+            kind: OfficialInvoiceAwardRuleKind.grand, number: '22222222'),
+        OfficialInvoiceAwardRule(
+            kind: OfficialInvoiceAwardRuleKind.first, number: '99999678'),
+      ],
+      published: true, complete: true);
+  _require(const OfficialInvoiceAwardDatasetValidator().validate(dataset).isValid,
+      'FULL_PATH_GENERAL_FIXTURE_INVALID');
+  final general = const ExistingInvoiceAwardGeneralBatchMatcher().evaluate(
+      dataset: dataset, candidates: <ExistingInvoiceAwardCandidate>[
+        negative, positive,
+      ]);
+  _require(general.length == 2 && general.every((e) =>
+      e.isWinner && e.grossAmount == 200 &&
+      e.matchKind == OfficialInvoiceAwardMatchKind.sixth),
+      'FULL_PATH_GENERAL_SIXTH_NOT_READY');
+  final cloudEvaluation = ExistingInvoiceAwardCloudEvaluation(
+      candidate: cloud,
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired,
+      missingTierCodes: const <String>{},
+      matchedTierCodes: const <String>{'cloud-500'},
+      selectedTierCode: 'cloud-500', grossAmount: 500, pdfSha256: 'b' * 64);
+  final cloudRows = <ExistingInvoiceAwardCloudEvaluation>[cloudEvaluation];
+  final readiness = const InvoiceAwardPayoutBookkeepingPlanner().evaluate(
+      period: period, nowUtc: now, settings: settings,
+      generalAuthorityComplete: true, cloudAuthorityComplete: false,
+      generalDataset: dataset, generalEvaluations: general,
+      cloudEvaluations: cloudRows,
+      cloudEligibilityConfirmations: const {});
+  final ready = readiness.where((r) => r.isReady).toList();
+  _require(ready.length == 2 &&
+      readiness.any((r) => r.prizeTier == 'cloud-500' && !r.isReady),
+      'FULL_PATH_READINESS_NOT_FAIL_CLOSED');
+  final stale = ready.singleWhere((r) =>
+      r.invoiceIdentity == negative.dedupeKey).proposal!;
+  final good = ready.singleWhere((r) =>
+      r.invoiceIdentity == positive.dedupeKey).proposal!;
+  final receipts = InvoiceAwardRemittanceReceiptRepository(prefs);
+  for (final proposal in <InvoiceAwardPayoutBookkeepingProposal>[stale, good]) {
+    await receipts.confirmObservedCredit(
+        proposal: proposal,
+        receivedAtUtc: now.subtract(const Duration(hours: 2)),
+        confirmedAtUtc: now.subtract(const Duration(hours: 1)));
+  }
+  for (final amount in <int>[500, 700]) {
+    await db.insert('transactions',
+        _v24HistoricalRecord('release-root-history-$amount',
+            amount.toDouble()).toMap());
+  }
+  final historical = jsonEncode(await db.query('transactions',
+      where: 'id IN (?, ?)',
+      whereArgs: const <Object>['release-root-history-500',
+          'release-root-history-700'], orderBy: 'id'));
+  final bridge = InvoiceAwardRunningTaskBridge.shared;
+  _require(bridge.begin(period.period.id), 'FULL_PATH_BRIDGE_BUSY');
+  final generation = bridge.generation;
+  bridge.publish(generation, InvoiceAwardRunningTaskSnapshot(
+      periodId: period.period.id,
+      status: 'Synthetic fixture, not official MOF evidence',
+      cloudStatus: 'Cloud-500 UNKNOWN/deferred',
+      scanStatus: 'Disposable release fixture',
+      generalDataset: dataset,
+      candidates: <ExistingInvoiceAwardCandidate>[negative, positive, cloud],
+      generalEvaluations: general, cloudEvaluations: cloudRows));
+  bridge.finish(generation, period.period.id);
+  return _ProductionButtonFixture(db, stale, good, historical, cloud.dedupeKey);
+}
+
+// This invokes the callback on the actual rendered InvoiceAwardProductionPage
+// FilledButton, not a manually constructed modal or test posting service.
+Future<void> _pressProductionPostingButton(String identity) async {
+  final key = ValueKey<String>('invoice_award_formal_post_$identity');
+  for (var i = 0; i < 30; i++) {
+    WidgetsBinding.instance.scheduleFrame();
+    await WidgetsBinding.instance.endOfFrame;
+    VoidCallback? callback;
+    void find(Element element) {
+      final widget = element.widget;
+      if (widget is FilledButton && widget.key == key) {
+        callback = widget.onPressed;
+      }
+      element.visitChildElements(find);
+    }
+    final root = WidgetsBinding.instance.rootElement;
+    if (root != null) find(root);
+    if (callback != null) {
+      callback!();
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+  throw StateError('FULL_PATH_OWN_FILLED_BUTTON_NOT_RENDERED');
+}
+
+Future<void> _runProductionButtonV24Witness(
+    _ProductionButtonFixture fixture, SharedPreferences prefs) async {
+  final db = fixture.db;
+  final receiptRepo = InvoiceAwardRemittanceReceiptRepository(prefs);
+  final lkgBefore = prefs.getString('invoice_award.general_lkg.v1.115-07-08');
+  final signals = <int>[];
+  final sub = TransactionLedgerRefreshSignal.instance.stream
+      .listen((_) => signals.add(1));
+  try {
+    var cloudButton = false;
+    final cloudKey = ValueKey<String>(
+        'invoice_award_formal_post_${fixture.cloudIdentity}');
+    void inspect(Element element) {
+      if (element.widget is FilledButton && element.widget.key == cloudKey) {
+        cloudButton = true;
+      }
+      element.visitChildElements(inspect);
+    }
+    final root = WidgetsBinding.instance.rootElement;
+    _require(root != null, 'FULL_PATH_ROOT_MISSING');
+    inspect(root!);
+    _require(!cloudButton, 'FULL_PATH_CLOUD500_BUTTON_VISIBLE');
+    final before = jsonEncode(await db.query('transactions', orderBy: 'id'));
+    final beforeChanges = (await db.rawQuery(
+        'SELECT total_changes() AS n')).single['n'];
+    await _pressProductionPostingButton(fixture.stale.invoiceIdentity);
+    await _tapProductionDialogAction('取消');
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    _require(jsonEncode(await db.query('transactions', orderBy: 'id')) ==
+        before && (await db.rawQuery(
+        'SELECT total_changes() AS n')).single['n'] == beforeChanges &&
+        signals.isEmpty, 'FULL_PATH_CANCEL_WROTE_LEDGER');
+    await _pressProductionPostingButton(fixture.stale.invoiceIdentity);
+    await receiptRepo.revokeForProposal(fixture.stale);
+    await _tapProductionDialogAction('確認新增正式收入');
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    _require(jsonEncode(await db.query('transactions', orderBy: 'id')) ==
+        before && (await db.rawQuery(
+        'SELECT total_changes() AS n')).single['n'] == beforeChanges &&
+        signals.isEmpty, 'FULL_PATH_STALE_WROTE_LEDGER');
+    final receiptAfterRevoke =
+        prefs.getString('issue13_remittance_observations_v1');
+    await _pressProductionPostingButton(fixture.positive.invoiceIdentity);
+    await _tapProductionDialogAction('確認新增正式收入');
+    final postedId = InvoiceAwardFormalIncomePostingService.stableRecordId(
+        fixture.positive);
+    var posted = false;
+    for (var i = 0; i < 30; i++) {
+      if ((await db.query('transactions', where: 'id = ?',
+          whereArgs: <Object>[postedId])).length == 1) {
+        posted = true;
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    _require(posted, 'FULL_PATH_GENERAL_200_NOT_POSTED');
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    _require(signals.length == 1, 'FULL_PATH_PROVIDER_NOT_ONCE');
+    _require(jsonEncode(await db.query('transactions',
+        where: 'id IN (?, ?)',
+        whereArgs: const <Object>['release-root-history-500',
+            'release-root-history-700'], orderBy: 'id')) ==
+        fixture.historical, 'FULL_PATH_HISTORY_CHANGED');
+    _require(prefs.getString('invoice_award.general_lkg.v1.115-07-08') ==
+        lkgBefore &&
+        prefs.getString('issue13_remittance_observations_v1') ==
+        receiptAfterRevoke, 'FULL_PATH_PREFS_CHANGED_BY_POST');
+    _require(!await const InvoiceAwardFormalIncomePostingService().post(
+        proposal: fixture.positive,
+        receipt: receiptRepo.readForProposal(fixture.positive)!,
+        authorizedAtUtc: DateTime.now().toUtc()),
+        'FULL_PATH_DUPLICATE_POSTED');
+    _require(signals.length == 1, 'FULL_PATH_DUPLICATE_PROVIDER_REFRESH');
+    _require((await db.rawQuery('PRAGMA foreign_key_check')).isEmpty,
+        'FULL_PATH_V24_FK_FAILURE');
+    debugPrint('C500_RELEASE_PRODUCTION_BUTTON_V24_PASS '
+        'root=production own_filled_button_callback=true '
+        'consent=explicit durable_receipt_revision=true '
+        'schema=24 cancel_stale_zero_write=true cloud500_no_button=true '
+        'general_200_once=true provider_new_only=true '
+        'historical_500_700_unchanged=true lkg_unchanged=true '
+        'synthetic_official_fixture=true owner_data=false');
+  } finally {
+    await sub.cancel();
+  }
 }
 
 // Invoke a real production Navigator dialog button via its rendered widget.
