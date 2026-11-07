@@ -105,7 +105,13 @@ void main() {
       final flow =
           InvoiceAwardFormalPostingConfirmation(postingService: service);
       final general = _proposal('general-ui-200', 'general-sixth', 200);
-      final receipt = _receipt(general);
+      var receipt = _receipt(general);
+      final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+      await repository.confirmObservedCredit(
+        proposal: general,
+        receivedAtUtc: receipt.receivedAtUtc,
+        confirmedAtUtc: receipt.confirmedAtUtc,
+      );
       var authorized = true;
       var started = 0;
       Future<bool?>? pending;
@@ -120,7 +126,15 @@ void main() {
                   proposal: general,
                   receipt: receipt,
                   nowUtc: () => DateTime.utc(2026, 10, 9, 3),
-                  authorizationStillValid: () => authorized,
+                  authorizationStillValid: () async {
+                    // Mirror the production post-consent durable read.
+                    await Future<void>.delayed(Duration.zero);
+                    return authorized &&
+                        repository.isCurrentObservation(
+                          proposal: general,
+                          observation: receipt,
+                        );
+                  },
                   onPostingStarted: () => started++,
                 );
               },
@@ -162,7 +176,53 @@ void main() {
           initialChanges);
       expect(signals, isEmpty);
 
-      // Separate explicit approval reaches the actual posting service.
+      // Revocation during an open modal must not touch SQLite.
+      authorized = true;
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      await repository.revokeForProposal(general);
+      final revoked = expectLater(
+        pending!,
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'revoked receipt',
+          contains('UI_AUTHORITY_STALE'))),
+      );
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      await revoked;
+      expect(started, 0);
+      expect(await db.query('transactions', orderBy: 'id'), initialRows);
+      expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+          initialChanges);
+      expect(signals, isEmpty);
+
+      // Same proposal, different confirmation: old consent stays revoked.
+      await repository.confirmObservedCredit(
+        proposal: general,
+        receivedAtUtc: receipt.receivedAtUtc,
+        confirmedAtUtc: DateTime.utc(2026, 10, 9, 2),
+      );
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      final replaced = expectLater(
+        pending!,
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'replaced receipt',
+          contains('UI_AUTHORITY_STALE'))),
+      );
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      await replaced;
+      expect(started, 0);
+      expect(await db.query('transactions', orderBy: 'id'), initialRows);
+      expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+          initialChanges);
+      expect(signals, isEmpty);
+
+      // Only fresh explicit consent for the replacement may post NT$200.
+      receipt = repository.readForProposal(general)!;
+      final receiptBytesAfterReplacement =
+          preferences.getString('issue13_remittance_observations_v1');
       authorized = true;
       await tester.tap(find.byKey(const Key('launch_formal_post')));
       await tester.pumpAndSettle();
@@ -189,7 +249,8 @@ void main() {
           whereArgs: <Object>[historicalId, 'historical-nt700'],
           orderBy: 'id'), historicalRows);
       expect(preferences.getString(lkgKey), 'protected-lkg');
-      expect(preferences.getString('issue13_remittance_observations_v1'), '[]');
+      expect(preferences.getString('issue13_remittance_observations_v1'),
+          receiptBytesAfterReplacement);
       expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
     });
   });

@@ -985,19 +985,29 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         nowUtc: () => _now().toUtc(),
         // A period/account/receipt can change while the modal is open.
         // Reject stale consent before touching the formal ledger.
-        authorizationStillValid: () =>
-            mounted &&
-            !_refreshing &&
-            !_savingReceiptEvidence &&
-            !_isPosted(readiness) &&
-            _payoutReadiness.any((current) =>
-                current.isReady &&
-                current.proposal != null &&
-                current.proposal!.idempotencyKey == proposal.idempotencyKey &&
-                current.proposal!.localAccountId ==
-                    _payoutBookkeepingSettings.localAccountId &&
-                receipt.matches(current.proposal!) &&
-                _receiptFor(current) != null),
+        authorizationStillValid: () async {
+          // A receipt can be revoked or re-confirmed while the modal is
+          // open. Re-read durable evidence after approval and bind the
+          // authorization to this exact receipt revision.
+          final preferences = await SharedPreferences.getInstance();
+          if (!mounted || _refreshing || _savingReceiptEvidence ||
+              _isPosted(readiness) ||
+              _payoutBookkeepingSettings.localAccountId !=
+                  proposal.localAccountId) {
+            return false;
+          }
+          final live = _payoutReadiness.where((current) =>
+              current.isReady &&
+              current.proposal?.idempotencyKey == proposal.idempotencyKey &&
+              current.proposal?.localAccountId == proposal.localAccountId &&
+              _receiptFor(current)?.sameObservationAs(receipt) == true);
+          return live.length == 1 &&
+              InvoiceAwardRemittanceReceiptRepository(preferences)
+                  .isCurrentObservation(
+                    proposal: proposal,
+                    observation: receipt,
+                  );
+        },
         onPostingStarted: () {
           postingStarted = true;
           setState(() => _savingReceiptEvidence = true);

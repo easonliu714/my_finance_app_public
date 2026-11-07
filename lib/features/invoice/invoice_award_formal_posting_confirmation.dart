@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'invoice_award_formal_income_posting_service.dart';
@@ -21,7 +23,7 @@ class InvoiceAwardFormalPostingConfirmation {
     required InvoiceAwardPayoutBookkeepingProposal proposal,
     required InvoiceAwardRemittanceReceiptEvidence receipt,
     required DateTime Function() nowUtc,
-    required bool Function() authorizationStillValid,
+    required FutureOr<bool> Function() authorizationStillValid,
     void Function()? onPostingStarted,
   }) async {
     if (proposal.isDeferredCloud500Prize) {
@@ -53,7 +55,10 @@ class InvoiceAwardFormalPostingConfirmation {
       ),
     );
     if (accepted != true || !context.mounted) return null;
-    if (!authorizationStillValid() || !receipt.matches(proposal)) {
+    // Production authority may require a fresh asynchronous preferences
+    // read. Recheck mounted after that await before any formal ledger access.
+    final stillAuthorized = await authorizationStillValid();
+    if (!context.mounted || !stillAuthorized || !receipt.matches(proposal)) {
       throw StateError('INVOICE_AWARD_POSTING_UI_AUTHORITY_STALE');
     }
     final authorizedAtUtc = nowUtc();

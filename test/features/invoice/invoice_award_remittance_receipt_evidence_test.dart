@@ -109,6 +109,34 @@ void main() {
       sha:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')), isNull);
   });
 
+  test('revoked and re-confirmed receipt invalidates prior consent', () async {
+    final prefs = await SharedPreferences.getInstance();
+    final repo = InvoiceAwardRemittanceReceiptRepository(prefs);
+    final proposal = candidate();
+    final first = await repo.confirmObservedCredit(
+      proposal: proposal,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+    );
+    expect(repo.isCurrentObservation(
+        proposal: proposal, observation: first), isTrue);
+    await repo.revokeForProposal(proposal);
+    expect(repo.isCurrentObservation(
+        proposal: proposal, observation: first), isFalse);
+    final replacement = await repo.confirmObservedCredit(
+      proposal: proposal,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 9),
+    );
+    expect(first.matches(proposal), isTrue);
+    expect(replacement.matches(proposal), isTrue);
+    expect(first.sameObservationAs(replacement), isFalse);
+    expect(repo.isCurrentObservation(
+        proposal: proposal, observation: first), isFalse);
+    expect(repo.isCurrentObservation(
+        proposal: proposal, observation: replacement), isTrue);
+  });
+
   test('dates fail closed and revoke clears receipt', () async {
     final prefs = await SharedPreferences.getInstance();
     final repo = InvoiceAwardRemittanceReceiptRepository(prefs);

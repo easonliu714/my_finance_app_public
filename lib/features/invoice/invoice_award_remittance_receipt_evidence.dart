@@ -40,6 +40,19 @@ class InvoiceAwardRemittanceReceiptEvidence {
       !receivedAtUtc.isBefore(proposal.externalRemittanceEligibleAt) &&
       !confirmedAtUtc.isBefore(receivedAtUtc);
 
+  // A modal is authorized against one persisted observation, not just its
+  // proposal key. Revocation followed by re-confirmation invalidates the old
+  // receipt even when period, account and amount remain identical.
+  bool sameObservationAs(InvoiceAwardRemittanceReceiptEvidence other) =>
+      proposalKey == other.proposalKey &&
+      awardPeriodId == other.awardPeriodId &&
+      localAccountId == other.localAccountId &&
+      prizeTier == other.prizeTier &&
+      grossAmount == other.grossAmount &&
+      officialFingerprint == other.officialFingerprint &&
+      receivedAtUtc == other.receivedAtUtc &&
+      confirmedAtUtc == other.confirmedAtUtc;
+
   Map<String, Object> toJson() => <String, Object>{
         'version': contractVersion,
         'key': proposalKey,
@@ -116,6 +129,17 @@ class InvoiceAwardRemittanceReceiptRepository {
       }
     }
     return null;
+  }
+
+  // Read the durable observation after explicit UI approval. A cached
+  // receipt must not survive a revoke/re-confirm sequence.
+  bool isCurrentObservation({
+    required InvoiceAwardPayoutBookkeepingProposal proposal,
+    required InvoiceAwardRemittanceReceiptEvidence observation,
+  }) {
+    if (!observation.matches(proposal)) return false;
+    final current = readForProposal(proposal);
+    return current != null && current.sameObservationAs(observation);
   }
 
   Future<InvoiceAwardRemittanceReceiptEvidence> confirmObservedCredit({
