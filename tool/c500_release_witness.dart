@@ -26,6 +26,7 @@ import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_index.da
 import 'package:my_finance_app/features/invoice/invoice_award_payout_bookkeeping_contract.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_remittance_receipt_evidence.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_formal_income_posting_service.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_formal_posting_confirmation.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -148,10 +149,10 @@ Future<void> _runWitness() async {
   }
 }
 
-// Actual production ProviderScope -> MyFinanceApp -> GoRouter -> award page,
-// exercised in a disposable Android Release-AOT process. This is a route
-// authority witness, NOT an Owner database, signed release or complete UI-to-
-// ledger no-write E2E. Do not use a synthetic MaterialApp as a substitute.
+// Exercise the actual production ProviderScope -> MyFinanceApp -> GoRouter
+// on a disposable API35 Release-AOT process. Consent is opened using the
+// rendered production page context, not an alternate MaterialApp. This proves
+// cancel/stale no-post paths only, not a positive Owner ledger E2E.
 Future<void> _runProductionRouterWitness(SharedPreferences prefs) async {
   const receiptKey = 'issue13_remittance_observations_v1';
   const lkgKey = 'invoice_award.general_lkg.v1.115-05-06';
@@ -163,24 +164,134 @@ Future<void> _runProductionRouterWitness(SharedPreferences prefs) async {
   appRouter.go(InvoiceAwardCheckPage.routePath);
   WidgetsBinding.instance.scheduleFrame();
   await WidgetsBinding.instance.endOfFrame;
-  // Await a further scheduled frame for GoRouter's route transition.
   WidgetsBinding.instance.scheduleFrame();
   await WidgetsBinding.instance.endOfFrame;
-  var found = false;
+
+  BuildContext? awardContext;
   void inspect(Element element) {
-    if (element.widget is InvoiceAwardProductionPage) found = true;
+    if (element.widget is InvoiceAwardProductionPage) {
+      awardContext = element;
+    }
     element.visitChildElements(inspect);
   }
   final root = WidgetsBinding.instance.rootElement;
   _require(root != null, 'PRODUCTION_ROUTER_ROOT_NOT_MOUNTED');
   inspect(root!);
-  _require(found, 'PRODUCTION_AWARD_ROUTE_NOT_RENDERED');
+  _require(awardContext != null && awardContext!.mounted,
+      'PRODUCTION_AWARD_ROUTE_NOT_RENDERED');
+  await _runProductionConsentNoWriteWitness(awardContext!, prefs);
   _require(prefs.getString(receiptKey) == receiptBefore &&
       prefs.getString(lkgKey) == lkgBefore,
       'PRODUCTION_ROUTE_RECEIPT_OR_LKG_MUTATED');
   debugPrint('C500_RELEASE_MAIN_ROUTER_PASS '
       'root=production provider_scope=true award_route_rendered=true '
       'receipt_unchanged=true lkg_unchanged=true owner_data=false');
+}
+
+// This uses the same production confirmation implementation on the real
+// production route. Neither cancel nor stale consent may invoke the posting
+// service, mutate receipt/LKG or alter the disposable emulator DB file set.
+// A positive NT$200 service/SQLite path is verified separately by the V24
+// witness. This does NOT claim the production page's readiness was seeded.
+Future<void> _runProductionConsentNoWriteWitness(
+    BuildContext awardContext, SharedPreferences prefs) async {
+  const receiptKey = 'issue13_remittance_observations_v1';
+  const lkgKey = 'invoice_award.general_lkg.v1.115-05-06';
+  final receiptBefore = prefs.getString(receiptKey);
+  final lkgBefore = prefs.getString(lkgKey);
+  // Let normal route initialization finish before taking the no-write baseline.
+  await Future<void>.delayed(const Duration(milliseconds: 400));
+  final databasesBefore = await _databaseFiles();
+  const flow = InvoiceAwardFormalPostingConfirmation();
+  final general = _v24Proposal('router-consent-general-200',
+      'general-sixth', 200);
+  final generalReceipt = _v24Receipt(general);
+  var postingStarted = 0;
+
+  final cancel = flow.requestAndPost(
+    context: awardContext,
+    proposal: general,
+    receipt: generalReceipt,
+    nowUtc: () => DateTime.utc(2026, 10, 9, 3),
+    authorizationStillValid: () => true,
+    onPostingStarted: () => postingStarted++,
+  );
+  await _tapProductionDialogAction('取消');
+  _require(await cancel == null && postingStarted == 0,
+      'PRODUCTION_CANCEL_INVOKED_POSTING');
+  // Wait for the outgoing dialog transition before opening the next one.
+  await Future<void>.delayed(const Duration(milliseconds: 350));
+
+  var stillAuthorized = true;
+  final stale = flow.requestAndPost(
+    context: awardContext,
+    proposal: general,
+    receipt: generalReceipt,
+    nowUtc: () => DateTime.utc(2026, 10, 9, 3),
+    authorizationStillValid: () => stillAuthorized,
+    onPostingStarted: () => postingStarted++,
+  ).then<Object?>((value) => value, onError: (Object error) => error);
+  await _tapProductionDialogAction(
+    '確認新增正式收入',
+    beforeTap: () => stillAuthorized = false,
+  );
+  final staleResult = await stale;
+  _require(staleResult is StateError &&
+      staleResult.toString().contains(
+          'INVOICE_AWARD_POSTING_UI_AUTHORITY_STALE') &&
+      postingStarted == 0,
+      'PRODUCTION_STALE_CONSENT_INVOKED_POSTING');
+  await Future<void>.delayed(const Duration(milliseconds: 350));
+
+  final deferred = _v24Proposal(
+      'router-consent-cloud500', 'cloud-500', 500);
+  await _expectDeferred(() => flow.requestAndPost(
+    context: awardContext,
+    proposal: deferred,
+    receipt: _v24Receipt(deferred),
+    nowUtc: () => DateTime.utc(2026, 10, 9, 3),
+    authorizationStillValid: () => true,
+    onPostingStarted: () => postingStarted++,
+  ));
+  _require(postingStarted == 0, 'PRODUCTION_DEFERRED_INVOKED_POSTING');
+  _require(prefs.getString(receiptKey) == receiptBefore &&
+      prefs.getString(lkgKey) == lkgBefore,
+      'PRODUCTION_CONSENT_RECEIPT_OR_LKG_MUTATED');
+  _require(_sameFiles(await _databaseFiles(), databasesBefore),
+      'PRODUCTION_CONSENT_SQLITE_FILE_SET_MUTATED');
+  debugPrint('C500_RELEASE_MAIN_CONSENT_NO_WRITE_PASS '
+      'root=production modal=real cancel=true stale=true '
+      'cloud500_deferred=true posting_started=0 '
+      'receipt_lkg_unchanged=true sqlite_file_lengths_unchanged=true '
+      'owner_data=false');
+}
+
+// Invoke a real production Navigator dialog button via its rendered widget.
+// Bounded frame search fails closed rather than silently bypassing consent.
+Future<void> _tapProductionDialogAction(
+    String label, {void Function()? beforeTap}) async {
+  for (var attempt = 0; attempt < 8; attempt++) {
+    WidgetsBinding.instance.scheduleFrame();
+    await WidgetsBinding.instance.endOfFrame;
+    VoidCallback? action;
+    void find(Element element) {
+      final widget = element.widget;
+      if (widget is ButtonStyleButton &&
+          widget.child is Text &&
+          (widget.child as Text).data == label) {
+        action = widget.onPressed;
+      }
+      element.visitChildElements(find);
+    }
+    final root = WidgetsBinding.instance.rootElement;
+    if (root != null) find(root);
+    if (action != null) {
+      beforeTap?.call();
+      action!();
+      return;
+    }
+  }
+  throw StateError('PRODUCTION_CONSENT_BUTTON_NOT_RENDERED_$label');
 }
 
 InvoiceAwardMatchProjection _projection(
