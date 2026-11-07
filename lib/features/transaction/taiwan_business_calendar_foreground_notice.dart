@@ -48,58 +48,70 @@ class _TaiwanBusinessCalendarForegroundNoticeState
     if (state == AppLifecycleState.resumed) _refresh();
   }
 
+  // A foreground DB/receipt read may cross Taipei midnight without a
+  // lifecycle resume. Never publish eligibility from the obsolete day.
   Future<void> _refresh() async {
     final generation = ++_generation;
+    DateTime taipei(DateTime value) =>
+        value.toUtc().add(const Duration(hours: 8));
     try {
       final db = await (widget.databaseProvider != null
           ? widget.databaseProvider!()
           : TransactionRepository.instance.database);
-      final now = (widget.clock ?? DateTime.now)();
-      final year = now.toUtc().add(const Duration(hours: 8)).year;
-      // B2.14f: foreground eligibility must honor the same verified
-      // digest-bound, same-Taipei-day receipt as the manual status page.
-      // An advisory preferences failure cannot suppress a manual check.
-      final current = await _service.status(db, year);
-      DateTime? checkedAt;
-      if (current != null &&
-          current.isContiguous &&
-          current.sequence > 0 &&
-          current.digest.isNotEmpty) {
-        try {
-          checkedAt = await (widget.receiptStore ??
-                  const TaiwanBusinessCalendarAnnualCheckReceiptStore())
-              .readVerified(year: year, digest: current.digest, now: now);
-        } catch (_) {
-          // Fail open for the manual notice only; never infer a source check.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final now = (widget.clock ?? DateTime.now)();
+        final readDay = taipei(now);
+        final year = readDay.year;
+        final current = await _service.status(db, year);
+        DateTime? checkedAt;
+        if (current != null &&
+            current.isContiguous &&
+            current.sequence > 0 &&
+            current.digest.isNotEmpty) {
+          try {
+            checkedAt = await (widget.receiptStore ??
+                    const TaiwanBusinessCalendarAnnualCheckReceiptStore())
+                .readVerified(year: year, digest: current.digest, now: now);
+          } catch (_) {
+            // A failed advisory receipt cannot suppress a manual notice.
+          }
         }
-      }
-      var decision = await _service.annualUpdateDecision(
-        db, now, lastCheckedAt: checkedAt,
-      );
-      if (checkedAt != null &&
-          decision == CalendarAnnualUpdateDecision.checkedToday) {
-        // A concurrent year-package replacement invalidates the old
-        // receipt. Re-evaluate without it rather than hiding the notice.
-        final latest = await _service.status(db, year);
-        if (latest == null ||
-            !latest.isContiguous ||
-            latest.sequence != current?.sequence ||
-            latest.revision != current?.revision ||
-            latest.digest != current?.digest ||
-            latest.sourceUrl != current?.sourceUrl ||
-            latest.rowCount != current?.rowCount) {
-          decision = await _service.annualUpdateDecision(db, now);
+        var decision = await _service.annualUpdateDecision(
+          db, now, lastCheckedAt: checkedAt,
+        );
+        if (checkedAt != null &&
+            decision == CalendarAnnualUpdateDecision.checkedToday) {
+          final latest = await _service.status(db, year);
+          if (latest == null ||
+              !latest.isContiguous ||
+              latest.sequence != current?.sequence ||
+              latest.revision != current?.revision ||
+              latest.digest != current?.digest ||
+              latest.sourceUrl != current?.sourceUrl ||
+              latest.rowCount != current?.rowCount) {
+            decision = await _service.annualUpdateDecision(db, now);
+          }
         }
+        final settled = taipei((widget.clock ?? DateTime.now)());
+        if (!mounted || generation != _generation) return;
+        if (readDay.year != settled.year ||
+            readDay.month != settled.month ||
+            readDay.day != settled.day) {
+          if (attempt == 0) continue;
+          setState(() {
+            _nextYear = settled.year + 1;
+            _eligible = false;
+          });
+          return;
+        }
+        setState(() {
+          _nextYear = year + 1;
+          _eligible =
+              year + 1 == TaiwanBusinessCalendarOfficial116Stage.sourceYear &&
+              decision == CalendarAnnualUpdateDecision.checkOfficialSource;
+        });
+        return;
       }
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _nextYear = year + 1;
-        // B2.14n: a generic December decision is not permission to
-        // reuse the fixed 116-year DGPA source for 2028 or later.
-        _eligible =
-            year + 1 == TaiwanBusinessCalendarOfficial116Stage.sourceYear &&
-            decision == CalendarAnnualUpdateDecision.checkOfficialSource;
-      });
     } catch (_) {
       if (!mounted || generation != _generation) return;
       setState(() => _eligible = false);

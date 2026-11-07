@@ -830,6 +830,47 @@ void main() {
   });
 
 
+  // B2.14o: a slow advisory read can cross Taipei midnight without resume.
+  testWidgets('B2 foreground midnight read uses the settled December day',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var now = DateTime.utc(2026, 11, 30, 15, 59);
+    var reads = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async {
+        if (++reads == 1) now = DateTime.utc(2026, 11, 30, 16, 1);
+        return null;
+      },
+    );
+    await tester.pumpWidget(harness(db, () => now, receiptStore: store));
+    await tester.pumpAndSettle();
+    expect(reads, greaterThanOrEqualTo(2));
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsOneWidget);
+    expect(find.textContaining('2027 年官方日曆尚未安裝'), findsOneWidget);
+    expect(db.writes, 0);
+  });
+
+  testWidgets('B2 foreground New Year read revokes obsolete December notice',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    var now = DateTime.utc(2026, 12, 31, 15, 59);
+    var reads = 0;
+    final store = TaiwanBusinessCalendarAnnualCheckReceiptStore(
+      readRaw: () async {
+        if (++reads == 1) now = DateTime.utc(2026, 12, 31, 16, 1);
+        return null;
+      },
+    );
+    await tester.pumpWidget(harness(db, () => now, receiptStore: store));
+    await tester.pumpAndSettle();
+    expect(reads, 1);
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsNothing);
+    expect(db.reads, greaterThan(0));
+    expect(db.writes, 0);
+  });
+
   // B2.14n: annualUpdateDecision is intentionally year-generic, but the
   // production manual GET and SHA are pinned to ROC116 (2027) only.
   testWidgets('B2.14n future-year foreground cannot reuse ROC116 source',
