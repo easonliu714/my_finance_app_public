@@ -1,4 +1,16 @@
-## CURRENT — 2026-11-07 13:15 Asia/Taipei | Production formal-post confirmation UI→Service→V24 SQLite isolated E2E (PRODUCT+TEST, exact-head CI pending)
+## CURRENT — 2026-11-07 14:15 Asia/Taipei | #1409 Flutter full timeout root-cause repair (TEST FIX, exact-head CI pending)
+
+**Fresh-read authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT prewrite `8c6547ae5c3f7de4e9f14718e8d0b5f0fa39f9d5`; Lab `d5a4633db79e606df00a03a51021c0533d3cba03`; Issue #4/#13/#19 OPEN. Single PR45 Writer only; no main/Lab write, force push, merge, production signing, version bump or Owner device action.
+
+**Exact-head #1409 first failure:** Flutter Android run [42341871420](https://github.com/easonliu714/my_finance_app_public/actions/runs/42341871420), at `8c6547ae5c3f7de4e9f14718e8d0b5f0fa39f9d5`: Analyze SUCCESS, focused SUCCESS, full Flutter **2373 PASS / 1 FAIL / 1 skipped**; failing test `test/features/invoice/invoice_award_formal_posting_confirmation_e2e_test.dart` timed out at 10 minutes, so debug APK was not built in this job. Independent Native API35 and bounded Release-AOT API35 jobs SUCCESS; those do not constitute full PR45 PASS or trusted production signer.
+
+**Conservative root-cause repair:** new `testWidgets` E2E awaited real `sqflite_common_ffi` isolate/database futures directly inside Flutter FakeAsync. This is the leading cause of the uncompleted 10-minute test, not yet confirmed until successor exact-head CI. Wrap the **entire existing** modal→authorization→posting→isolated V24 SQLite regression in one `tester.runAsync` real-async zone. Preserve all cancel/stale zero-write, NT$200 positive/idempotency, Provider refresh, NT$500/700 history, LKG and FK assertions; no skip, deletion, fixture-only substitution or production `lib/` change. Classification: **TEST FIX**, not new PRODUCT SOURCE, not full production `main()` Release E2E.
+
+**Gate decision:** #1409 FAILURE; successor CI must independently show Flutter Analyze/focused/full PASS (record skipped count), debug APK, Native/API35, bounded Release-AOT signer parity and both C500 witness markers. If still FAIL, inspect exact first failure before any additional edits. Lab #22 standalone diagnostic APK SUCCESS, but L1 official 135200798-byte PDF/77k+87k native full-page, L2-L4 HOLD. C500 production main/UI/Provider/posted-ledger/SQLite/LKG/NT$700 true no-write E2E, C13/C17/C18, 9BA2 trusted signed > Owner installed 495, Owner device, Issue #4 and MERGE_READY remain HOLD. Signing doc 493 versus preflight 495: `GOVERNANCE_INSTALLED_VERSION_MISMATCH=REVIEW_PENDING`.
+
+**NEXT_MEASURABLE_DoD:** first obtain successor exact-head Flutter full test result without a 10-minute stall; then resume actual production `main()`/router Release E2E, or serially use the existing Lab branch for official PDF bounded native evidence if the production Gate remains STALLED. No same-SHA CI rerun or docs-only count as quality progress.
+
+## HISTORY — 2026-11-07 13:15 Asia/Taipei | Production formal-post confirmation UI→Service→V24 SQLite isolated E2E (PRODUCT+TEST, exact-head CI pending)
 
 **Fresh-read prewrite authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT parent `0bcabdf6a36ccad0c00cd8fd251dff0ca093c375`; Lab `d5a4633db79e606df00a03a51021c0533d3cba03`. Issue #4/#13/#19 OPEN. One PR45 Writer only; main/Lab unchanged; no force, merge, production signing, version bump or Owner device impersonation.
 
