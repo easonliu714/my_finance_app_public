@@ -232,7 +232,17 @@ class InvoiceAwardRemittanceReceiptRepository {
 
   Future<void> revokeForProposal(
       InvoiceAwardPayoutBookkeepingProposal proposal) async {
-    final rows = _readAllForMutation()
+    final persisted = _readAllForMutation();
+    final matches = persisted
+        .where((value) => value.proposalKey == proposal.idempotencyKey)
+        .toList(growable: false);
+    if (matches.isEmpty) return;
+    // The stable key omits account, amount and official-source fingerprint.
+    // A stale page must not erase a different observation's audit evidence.
+    if (!matches.single.matches(proposal)) {
+      throw StateError('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT');
+    }
+    final rows = persisted
         .where((value) => value.proposalKey != proposal.idempotencyKey)
         .toList();
     await preferences.setString(_key,

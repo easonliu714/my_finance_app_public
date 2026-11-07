@@ -193,6 +193,40 @@ void main() {
       receivedAtUtc: DateTime.utc(2026, 10, 9),
       confirmedAtUtc: DateTime.utc(2026, 10, 9, 1),
     );
+    // A stale page may retain the same key after an account change. Its
+    // revoke must not erase the valid receipt or mutate isolated V24 state.
+    final staleAccountProposal = InvoiceAwardPayoutBookkeepingProposal(
+      invoiceIdentity: general.invoiceIdentity,
+      awardPeriodId: general.awardPeriodId,
+      prizeTier: general.prizeTier,
+      grossAmount: general.grossAmount,
+      localAccountId: 'stale-other-bank',
+      externalRemittanceEligibleAt: general.externalRemittanceEligibleAt,
+      officialDatasetFingerprint: general.officialDatasetFingerprint,
+      parserRuleVersion: general.parserRuleVersion,
+    );
+    expect(staleAccountProposal.idempotencyKey, general.idempotencyKey);
+    const receiptStoreKey = 'issue13_remittance_observations_v1';
+    final beforeStaleRevoke = preferences.getString(receiptStoreKey);
+    final beforeStaleRevokeRows = await db.query('transactions', orderBy: 'id');
+    final beforeStaleRevokeChanges =
+        (await db.rawQuery('SELECT total_changes() AS n')).single['n'];
+    await expectLater(
+      receipts.revokeForProposal(staleAccountProposal),
+      throwsA(isA<StateError>().having(
+        (error) => error.toString(), 'stale revoke rejected',
+        contains('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT'),
+      )),
+    );
+    expect(preferences.getString(receiptStoreKey), beforeStaleRevoke);
+    expect(receipts.isCurrentObservation(
+        proposal: general, observation: generalReceipt), isTrue);
+    expect(await db.query('transactions', orderBy: 'id'),
+        beforeStaleRevokeRows);
+    expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+        beforeStaleRevokeChanges);
+    expect(ledgerSignals, isEmpty);
+    expect((await lkg.read('115-05-06'))?.payload, lkgPayload);
     // A real SQLite trigger simulates a transaction abort. A failed formal
     // post must leave rows, backups, LKG and Provider state untouched.
     final generalId =

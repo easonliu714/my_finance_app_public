@@ -272,6 +272,44 @@ void main() {
     }
   });
 
+  test('stale account or official source cannot revoke another receipt',
+      () async {
+    final preferences = await SharedPreferences.getInstance();
+    final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    final original = candidate();
+    final observation = await repository.confirmObservedCredit(
+      proposal: original,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+    );
+    const key = 'issue13_remittance_observations_v1';
+    final before = preferences.getString(key);
+    for (final stale in <InvoiceAwardPayoutBookkeepingProposal>[
+      candidate(account: 'another-bank'),
+      candidate(sha: 'b' * 64),
+      candidate(amount: 300),
+    ]) {
+      expect(stale.idempotencyKey, original.idempotencyKey);
+      await expectLater(
+        repository.revokeForProposal(stale),
+        throwsA(isA<StateError>().having(
+          (error) => error.toString(), 'wrong observation identity',
+          contains('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT'),
+        )),
+      );
+      expect(preferences.getString(key), before,
+          reason: 'a stale revocation must preserve original audit bytes');
+      expect(repository.isCurrentObservation(
+          proposal: original, observation: observation), isTrue);
+    }
+    // A missing key must not rewrite unrelated observations.
+    await repository.revokeForProposal(
+        candidate(tier: 'general-fifth', amount: 1000));
+    expect(preferences.getString(key), before);
+    await repository.revokeForProposal(original);
+    expect(repository.readForProposal(original), isNull);
+  });
+
   test('same proposal key with conflicting identity is not overwritten',
       () async {
     final proposal = candidate();
