@@ -287,6 +287,7 @@ class TaiwanBusinessCalendarPackageService {
           row['calendar_date'] != expectedDate ||
           row['source_url'] != url ||
           row['source_revision'] != rows.first['source_revision'] ||
+          row['day_label'] is! String ||
           row['is_business_day'] is! int ||
           (row['is_business_day'] != 0 && row['is_business_day'] != 1)) {
         return null;
@@ -331,8 +332,14 @@ class TaiwanBusinessCalendarPackageService {
           .add(Duration(days: index))
           .toIso8601String()
           .substring(0, 10);
-      if (rows[index]['source_year'] != sourceYear ||
-          rows[index]['calendar_date'] != expectedDate) {
+      // Legacy SQLite schemas may lack modern NOT NULL/CHECK constraints.
+      // Reject damaged day data before any transactional year replacement.
+      final row = rows[index];
+      final flag = row['is_business_day'];
+      if (row['source_year'] != sourceYear ||
+          row['calendar_date'] != expectedDate ||
+          flag is! int || (flag != 0 && flag != 1) ||
+          row['day_label'] is! String) {
         return false;
       }
     }
