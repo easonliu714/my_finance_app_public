@@ -51,6 +51,7 @@ android {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    testImplementation 'junit:junit:4.13.2'
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'com.tom-roush:pdfbox-android:2.0.17.0'
     implementation 'io.legere:pdfiumandroid:2.0.1'

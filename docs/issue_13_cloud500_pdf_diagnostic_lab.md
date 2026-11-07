@@ -200,3 +200,21 @@ use a flushed same-directory temporary file and atomic rename.
 Existing Lab CI runs new Flutter regressions. This is LAB_CODE_TEST, not
 actual official PDF page extraction or renderer completeness evidence.
 L1 official/L2–L4/global NOT_WIN/production release/Owner UAT remain HOLD.
+
+## L1 native source custody before PdfRenderer — pre-renderer CODE+TEST
+
+The isolated Android API35 L1 export now validates the app-private official
+PDF's canonical path, exact 135200798-byte length and streaming SHA-256
+**before** constructing PdfRenderer. Invalid start/request identifiers and
+out-of-scope JSONL output paths also fail before renderer construction.
+This reduces exposure to unverified PDF input and avoids opening native
+renderer state for a source that cannot satisfy the pinned official contract.
+It does not eliminate native PdfRenderer OOM or prove a concurrent file cannot
+change between verification and renderer open; no global NOT_WIN authority.
+
+Six JVM unit regressions exercise valid bytes/hash, wrong length, wrong SHA,
+same-length modification, outside-root path and symlink escape. Lab CI also
+enforces pre-renderer call ordering and compiles the plugin via Gradle.
+These use tiny synthetic files: they are not the official 135 MB PDF,
+not Android API35 full-page runtime extraction and not L1 official PASS.
+PR45, production signing, installed Owner data and main are unchanged.

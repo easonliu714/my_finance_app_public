@@ -180,6 +180,21 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: L1 native source preflight JVM regressions (not official PDF runtime)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('packages/flutter_pdf_text/android/src/main/kotlin/me/movenext/flutter_pdf_text/PlatformPdfProbeService.kt').read_text()
+          assert src.index('LabOfficialPdfPreflight.verify(') < src.index('renderer = PdfRenderer(descriptor)'), 'L1_PREFLIGHT_ORDER_FAIL'
+          assert src.index('L1_REQUEST_ID_INVALID') < src.index('renderer = PdfRenderer(descriptor)'), 'L1_REQUEST_GUARD_ORDER_FAIL'
+          print('L1_PREFLIGHT_BEFORE_RENDERER_SOURCE_GATE=PASS')
+          PY
+          cd android
+          ./gradlew :flutter_pdf_text:testDebugUnitTest --no-daemon --console=plain
+          echo 'LAB_L1_NATIVE_PREFLIGHT_JVM_TEST=PASS_SYNTHETIC_ONLY' >> "$GITHUB_STEP_SUMMARY"
+
       - name: L1 cursor recovery regression (synthetic only)
         run: flutter test test/issue13_lab_l1_cursor_test.dart
 

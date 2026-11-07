@@ -11,7 +11,6 @@ import android.os.SystemClock
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -122,6 +121,37 @@ class PlatformPdfProbeService : Service() {
     }
 
     try {
+      // For official L1 export, reject wrong bytes/SHA and escaped paths
+      // BEFORE constructing the native renderer (which can crash a process).
+      val l1First = if (candidate.startsWith("LAB_L1_EXPORT:")) {
+        val first = candidate.removePrefix("LAB_L1_EXPORT:").toIntOrNull()
+          ?: throw IllegalStateException("L1_START_PAGE_INVALID")
+        if (first < 1 || first > 100000) {
+          throw IllegalStateException("L1_START_PAGE_OUT_OF_RANGE")
+        }
+        first
+      } else null
+      val l1Parent = if (l1First != null) {
+        if (!Regex("^[0-9]{1,24}$").matches(requestId)) {
+          throw IllegalStateException("L1_REQUEST_ID_INVALID")
+        }
+        val root = applicationContext.filesDir.canonicalFile
+        val parent = File(resultPath).parentFile?.canonicalFile
+          ?: throw IllegalStateException("L1_EXPORT_OUTSIDE_APP_FILES")
+        if (!parent.path.startsWith(root.path + File.separator)) {
+          throw IllegalStateException("L1_EXPORT_OUTSIDE_APP_FILES")
+        }
+        parent
+      } else null
+      val l1Sha = if (l1First != null) {
+        stage.set("L1_SOURCE_PREFLIGHT_BEFORE_RENDERER")
+        snapshot("running")
+        val sha = LabOfficialPdfPreflight.verify(
+          source, applicationContext.filesDir)
+        appendLog("L1_SOURCE_PREFLIGHT_PASS", source,
+          "request=$requestId sha256=$sha before_renderer=true")
+        sha
+      } else null
       descriptor =
         ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
       stage.set("PLATFORM_RENDERER_CONSTRUCT_BEGIN")
@@ -144,36 +174,13 @@ class PlatformPdfProbeService : Service() {
 
       // Lab L1: bounded native API35 extraction. No full-PDF or NOT_WIN
       // authority is inferred from a partial batch, even on a valid SHA.
-      if (candidate.startsWith("LAB_L1_EXPORT:")) {
-        val first = candidate.removePrefix("LAB_L1_EXPORT:").toIntOrNull()
-          ?: throw IllegalStateException("L1_START_PAGE_INVALID")
-        if (first < 1 || first > pageCount || pageCount > 100000) {
+      if (l1First != null) {
+        val first = l1First
+        if (first > pageCount || pageCount > 100000) {
           throw IllegalStateException("L1_START_PAGE_OUT_OF_RANGE")
         }
-        if (source.length() != 135200798L) {
-          throw IllegalStateException("L1_OFFICIAL_BYTES_MISMATCH")
-        }
-        stage.set("L1_SOURCE_HASH")
-        val digest = MessageDigest.getInstance("SHA-256")
-        source.inputStream().buffered(1024 * 1024).use { input ->
-          val block = ByteArray(1024 * 1024)
-          while (true) {
-            val n = input.read(block)
-            if (n < 0) break
-            digest.update(block, 0, n)
-          }
-        }
-        val sha = digest.digest().joinToString("") {
-          "%02x".format(it.toInt() and 255)
-        }
-        if (sha != "f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571") {
-          throw IllegalStateException("L1_OFFICIAL_SHA_MISMATCH")
-        }
-        val root = applicationContext.filesDir.canonicalFile
-        val parent = File(resultPath).parentFile.canonicalFile
-        if (!parent.canonicalPath.startsWith(root.canonicalPath + File.separator)) {
-          throw IllegalStateException("L1_EXPORT_OUTSIDE_APP_FILES")
-        }
+        val sha = l1Sha ?: throw IllegalStateException("L1_SOURCE_PREFLIGHT_MISSING")
+        val parent = l1Parent ?: throw IllegalStateException("L1_EXPORT_OUTSIDE_APP_FILES")
         val target = File(parent, "l1-pages-${first}-${requestId}.jsonl")
         val pending = File(parent, target.name + ".part")
         if (target.exists() || pending.exists()) {
