@@ -22,6 +22,7 @@ import 'invoice_award_notification_runtime.dart';
 import 'invoice_award_payout_bookkeeping_runtime.dart';
 import 'invoice_award_remittance_receipt_evidence.dart';
 import 'invoice_award_formal_income_posting_service.dart';
+import 'invoice_award_formal_posting_confirmation.dart';
 import 'invoice_award_period_catalog.dart';
 import 'invoice_award_production_refresh_controller.dart';
 import 'invoice_award_runtime_scheduler.dart';
@@ -974,39 +975,36 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         !readiness.isReady || proposal == null || receipt == null) {
       return;
     }
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('確認新增正式發票兌獎收入'),
-        content: Text(
-          '你已確認指定銀行帳戶實際收到 NT\$${proposal.grossAmount}。'
-          '按下新增後，將在日常帳本建立正式收入並影響該帳戶餘額。'
-          '這是新的、明確的記帳授權；歷史版本的收款測試紀錄'
-          '不會自動補登。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('確認新增正式收入'),
-          ),
-        ],
-      ),
-    );
-    if (accepted != true || !mounted) return;
-    setState(() => _savingReceiptEvidence = true);
+    var postingStarted = false;
     try {
-      final wasInserted = await const InvoiceAwardFormalIncomePostingService()
-          .post(
-            proposal: proposal,
-            receipt: receipt,
-            authorizedAtUtc: _now().toUtc(),
-          );
-      // The posting service emits the provider refresh only after a new
-      // committed row; duplicate and rejected posts must remain silent.
+      final wasInserted =
+          await const InvoiceAwardFormalPostingConfirmation().requestAndPost(
+        context: context,
+        proposal: proposal,
+        receipt: receipt,
+        nowUtc: () => _now().toUtc(),
+        // A period/account/receipt can change while the modal is open.
+        // Reject stale consent before touching the formal ledger.
+        authorizationStillValid: () =>
+            mounted &&
+            !_refreshing &&
+            !_savingReceiptEvidence &&
+            !_isPosted(readiness) &&
+            _payoutReadiness.any((current) =>
+                current.isReady &&
+                current.proposal != null &&
+                current.proposal!.idempotencyKey == proposal.idempotencyKey &&
+                current.proposal!.localAccountId ==
+                    _payoutBookkeepingSettings.localAccountId &&
+                receipt.matches(current.proposal!) &&
+                _receiptFor(current) != null),
+        onPostingStarted: () {
+          postingStarted = true;
+          setState(() => _savingReceiptEvidence = true);
+        },
+      );
+      if (wasInserted == null) return;
+      // Provider refresh is emitted by the service only after a new commit.
       await _reloadPostedLedgerState();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -1020,7 +1018,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         content: Text('獎金記帳失敗，未確認新增：$error'),
       ));
     } finally {
-      if (mounted) setState(() => _savingReceiptEvidence = false);
+      if (postingStarted && mounted) {
+        setState(() => _savingReceiptEvidence = false);
+      }
     }
   }
 
