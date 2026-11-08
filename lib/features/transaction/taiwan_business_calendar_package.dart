@@ -68,6 +68,7 @@ class TaiwanBusinessCalendarStoredMetadata {
     required this.sourceRevision,
     required this.revisionSequence,
     required this.sourcePublishedAt,
+    this.generatedAt,
     required this.coverageStart,
     required this.coverageEnd,
     required this.rowCount,
@@ -79,6 +80,9 @@ class TaiwanBusinessCalendarStoredMetadata {
   final String sourceRevision;
   final int revisionSequence;
   final String sourcePublishedAt;
+  // New installs bind stored SQLite days to the original package digest.
+  // Historical metadata may omit this field and remains structural-only.
+  final String? generatedAt;
   final String coverageStart;
   final String coverageEnd;
   final int rowCount;
@@ -90,6 +94,7 @@ class TaiwanBusinessCalendarStoredMetadata {
         'source_revision': sourceRevision,
         'revision_sequence': revisionSequence,
         'source_published_at': sourcePublishedAt,
+        if (generatedAt != null) 'generated_at': generatedAt,
         'coverage_start': coverageStart,
         'coverage_end': coverageEnd,
         'row_count': rowCount,
@@ -108,6 +113,7 @@ class TaiwanBusinessCalendarStoredMetadata {
       final sourceRevision = map['source_revision'];
       final revisionSequence = map['revision_sequence'];
       final sourcePublishedAt = map['source_published_at'];
+      final generatedAt = map['generated_at'];
       final coverageStart = map['coverage_start'];
       final coverageEnd = map['coverage_end'];
       final rowCount = map['row_count'];
@@ -123,12 +129,14 @@ class TaiwanBusinessCalendarStoredMetadata {
           digest is! String) {
         return null;
       }
+      if (generatedAt != null && generatedAt is! String) return null;
       return TaiwanBusinessCalendarStoredMetadata(
         formatVersion: formatVersion,
         sourceYear: sourceYear,
         sourceRevision: sourceRevision,
         revisionSequence: revisionSequence,
         sourcePublishedAt: sourcePublishedAt,
+        generatedAt: generatedAt as String?,
         coverageStart: coverageStart,
         coverageEnd: coverageEnd,
         rowCount: rowCount,
@@ -176,6 +184,7 @@ class TaiwanBusinessCalendarYearPackage {
         sourceRevision: sourceRevision,
         revisionSequence: revisionSequence,
         sourcePublishedAt: sourcePublishedAt,
+        generatedAt: generatedAt,
         coverageStart: coverageStart,
         coverageEnd: coverageEnd,
         rowCount: days.length,

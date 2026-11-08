@@ -213,6 +213,62 @@ void main() {
     }
   });
 
+
+  test('B2.16 new metadata detects valid-looking day tamper without writes', () async {
+    for (final mutation in <Map<String, Object?>>[
+      <String, Object?>{'is_business_day': 0},
+      <String, Object?>{'day_label': 'altered but valid text'},
+    ]) {
+      final db = await _openCalendarDatabase();
+      try {
+        final original = await _package(codec, year: 2028, sequence: 1);
+        final newer = await _package(codec, year: 2028, sequence: 2);
+        await service.install(db, original);
+        final before = await service.status(db, 2028);
+        expect(before!.digest, original.digest);
+        expect(before.isContiguous, isTrue);
+        await db.update(
+          'taiwan_business_calendar_days', mutation,
+          where: 'calendar_date = ?', whereArgs: <Object?>['2028-07-03'],
+        );
+        final corrupted = await db.query('taiwan_business_calendar_days',
+            where: 'source_year = ?', whereArgs: <Object?>[2028],
+            orderBy: 'calendar_date ASC');
+        final status = await service.status(db, 2028);
+        expect(status!.isContiguous, isFalse,
+            reason: 'Valid-type tamper must not retain verified authority');
+        expect(status.sequence, 0);
+        expect(status.digest, isEmpty);
+        await expectLater(service.install(db, newer),
+            throwsA(isA<CalendarPackageConflictException>()));
+        final retained = await db.query('taiwan_business_calendar_days',
+            where: 'source_year = ?', whereArgs: <Object?>[2028],
+            orderBy: 'calendar_date ASC');
+        expect(retained, equals(corrupted),
+            reason: 'Rejected replacement preserves every stored row');
+      } finally {
+        await db.close();
+      }
+    }
+  });
+
+  test('B2.16 historical metadata remains readable without generated_at', () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, original);
+    final legacy = Map<String, Object?>.from(
+      jsonDecode(original.storedMetadata.encode()) as Map,
+    )..remove('generated_at');
+    await db.update('taiwan_business_calendar_days',
+        <String, Object?>{'source_revision': jsonEncode(legacy)},
+        where: 'source_year = ?', whereArgs: <Object?>[2028]);
+    final status = await service.status(db, 2028);
+    expect(status!.sequence, 1);
+    expect(status.isContiguous, isTrue);
+    // Legacy structural compatibility is not cryptographic row verification.
+  });
+
   test('B2 incomplete legacy year is not upgraded or overwritten', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);

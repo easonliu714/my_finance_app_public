@@ -146,7 +146,7 @@ class TaiwanBusinessCalendarPackageService {
   }) {
     return db.transaction((txn) async {
       final current = await _rows(txn, package.sourceYear);
-      final metadata = _metadata(current);
+      final metadata = await _metadata(current);
       if (metadata != null) {
         if (metadata.revisionSequence > package.revisionSequence) {
           throw CalendarPackageConflictException(
@@ -201,7 +201,7 @@ class TaiwanBusinessCalendarPackageService {
   ) async {
     final rows = await _rows(db, year);
     if (rows.isEmpty) return null;
-    final metadata = _metadata(rows);
+    final metadata = await _metadata(rows);
     final start = rows.first['calendar_date'] as String;
     final end = rows.last['calendar_date'] as String;
     return CalendarPackageStatus(
@@ -231,9 +231,9 @@ class TaiwanBusinessCalendarPackageService {
     );
   }
 
-  TaiwanBusinessCalendarStoredMetadata? _metadata(
+  Future<TaiwanBusinessCalendarStoredMetadata?> _metadata(
     List<Map<String, Object?>> rows,
-  ) {
+  ) async {
     if (rows.isEmpty) return null;
     final values = rows.map((row) => row['source_revision']).toSet();
     if (values.length != 1 || values.single is! String) return null;
@@ -290,6 +290,32 @@ class TaiwanBusinessCalendarPackageService {
           row['day_label'] is! String ||
           row['is_business_day'] is! int ||
           (row['is_business_day'] != 0 && row['is_business_day'] != 1)) {
+        return null;
+      }
+    }
+    // B2.16: structurally valid 0/1 flags and labels may still be damaged.
+    // New installations retain generated_at, allowing a full canonical
+    // SHA-256 rebuild from persisted rows before accepting year authority.
+    // Historical envelopes without generated_at retain structural-only
+    // compatibility and are not asserted to have cryptographic row proof.
+    if (metadata.generatedAt != null) {
+      if (DateTime.tryParse(metadata.generatedAt!) == null) return null;
+      try {
+        final rebuilt = await const TaiwanBusinessCalendarPackageCodec().build(
+          sourceYear: metadata.sourceYear,
+          sourceRevision: metadata.sourceRevision,
+          revisionSequence: metadata.revisionSequence,
+          sourceUrl: url,
+          sourcePublishedAt: metadata.sourcePublishedAt,
+          generatedAt: metadata.generatedAt!,
+          days: rows.map((row) => TaiwanBusinessCalendarPackageDay(
+            dateKey: row['calendar_date'] as String,
+            isBusinessDay: row['is_business_day'] == 1,
+            label: row['day_label'] as String,
+          )).toList(growable: false),
+        );
+        if (rebuilt.digest != metadata.digest) return null;
+      } on TaiwanBusinessCalendarPackageException {
         return null;
       }
     }
