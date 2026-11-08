@@ -217,6 +217,23 @@ class InvoiceAwardRemittanceReceiptRepository {
     return isCurrentObservation(proposal: proposal, observation: observation);
   }
 
+  // Hold the same-isolate consent mutation fence through formal SQLite
+  // posting. Otherwise revoke() may complete after the last fresh check but
+  // before ledger commit. This is NOT cross-process or cross-store CAS.
+  Future<T> withCurrentObservationLease<T>({
+    required InvoiceAwardPayoutBookkeepingProposal proposal,
+    required InvoiceAwardRemittanceReceiptEvidence observation,
+    required Future<T> Function() operation,
+  }) {
+    return _serializeMutation<T>(() async {
+      if (!await isCurrentObservationFresh(
+          proposal: proposal, observation: observation)) {
+        throw StateError('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT');
+      }
+      return operation();
+    });
+  }
+
   Future<InvoiceAwardRemittanceReceiptEvidence> confirmObservedCredit({
     required InvoiceAwardPayoutBookkeepingProposal proposal,
     required DateTime receivedAtUtc,

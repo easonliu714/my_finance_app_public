@@ -103,70 +103,75 @@ class InvoiceAwardFormalIncomePostingService {
         throw StateError('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT');
       }
     }
-    await requireCurrentReceipt();
-    final accounts = await _accounts();
-    final matches = accounts.where((a) =>
-        a.id == proposal.localAccountId &&
-        !a.isArchived &&
-        a.currency == CurrencyCode.twd &&
-        (a.type == AccountType.bank || a.type == AccountType.debitCard))
-        .toList(growable: false);
-    if (matches.length != 1) {
-      throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_UNAVAILABLE');
-    }
-    final account = matches.single;
-    // The ledger uses displayName, so reject ambiguous account labels.
-    if (accounts.where((a) =>
-        !a.isArchived && a.displayName == account.displayName).length != 1) {
-      throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_NAME_AMBIGUOUS');
-    }
-    final record = TransactionRecord(
-      id: stableRecordId(proposal),
-      type: TransactionType.income,
-      amount: proposal.grossAmount.toDouble(),
-      category: '發票兌獎',
-      occurredAt: receipt.receivedAtUtc.toLocal(),
-      accountName: account.displayName,
-      memberName: '自己',
-      merchantName: '',
-      tagName: '',
-      note: '發票獎金入帳；期別=${proposal.awardPeriodId}；'
-          '獎別=${proposal.prizeTier}；'
-          '來源SHA256=${proposal.officialDatasetFingerprint}；'
-          '候選=${proposal.invoiceIdentity}；'
-          '手動銀行收款確認（非銀行API驗證）',
-      currency: CurrencyCode.twd,
-      exchangeRateToBase: 1,
+    return receiptRepository.withCurrentObservationLease<bool>(
+      proposal: proposal,
+      observation: receipt,
+      operation: () async {
+        final accounts = await _accounts();
+        final matches = accounts.where((a) =>
+            a.id == proposal.localAccountId &&
+            !a.isArchived &&
+            a.currency == CurrencyCode.twd &&
+            (a.type == AccountType.bank || a.type == AccountType.debitCard))
+            .toList(growable: false);
+        if (matches.length != 1) {
+          throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_UNAVAILABLE');
+        }
+        final account = matches.single;
+        // The ledger uses displayName, so reject ambiguous account labels.
+        if (accounts.where((a) =>
+            !a.isArchived && a.displayName == account.displayName).length != 1) {
+          throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_NAME_AMBIGUOUS');
+        }
+        final record = TransactionRecord(
+          id: stableRecordId(proposal),
+          type: TransactionType.income,
+          amount: proposal.grossAmount.toDouble(),
+          category: '發票兌獎',
+          occurredAt: receipt.receivedAtUtc.toLocal(),
+          accountName: account.displayName,
+          memberName: '自己',
+          merchantName: '',
+          tagName: '',
+          note: '發票獎金入帳；期別=${proposal.awardPeriodId}；'
+              '獎別=${proposal.prizeTier}；'
+              '來源SHA256=${proposal.officialDatasetFingerprint}；'
+              '候選=${proposal.invoiceIdentity}；'
+              '手動銀行收款確認（非銀行API驗證）',
+          currency: CurrencyCode.twd,
+          exchangeRateToBase: 1,
+        );
+        final db = await _database();
+        // Recheck after asynchronous account/database acquisition. This narrows
+        // the revocation TOCTOU window; SharedPreferences and SQLite are still
+        // separate stores and this is NOT cross-process atomicity.
+        await requireCurrentReceipt();
+        // The formal ledger owns the provider refresh event: publish only after
+        // the SQLite transaction commits a genuinely new row, never for a
+        // rejected Owner-C proposal or an idempotent duplicate.
+        final inserted = await db.transaction<bool>((txn) async {
+          final existing = await txn.query(
+            'transactions',
+            columns: const <String>['id'],
+            where: 'id = ?',
+            whereArgs: <Object?>[record.id],
+            limit: 1,
+          );
+          if (existing.isNotEmpty) return false;
+          // Last in-isolate check immediately before the formal insert; a stale
+          // receipt must not create a new row or emit a Provider refresh.
+          await requireCurrentReceipt();
+          // ABORT, not REPLACE: no overwrite on concurrency or repeated posts.
+          await txn.insert(
+            'transactions',
+            record.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.abort,
+          );
+          return true;
+        });
+        if (inserted) TransactionLedgerRefreshSignal.instance.emit();
+        return inserted;
+      },
     );
-    final db = await _database();
-    // Recheck after asynchronous account/database acquisition. This narrows
-    // the revocation TOCTOU window; SharedPreferences and SQLite are still
-    // separate stores and this is NOT cross-process atomicity.
-    await requireCurrentReceipt();
-    // The formal ledger owns the provider refresh event: publish only after
-    // the SQLite transaction commits a genuinely new row, never for a
-    // rejected Owner-C proposal or an idempotent duplicate.
-    final inserted = await db.transaction<bool>((txn) async {
-      final existing = await txn.query(
-        'transactions',
-        columns: const <String>['id'],
-        where: 'id = ?',
-        whereArgs: <Object?>[record.id],
-        limit: 1,
-      );
-      if (existing.isNotEmpty) return false;
-      // Last in-isolate check immediately before the formal insert; a stale
-      // receipt must not create a new row or emit a Provider refresh.
-      await requireCurrentReceipt();
-      // ABORT, not REPLACE: no overwrite on concurrency or repeated posts.
-      await txn.insert(
-        'transactions',
-        record.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.abort,
-      );
-      return true;
-    });
-    if (inserted) TransactionLedgerRefreshSignal.instance.emit();
-    return inserted;
   }
 }

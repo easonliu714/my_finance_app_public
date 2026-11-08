@@ -198,6 +198,110 @@ void main() {
         proposal: proposal, observation: replacement), isTrue);
   });
 
+
+  test('posting holds same-isolate consent fence through awaited accounts',
+      () async {
+    final proposal = candidate();
+    final receipt = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+      observationRevision: 'e' * 32,
+    );
+    final original = jsonEncode(<Object>[receipt.toJson()]);
+    final preferences = _ExternalMutationPreferences(original, original);
+    final accountsStarted = Completer<void>();
+    final releaseAccounts = Completer<List<AccountRecord>>();
+    var databases = 0;
+    final service = InvoiceAwardFormalIncomePostingService.forIsolatedTest(
+      preferencesProvider: () async => preferences,
+      accountsProvider: () {
+        accountsStarted.complete();
+        return releaseAccounts.future;
+      },
+      databaseProvider: () async {
+        databases++;
+        return _ForbiddenSqliteDatabase();
+      },
+    );
+    final posting = service.post(
+      proposal: proposal, receipt: receipt,
+      authorizedAtUtc: DateTime.utc(2026, 10, 9),
+    );
+    await accountsStarted.future;
+    final revocation = InvoiceAwardRemittanceReceiptRepository(preferences)
+        .revokeForProposal(proposal, expectedObservation: receipt);
+    await Future<void>.delayed(Duration.zero);
+    expect(preferences.writeAttempts, 0,
+        reason: 'revocation must wait until the posting lease is released');
+    expect(preferences.platformBytes, original);
+    releaseAccounts.complete(<AccountRecord>[]);
+    await expectLater(posting, throwsA(isA<StateError>().having(
+      (e) => e.toString(), 'account rejection',
+      contains('INVOICE_AWARD_POSTING_ACCOUNT_UNAVAILABLE'))));
+    await revocation;
+    expect(databases, 0);
+    expect(preferences.writeAttempts, 1);
+    expect(preferences.platformBytes, '[]');
+  });
+
+  test('pending same-isolate revocation blocks formal posting authority',
+      () async {
+    final proposal = candidate();
+    final receipt = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+      observationRevision: 'f' * 32,
+    );
+    final original = jsonEncode(<Object>[receipt.toJson()]);
+    final preferences = _BarrierPreferences(original);
+    final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    final revocation = repository.revokeForProposal(
+        proposal, expectedObservation: receipt);
+    await preferences.firstWriteStarted.future;
+    var accounts = 0;
+    var databases = 0;
+    final service = InvoiceAwardFormalIncomePostingService.forIsolatedTest(
+      preferencesProvider: () async => preferences,
+      accountsProvider: () async {
+        accounts++;
+        return <AccountRecord>[];
+      },
+      databaseProvider: () async {
+        databases++;
+        return _ForbiddenSqliteDatabase();
+      },
+    );
+    final posting = service.post(
+      proposal: proposal, receipt: receipt,
+      authorizedAtUtc: DateTime.utc(2026, 10, 9),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(accounts, 0,
+        reason: 'posting cannot pass pending revocation before persistence');
+    expect(databases, 0);
+    preferences.releaseFirstWrite.complete();
+    await revocation;
+    await expectLater(posting, throwsA(isA<StateError>().having(
+      (e) => e.toString(), 'revoked receipt',
+      contains('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT'))));
+    expect(accounts, 0);
+    expect(databases, 0);
+    expect(preferences.writeAttempts, 1);
+    expect(preferences.platformBytes, '[]');
+  });
+
   test('Owner C blocks new 500 observations before preference writes while preserving old audit', () async {
     final legacy = candidate(tier: 'cloud-500', amount: 500);
     final historical = InvoiceAwardRemittanceReceiptEvidence(
