@@ -1,5 +1,83 @@
 # Issue #13 Cloud-500 PDF Diagnostic Lab
 
+## Owner Android official-source partial checkpoint — 2026-11-08 18:00–18:07 Asia/Taipei
+
+**Evidence authority and limits:** Owner physical Android Lab `0.4.31+900031`,
+`com.easonliu.cloud500diag`, SDK37, exact Lab HEAD
+`cbaad08aa3709d098951797a841a98b43aa2c912`. Lab #31
+[42441386432](https://github.com/easonliu714/my_finance_app_public/actions/runs/42441386432)
+was exact-head CI SUCCESS; the Owner runtime evidence is separate and newer.
+Dart/Native Debug Log: 292 lines, SHA-256
+`fc875c7fbc62a9134e02659579f4e9abc0337f5b1225f79969f1a0be4ec07082`.
+Official publication page and sorted PDF returned HTTP 200. Owner Lab recorded
+135200798 bytes and local per-batch SHA-256
+`f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571`;
+the original 135 MB PDF was **not** supplied for independent rehash.
+
+One isolated native PID 8016 produced nine `PLATFORM_RENDERER_OPEN_OK` events
+and `L1_SOURCE_PREFLIGHT_PASS`, `LOCAL_VALIDATE_PASS`,
+`PLATFORM_PROBE_COMPLETE`, `L1_PARTIAL_BATCH_CAPTURED`.
+Owner completed pages 1–4 plus eight four-page batches 5–36:
+**36/87000**, `next_page=37`, `cursor_reached_end=false`,
+without `ACTION_ERROR` or `FAILED` in the supplied run.
+
+Two actual JSONL files were independently parsed and strictly checked:
+- `l1-pages-1-1794132287536630.jsonl`, SHA-256
+  `2dcbdfba8c36fa88cc47937c9ffd9e2bec65a7e879c1c88be7d60b8423f5d254`,
+  pages 1–4, 200 tokens.
+- `l1-pages-33-1794132379505428.jsonl`, SHA-256
+  `945ce06f7958301fd768fdff3da5f38d1418b3abd06bc86bd498f8e423e1707c`,
+  pages 33–36, 200 tokens.
+
+Both files had 50 tokens/page, no duplicates, ordered tokens, zero duplicate
+JSON keys, and matching 87000 page count, period/tier, Android renderer and
+source digest. **The seven intermediate JSONL files for pages 5–32 were not
+provided for independent audit.** Do not extrapolate those two samples to an
+independently verified 36-page chain.
+
+Gate classification:
+- `OWNER_DEVICE_LAB_BOUNDED_36_PAGE_POSITIVE=PASS`
+- `OFFICIAL_SOURCE_RUNTIME_PIN_MATCH=PASS_BY_LAB_LOG`
+- `TWO_JSONL_INDEPENDENT_STRUCTURE=PASS`
+- `LAB_L1_OFFICIAL_FULL_PAGE=HOLD`; `GLOBAL_NOT_WIN=HOLD`
+- `NATIVE_PSS_RSS_AND_PROCESS_EXIT=UNKNOWN` (nine opens on one PID do not
+  establish process exit; JVM heap is not native RSS/PSS)
+- Native close-before-terminal remains source/JVM synthetic evidence, not
+  physical close-event tracing or injected-close-failure device evidence.
+- C13/C17/C18, PR45 formal posting, Trusted 9BA2 Signed, production Owner
+  installed/device, and MERGE_READY remain HOLD. No formal finance SQLite,
+  NT$700 posting, or accounting data was touched.
+
+## Bounded multi-batch evidence share — Lab SOURCE+TEST candidate, CI pending
+
+A Lab-only explicit share action packages **up to 12 complete four-page
+JSONL batches**, the Lab Dart/Native debug logs, and a SHA-256 manifest into
+one streaming ZIP. It checks the full retained sequence from page 1 through
+the durable cursor (the current 1–36 chain fits), exact native JSONL metadata,
+one file per batch start, missing/overlapping/partial files, symlink escape,
+a pending native dispatch fence, 48 MB JSONL, 2 MB logs and 64 MiB ZIP
+limits. It rehashes source files after ZIP creation and never includes the
+135 MB official PDF or any production finance database. One fixed output ZIP
+prevents accumulating unlimited share copies. Errors do not advance cursor
+or delete native JSONL. The owner must explicitly tap Share; no automatic
+upload or background network transfer occurs.
+
+The manifest marks `independent_token_and_source_audit=PENDING`,
+`native_pss_rss_and_process_exit=UNKNOWN`,
+`official_full_page_evidence=HOLD`, `global_not_win=HOLD` and
+`production_authority=HOLD`. The archive contains the Lab logs, which may
+include a manually entered invoice candidate; share only through a trusted
+destination. It does not attest original PDF bytes, independently audit all
+tokens, or instrument native PSS/exit. Focused positive and fail-closed
+regressions are wired into the same-head Lab CI, **not yet PASS**.
+
+**NEXT_DoD:** exact-head Flutter focused tests, Analyze, native JVM, Lab APK,
+fixed signer and artifact all PASS; then Owner may use the new standalone Lab
+version to share one 1–36 evidence bundle. Independent archive/manifest/JSONL
+audit and separate native PSS/RSS/process-exit instrumentation precede any
+broader page-coverage claim. Do not request thousands of manual batches or
+declare full 87000-page/global NOT_WIN authority.
+
 Standalone Android diagnostic branch for the 115-07-08 cloud-exclusive NT$500
 official sorted PDF. This lab is intentionally separated from production PR #45.
 

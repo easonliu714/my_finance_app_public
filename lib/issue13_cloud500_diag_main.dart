@@ -17,6 +17,7 @@ import 'features/invoice/invoice_award_cloud_publication_parser.dart';
 import 'issue13_lab_l1_cursor.dart';
 import 'issue13_lab_l1_bounded_run.dart';
 import 'issue13_lab_l1_dispatch_fence.dart';
+import 'issue13_lab_l1_evidence_bundle.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -578,6 +579,26 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     ));
   }
 
+  // Explicit one-tap share of verified contiguous Lab JSONL batches and
+  // bounded Lab-only debug logs. The official PDF and finance DB are excluded.
+  Future<void> _shareL1EvidenceBundle() async {
+    final lab = _labDirectory;
+    if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    final result = await LabL1EvidenceBundle.create(
+      lab: lab,
+      labHead: _labHead,
+    );
+    await _log('L1_EVIDENCE_BUNDLE_READY '
+        'last_page=${result.manifest['last_page']} '
+        'batches=${result.manifest['batch_count']} '
+        'zip_sha256=${result.zipSha256} '
+        'official_full_page_evidence=HOLD global_not_win=HOLD');
+    await SharePlus.instance.share(ShareParams(
+      subject: 'Issue13 Lab bounded JSONL chain + SHA manifest + debug logs',
+      files: <XFile>[XFile(result.file.path)],
+    ));
+  }
+
   Future<void> _testPlatformOpenOnly() async {
     final result = await _runPlatformProbe(candidate: '');
     if (result['status'] != 'complete') {
@@ -884,6 +905,11 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         onPressed: _busy ? null : () => _run(
           'Share partial L1 JSONL', _shareL1Batch),
         child: const Text('分享上一批 L1 JSONL'),
+      ),
+      OutlinedButton(
+        onPressed: _busy ? null : () => _run(
+          'Share bounded L1 evidence bundle', _shareL1EvidenceBundle),
+        child: const Text('一次分享多批 JSONL＋SHA Manifest＋Debug Log'),
       ),
       const ListTile(
         contentPadding: EdgeInsets.zero,
