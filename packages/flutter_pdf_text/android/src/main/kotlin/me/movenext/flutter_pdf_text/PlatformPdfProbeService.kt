@@ -233,18 +233,33 @@ class PlatformPdfProbeService : Service() {
         } finally {
           if (pending.exists()) pending.delete()
         }
-        stage.set("L1_PARTIAL_BATCH_COMPLETE")
-        alive.set(false)
-        heartbeat.interrupt()
-        heartbeat.join(1000)
-        snapshot("complete", JSONObject()
-          .put("page_count", pageCount)
-          .put("start_page", first)
-          .put("end_page", last)
-          .put("pdf_sha256", sha)
-          .put("export_path", target.absolutePath)
-          .put("batch_only", true)
-          .put("global_not_win", "HOLD"))
+        // A finalized JSONL file is not terminal native success while the
+        // PdfRenderer still owns native resources. A close failure must leave
+        // the Dart dispatch fence in HOLD, never publish "complete".
+        LabL1NativeTerminalCustody.publishAfterClose(
+          closeResources = {
+            val activeRenderer = renderer
+              ?: throw IllegalStateException("L1_RENDERER_MISSING_AT_TERMINAL")
+            activeRenderer.close()
+            renderer = null
+            descriptor?.close()
+            descriptor = null
+          },
+          publishSuccess = {
+            alive.set(false)
+            heartbeat.interrupt()
+            heartbeat.join(1000)
+            stage.set("L1_PARTIAL_BATCH_COMPLETE")
+            snapshot("complete", JSONObject()
+              .put("page_count", pageCount)
+              .put("start_page", first)
+              .put("end_page", last)
+              .put("pdf_sha256", sha)
+              .put("export_path", target.absolutePath)
+              .put("batch_only", true)
+              .put("global_not_win", "HOLD"))
+          }
+        )
         return
       }
 

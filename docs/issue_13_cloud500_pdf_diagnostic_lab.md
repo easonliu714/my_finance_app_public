@@ -239,3 +239,21 @@ cover exclusive admission, restart HOLD, mismatch, torn/symlinked markers
 and terminal release. No actual 135200798-byte official PDF Android run,
 77k+87k completeness, Unicode/period/tier or global NOT_WIN is attested.
 L1 official/L2-L4/C13/C17/C18/Owner/Trusted Signed remain HOLD.
+
+
+## L1 renderer-close-before-terminal custody — native CODE+TEST, official HOLD
+
+Native L1 previously published `status=complete` after JSONL fsync/rename
+but **before** closing Android `PdfRenderer` in `finally`. The Dart
+dispatch fence could then be cleared while the prior native renderer still
+held resources. The Lab now closes the renderer and descriptor before
+publishing terminal success. If close throws, the native failure path runs
+and the durable Dart fence remains unresolved; no new batch is dispatched.
+The heartbeat is stopped before the final complete snapshot.
+
+Two native JVM regressions verify close-before-success ordering and
+fail-closed behavior when resource closure throws. Existing cursor,
+bounded-run, native preflight, and signer gates remain required.
+This does not prove isolated-process exit, official 135200798-byte PDF
+Android full-page extraction, renderer text completeness, global NOT_WIN,
+Owner installation, or production authorization. L1 official/L2-L4 HOLD.
