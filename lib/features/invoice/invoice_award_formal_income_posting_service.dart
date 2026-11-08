@@ -16,7 +16,8 @@ import 'invoice_award_remittance_receipt_evidence.dart';
 class InvoiceAwardFormalIncomePostingService {
   const InvoiceAwardFormalIncomePostingService()
       : _isolatedDatabaseProvider = null,
-        _isolatedAccountsProvider = null;
+        _isolatedAccountsProvider = null,
+        _isolatedPreferencesProvider = null;
 
   // Only the isolated regression harness may supply dependencies. The
   // production constructor always uses the canonical account/SQLite stores;
@@ -25,11 +26,17 @@ class InvoiceAwardFormalIncomePostingService {
   const InvoiceAwardFormalIncomePostingService.forIsolatedTest({
     required Future<Database> Function() databaseProvider,
     required Future<List<AccountRecord>> Function() accountsProvider,
+    Future<SharedPreferences> Function()? preferencesProvider,
   })  : _isolatedDatabaseProvider = databaseProvider,
-        _isolatedAccountsProvider = accountsProvider;
+        _isolatedAccountsProvider = accountsProvider,
+        _isolatedPreferencesProvider = preferencesProvider;
 
   final Future<Database> Function()? _isolatedDatabaseProvider;
   final Future<List<AccountRecord>> Function()? _isolatedAccountsProvider;
+  final Future<SharedPreferences> Function()? _isolatedPreferencesProvider;
+
+  Future<SharedPreferences> _preferences() =>
+      _isolatedPreferencesProvider?.call() ?? SharedPreferences.getInstance();
 
   Future<Database> _database() =>
       _isolatedDatabaseProvider?.call() ??
@@ -85,16 +92,18 @@ class InvoiceAwardFormalIncomePostingService {
     // Service-level authority: a caller cannot bypass the UI modal with a
     // fabricated, revoked, or replaced receipt. Owner-C is rejected above,
     // before even opening preferences or the formal SQLite store.
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _preferences();
     final receiptRepository =
         InvoiceAwardRemittanceReceiptRepository(preferences);
-    void requireCurrentReceipt() {
-      if (!receiptRepository.isCurrentObservation(
+    // Re-read external consent at each asynchronous posting boundary.
+    // Cross-process CAS/TOCTOU and fsync remain independently unproven.
+    Future<void> requireCurrentReceipt() async {
+      if (!await receiptRepository.isCurrentObservationFresh(
           proposal: proposal, observation: receipt)) {
         throw StateError('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT');
       }
     }
-    requireCurrentReceipt();
+    await requireCurrentReceipt();
     final accounts = await _accounts();
     final matches = accounts.where((a) =>
         a.id == proposal.localAccountId &&
@@ -133,7 +142,7 @@ class InvoiceAwardFormalIncomePostingService {
     // Recheck after asynchronous account/database acquisition. This narrows
     // the revocation TOCTOU window; SharedPreferences and SQLite are still
     // separate stores and this is NOT cross-process atomicity.
-    requireCurrentReceipt();
+    await requireCurrentReceipt();
     // The formal ledger owns the provider refresh event: publish only after
     // the SQLite transaction commits a genuinely new row, never for a
     // rejected Owner-C proposal or an idempotent duplicate.
@@ -148,7 +157,7 @@ class InvoiceAwardFormalIncomePostingService {
       if (existing.isNotEmpty) return false;
       // Last in-isolate check immediately before the formal insert; a stale
       // receipt must not create a new row or emit a Provider refresh.
-      requireCurrentReceipt();
+      await requireCurrentReceipt();
       // ABORT, not REPLACE: no overwrite on concurrency or repeated posts.
       await txn.insert(
         'transactions',

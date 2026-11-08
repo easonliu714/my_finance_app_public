@@ -1001,12 +1001,13 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
               current.proposal?.idempotencyKey == proposal.idempotencyKey &&
               current.proposal?.localAccountId == proposal.localAccountId &&
               _receiptFor(current)?.sameObservationAs(receipt) == true);
-          return live.length == 1 &&
-              InvoiceAwardRemittanceReceiptRepository(preferences)
-                  .isCurrentObservation(
-                    proposal: proposal,
-                    observation: receipt,
-                  );
+          if (live.length != 1) return false;
+          // The modal must not authorize a cached, externally revoked receipt.
+          return InvoiceAwardRemittanceReceiptRepository(preferences)
+              .isCurrentObservationFresh(
+                proposal: proposal,
+                observation: receipt,
+              );
         },
         onPostingStarted: () {
           postingStarted = true;

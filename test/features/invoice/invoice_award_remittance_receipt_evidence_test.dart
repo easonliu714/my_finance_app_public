@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:my_finance_app/features/account/account_record.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_formal_income_posting_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_payout_bookkeeping_contract.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_cloud500_production_policy.dart';
@@ -61,6 +64,13 @@ class _ExternalMutationPreferences implements SharedPreferences {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+// Forbid SQLite access when external receipt authority has been revoked.
+class _ForbiddenSqliteDatabase implements Database {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('UNEXPECTED_SQLITE_TRANSACTION');
 }
 
 void main() {
@@ -125,6 +135,121 @@ void main() {
     expect(prefs.getString('issue13_remittance_observations_v1'), originalBytes);
     expect(repo.loadAll(), hasLength(1));
     expect(repo.readForProposal(legacy)?.grossAmount, 500);
+  });
+
+  test('fresh authority rejects external revoke/replacement without writes', () async {
+    final proposal = candidate();
+    InvoiceAwardRemittanceReceiptEvidence observation(String revision) =>
+        InvoiceAwardRemittanceReceiptEvidence(
+          proposalKey: proposal.idempotencyKey,
+          awardPeriodId: proposal.awardPeriodId,
+          localAccountId: proposal.localAccountId,
+          prizeTier: proposal.prizeTier,
+          grossAmount: proposal.grossAmount,
+          officialFingerprint: proposal.officialDatasetFingerprint,
+          receivedAtUtc: DateTime.utc(2026, 10, 7),
+          confirmedAtUtc: DateTime.utc(2026, 10, 8),
+          observationRevision: revision,
+        );
+    final receipt = observation('a' * 32);
+    final original = jsonEncode(<Object>[receipt.toJson()]);
+    final replacement = jsonEncode(<Object>[observation('b' * 32).toJson()]);
+    for (final external in <String>['[]', replacement]) {
+      final prefs = _ExternalMutationPreferences(original, external);
+      final repo = InvoiceAwardRemittanceReceiptRepository(prefs);
+      expect(repo.isCurrentObservation(proposal: proposal, observation: receipt),
+          isTrue, reason: 'synchronous cache is stale');
+      expect(await repo.isCurrentObservationFresh(
+          proposal: proposal, observation: receipt), isFalse);
+      expect(prefs.reloadAttempts, 1);
+      expect(prefs.writeAttempts, 0);
+      expect(prefs.platformBytes, external);
+    }
+    final intact = _ExternalMutationPreferences(original, original);
+    expect(await InvoiceAwardRemittanceReceiptRepository(intact)
+        .isCurrentObservationFresh(proposal: proposal, observation: receipt),
+        isTrue);
+    expect(intact.writeAttempts, 0);
+  });
+
+  test('posting rejects external revoked cache before account and SQLite', () async {
+    final proposal = candidate();
+    final receipt = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+      observationRevision: 'c' * 32,
+    );
+    final prefs = _ExternalMutationPreferences(
+        jsonEncode(<Object>[receipt.toJson()]), '[]');
+    var accounts = 0;
+    var databases = 0;
+    final service = InvoiceAwardFormalIncomePostingService.forIsolatedTest(
+      preferencesProvider: () async => prefs,
+      accountsProvider: () async {
+        accounts++;
+        throw StateError('UNEXPECTED_ACCOUNT_ACCESS');
+      },
+      databaseProvider: () async {
+        databases++;
+        throw StateError('UNEXPECTED_SQLITE_ACCESS');
+      },
+    );
+    await expectLater(service.post(proposal: proposal, receipt: receipt,
+        authorizedAtUtc: DateTime.utc(2026, 10, 9)),
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'revoked receipt',
+          contains('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT'))));
+    expect(accounts, 0);
+    expect(databases, 0);
+    expect(prefs.writeAttempts, 0);
+    expect(prefs.platformBytes, '[]');
+  });
+
+  test('posting rechecks external revoke after awaited account lookup', () async {
+    final proposal = candidate();
+    final receipt = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+      observationRevision: 'd' * 32,
+    );
+    final original = jsonEncode(<Object>[receipt.toJson()]);
+    final prefs = _ExternalMutationPreferences(original, original);
+    var databases = 0;
+    final service = InvoiceAwardFormalIncomePostingService.forIsolatedTest(
+      preferencesProvider: () async => prefs,
+      accountsProvider: () async {
+        prefs.platformBytes = '[]';
+        return <AccountRecord>[
+          const AccountRecord(id: 'bank-1', name: '隔離銀行',
+              type: AccountType.bank, initialBalance: 0, sortOrder: 0),
+        ];
+      },
+      databaseProvider: () async {
+        databases++;
+        return _ForbiddenSqliteDatabase();
+      },
+    );
+    await expectLater(service.post(proposal: proposal, receipt: receipt,
+        authorizedAtUtc: DateTime.utc(2026, 10, 9)),
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'revoked after account read',
+          contains('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT'))));
+    expect(databases, 1);
+    expect(prefs.reloadAttempts, 2);
+    expect(prefs.writeAttempts, 0);
+    expect(prefs.platformBytes, '[]');
   });
 
   test('external same-key consent blocks stale cached confirmation', () async {

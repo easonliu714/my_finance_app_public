@@ -182,6 +182,18 @@ class InvoiceAwardRemittanceReceiptRepository {
     return current != null && current.sameObservationAs(observation);
   }
 
+  // A cached synchronous receipt can survive another process's revocation.
+  // Posting authority must reload the platform store before each decision;
+  // this is not an atomic SharedPreferences-to-SQLite transaction.
+  Future<bool> isCurrentObservationFresh({
+    required InvoiceAwardPayoutBookkeepingProposal proposal,
+    required InvoiceAwardRemittanceReceiptEvidence observation,
+  }) async {
+    if (!observation.matches(proposal)) return false;
+    await preferences.reload();
+    return isCurrentObservation(proposal: proposal, observation: observation);
+  }
+
   Future<InvoiceAwardRemittanceReceiptEvidence> confirmObservedCredit({
     required InvoiceAwardPayoutBookkeepingProposal proposal,
     required DateTime receivedAtUtc,
