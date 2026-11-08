@@ -1,4 +1,20 @@
-## CURRENT — 2026-11-08 22:13 Asia/Taipei | PR45 external-process stale receipt snapshot SOURCE+TEST
+## CURRENT — 2026-11-08 23:15 Asia/Taipei | PR45 #1423 exact-head full-test first failure corrected (TEST-only)
+
+**Fresh Read:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT expected parent `69e28466e605466597f9399419edebacf74323db`; Lab `59c75f12f285a6a0ff38aa53160e0c0be3508889`; Issues #4/#13/#19 OPEN. Prior #1422 [42484001251](https://github.com/easonliu714/my_finance_app_public/actions/runs/42484001251) 3/3 SUCCESS is parent-only evidence.
+
+**First failure:** #1423 [42488907370](https://github.com/easonliu714/my_finance_app_public/actions/runs/42488907370), exact head `69e28466e605466597f9399419edebacf74323db`, completed FAILURE: Flutter Analyze 0; focused custody 8 PASS; full **2391 PASS, 2 FAIL, 1 SKIPPED**. Existing receipt failed-persistence tests lines 215/242 expected reloadAttempts=1 but actual 2, because new pre-mutation SharedPreferences.reload() precedes the prior reload-after-setString(false) recovery. Both new stale-external-cache conflict tests PASS. API35 independent-process and disposable debug-signed Release-AOT jobs SUCCESS; debug APK/native steps SKIPPED by failed Flutter job. Not production 9BA2 Signed.
+
+**Correction classification:** TEST-only regression expectation fix in `test/features/invoice/invoice_award_remittance_receipt_evidence_test.dart`, preserving both safety reloads, failed-persistence StateError, external audit bytes, and all gates. **Not new production SOURCE+TEST**. Successor exact-head full CI PENDING; do not inherit #1422 PASS. No changes to runtime source, owner data, formal signing, or version.
+
+**Recent actual PRODUCT SOURCE+TEST:** `69e28466` pre-read external cache reload; `94a4871c` failed platform persistence fail-closed; `cc2bb0ae` B2.16 new installed-year canonical SHA row integrity. Historical no-generated_at remains structural-only; SharedPreferences↔SQLite cross-process atomic CAS/TOCTOU HOLD.
+
+**Lab and Owner:** independent Lab #36 [42480035402](https://github.com/easonliu714/my_finance_app_public/actions/runs/42480035402) exact-head SUCCESS, 34 focused Flutter, Kotlin/JVM, Analyze0, 0.4.36+900036 debug APK with separate Lab signer, new ZIP/UI not Owner tested. Owner Lab #31 official PDF bounded 36/87000 pages PASS_BY_DEVICE_LOG; independently audited 8 pages/400 tokens only; pages 5–32 bundle pending. CR30912111 matched=false after 17 PDF sample pages is diagnostic-only, not formal NOT_WIN. Native PSS/RSS/exit UNKNOWN; full87000/global NOT_WIN/C13/C17/C18 HOLD.
+
+**Release safety:** PR45 OPEN/DRAFT; main and Lab unchanged; Owner C deferred; no Owner SQLite, Trusted 9BA2 signer, release version bump, merge or force. App 4.20.37+495 equals Owner installed +495; signer doc +493 versus preflight +495 REVIEW_PENDING. Issue #4 OPEN, MERGE_READY HOLD, OWNER_HELP=NONE.
+
+**NEXT_MEASURABLE_DoD:** Fresh-read successor exact-head full CI; require Analyze0, full test PASS with 1 existing official-source SKIP, two failed-write tests PASS, debug APK/native, API35 9, disposable Release-AOT five synthetic markers. If green, investigate genuine cross-process atomicity or B2 provenance root; no CI-only/docs-only counted as product engineering.
+
+## HISTORY — 2026-11-08 22:13 Asia/Taipei | PR45 external-process stale receipt snapshot SOURCE+TEST
 
 **Fresh prewrite authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT parent `94a4871c62dcfdaf9034873f6ee66ce1406020a0`; Lab `59c75f12f285a6a0ff38aa53160e0c0be3508889`; Issues #4/#13/#19 OPEN. PR45 #1422 [42484001251](https://github.com/easonliu714/my_finance_app_public/actions/runs/42484001251) exact parent **3/3 SUCCESS**: Flutter Analyze 0, full 2391 PASS / 1 SKIPPED (official source), Android API35 independent-process lease, debug APK, disposable Release-AOT debug signer parity and five synthetic C500 markers PASS. Lab #36 [42480035402](https://github.com/easonliu714/my_finance_app_public/actions/runs/42480035402) exact Lab SUCCESS, independent 0.4.36+900036 APK, not Trusted 9BA2 production signed. Neither proves successor CI.
 

@@ -212,7 +212,9 @@ void main() {
       )),
     );
     expect(preferences.writeAttempts, 1);
-    expect(preferences.reloadAttempts, 1);
+    // Reload once before mutation, then again to discard the optimistic
+    // cache after setString(false). Failed persistence remains fail-closed.
+    expect(preferences.reloadAttempts, 2);
     expect(repository.readForProposal(proposal), isNull);
   });
 
@@ -239,7 +241,9 @@ void main() {
       )),
     );
     expect(preferences.writeAttempts, 1);
-    expect(preferences.reloadAttempts, 1);
+    // Reload once before mutation, then again to discard the optimistic
+    // cache after setString(false). Failed persistence remains fail-closed.
+    expect(preferences.reloadAttempts, 2);
     expect(preferences.getString('issue13_remittance_observations_v1'),
         originalBytes);
     expect(repository.isCurrentObservation(
