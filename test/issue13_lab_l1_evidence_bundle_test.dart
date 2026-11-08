@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
+import 'package:cryptography/cryptography.dart' as cryptography;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/issue13_lab_l1_evidence_bundle.dart';
 
@@ -88,6 +89,14 @@ void main() {
         'owner_runtime_log_not_independent_pdf_rehash');
     final records = manifest['jsonl'] as List<dynamic>;
     expect(records.length, 9);
+    // Regression: verify the manifest hashes the real JSONL bytes, not an
+    // unrelated archive SHA implementation with the same class name.
+    final firstJsonl = File('${lab.path}/l1-pages-1-123456.jsonl');
+    final independentDigest = await cryptography.Sha256()
+        .hash(await firstJsonl.readAsBytes());
+    final independentHex = independentDigest.bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    expect((records.first as Map)['sha256'], independentHex);
     expect((records.first as Map)['first_page'], 1);
     expect((records.last as Map)['last_page'], 36);
     expect(await File('${lab.path}/l1-next-page.txt').readAsString(), '37\n');

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
-import 'package:cryptography/cryptography.dart';
+import 'package:cryptography/cryptography.dart' as cryptography;
 
 import 'issue13_lab_l1_cursor.dart';
 
@@ -19,7 +19,7 @@ class LabL1EvidenceBundle {
       'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571';
 
   static Future<String> _sha(File file) async {
-    final sink = Sha256().newHashSink();
+    final sink = cryptography.Sha256().newHashSink();
     await for (final chunk in file.openRead()) {
       sink.add(chunk);
     }
