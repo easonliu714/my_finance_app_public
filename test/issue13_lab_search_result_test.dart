@@ -76,7 +76,7 @@ void main() {
     final bad = <Map<String, dynamic>>[
       snapshot()..['tier'] = 'cloud-1000',
       snapshot()..['period'] = '115-05-06',
-      snapshot()..['pdf_sha256'] = '0' * 64,
+      snapshot()..['pdf_sha256'] = List<String>.filled(64, '0').join(),
       snapshot()..['matched'] = 'false',
       snapshot()..['matched_page'] = 1,
       snapshot()..['pages_read'] = 0,
