@@ -16,6 +16,7 @@ import 'features/invoice/invoice_award_cloud_candidate_scope.dart';
 import 'features/invoice/invoice_award_cloud_publication_parser.dart';
 import 'issue13_lab_l1_cursor.dart';
 import 'issue13_lab_l1_bounded_run.dart';
+import 'issue13_lab_l1_dispatch_fence.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -345,11 +346,14 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
 
   Future<Map<String, dynamic>> _runPlatformProbe({
     required String candidate,
+    String? requestIdOverride,
+    Future<void> Function()? beforeDispatch,
   }) async {
     final file = await _ensureExactPdf();
     final lab = _labDirectory;
     if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
-    final requestId = DateTime.now().microsecondsSinceEpoch.toString();
+    final requestId = requestIdOverride ??
+        DateTime.now().microsecondsSinceEpoch.toString();
     final resultFile = File(
       '${lab.path}${Platform.pathSeparator}platform_probe_$requestId.json',
     );
@@ -359,6 +363,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       'PLATFORM_PROBE_DISPATCH request=$requestId candidate=$candidate '
       'backend=android.graphics.pdf.PdfRenderer',
     );
+    // Persist the in-flight marker before native renderer dispatch.
+    if (beforeDispatch != null) await beforeDispatch();
     await _channel.invokeMethod<void>(
       'startPlatformPdfProbe',
       <String, Object?>{
@@ -447,6 +453,9 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   Future<LabL1Batch> _exportNextL1Batch() async {
     final lab = _labDirectory;
     if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    final fence = LabL1DispatchFence(lab);
+    // Timeout or crash does not prove the isolated process has exited.
+    await fence.requireClear();
     final cursor = File('${lab.path}/l1-next-page.txt');
     final raw = await cursor.exists() ? await cursor.readAsString() : '1';
     final first = int.tryParse(raw.trim());
@@ -463,7 +472,16 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       return recovered;
     }
     await _requireL1ExportStorageBudget();
-    final result = await _runPlatformProbe(candidate: 'LAB_L1_EXPORT:$first');
+    final requestId = DateTime.now().microsecondsSinceEpoch.toString();
+    final result = await _runPlatformProbe(
+      candidate: 'LAB_L1_EXPORT:$first',
+      requestIdOverride: requestId,
+      beforeDispatch: () => fence.begin(
+        firstPage: first,
+        requestId: requestId,
+        pdfSha256: _expectedSha256,
+      ),
+    );
     if (result['status'] != 'complete' ||
         result['start_page'] != first ||
         result['batch_only'] != true ||
@@ -478,6 +496,13 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     }
     final checked = await LabL1Cursor.verify(
       lab, File(path), first, _expectedSha256, last: last, count: count,
+    );
+    // Only terminal native success and strict JSONL verification clear it.
+    // Finalized-batch recovery then covers a crash before cursor save.
+    await fence.complete(
+      firstPage: first,
+      requestId: requestId,
+      pdfSha256: _expectedSha256,
     );
     await _persistL1Cursor(cursor, checked.last + 1);
     _lastL1BatchFile = checked.file;

@@ -218,3 +218,24 @@ enforces pre-renderer call ordering and compiles the plugin via Gradle.
 These use tiny synthetic files: they are not the official 135 MB PDF,
 not Android API35 full-page runtime extraction and not L1 official PASS.
 PR45, production signing, installed Owner data and main are unchanged.
+
+
+## L1 persistent native in-flight dispatch custody — CODE+TEST, official HOLD
+
+A two-minute Dart timeout does not prove the isolated Android PdfRenderer
+process exited. An app restart could previously forget an unresolved native
+request and redispatch the same pages, risking concurrent native memory use
+and duplicate JSONL. The Lab now creates an exclusive, flushed, app-private
+`l1-native-inflight.json` marker immediately before native L1 dispatch,
+binding exact first page, numeric request ID and pinned official PDF SHA.
+Timeout, crash, malformed/symlinked marker, identity mismatch or unknown
+process outcome remain HOLD across restarts. No automatic retry or cleanup.
+
+Only a terminal native success plus strict verified JSONL can release the
+marker, before cursor save. A crash after release can use the existing
+finalized-batch recovery. Stranded markers require independent process-exit
+and evidence review before manual clearance. Five synthetic Flutter tests
+cover exclusive admission, restart HOLD, mismatch, torn/symlinked markers
+and terminal release. No actual 135200798-byte official PDF Android run,
+77k+87k completeness, Unicode/period/tier or global NOT_WIN is attested.
+L1 official/L2-L4/C13/C17/C18/Owner/Trusted Signed remain HOLD.

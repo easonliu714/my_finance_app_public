@@ -196,7 +196,7 @@ jobs:
           echo 'LAB_L1_NATIVE_PREFLIGHT_JVM_TEST=PASS_SYNTHETIC_ONLY' >> "$GITHUB_STEP_SUMMARY"
 
       - name: L1 cursor recovery regression (synthetic only)
-        run: flutter test test/issue13_lab_l1_cursor_test.dart test/issue13_lab_l1_bounded_run_test.dart
+        run: flutter test test/issue13_lab_l1_cursor_test.dart test/issue13_lab_l1_bounded_run_test.dart test/issue13_lab_l1_dispatch_fence_test.dart
 
       - name: Lab v4 source authority gates
         shell: bash
