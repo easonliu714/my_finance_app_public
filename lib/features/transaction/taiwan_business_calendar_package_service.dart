@@ -40,6 +40,7 @@ class CalendarPackageStatus {
     required this.sourceUrl,
     required this.importedAt,
     required this.isContiguous,
+    this.hasCanonicalRowDigest = false,
   });
   final int year;
   final String start;
@@ -51,6 +52,10 @@ class CalendarPackageStatus {
   final String sourceUrl;
   final String importedAt;
   final bool isContiguous;
+  // True only when persisted days were rebuilt and matched the canonical
+  // package SHA-256. Legacy metadata without generated_at is structural-only.
+  // This does not establish official publisher authenticity.
+  final bool hasCanonicalRowDigest;
 }
 
 
@@ -90,6 +95,7 @@ class TaiwanBusinessCalendarPackageService {
     final current = await status(db, year);
     if (current == null ||
         !current.isContiguous ||
+        !current.hasCanonicalRowDigest ||
         current.sequence < 1 ||
         current.digest.isEmpty) {
       return CalendarAnnualUpdateDecision.currentYearNotVerified;
@@ -122,7 +128,10 @@ class TaiwanBusinessCalendarPackageService {
 
     final next = await status(db, year + 1);
     if (next != null) {
-      if (next.isContiguous && next.sequence > 0 && next.digest.isNotEmpty) {
+      if (next.isContiguous &&
+          next.hasCanonicalRowDigest &&
+          next.sequence > 0 &&
+          next.digest.isNotEmpty) {
         return CalendarAnnualUpdateDecision.nextYearInstalled;
       }
       // Never let a foreground trigger overwrite damaged/partial next-year
@@ -216,6 +225,7 @@ class TaiwanBusinessCalendarPackageService {
       sourceUrl: rows.first['source_url'] as String,
       importedAt: rows.first['updated_at'] as String,
       isContiguous: metadata != null || _isConsistentLegacy(rows),
+      hasCanonicalRowDigest: metadata?.generatedAt != null,
     );
   }
 

@@ -269,6 +269,76 @@ void main() {
     // Legacy structural compatibility is not cryptographic row verification.
   });
 
+  test('B2.17 structural-only current year cannot authorize December trigger',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, original);
+    // Simulate a historical installed envelope: its digest cannot be
+    // recomputed without generated_at. A valid 0/1 row tamper is invisible
+    // to the structural-only checks and must never authorize a trigger.
+    final legacy = Map<String, Object?>.from(
+      jsonDecode(original.storedMetadata.encode()) as Map,
+    )..remove('generated_at');
+    await db.update('taiwan_business_calendar_days',
+        <String, Object?>{'source_revision': jsonEncode(legacy)},
+        where: 'source_year = ?', whereArgs: <Object?>[2028]);
+    await db.update('taiwan_business_calendar_days',
+        <String, Object?>{
+          'is_business_day': 0,
+          'day_label': 'valid-type-tamper',
+        },
+        where: 'calendar_date = ?', whereArgs: <Object?>['2028-12-04']);
+    final status = await service.status(db, 2028);
+    expect(status!.isContiguous, isTrue);
+    expect(status.sequence, 1);
+    expect(status.hasCanonicalRowDigest, isFalse);
+    final before = await db.query('taiwan_business_calendar_days',
+        where: 'source_year = ?', whereArgs: <Object?>[2028],
+        orderBy: 'calendar_date ASC');
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.currentYearNotVerified,
+    );
+    expect(await db.query('taiwan_business_calendar_days',
+        where: 'source_year = ?', whereArgs: <Object?>[2028],
+        orderBy: 'calendar_date ASC'), equals(before),
+        reason: 'Read-only fail-closed check cannot rewrite legacy rows');
+  });
+
+  test('B2.17 structural-only next year cannot suppress official check',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await service.install(db, await _package(codec, year: 2028, sequence: 1));
+    final next = await _package(codec, year: 2029, sequence: 1);
+    await service.install(db, next);
+    final legacy = Map<String, Object?>.from(
+      jsonDecode(next.storedMetadata.encode()) as Map,
+    )..remove('generated_at');
+    await db.update('taiwan_business_calendar_days',
+        <String, Object?>{'source_revision': jsonEncode(legacy)},
+        where: 'source_year = ?', whereArgs: <Object?>[2029]);
+    await db.update('taiwan_business_calendar_days',
+        <String, Object?>{'day_label': 'valid-type-tamper'},
+        where: 'calendar_date = ?', whereArgs: <Object?>['2029-07-02']);
+    final current = await service.status(db, 2028);
+    final historical = await service.status(db, 2029);
+    expect(current!.hasCanonicalRowDigest, isTrue);
+    expect(historical!.isContiguous, isTrue);
+    expect(historical.hasCanonicalRowDigest, isFalse);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.nextYearUntrusted,
+    );
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before),
+        reason: 'Untrusted next-year rows remain retained for audit');
+  });
+
   test('B2 incomplete legacy year is not upgraded or overwritten', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);
@@ -548,6 +618,7 @@ void main() {
       CalendarAnnualUpdateDecision.nextYearInstalled,
     );
     expect((await service.status(db, 2029))!.rowCount, 365);
+    expect((await service.status(db, 2029))!.hasCanonicalRowDigest, isTrue);
   });
 
 }
