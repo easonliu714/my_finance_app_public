@@ -269,6 +269,10 @@ class PlatformPdfProbeService : Service() {
         return
       }
 
+      // The search keeps its renderer alive until runProbe's finally block.
+      // Capture a stable non-null handle for the nested invoiceTokens closure.
+      val searchRenderer = renderer
+        ?: throw IllegalStateException("PLATFORM_RENDERER_MISSING_FOR_SEARCH")
       val normalized = candidate.uppercase()
       val cache = mutableMapOf<Int, List<String>>()
 
@@ -278,7 +282,7 @@ class PlatformPdfProbeService : Service() {
         stage.set("PLATFORM_PAGE_TEXT_BEGIN")
         snapshot("running", JSONObject().put("page_count", pageCount))
         val pageStartedAt = SystemClock.elapsedRealtime()
-        val page = renderer.openPage(pageNumber - 1)
+        val page = searchRenderer.openPage(pageNumber - 1)
         val text = page.use {
           it.textContents.joinToString("\n") { content -> content.text }
         }
