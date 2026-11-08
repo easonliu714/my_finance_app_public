@@ -33,6 +33,36 @@ class _RejectedWritePreferences implements SharedPreferences {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+// External-process preference changes are not reflected in the local cache
+// until reload(); this fake never accesses Owner storage.
+class _ExternalMutationPreferences implements SharedPreferences {
+  _ExternalMutationPreferences(this.cachedBytes, this.platformBytes);
+  String? cachedBytes;
+  String? platformBytes;
+  int reloadAttempts = 0;
+  int writeAttempts = 0;
+
+  @override
+  String? getString(String key) =>
+      key == 'issue13_remittance_observations_v1' ? cachedBytes : null;
+
+  @override
+  Future<void> reload() async {
+    reloadAttempts++;
+    cachedBytes = platformBytes;
+  }
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    writeAttempts++;
+    cachedBytes = platformBytes = value;
+    return true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -95,6 +125,75 @@ void main() {
     expect(prefs.getString('issue13_remittance_observations_v1'), originalBytes);
     expect(repo.loadAll(), hasLength(1));
     expect(repo.readForProposal(legacy)?.grossAmount, 500);
+  });
+
+  test('external same-key consent blocks stale cached confirmation', () async {
+    final stale = candidate(account: 'bank-1');
+    final external = candidate(account: 'bank-2');
+    expect(stale.idempotencyKey, external.idempotencyKey);
+    final externalBytes = jsonEncode(<Object>[
+      InvoiceAwardRemittanceReceiptEvidence(
+        proposalKey: external.idempotencyKey,
+        awardPeriodId: external.awardPeriodId,
+        localAccountId: external.localAccountId,
+        prizeTier: external.prizeTier,
+        grossAmount: external.grossAmount,
+        officialFingerprint: external.officialDatasetFingerprint,
+        receivedAtUtc: DateTime.utc(2026, 10, 7),
+        confirmedAtUtc: DateTime.utc(2026, 10, 8),
+      ).toJson(),
+    ]);
+    final preferences = _ExternalMutationPreferences(null, externalBytes);
+    final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    await expectLater(
+      repository.confirmObservedCredit(
+        proposal: stale,
+        receivedAtUtc: DateTime.utc(2026, 10, 7),
+        confirmedAtUtc: DateTime.utc(2026, 10, 8),
+      ),
+      throwsA(isA<StateError>().having(
+        (e) => e.toString(), 'identity conflict',
+        contains('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT'),
+      )),
+    );
+    expect(preferences.reloadAttempts, 1);
+    expect(preferences.writeAttempts, 0);
+    expect(preferences.platformBytes, externalBytes);
+    expect(repository.readForProposal(external)?.localAccountId, 'bank-2');
+  });
+
+  test('external replacement prevents stale same-key revocation', () async {
+    final stale = candidate(account: 'bank-1');
+    final external = candidate(account: 'bank-2');
+    expect(stale.idempotencyKey, external.idempotencyKey);
+    String bytes(InvoiceAwardPayoutBookkeepingProposal proposal) =>
+        jsonEncode(<Object>[
+          InvoiceAwardRemittanceReceiptEvidence(
+            proposalKey: proposal.idempotencyKey,
+            awardPeriodId: proposal.awardPeriodId,
+            localAccountId: proposal.localAccountId,
+            prizeTier: proposal.prizeTier,
+            grossAmount: proposal.grossAmount,
+            officialFingerprint: proposal.officialDatasetFingerprint,
+            receivedAtUtc: DateTime.utc(2026, 10, 7),
+            confirmedAtUtc: DateTime.utc(2026, 10, 8),
+          ).toJson(),
+        ]);
+    final externalBytes = bytes(external);
+    final preferences = _ExternalMutationPreferences(
+        bytes(stale), externalBytes);
+    final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    await expectLater(
+      repository.revokeForProposal(stale),
+      throwsA(isA<StateError>().having(
+        (e) => e.toString(), 'identity conflict',
+        contains('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT'),
+      )),
+    );
+    expect(preferences.reloadAttempts, 1);
+    expect(preferences.writeAttempts, 0);
+    expect(preferences.platformBytes, externalBytes);
+    expect(repository.readForProposal(external)?.localAccountId, 'bank-2');
   });
 
   test('receipt confirmation rejects failed platform persistence', () async {

@@ -199,6 +199,10 @@ class InvoiceAwardRemittanceReceiptRepository {
         receivedAtUtc.isAfter(confirmedAtUtc)) {
       throw StateError('REMITTANCE_OBSERVATION_NOT_AUTHORIZED');
     }
+    // SharedPreferences caches per instance; reload before read-modify-write
+    // to reject another process's newer same-key receipt rather than
+    // overwriting it from a stale cache. This is not cross-process CAS.
+    await preferences.reload();
     final persisted = _readAllForMutation();
     for (final item in persisted) {
       if (item.proposalKey == proposal.idempotencyKey) {
@@ -239,6 +243,9 @@ class InvoiceAwardRemittanceReceiptRepository {
 
   Future<void> revokeForProposal(
       InvoiceAwardPayoutBookkeepingProposal proposal) async {
+    // Re-read external state before revocation: a stale cached receipt
+    // must not erase a different process's newer same-key audit record.
+    await preferences.reload();
     final persisted = _readAllForMutation();
     final matches = persisted
         .where((value) => value.proposalKey == proposal.idempotencyKey)
