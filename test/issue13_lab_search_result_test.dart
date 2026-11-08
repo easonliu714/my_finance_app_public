@@ -34,6 +34,9 @@ void main() {
     expect(find.textContaining('頁碼：123'), findsOneWidget);
     expect(find.textContaining('尚非正式中獎或過帳'), findsOneWidget);
     expect(find.textContaining('mode=DIAGNOSTIC_ONLY'), findsOneWidget);
+    expect(find.textContaining('period=115-07-08 tier=cloud-500'), findsOneWidget);
+    expect(find.textContaining('source SHA-256 (locally pinned)=${LabSearchResult.sourceSha256}'), findsOneWidget);
+    expect(find.textContaining('candidate=$candidate'), findsOneWidget);
     expect(find.textContaining('pages_read=17 / page_count=87000'), findsOneWidget);
     expect(find.textContaining('elapsed_ms=6612'), findsOneWidget);
   });

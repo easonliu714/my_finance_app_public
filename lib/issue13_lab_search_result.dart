@@ -109,14 +109,13 @@ class LabSearchResult {
   String get explanation {
     switch (verdict) {
       case LabSearchVerdict.matched:
-        return '此指定官方 PDF 中找到候選號碼，頁碼：' +
-            matchedPage.toString() + '；尚非正式中獎或過帳。';
+        return '此指定官方 PDF 中找到候選號碼，頁碼：'
+            '$matchedPage；尚非正式中獎或過帳。';
       case LabSearchVerdict.notMatched:
         return '在此指定雲端專屬500元 PDF 的搜尋中未找到；'
             '不可推論其他獎別，也不能做正式未中獎判定。';
       case LabSearchVerdict.hold:
-        return 'HOLD：失敗、逾時或結果不完整；禁止任何正式判定。原因：' +
-            reason;
+        return 'HOLD：失敗、逾時或結果不完整；禁止任何正式判定。原因：$reason';
     }
   }
 }
@@ -140,16 +139,13 @@ class LabSearchResultCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(result.explanation),
             const SizedBox(height: 8),
-            Text('mode=' + LabSearchResult.mode +
-                '\nperiod=' + LabSearchResult.period +
-                ' tier=' + LabSearchResult.tier +
-                '\nsource SHA-256 (locally pinned)=' +
-                LabSearchResult.sourceSha256 +
-                '\ncandidate=' + result.candidate +
-                '\npages_read=' + result.pagesRead.toString() +
-                ' / page_count=' + result.pageCount.toString() +
-                ' (二分搜尋取樣，非全頁驗證)' +
-                '\nelapsed_ms=' + result.elapsedMs.toString()),
+            Text('mode=${LabSearchResult.mode}\n'
+                'period=${LabSearchResult.period} tier=${LabSearchResult.tier}\n'
+                'source SHA-256 (locally pinned)=${LabSearchResult.sourceSha256}\n'
+                'candidate=${result.candidate}\n'
+                'pages_read=${result.pagesRead} / page_count=${result.pageCount}'
+                ' (二分搜尋取樣，非全頁驗證)\n'
+                'elapsed_ms=${result.elapsedMs}'),
             const SizedBox(height: 4),
             const Text('僅供獨立診斷；不查其他獎別、不產生正式 NOT_WIN、不寫入帳本。'),
           ],
