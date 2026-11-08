@@ -474,7 +474,13 @@ Future<void> _runProductionButtonV24Witness(
     _require(oldObservation.observationRevision != null,
         'FULL_PATH_INITIAL_RECEIPT_REVISION_MISSING');
     await _pressProductionPostingButton(fixture.stale.invoiceIdentity);
-    await receiptRepo.revokeForProposal(fixture.stale);
+    // Revocation is authorized only for the exact observation captured
+    // before the async dialog; no cross-process CAS is implied.
+    await receiptRepo.revokeForProposal(
+      fixture.stale, expectedObservation: oldObservation,
+    );
+    _require(receiptRepo.readForProposal(fixture.stale) == null,
+        'FULL_PATH_EXPECTED_REVOCATION_NOT_APPLIED');
     // Same timestamps, different durable revision: stale consent must
     // reject before any formal SQLite write.
     final renewed = await receiptRepo.confirmObservedCredit(
@@ -484,6 +490,24 @@ Future<void> _runProductionButtonV24Witness(
     );
     _require(!oldObservation.sameObservationAs(renewed),
         'FULL_PATH_RECONFIRM_REVISION_REUSED');
+    // The previously displayed revision must not revoke the newer consent,
+    // even when the account, proposal key and timestamps are unchanged.
+    final renewedBytes =
+        prefs.getString('issue13_remittance_observations_v1');
+    var staleRevocationRejected = false;
+    try {
+      await receiptRepo.revokeForProposal(
+        fixture.stale, expectedObservation: oldObservation,
+      );
+    } on StateError catch (error) {
+      staleRevocationRejected = error.toString().contains(
+          'REMITTANCE_OBSERVATION_REVISION_CONFLICT');
+    }
+    _require(staleRevocationRejected &&
+        prefs.getString('issue13_remittance_observations_v1') == renewedBytes &&
+        receiptRepo.readForProposal(fixture.stale)
+            ?.sameObservationAs(renewed) == true,
+        'FULL_PATH_STALE_REVOKE_MUTATED_RECONFIRMED_RECEIPT');
     await _tapProductionDialogAction('確認新增正式收入');
     await Future<void>.delayed(const Duration(milliseconds: 350));
     _require(jsonEncode(await db.query('transactions', orderBy: 'id')) ==
