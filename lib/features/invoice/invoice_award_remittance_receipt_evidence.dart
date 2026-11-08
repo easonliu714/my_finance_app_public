@@ -225,8 +225,15 @@ class InvoiceAwardRemittanceReceiptRepository {
         .toList(growable: true)
       ..add(record);
     rows.sort((a, b) => a.proposalKey.compareTo(b.proposalKey));
-    await preferences.setString(_key,
+    // SharedPreferences reports platform persistence success as a boolean.
+    // A failed write must never be presented as confirmed/revoked consent.
+    // Reload to discard any optimistic in-memory cache on explicit failure.
+    final writeSucceeded = await preferences.setString(_key,
         jsonEncode(rows.map((value) => value.toJson()).toList()));
+    if (!writeSucceeded) {
+      await preferences.reload();
+      throw StateError('REMITTANCE_OBSERVATION_PERSIST_FAILED');
+    }
     return record;
   }
 
@@ -245,8 +252,15 @@ class InvoiceAwardRemittanceReceiptRepository {
     final rows = persisted
         .where((value) => value.proposalKey != proposal.idempotencyKey)
         .toList();
-    await preferences.setString(_key,
+    // SharedPreferences reports platform persistence success as a boolean.
+    // A failed write must never be presented as confirmed/revoked consent.
+    // Reload to discard any optimistic in-memory cache on explicit failure.
+    final writeSucceeded = await preferences.setString(_key,
         jsonEncode(rows.map((value) => value.toJson()).toList()));
+    if (!writeSucceeded) {
+      await preferences.reload();
+      throw StateError('REMITTANCE_OBSERVATION_PERSIST_FAILED');
+    }
   }
 }
 

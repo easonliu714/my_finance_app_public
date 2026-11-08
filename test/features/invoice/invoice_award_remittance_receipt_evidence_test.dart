@@ -6,6 +6,33 @@ import 'package:my_finance_app/features/invoice/invoice_award_payout_bookkeeping
 import 'package:my_finance_app/features/invoice/invoice_award_cloud500_production_policy.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_remittance_receipt_evidence.dart';
 
+// A deterministic platform-failure witness: no Owner store or native plugin.
+class _RejectedWritePreferences implements SharedPreferences {
+  _RejectedWritePreferences(this.persistedBytes);
+
+  final String? persistedBytes;
+  int writeAttempts = 0;
+  int reloadAttempts = 0;
+
+  @override
+  String? getString(String key) =>
+      key == 'issue13_remittance_observations_v1' ? persistedBytes : null;
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    writeAttempts++;
+    return false;
+  }
+
+  @override
+  Future<void> reload() async {
+    reloadAttempts++;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -68,6 +95,56 @@ void main() {
     expect(prefs.getString('issue13_remittance_observations_v1'), originalBytes);
     expect(repo.loadAll(), hasLength(1));
     expect(repo.readForProposal(legacy)?.grossAmount, 500);
+  });
+
+  test('receipt confirmation rejects failed platform persistence', () async {
+    final preferences = _RejectedWritePreferences(null);
+    final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    final proposal = candidate();
+    await expectLater(
+      repository.confirmObservedCredit(
+        proposal: proposal,
+        receivedAtUtc: DateTime.utc(2026, 10, 7),
+        confirmedAtUtc: DateTime.utc(2026, 10, 8),
+      ),
+      throwsA(isA<StateError>().having(
+        (e) => e.toString(), 'persistence failure',
+        contains('REMITTANCE_OBSERVATION_PERSIST_FAILED'),
+      )),
+    );
+    expect(preferences.writeAttempts, 1);
+    expect(preferences.reloadAttempts, 1);
+    expect(repository.readForProposal(proposal), isNull);
+  });
+
+  test('receipt revocation rejects failed platform persistence', () async {
+    final proposal = candidate();
+    final original = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+    );
+    final originalBytes = jsonEncode(<Object>[original.toJson()]);
+    final preferences = _RejectedWritePreferences(originalBytes);
+    final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    await expectLater(
+      repository.revokeForProposal(proposal),
+      throwsA(isA<StateError>().having(
+        (e) => e.toString(), 'persistence failure',
+        contains('REMITTANCE_OBSERVATION_PERSIST_FAILED'),
+      )),
+    );
+    expect(preferences.writeAttempts, 1);
+    expect(preferences.reloadAttempts, 1);
+    expect(preferences.getString('issue13_remittance_observations_v1'),
+        originalBytes);
+    expect(repository.isCurrentObservation(
+        proposal: proposal, observation: original), isTrue);
   });
 
   test('manual observed general receipt is idempotent, persists but cannot post', () async {
