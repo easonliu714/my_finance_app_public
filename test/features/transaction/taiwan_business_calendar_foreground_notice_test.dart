@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_foreground_notice.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_status_page.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_annual_check_receipt.dart';
@@ -10,7 +11,47 @@ import 'package:my_finance_app/features/transaction/taiwan_business_calendar_ann
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_official_116_stage.dart';
 import 'package:sqflite/sqflite.dart';
 
+// B2.17 fixture: actual canonical SHA-256, never a fake 64-character digest.
+// All days are synthetic and must not be confused with official DGPA data.
+final Map<int, Map<int, TaiwanBusinessCalendarYearPackage>> _syntheticPackages = {};
+
+void _applySyntheticRevision(
+  List<Map<String, Object?>> rows, int year, int sequence,
+) {
+  final revision = _syntheticPackages[year]![sequence]!.storedMetadata.encode();
+  for (var i = 0; i < rows.length; i++) {
+    rows[i] = <String, Object?>{...rows[i], 'source_revision': revision};
+  }
+}
+
 void main() {
+  setUpAll(() async {
+    for (final year in <int>[2026, 2027]) {
+      final start = DateTime.utc(year, 1, 1);
+      final count = DateTime.utc(year + 1, 1, 1).difference(start).inDays;
+      final days = List<TaiwanBusinessCalendarPackageDay>.generate(count, (i) {
+        final date = start.add(Duration(days: i));
+        return TaiwanBusinessCalendarPackageDay(
+          dateKey: date.toIso8601String().substring(0, 10),
+          isBusinessDay: date.weekday <= DateTime.friday,
+          label: '',
+        );
+      });
+      _syntheticPackages[year] = <int, TaiwanBusinessCalendarYearPackage>{};
+      for (final sequence in <int>[1, 2]) {
+        _syntheticPackages[year]![sequence] =
+            await const TaiwanBusinessCalendarPackageCodec().build(
+          sourceYear: year,
+          sourceRevision: 'SYNTHETIC-TEST-ONLY-$sequence',
+          revisionSequence: sequence,
+          sourceUrl: 'https://www.dgpa.gov.tw/test-only.csv',
+          sourcePublishedAt: '2026-05-21',
+          generatedAt: '2026-11-01T00:00:00Z',
+          days: days,
+        );
+      }
+    }
+  });
   Widget harness(
     _ReadOnlyDb db,
     DateTime Function() clock, {
@@ -67,6 +108,26 @@ void main() {
     expect(db.writes, 0);
   });
 
+  testWidgets('B2.17 forged canonical digest never authorizes manual GET',
+      (tester) async {
+    final db = _ReadOnlyDb(verified: true);
+    final metadata = jsonDecode(db.current.first['source_revision'] as String)
+        as Map<String, dynamic>;
+    metadata['sha256'] = List<String>.filled(64, 'f').join();
+    final forged = jsonEncode(metadata);
+    for (var i = 0; i < db.current.length; i++) {
+      db.current[i] = <String, Object?>{
+        ...db.current[i], 'source_revision': forged,
+      };
+    }
+    await tester.pumpWidget(harness(db, () => DateTime.utc(2026, 11, 30, 16, 1)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
+        findsNothing);
+    expect(db.reads, greaterThan(0));
+    expect(db.writes, 0);
+  });
+
   testWidgets('B2.14a installed next year suppresses notice', (tester) async {
     final db = _ReadOnlyDb(verified: true, nextInstalled: true);
     await tester.pumpWidget(harness(db, () => DateTime.utc(2026, 11, 30, 16, 1)));
@@ -87,7 +148,7 @@ void main() {
     );
     await store.writeVerified(
       year: 2026,
-      digest: List<String>.filled(64, 'a').join(),
+      digest: _syntheticPackages[2026]![1]!.digest,
       checkedAt: now,
     );
     await tester.pumpWidget(harness(db, () => now, receiptStore: store));
@@ -98,16 +159,7 @@ void main() {
 
     // Simulate a newly installed, independently verified current-year
     // revision. The old advisory receipt cannot suppress the new notice.
-    final metadata = jsonDecode(db.current.first['source_revision'] as String)
-        as Map<String, dynamic>;
-    metadata['sha256'] = List<String>.filled(64, 'b').join();
-    final replacement = jsonEncode(metadata);
-    for (var i = 0; i < db.current.length; i++) {
-      db.current[i] = <String, Object?>{
-        ...db.current[i],
-        'source_revision': replacement,
-      };
-    }
+    _applySyntheticRevision(db.current, 2026, 2);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(find.byKey(TaiwanBusinessCalendarForegroundNotice.noticeKey),
@@ -288,7 +340,7 @@ void main() {
     );
     await store.writeVerified(
       year: 2026,
-      digest: List<String>.filled(64, 'a').join(),
+      digest: _syntheticPackages[2026]![1]!.digest,
       checkedAt: now,
     );
     await tester.pumpWidget(MaterialApp(
@@ -387,17 +439,7 @@ void main() {
     await tester.tap(find.byKey(TaiwanBusinessCalendarStatusPage.annualCheckKey));
     await tester.pumpAndSettle();
     expect(find.textContaining('本機當日檢查紀錄已保存'), findsOneWidget);
-    final metadata = jsonDecode(
-        db.current.first['source_revision'] as String) as Map<String, dynamic>;
-    metadata['revision_sequence'] = 2;
-    metadata['sha256'] = List<String>.filled(64, 'b').join();
-    final replacement = jsonEncode(metadata);
-    for (var i = 0; i < db.current.length; i++) {
-      db.current[i] = <String, Object?>{
-        ...db.current[i],
-        'source_revision': replacement,
-      };
-    }
+    _applySyntheticRevision(db.current, 2026, 2);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(find.textContaining('本機當日檢查紀錄已保存'), findsNothing);
@@ -427,7 +469,7 @@ void main() {
     );
     await store.writeVerified(
       year: 2026,
-      digest: List<String>.filled(64, 'a').join(),
+      digest: _syntheticPackages[2026]![1]!.digest,
       checkedAt: dec1,
     );
     await tester.pumpWidget(MaterialApp(
@@ -699,17 +741,7 @@ void main() {
       writeRaw: (value) async {
         raw = value;
         // Simulate a separately verified current-year revision after GET.
-        final metadata = jsonDecode(
-            db.current.first['source_revision'] as String)
-            as Map<String, dynamic>;
-        metadata['revision_sequence'] = 2;
-        metadata['sha256'] = List<String>.filled(64, 'b').join();
-        final replacement = jsonEncode(metadata);
-        for (var i = 0; i < db.current.length; i++) {
-          db.current[i] = <String, Object?>{
-            ...db.current[i], 'source_revision': replacement,
-          };
-        }
+        _applySyntheticRevision(db.current, 2026, 2);
       },
     );
     await tester.pumpWidget(MaterialApp(
@@ -799,17 +831,7 @@ void main() {
           checks++;
           // Simulate an independently committed full-year revision while
           // official HTTPS verification is in flight. No formal DB writes.
-          final metadata = jsonDecode(
-              db.current.first['source_revision'] as String)
-              as Map<String, dynamic>;
-          metadata['revision_sequence'] = 2;
-          metadata['sha256'] = List<String>.filled(64, 'b').join();
-          final replacement = jsonEncode(metadata);
-          for (var i = 0; i < db.current.length; i++) {
-            db.current[i] = <String, Object?>{
-              ...db.current[i], 'source_revision': replacement,
-            };
-          }
+          _applySyntheticRevision(db.current, 2026, 2);
           return const TaiwanBusinessCalendarAnnualSourceResult(
             sha256: TaiwanBusinessCalendarOfficial116Stage.pinnedSha256,
             days: 365, holidays: 121);
@@ -931,13 +953,7 @@ class _ReadOnlyDb implements DatabaseExecutor {
   static List<Map<String, Object?>> _year(int year, {bool partial = false}) {
     final start = DateTime.utc(year, 1, 1);
     final count = DateTime.utc(year + 1, 1, 1).difference(start).inDays;
-    final revision = jsonEncode(<String, Object?>{
-      'format_version': 1, 'source_year': year,
-      'source_revision': 'SYNTHETIC-TEST-ONLY', 'revision_sequence': 1,
-      'source_published_at': '2026-05-21',
-      'coverage_start': '$year-01-01', 'coverage_end': '$year-12-31',
-      'row_count': count, 'sha256': List<String>.filled(64, 'a').join(),
-    });
+    final revision = _syntheticPackages[year]![1]!.storedMetadata.encode();
     return List<Map<String, Object?>>.generate(
       partial ? count - 1 : count,
       (i) {
