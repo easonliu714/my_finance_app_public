@@ -18,6 +18,7 @@ import 'issue13_lab_l1_cursor.dart';
 import 'issue13_lab_l1_bounded_run.dart';
 import 'issue13_lab_l1_dispatch_fence.dart';
 import 'issue13_lab_l1_evidence_bundle.dart';
+import 'issue13_lab_search_result.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,6 +49,7 @@ class Cloud500DiagnosticPage extends StatefulWidget {
 
 class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   static const _channel = MethodChannel('pdf_text');
+  static const _searchActionLabel = 'Android PdfRenderer Binary Search';
   static final _publicationUri =
       Uri.parse('https://invoice.etax.nat.gov.tw/cloudNowNumber.html');
   static const _periodId = '115-07-08';
@@ -77,6 +79,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   File? _lastL1BatchFile;
   OfficialCloudAwardArtifactReference? _reference;
   bool _busy = false;
+  LabSearchResult? _searchResult;
   String _status = '初始化中…';
   String _runtimeVersion = '讀取中…';
   String _runtimePackage = '讀取中…';
@@ -132,16 +135,33 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     setState(() {
       _busy = true;
       _status = label;
+      if (label == _searchActionLabel) _searchResult = null;
     });
     try {
       await _log('ACTION_BEGIN name=$label');
       await action();
       await _log('ACTION_OK name=$label');
-      if (mounted) setState(() => _status = '$label：完成');
+      if (mounted) {
+        setState(() => _status = label == _searchActionLabel
+            ? (_searchResult?.statusLabel ?? '診斷搜尋：HOLD')
+            : '$label：完成');
+      }
     } catch (error, stack) {
       await _log('ACTION_FAIL name=$label error=$error');
       await _log('STACK=${stack.toString().replaceAll('\n', ' | ')}');
-      if (mounted) setState(() => _status = '$label：失敗：$error');
+      if (mounted) {
+        setState(() {
+          if (label == _searchActionLabel) {
+            _searchResult ??= LabSearchResult.hold(
+              candidate: _candidateController.text.trim().toUpperCase(),
+              reason: 'ACTION_FAILED_OR_TIMEOUT',
+            );
+            _status = _searchResult!.statusLabel;
+          } else {
+            _status = '$label：失敗：$error';
+          }
+        });
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -609,17 +629,25 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     );
   }
 
+  // Present a bounded single-PDF diagnostic outcome; never formal NOT_WIN.
   Future<void> _platformBinarySearch() async {
     final candidate = _candidate();
     final result = await _runPlatformProbe(candidate: candidate);
-    if (result['status'] != 'complete') {
-      throw StateError('PLATFORM_SEARCH_FAILED result=$result');
-    }
+    final outcome = LabSearchResult.fromProbe(
+      candidate: candidate,
+      probe: result,
+    );
+    if (mounted) setState(() => _searchResult = outcome);
     await _log(
       'PLATFORM_SEARCH_RESULT candidate=$candidate '
       'matched=${result['matched']} matched_page=${result['matched_page']} '
-      'pages_read=${result['pages_read']} page_count=${result['page_count']}',
+      'pages_read=${result['pages_read']} page_count=${result['page_count']} '
+      'verdict=${outcome.verdict.name} mode=DIAGNOSTIC_ONLY '
+      'global_not_win=HOLD',
     );
+    if (outcome.verdict == LabSearchVerdict.hold) {
+      throw StateError('PLATFORM_SEARCH_RESULT_HOLD');
+    }
   }
 
   List<String> _invoiceTokens(String text) {
@@ -959,6 +987,10 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
+            if (_searchResult != null) ...<Widget>[
+              LabSearchResultCard(result: _searchResult!),
+              const SizedBox(height: 8),
+            ],
             SelectableText(
               'Expected bytes: $_expectedBytes\n'
               'SHA-256: $_expectedSha256\n'

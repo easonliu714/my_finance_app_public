@@ -1,5 +1,34 @@
 # Issue #13 Cloud-500 PDF Diagnostic Lab
 
+## Owner 18:18 native search + diagnostic result UX correction — 2026-11-08
+
+Owner physical Lab #31 (0.4.31+900031, exact cbaad08) produced a 398-line
+debug log: 18:18:08–18:18:16 local-pinned official cloud-500 PDF binary search
+for CR30912111 sampled 17 pages in 6612 ms, native PID 8016,
+status=complete, matched=false, matched_page=0, ACTION_OK, no crash.
+This is **only a nonmatch in this specified PDF**; not all 87000 pages
+independently extracted, not other tiers, not global NOT_WIN, and no formal
+ledger write. External viewer ACTION_OK is dispatch-only; Open Only returned
+87000 pages. Original Owner logs/PDF/JSONL are not published in the repository.
+
+Root UX defect: _platformBinarySearch only wrote Debug Log, while _run
+overwrote completion with generic “完成”. This Lab-only SOURCE+TEST change
+introduces a visible result card with mode=DIAGNOSTIC_ONLY, period,
+locally pinned source SHA, candidate, sampled pages/page count and elapsed.
+Positive match explicitly says not formal winning/posting; nonmatch explicitly
+disclaims other tiers and NOT_WIN. Failure, timeout, invalid candidate,
+wrong source/period/tier or malformed native result fail closed to HOLD.
+Flutter widget regressions cover matched/nonmatched/invalid/timeout/other
+tier. No production ledger, PR45 or signer change.
+
+Lab #32 exact d12888b9 CI 42470926168 failed in Gradle native preflight
+before Flutter tests/APK: dependency download kotlin-compiler-embeddable-2.4.0.jar
+received upstream HTTP 504 (GitHub JetBrains release), **not** a Kotlin source
+compiler diagnostic. New HEAD CI must independently pass native JVM, all
+focused tests, Analyze, APK, fixed Lab signer and artifact; parent Lab #31
+cannot be used as evidence. Official full-page and global NOT_WIN remain HOLD.
+
+
 ## Owner Android official-source partial checkpoint — 2026-11-08 18:00–18:07 Asia/Taipei
 
 **Evidence authority and limits:** Owner physical Android Lab `0.4.31+900031`,
