@@ -37,6 +37,55 @@ void main() {
     );
   });
 
+  test('concurrent dispatch reservations permit only one durable marker',
+      () async {
+    Future<bool> attempt(LabL1DispatchFence fence, int page, String id) async {
+      try {
+        await fence.begin(firstPage: page, requestId: id, pdfSha256: sha);
+        return true;
+      } on StateError {
+        return false;
+      }
+    }
+
+    final first = LabL1DispatchFence(directory);
+    final second = LabL1DispatchFence(directory);
+    final results = await Future.wait(<Future<bool>>[
+      attempt(first, 1, request),
+      attempt(second, 5, '1234567890123457'),
+    ]);
+    expect(results.where((result) => result).length, 1);
+    final marker = File('${directory.path}/l1-native-inflight.json');
+    final bytes = await marker.readAsString();
+    expect(bytes.trimRight().split('\\n').length, 1);
+    expect(bytes, contains('"pdf_sha256":"$sha"'));
+    expect(
+      bytes,
+      contains(results.first
+          ? '"request_id":"$request"'
+          : '"request_id":"1234567890123457"'),
+    );
+    await expectLater(first.requireClear(), throwsA(unresolved()));
+    await expectLater(second.requireClear(), throwsA(unresolved()));
+  });
+
+  test('existing valid marker bytes are never overwritten by a second begin',
+      () async {
+    final fence = LabL1DispatchFence(directory);
+    await fence.begin(firstPage: 1, requestId: request, pdfSha256: sha);
+    final marker = File('${directory.path}/l1-native-inflight.json');
+    final before = await marker.readAsBytes();
+    await expectLater(
+      LabL1DispatchFence(directory).begin(
+        firstPage: 5,
+        requestId: '1234567890123457',
+        pdfSha256: sha,
+      ),
+      throwsA(unresolved()),
+    );
+    expect(await marker.readAsBytes(), before);
+  });
+
   test('wrong request, page or source cannot clear in-flight evidence', () async {
     final fence = LabL1DispatchFence(directory);
     await fence.begin(firstPage: 5, requestId: request, pdfSha256: sha);

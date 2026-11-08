@@ -41,7 +41,16 @@ class LabL1DispatchFence {
     };
     RandomAccessFile? handle;
     try {
-      handle = await _file.open(mode: FileMode.writeOnlyExclusive);
+      // FileMode has no exclusive-open variant. Reserve the marker path
+      // atomically before writing; never overwrite a stale/torn marker.
+      await _file.create(exclusive: true);
+      if (await FileSystemEntity.type(_file.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        throw StateError(unresolved);
+      }
+      // Append-only avoids truncation if a competing actor changes the path.
+      // Any unexpected content is rejected by the strict readback below.
+      handle = await _file.open(mode: FileMode.writeOnlyAppend);
       await handle.writeString('${jsonEncode(record)}\n');
       await handle.flush();
     } on FileSystemException {
