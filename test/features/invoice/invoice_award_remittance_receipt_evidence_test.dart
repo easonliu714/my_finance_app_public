@@ -309,7 +309,11 @@ void main() {
         bytes(stale), externalBytes);
     final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
     await expectLater(
-      repository.revokeForProposal(stale),
+      repository.revokeForProposal(
+          stale,
+          expectedObservation: InvoiceAwardRemittanceReceiptEvidence.fromJson(
+              (jsonDecode(bytes(stale)) as List<dynamic>).single)!,
+        ),
       throwsA(isA<StateError>().having(
         (e) => e.toString(), 'identity conflict',
         contains('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT'),
@@ -319,6 +323,46 @@ void main() {
     expect(preferences.writeAttempts, 0);
     expect(preferences.platformBytes, externalBytes);
     expect(repository.readForProposal(external)?.localAccountId, 'bank-2');
+  });
+
+
+  test('same-key same-account external re-confirm survives stale revocation',
+      () async {
+    final proposal = candidate();
+    InvoiceAwardRemittanceReceiptEvidence receipt(String revision) =>
+        InvoiceAwardRemittanceReceiptEvidence(
+          proposalKey: proposal.idempotencyKey,
+          awardPeriodId: proposal.awardPeriodId,
+          localAccountId: proposal.localAccountId,
+          prizeTier: proposal.prizeTier,
+          grossAmount: proposal.grossAmount,
+          officialFingerprint: proposal.officialDatasetFingerprint,
+          receivedAtUtc: DateTime.utc(2026, 10, 7),
+          confirmedAtUtc: DateTime.utc(2026, 10, 8),
+          observationRevision: revision,
+        );
+    final stale = receipt('a' * 32);
+    final replacement = receipt('b' * 32);
+    final staleBytes = jsonEncode(<Object>[stale.toJson()]);
+    final replacementBytes = jsonEncode(<Object>[replacement.toJson()]);
+    // UI-captured revision governs even if the cache has already reloaded.
+    for (final cached in <String>[staleBytes, replacementBytes]) {
+      final preferences =
+          _ExternalMutationPreferences(cached, replacementBytes);
+      final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+      await expectLater(
+        repository.revokeForProposal(proposal, expectedObservation: stale),
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'revision conflict',
+          contains('REMITTANCE_OBSERVATION_REVISION_CONFLICT'),
+        )),
+      );
+      expect(preferences.reloadAttempts, 1);
+      expect(preferences.writeAttempts, 0);
+      expect(preferences.platformBytes, replacementBytes);
+      expect(repository.isCurrentObservation(
+          proposal: proposal, observation: replacement), isTrue);
+    }
   });
 
   test('receipt confirmation rejects failed platform persistence', () async {
@@ -359,7 +403,7 @@ void main() {
     final preferences = _RejectedWritePreferences(originalBytes);
     final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
     await expectLater(
-      repository.revokeForProposal(proposal),
+      repository.revokeForProposal(proposal, expectedObservation: original),
       throwsA(isA<StateError>().having(
         (e) => e.toString(), 'persistence failure',
         contains('REMITTANCE_OBSERVATION_PERSIST_FAILED'),
@@ -425,7 +469,7 @@ void main() {
     );
     expect(repo.isCurrentObservation(
         proposal: proposal, observation: first), isTrue);
-    await repo.revokeForProposal(proposal);
+    await repo.revokeForProposal(proposal, expectedObservation: first);
     expect(repo.isCurrentObservation(
         proposal: proposal, observation: first), isFalse);
     final replacement = await repo.confirmObservedCredit(
@@ -452,7 +496,7 @@ void main() {
       proposal: proposal, receivedAtUtc: received, confirmedAtUtc: confirmed,
     );
     expect(first.observationRevision, matches(RegExp(r'^[0-9a-f]{32}$')));
-    await repo.revokeForProposal(proposal);
+    await repo.revokeForProposal(proposal, expectedObservation: first);
     final replacement = await repo.confirmObservedCredit(
       proposal: proposal, receivedAtUtc: received, confirmedAtUtc: confirmed,
     );
@@ -493,7 +537,7 @@ void main() {
       ...legacy.toJson(), 'observation_revision': 'not-a-valid-revision',
     };
     expect(InvoiceAwardRemittanceReceiptEvidence.fromJson(malformed), isNull);
-    await repo.revokeForProposal(proposal);
+    await repo.revokeForProposal(proposal, expectedObservation: legacy);
     final fresh = await repo.confirmObservedCredit(
       proposal: proposal,
       receivedAtUtc: legacy.receivedAtUtc,
@@ -516,12 +560,12 @@ void main() {
       ),
       throwsStateError,
     );
-    await repo.confirmObservedCredit(
+    final confirmed = await repo.confirmObservedCredit(
       proposal: proposal,
       receivedAtUtc: DateTime.utc(2026, 10, 7),
       confirmedAtUtc: DateTime.utc(2026, 10, 8),
     );
-    await repo.revokeForProposal(proposal);
+    await repo.revokeForProposal(proposal, expectedObservation: confirmed);
     expect(repo.readForProposal(proposal), isNull);
   });
   test('corrupt receipt snapshots fail closed and preserve exact audit bytes',
@@ -567,7 +611,7 @@ void main() {
         )),
       );
       await expectLater(
-        repository.revokeForProposal(proposal),
+        repository.revokeForProposal(proposal, expectedObservation: valid),
         throwsA(isA<StateError>().having(
           (error) => error.toString(), 'corrupt store',
           contains('REMITTANCE_OBSERVATION_STORE_CORRUPT'),
@@ -596,7 +640,7 @@ void main() {
     ]) {
       expect(stale.idempotencyKey, original.idempotencyKey);
       await expectLater(
-        repository.revokeForProposal(stale),
+        repository.revokeForProposal(stale, expectedObservation: observation),
         throwsA(isA<StateError>().having(
           (error) => error.toString(), 'wrong observation identity',
           contains('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT'),
@@ -609,9 +653,10 @@ void main() {
     }
     // A missing key must not rewrite unrelated observations.
     await repository.revokeForProposal(
-        candidate(tier: 'general-fifth', amount: 1000));
+        candidate(tier: 'general-fifth', amount: 1000),
+        expectedObservation: observation);
     expect(preferences.getString(key), before);
-    await repository.revokeForProposal(original);
+    await repository.revokeForProposal(original, expectedObservation: observation);
     expect(repository.readForProposal(original), isNull);
   });
 

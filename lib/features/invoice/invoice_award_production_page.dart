@@ -1038,8 +1038,10 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
   Future<void> _revokeBankCredit(
       InvoiceAwardPayoutBookkeepingReadiness readiness) async {
     final proposal = readiness.proposal;
+    // Freeze the displayed durable revision before awaiting the dialog.
+    final expectedObservation = _receiptFor(readiness);
     if (_savingReceiptEvidence || _refreshing || _isPosted(readiness) ||
-        !readiness.isReady || proposal == null) {
+        !readiness.isReady || proposal == null || expectedObservation == null) {
       return;
     }
     final accepted = await showDialog<bool>(
@@ -1064,9 +1066,23 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
     try {
       final prefs = await SharedPreferences.getInstance();
       final repository = InvoiceAwardRemittanceReceiptRepository(prefs);
-      await repository.revokeForProposal(proposal);
+      await repository.revokeForProposal(
+        proposal,
+        expectedObservation: expectedObservation,
+      );
       if (!mounted) return;
       setState(() => _remittanceEvidence = repository.loadAll());
+    } on StateError {
+      // Reject stale or failed revocation; refresh the external evidence.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      if (mounted) {
+        setState(() => _remittanceEvidence =
+            InvoiceAwardRemittanceReceiptRepository(prefs).loadAll());
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('銀行入帳確認已變更或無法安全撤銷，請重新確認目前狀態。'),
+        ));
+      }
     } finally {
       if (mounted) setState(() => _savingReceiptEvidence = false);
     }

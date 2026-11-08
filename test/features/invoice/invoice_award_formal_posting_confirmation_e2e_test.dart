@@ -180,7 +180,8 @@ void main() {
       authorized = true;
       await tester.tap(find.byKey(const Key('launch_formal_post')));
       await tester.pumpAndSettle();
-      await repository.revokeForProposal(general);
+      await repository.revokeForProposal(
+        general, expectedObservation: receipt);
       final revoked = expectLater(
         pending!,
         throwsA(isA<StateError>().having(

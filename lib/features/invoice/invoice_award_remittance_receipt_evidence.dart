@@ -253,8 +253,12 @@ class InvoiceAwardRemittanceReceiptRepository {
     return record;
   }
 
+  // Require the exact observation captured before an async UI dialog.
+  // Another process can re-confirm the same key with a new durable revision.
   Future<void> revokeForProposal(
-      InvoiceAwardPayoutBookkeepingProposal proposal) async {
+    InvoiceAwardPayoutBookkeepingProposal proposal, {
+    required InvoiceAwardRemittanceReceiptEvidence expectedObservation,
+  }) async {
     // Re-read external state before revocation: a stale cached receipt
     // must not erase a different process's newer same-key audit record.
     await preferences.reload();
@@ -267,6 +271,11 @@ class InvoiceAwardRemittanceReceiptRepository {
     // A stale page must not erase a different observation's audit evidence.
     if (!matches.single.matches(proposal)) {
       throw StateError('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT');
+    }
+    // A stale dialog cannot delete a newer same-proposal consent record.
+    if (!expectedObservation.matches(proposal) ||
+        !matches.single.sameObservationAs(expectedObservation)) {
+      throw StateError('REMITTANCE_OBSERVATION_REVISION_CONFLICT');
     }
     final rows = persisted
         .where((value) => value.proposalKey != proposal.idempotencyKey)

@@ -212,7 +212,8 @@ void main() {
     final beforeStaleRevokeChanges =
         (await db.rawQuery('SELECT total_changes() AS n')).single['n'];
     await expectLater(
-      receipts.revokeForProposal(staleAccountProposal),
+      receipts.revokeForProposal(
+        staleAccountProposal, expectedObservation: generalReceipt),
       throwsA(isA<StateError>().having(
         (error) => error.toString(), 'stale revoke rejected',
         contains('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT'),
@@ -337,7 +338,8 @@ void main() {
       authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
     );
     await accountReadStarted.future;
-    await receipts.revokeForProposal(racing);
+    await receipts.revokeForProposal(
+      racing, expectedObservation: racingReceipt);
     resumeAccountRead.complete();
     await expectLater(
       pendingPost,
