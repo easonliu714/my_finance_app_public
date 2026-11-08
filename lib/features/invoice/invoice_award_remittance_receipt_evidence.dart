@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -124,6 +125,28 @@ class InvoiceAwardRemittanceReceiptRepository {
   InvoiceAwardRemittanceReceiptRepository(this.preferences);
   final SharedPreferences preferences;
   static const _key = 'issue13_remittance_observations_v1';
+  // This one isolate owns one logical receipt key, even when callers create
+  // distinct repository/preference wrappers. Serialize the entire reload,
+  // strict read, identity/revision check and awaited write as one operation.
+  // This is NOT an inter-process CAS or a SQLite transaction.
+  static Future<void> _mutationTail = Future<void>.value();
+
+  Future<T> _serializeMutation<T>(Future<T> Function() operation) {
+    final predecessor = _mutationTail;
+    final completion = Completer<void>();
+    _mutationTail = completion.future;
+    Future<T> execute() async {
+      try {
+        await predecessor;
+        return await operation();
+      } finally {
+        // Always release on validation errors and failed platform writes.
+        completion.complete();
+      }
+    }
+    return execute();
+  }
+
 
   // Corrupt or duplicated persisted observations invalidate the entire
   // authorization snapshot, not merely the individual malformed row.
@@ -198,7 +221,8 @@ class InvoiceAwardRemittanceReceiptRepository {
     required InvoiceAwardPayoutBookkeepingProposal proposal,
     required DateTime receivedAtUtc,
     required DateTime confirmedAtUtc,
-  }) async {
+  }) {
+    return _serializeMutation<InvoiceAwardRemittanceReceiptEvidence>(() async {
     // Owner option C: block new cloud-500 receipt writes at the repository
     // boundary, including direct callers bypassing the proposal planner.
     // Historical observations remain readable for audit and are not deleted.
@@ -250,7 +274,7 @@ class InvoiceAwardRemittanceReceiptRepository {
       await preferences.reload();
       throw StateError('REMITTANCE_OBSERVATION_PERSIST_FAILED');
     }
-    return record;
+    return record;    });
   }
 
   // Require the exact observation captured before an async UI dialog.
@@ -258,7 +282,8 @@ class InvoiceAwardRemittanceReceiptRepository {
   Future<void> revokeForProposal(
     InvoiceAwardPayoutBookkeepingProposal proposal, {
     required InvoiceAwardRemittanceReceiptEvidence expectedObservation,
-  }) async {
+  }) {
+    return _serializeMutation<void>(() async {
     // Re-read external state before revocation: a stale cached receipt
     // must not erase a different process's newer same-key audit record.
     await preferences.reload();
@@ -288,7 +313,7 @@ class InvoiceAwardRemittanceReceiptRepository {
     if (!writeSucceeded) {
       await preferences.reload();
       throw StateError('REMITTANCE_OBSERVATION_PERSIST_FAILED');
-    }
+    }    });
   }
 }
 

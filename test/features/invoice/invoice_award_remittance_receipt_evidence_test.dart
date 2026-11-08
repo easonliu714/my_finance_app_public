@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +67,43 @@ class _ExternalMutationPreferences implements SharedPreferences {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+// An awaited native write can yield to another same-isolate repository.
+// Keep the first platform write pending to prove no second mutation enters.
+class _BarrierPreferences implements SharedPreferences {
+  _BarrierPreferences(this.platformBytes) : cachedBytes = platformBytes;
+
+  String? platformBytes;
+  String? cachedBytes;
+  int writeAttempts = 0;
+  int reloadAttempts = 0;
+  final firstWriteStarted = Completer<void>();
+  final releaseFirstWrite = Completer<void>();
+
+  @override
+  String? getString(String key) =>
+      key == 'issue13_remittance_observations_v1' ? cachedBytes : null;
+
+  @override
+  Future<void> reload() async {
+    reloadAttempts++;
+    cachedBytes = platformBytes;
+  }
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    writeAttempts++;
+    if (writeAttempts == 1) {
+      firstWriteStarted.complete();
+      await releaseFirstWrite.future;
+    }
+    cachedBytes = platformBytes = value;
+    return true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 // Forbid SQLite access when external receipt authority has been revoked.
 class _ForbiddenSqliteDatabase implements Database {
   @override
@@ -92,6 +130,73 @@ void main() {
         parserRuleVersion: 'test-v1',
       );
 
+
+  test('same-isolate concurrent confirms keep one durable revision', () async {
+    final proposal = candidate();
+    final preferences = _BarrierPreferences(null);
+    final firstRepository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    final secondRepository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    final received = DateTime.utc(2026, 10, 7);
+    final confirmed = DateTime.utc(2026, 10, 8);
+    final first = firstRepository.confirmObservedCredit(
+      proposal: proposal, receivedAtUtc: received, confirmedAtUtc: confirmed,
+    );
+    await preferences.firstWriteStarted.future;
+    final second = secondRepository.confirmObservedCredit(
+      proposal: proposal, receivedAtUtc: received, confirmedAtUtc: confirmed,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(preferences.writeAttempts, 1,
+        reason: 'the second read-modify-write must wait for the first write');
+    preferences.releaseFirstWrite.complete();
+    final firstReceipt = await first;
+    final secondReceipt = await second;
+    expect(secondReceipt.observationRevision, firstReceipt.observationRevision);
+    expect(preferences.writeAttempts, 1);
+    expect(preferences.reloadAttempts, 2);
+    expect(preferences.platformBytes,
+        jsonEncode(<Object>[firstReceipt.toJson()]));
+  });
+
+  test('same-isolate revoke then confirm rotates revision after write', () async {
+    final proposal = candidate();
+    final original = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 7),
+      confirmedAtUtc: DateTime.utc(2026, 10, 8),
+      observationRevision: 'a' * 32,
+    );
+    final preferences = _BarrierPreferences(
+        jsonEncode(<Object>[original.toJson()]));
+    final revoker = InvoiceAwardRemittanceReceiptRepository(preferences);
+    final confirmer = InvoiceAwardRemittanceReceiptRepository(preferences);
+    final revoke = revoker.revokeForProposal(
+        proposal, expectedObservation: original);
+    await preferences.firstWriteStarted.future;
+    final confirm = confirmer.confirmObservedCredit(
+      proposal: proposal,
+      receivedAtUtc: original.receivedAtUtc,
+      confirmedAtUtc: original.confirmedAtUtc,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(preferences.writeAttempts, 1,
+        reason: 'confirmation must not read pre-revocation cached consent');
+    preferences.releaseFirstWrite.complete();
+    await revoke;
+    final replacement = await confirm;
+    expect(replacement.sameObservationAs(original), isFalse);
+    expect(replacement.observationRevision, isNot(original.observationRevision));
+    expect(preferences.writeAttempts, 2);
+    expect(preferences.platformBytes,
+        jsonEncode(<Object>[replacement.toJson()]));
+    expect(confirmer.isCurrentObservation(
+        proposal: proposal, observation: replacement), isTrue);
+  });
 
   test('Owner C blocks new 500 observations before preference writes while preserving old audit', () async {
     final legacy = candidate(tier: 'cloud-500', amount: 500);

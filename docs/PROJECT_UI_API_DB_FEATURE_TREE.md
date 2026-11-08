@@ -1,4 +1,18 @@
-## CURRENT — 2026-11-09 04:15 Asia/Taipei | PR45 #1428 first compile failure; TEST-only release witness repair pending CI
+## CURRENT — 2026-11-09 06:17 Asia/Taipei | PR45 same-isolate receipt mutation serialization PRODUCT SOURCE+TEST; successor exact-head CI PENDING
+
+**Fresh authority:** main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8; PR45 OPEN/DRAFT expected parent 8714be8628a31078b6c424e76e96003e415c9911; Lab 59c75f12f285a6a0ff38aa53160e0c0be3508889; Issues #4/#13/#19 OPEN. [#1429](https://github.com/easonliu714/my_finance_app_public/actions/runs/42519343812) exact parent 3/3 SUCCESS: Analyze 0, Flutter 2400 PASS / 1 official-source SKIP, native/debug APK, Android API35 independent-process, disposable Release-AOT debug signer DER and five synthetic C500 markers PASS. Not Trusted 9BA2 Signed.
+
+**New genuine PRODUCT SOURCE+TEST:** SharedPreferences reload/read/setString previously allowed two same-isolate asynchronous repository mutations to interleave while the first native setString was pending. A single static per-isolate logical-store mutation queue now serializes full confirm/revoke reload, strict decode, identity/revision guard and awaited persistence, with finally release on failure. Two deterministic barrier regressions across distinct repository instances prove concurrent confirms preserve one revision and revoke-then-confirm rotates the revision without lost update. No schema, Owner SQLite, formal version, signer, main or Lab changes. Cross-process CAS, SharedPreferences-to-SQLite atomicity, post-last-reload TOCTOU, native fsync and simultaneous isolate boundaries remain HOLD.
+
+**Classification:** This is PR45 PRODUCT SOURCE+TEST, not CI-only or docs-only. Prior genuine PRODUCT: 93143b02 exact-revision revoke; 8aa44590 B2.17 annual canonical-row authority; 0368033b fresh posting receipt. 8714be86 release witness, 82ce9172 and f1fdbb7b TEST-only. Both canonical files retain one CURRENT; predecessor moved to HISTORY. Successor CI is PENDING until the new exact-head workflow completes.
+
+**Lab/Owner:** Lab #36 [42480035402](https://github.com/easonliu714/my_finance_app_public/actions/runs/42480035402) exact-head SUCCESS, independent 0.4.36+900036 diagnostic APK; new bounded multi-JSONL ZIP and diagnostic UX not yet Owner-device tested, merged CAMERA/RECORD_AUDIO/READ_EXTERNAL_STORAGE need least-privilege audit. Owner Lab #31 official PDF bounded 36/87000 PASS_BY_DEVICE_LOG; independent audit only 8 pages/400 tickets, pages 5–32 unverified; 17-page CR30912111 matched=false DIAGNOSTIC_ONLY, not global NOT_WIN. Native PSS/RSS/process exit UNKNOWN, full87000/global NOT_WIN/C13/C17/C18 HOLD.
+
+**Release safety:** Owner option C deferred; Trusted9BA2 Signed, Owner production-device, Issue #4, MERGE_READY and cross-store CAS/TOCTOU/fsync HOLD. Owner installed 4.20.37+495 equals source +495, signing doc +493 versus preflight floor +495 REVIEW_PENDING; no empty version bump, merge, force or Owner data access. OWNER_HELP=NONE.
+
+**NEXT_MEASURABLE_DoD:** New exact-head Flutter Analyze 0, focused/full Flutter including two barrier regressions, native/debug APK, Android API35 independent-process, disposable Release-AOT debug DER parity/five C500 synthetic markers. Repair only first real failure if any; do not infer cross-process atomicity from same-isolate serialization.
+
+## HISTORY — 2026-11-09 04:15 Asia/Taipei | PR45 #1428 first compile failure; TEST-only release witness repair pending CI
 
 **Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT parent `93143b026c4a18d9d9ce19ad9f1be280cdb93784`; Lab `59c75f12f285a6a0ff38aa53160e0c0be3508889`; Issues #4/#13/#19 OPEN. [#1427](https://github.com/easonliu714/my_finance_app_public/actions/runs/42509181337) exact parent `82ce9172` 3/3 SUCCESS, Flutter 2399 PASS / 1 official-source SKIP, Analyze0, native/debug APK, API35 9, disposable release-AOT five synthetic markers. Not Trusted 9BA2 signed.
 
