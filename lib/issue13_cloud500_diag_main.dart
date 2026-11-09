@@ -70,6 +70,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   );
 
   final _candidateController = TextEditingController();
+  final _evidenceWindowController = TextEditingController(text: '1');
   final _scrollController = ScrollController();
   final _logLines = <String>[];
 
@@ -93,6 +94,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   @override
   void dispose() {
     _candidateController.dispose();
+    _evidenceWindowController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -161,6 +163,18 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
             _status = '$label：失敗：$error';
           }
         });
+        // The share action is near the bottom of a long ListView. Report
+        // failures at the viewport, not only in the off-screen header/log.
+        final message = label == 'Share bounded L1 evidence bundle'
+            ? '分包匯出失敗：$error。請選擇第1、2…包，每包最多12批；'
+                '原始JSONL及續傳頁碼不變，請勿清除資料。'
+            : '$label：失敗：$error';
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text(message),
+            duration: const Duration(seconds: 10),
+          ));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -604,11 +618,17 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   Future<void> _shareL1EvidenceBundle() async {
     final lab = _labDirectory;
     if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    final index = int.tryParse(_evidenceWindowController.text.trim());
+    if (index == null || index < 1) {
+      throw StateError('L1_BUNDLE_WINDOW_INDEX_INVALID');
+    }
     final result = await LabL1EvidenceBundle.create(
       lab: lab,
       labHead: _labHead,
+      windowIndex: index,
     );
     await _log('L1_EVIDENCE_BUNDLE_READY '
+        'window_index=$index '
         'last_page=${result.manifest['last_page']} '
         'batches=${result.manifest['batch_count']} '
         'zip_sha256=${result.zipSha256} '
@@ -934,11 +954,23 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
           'Share partial L1 JSONL', _shareL1Batch),
         child: const Text('分享上一批 L1 JSONL'),
       ),
+      TextField(
+        controller: _evidenceWindowController,
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(
+          labelText: 'L1 證據匯出窗口編號（從 1 開始）',
+          helperText: '每包最多12批；18批可選第1包(1–48)、第2包(49–72)。'
+              '僅保留兩個輪替ZIP位置，請逐包分享保存。',
+          border: OutlineInputBorder(),
+        ),
+      ),
       OutlinedButton(
         onPressed: _busy ? null : () => _run(
           'Share bounded L1 evidence bundle', _shareL1EvidenceBundle),
-        child: const Text('一次分享多批 JSONL＋SHA Manifest＋Debug Log'),
+        child: const Text('分包分享 JSONL＋SHA Manifest＋Debug Log'),
       ),
+      const Text('每包僅包含有界JSONL、Manifest與Debug Log；'
+          '不含官方PDF或帳本。Log可能含輸入號碼，僅分享給可信對象。'),
       const ListTile(
         contentPadding: EdgeInsets.zero,
         title: Text('第三方 PDFium 2.0.1：已證實 native crash'),
