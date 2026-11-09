@@ -145,6 +145,41 @@ jobs:
               'android:label="my_finance_app"',
               'android:label="Cloud500 PDF Lab"',
           )
+          # Generated Android host inherits permissions from unused plugins.
+          # Remove only Lab-unneeded sensitive permissions, without touching
+          # production manifests or the official PDF / durable cursor.
+          if text.count(marker) != 1:
+              raise SystemExit('LAB_MANIFEST_ROOT_GATE=FAIL')
+          text = text.replace(
+              marker,
+              marker[:-1] + ' xmlns:tools="http://schemas.android.com/tools">',
+              1,
+          )
+          for permission_name in (
+              'android.permission.CAMERA',
+              'android.permission.RECORD_AUDIO',
+              'android.permission.READ_EXTERNAL_STORAGE',
+              'android.permission.WRITE_EXTERNAL_STORAGE',
+          ):
+              removal = (
+                  '    <uses-permission android:name="'
+                  + permission_name
+                  + '" tools:node="remove" />'
+              )
+              if '    <application' not in text:
+                  raise SystemExit('LAB_MANIFEST_APPLICATION_GATE=FAIL')
+              text = text.replace('    <application', removal + '\n    <application', 1)
+          for feature_name in (
+              'android.hardware.camera',
+              'android.hardware.camera.any',
+              'android.hardware.microphone',
+          ):
+              removal = (
+                  '    <uses-feature android:name="'
+                  + feature_name
+                  + '" tools:node="remove" />'
+              )
+              text = text.replace('    <application', removal + '\n    <application', 1)
           manifest.write_text(text)
 
           # Launch-contract gate: applicationId may differ from namespace, but
@@ -179,6 +214,9 @@ jobs:
 
       - name: Get dependencies
         run: flutter pub get
+
+      - name: Lab merged permission contract regressions
+        run: python3 -m unittest discover -s test -p 'issue13_lab_permission_gate_test.py' -v
 
       - name: L1 native source preflight JVM regressions (not official PDF runtime)
         shell: bash
@@ -233,6 +271,19 @@ jobs:
             --dart-define="LAB_HEAD=$LAB_HEAD" \
             --dart-define="LAB_BACKEND=Android PdfRenderer API35+; PDFium 2.0.1 native crash isolated"
 
+      - name: Verify actual merged APK permissions and hardware filters
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-debug.apk
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
+          test -n "$AAPT"
+          "$AAPT" dump permissions "$APK" > issue13-cloud500-diag-permissions.txt
+          "$AAPT" dump badging "$APK" > issue13-cloud500-diag-badging.txt
+          python3 tool/issue13_lab_permission_gate.py \
+            issue13-cloud500-diag-permissions.txt \
+            issue13-cloud500-diag-badging.txt
+
       - name: Verify stable Lab signer
         shell: bash
         run: |
@@ -281,5 +332,7 @@ jobs:
             issue13-cloud500-diag-authority.txt
             issue13-lab-l0-crosswalk.json
             issue13-cloud500-diag.signer.txt
+            issue13-cloud500-diag-permissions.txt
+            issue13-cloud500-diag-badging.txt
           if-no-files-found: error
           retention-days: 5
