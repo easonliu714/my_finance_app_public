@@ -328,7 +328,11 @@ void main() {
     await tester.pumpWidget(const Cloud500DiagnosticApp());
     await tester.pump(const Duration(milliseconds: 300));
     final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
-    await tester.ensureVisible(button);
+    // ListView builds off-screen actions lazily: ensureVisible requires an
+    // already-mounted element and fails before the share action is built.
+    await tester.scrollUntilVisible(
+      button, 220.0, scrollable: find.byType(Scrollable).first,
+    );
     await tester.pump();
     await tester.tap(button);
     await tester.pump();
