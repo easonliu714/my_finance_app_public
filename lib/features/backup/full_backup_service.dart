@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -9,7 +10,11 @@ import '../../app_build_metadata.dart';
 import 'full_backup_scope.dart';
 
 class FullBackupService {
-  const FullBackupService();
+  const FullBackupService({this.afterManagedTableReadForTesting});
+
+  @visibleForTesting
+  final Future<void> Function(String tableName)?
+      afterManagedTableReadForTesting;
 
   static const int exportFormatVersion =
       FullBackupScope.exportFormatVersion;
@@ -27,6 +32,31 @@ class FullBackupService {
     DatabaseExecutor db, {
     DateTime? createdAt,
     String sourcePlatform = 'android',
+  }) {
+    // A full backup must not combine different committed SQLite generations.
+    // Database callers get one read transaction; Transaction callers already
+    // own a snapshot and must not attempt a nested transaction.
+    if (db is Database) {
+      return db.transaction<Map<String, Object?>>(
+        (txn) => _buildFullBackupEnvelopeFromSnapshot(
+          txn,
+          createdAt: createdAt,
+          sourcePlatform: sourcePlatform,
+        ),
+        exclusive: false,
+      );
+    }
+    return _buildFullBackupEnvelopeFromSnapshot(
+      db,
+      createdAt: createdAt,
+      sourcePlatform: sourcePlatform,
+    );
+  }
+
+  Future<Map<String, Object?>> _buildFullBackupEnvelopeFromSnapshot(
+    DatabaseExecutor db, {
+    DateTime? createdAt,
+    String sourcePlatform = 'android',
   }) async {
     final coverage = await FullBackupScope.inspect(db);
     if (!coverage.isComplete) {
@@ -37,6 +67,11 @@ class FullBackupService {
     final data = <String, Object?>{};
     for (final tableName in backupTableNames) {
       data[tableName] = await _readTableRows(db, tableName);
+      // A deterministic barrier for isolated two-connection snapshot tests.
+      // Production never supplies this callback.
+      if (afterManagedTableReadForTesting != null) {
+        await afterManagedTableReadForTesting!(tableName);
+      }
     }
     return <String, Object?>{
       'metadata': <String, Object?>{
