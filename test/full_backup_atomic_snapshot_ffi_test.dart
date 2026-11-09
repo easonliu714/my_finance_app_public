@@ -12,7 +12,7 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  test('full backup uses one WAL read snapshot across concurrent commits',
+  test('full backup keeps one coherent snapshot while SQLite writers serialize',
       () async {
     final root = await Directory.systemTemp.createTemp('finance-backup-snapshot-');
     final path = p.join(root.path, 'isolated.db');
@@ -33,6 +33,9 @@ void main() {
       'amount': 1,
     });
     final writer = await openDatabase(path, singleInstance: false);
+    // sqflite transaction(exclusive: false) starts BEGIN IMMEDIATE, not
+    // BEGIN DEFERRED. Fail fast on a competing write instead of hanging CI.
+    await writer.execute('PRAGMA busy_timeout = 0');
     addTearDown(() async {
       await writer.close();
       await reader.close();
@@ -53,23 +56,31 @@ void main() {
 
     try {
       await accountsRead.future.timeout(const Duration(seconds: 10));
-      // A separate WAL connection must be able to commit while the backup
-      // remains paused. A non-transactional backup would mix generations.
-      await writer.transaction((txn) async {
-        await txn.update(
-          'accounts',
-          <String, Object?>{'name': 'after'},
-          where: 'id = ?',
-          whereArgs: <Object?>['synthetic-account'],
-        );
-        await txn.update(
-          'transactions',
-          <String, Object?>{'amount': 2},
-          where: 'id = ?',
-          whereArgs: <Object?>['synthetic-ledger'],
-        );
-      }).timeout(const Duration(seconds: 10));
+      // sqflite's exclusive:false maps to BEGIN IMMEDIATE and reserves the
+      // SQLite writer slot. WAL does not allow a second writer to commit here.
+      // This negative assertion also fails against the old unprotected
+      // per-table backup: its competing writer would commit successfully.
+      await expectLater(
+        writer.transaction((txn) async {
+          await txn.update(
+            'accounts',
+            <String, Object?>{'name': 'after'},
+            where: 'id = ?',
+            whereArgs: <Object?>['synthetic-account'],
+          );
+          await txn.update(
+            'transactions',
+            <String, Object?>{'amount': 2},
+            where: 'id = ?',
+            whereArgs: <Object?>['synthetic-ledger'],
+          );
+        }).timeout(const Duration(seconds: 10)),
+        throwsA(predicate(
+          (error) => error.toString().contains('database is locked'),
+        )),
+      );
     } finally {
+      // Never leave the snapshot barrier held after a failing assertion.
       resumeBackup.complete();
     }
 
@@ -79,6 +90,22 @@ void main() {
     final ledger = data['transactions']! as List;
     expect((accounts.single as Map)['name'], 'before');
     expect((ledger.single as Map)['amount'], 1);
+    // After the backup releases its snapshot, the same second connection
+    // must be able to commit both rows as one new generation.
+    await writer.transaction((txn) async {
+      await txn.update(
+        'accounts',
+        <String, Object?>{'name': 'after'},
+        where: 'id = ?',
+        whereArgs: <Object?>['synthetic-account'],
+      );
+      await txn.update(
+        'transactions',
+        <String, Object?>{'amount': 2},
+        where: 'id = ?',
+        whereArgs: <Object?>['synthetic-ledger'],
+      );
+    }).timeout(const Duration(seconds: 10));
     expect((await reader.query('accounts')).single['name'], 'after');
     expect((await reader.query('transactions')).single['amount'], 2);
 
