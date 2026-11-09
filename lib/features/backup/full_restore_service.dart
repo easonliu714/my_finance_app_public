@@ -507,6 +507,28 @@ class FullRestoreService {
       8 => FullBackupScope.legacyScopeV8TableNames,
       _ => FullBackupService.backupTableNames,
     };
+    // Current Scope9 must not silently discard a future/foreign managed
+    // table hidden in a nominally complete V2 envelope. A future Scope10
+    // requires an explicit migration and legacy custody policy instead.
+    // Do not tighten historical V2 scopes 2..8 in this compatibility guard.
+    if (scopeVersion == FullBackupScope.backupScopeVersion) {
+      final expectedNames = expectedTables.toSet();
+      final includedNames = includedTables.whereType<String>().toSet();
+      if (includedTables.length != expectedNames.length ||
+          includedNames.length != expectedNames.length ||
+          !includedNames.containsAll(expectedNames)) {
+        throw const FullRestoreException(
+          '完整備份 CURRENT 範圍包含未知、重複或缺少的受管資料表',
+        );
+      }
+      final dataNames = data.keys.toSet();
+      if (dataNames.length != expectedNames.length ||
+          !dataNames.containsAll(expectedNames)) {
+        throw const FullRestoreException(
+          '完整備份 CURRENT 資料包含未知或缺少的受管資料表',
+        );
+      }
+    }
     final includedNames = includedTables.whereType<String>().toSet();
     if (!includedNames.containsAll(expectedTables)) {
       throw const FullRestoreException('完整備份受管資料表清單不完整');

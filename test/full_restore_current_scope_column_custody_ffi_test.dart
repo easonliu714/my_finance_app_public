@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/backup/full_backup_scope.dart';
 import 'package:my_finance_app/features/backup/full_backup_service.dart';
 import 'package:my_finance_app/features/backup/full_restore_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -19,6 +20,74 @@ void main() {
     );
     return db;
   }
+
+  test('current Scope9 rejects unlisted future custody data before I/O',
+      () async {
+    final db = await openSyntheticLedger();
+    addTearDown(db.close);
+    await db.insert('accounts', <String, Object?>{
+      'id': 'account-1',
+      'name': 'preserved',
+    });
+    await db.insert('transactions', <String, Object?>{
+      'id': 'ledger-1',
+      'amount': 100,
+    });
+    final envelope = await const FullBackupService()
+        .buildFullBackupEnvelope(db, sourcePlatform: 'isolated');
+    final data = envelope['data']! as Map<String, Object?>;
+    data['future_durable_consent'] = <Map<String, Object?>>[
+      <String, Object?>{'revision': 1, 'grant': 'synthetic'},
+    ];
+    var custodyCalled = false;
+    await expectLater(
+      const FullRestoreService().restoreFromEnvelope(
+        db,
+        envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+        persistPreRestoreBackup: (_) async {
+          custodyCalled = true;
+          return 'not-written';
+        },
+      ),
+      throwsA(isA<FullRestoreException>()),
+    );
+    expect(custodyCalled, isFalse);
+    expect((await db.query('accounts')).single['name'], 'preserved');
+    expect((await db.query('transactions')).single['amount'], 100);
+  });
+
+  test('current Scope9 rejects forged included table authority', () async {
+    final db = await openSyntheticLedger();
+    addTearDown(db.close);
+    await db.insert('accounts', <String, Object?>{
+      'id': 'account-1',
+      'name': 'preserved',
+    });
+    await db.insert('transactions', <String, Object?>{
+      'id': 'ledger-1',
+      'amount': 100,
+    });
+    final envelope = await const FullBackupService()
+        .buildFullBackupEnvelope(db, sourcePlatform: 'isolated');
+    final metadata = envelope['metadata']! as Map<String, Object?>;
+    for (final unexpected in <String>['future_durable_consent', 'accounts']) {
+      metadata['included_tables'] = <String>[
+        ...FullBackupScope.backupTableNames,
+        unexpected,
+      ];
+      await expectLater(
+        const FullRestoreService().restoreFromEnvelope(
+          db,
+          envelope,
+          confirmationText: FullRestoreService.destructiveConfirmationText,
+        ),
+        throwsA(isA<FullRestoreException>()),
+      );
+    }
+    expect((await db.query('accounts')).single['name'], 'preserved');
+    expect((await db.query('transactions')).single['amount'], 100);
+  });
 
   test('current Scope9 rejects unknown ledger columns without erasing rows',
       () async {
