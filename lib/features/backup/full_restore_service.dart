@@ -655,12 +655,23 @@ class FullRestoreService {
         if (row is! Map) {
           throw FullRestoreException('完整還原 $tableName 包含非 object row');
         }
+        // Current Scope9 backups must preserve every target column, including
+        // nullable/defaulted revision and digest fields. Otherwise SQLite may
+        // silently synthesize values while row-count parity still succeeds.
+        final rowColumns = <String>{};
         for (final column in row.keys) {
           if (column is! String || !columns.contains(column)) {
             throw FullRestoreException(
               '完整還原 $tableName 包含目標無法保存的欄位：$column',
             );
           }
+          rowColumns.add(column);
+        }
+        if (rowColumns.length != columns.length ||
+            !rowColumns.containsAll(columns)) {
+          throw FullRestoreException(
+            '完整還原 $tableName 缺少目標欄位；不得以預設值取代備份資料',
+          );
         }
       }
     }

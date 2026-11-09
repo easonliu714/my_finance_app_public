@@ -165,4 +165,87 @@ void main() {
     expect((await target.query('accounts')).single['name'], 'preserved');
     expect((await target.query('transactions')).single['amount'], 300);
   });
+
+  // Scope9 row-count parity alone cannot detect dropped nullable/defaulted
+  // custody fields. Reject omissions before any destructive restore DML.
+  Future<void> expectMissingCurrentColumnRejected({
+    required String table,
+    required String column,
+  }) async {
+    final db = await openSyntheticLedger();
+    addTearDown(db.close);
+    await db.execute(
+      'ALTER TABLE accounts ADD COLUMN revision INTEGER NOT NULL DEFAULT 7',
+    );
+    await db.execute(
+      'ALTER TABLE transactions ADD COLUMN digest TEXT',
+    );
+    await db.insert('accounts', <String, Object?>{
+      'id': 'account-1',
+      'name': 'preserved',
+      'revision': 17,
+    });
+    await db.insert('transactions', <String, Object?>{
+      'id': 'ledger-1',
+      'amount': 100,
+      'digest': 'original-digest',
+    });
+    final envelope = await const FullBackupService()
+        .buildFullBackupEnvelope(db, sourcePlatform: 'isolated');
+    final data = envelope['data']! as Map<String, Object?>;
+    final accounts = (data['accounts']! as List)
+        .map((row) => Map<String, Object?>.from(row as Map))
+        .toList();
+    accounts.single['name'] = 'must-not-restore';
+    data['accounts'] = accounts;
+    final rows = (data[table]! as List)
+        .map((row) => Map<String, Object?>.from(row as Map))
+        .toList();
+    rows.single.remove(column);
+    data[table] = rows;
+    var custodyCalled = false;
+
+    await expectLater(
+      const FullRestoreService().restoreFromEnvelope(
+        db,
+        envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+        persistPreRestoreBackup: (_) async {
+          custodyCalled = true;
+          return 'isolated-custody';
+        },
+      ),
+      throwsA(
+        isA<FullRestoreException>().having(
+          (error) => error.message,
+          'column custody failure',
+          contains('缺少目標欄位'),
+        ),
+      ),
+    );
+    expect(custodyCalled, isTrue);
+    final savedAccount = (await db.query('accounts')).single;
+    final savedLedger = (await db.query('transactions')).single;
+    expect(savedAccount['name'], 'preserved');
+    expect(savedAccount['revision'], 17);
+    expect(savedLedger['amount'], 100);
+    expect(savedLedger['digest'], 'original-digest');
+  }
+
+  test('Scope9 rejects omitted defaulted revision before destructive DML',
+      () async {
+    await expectMissingCurrentColumnRejected(
+      table: 'accounts',
+      column: 'revision',
+    );
+  });
+
+  test('Scope9 rejects omitted nullable ledger digest before destructive DML',
+      () async {
+    await expectMissingCurrentColumnRejected(
+      table: 'transactions',
+      column: 'digest',
+    );
+  });
+
 }
