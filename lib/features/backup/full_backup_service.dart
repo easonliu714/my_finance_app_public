@@ -144,6 +144,21 @@ class FullBackupService {
     return true;
   }
 
+  // Compare all CURRENT managed row values under the restore transaction.
+  // Equal row counts alone cannot detect a trigger rewriting SQLite cells.
+  Future<bool> managedRowsMatch(
+    DatabaseExecutor db,
+    Map<String, Object?> expectedData,
+  ) async {
+    for (final tableName in backupTableNames) {
+      final expected = expectedData[tableName];
+      if (expected is! List) return false;
+      final actual = await _readTableRows(db, tableName);
+      if (!_snapshotValueEquals(expected, actual)) return false;
+    }
+    return true;
+  }
+
   // Compare typed SQLite cells without JSON re-encoding or an additional
   // whole-database allocation. Also supports BLOB bytes represented as lists.
   bool _snapshotValueEquals(Object? expected, Object? actual) {

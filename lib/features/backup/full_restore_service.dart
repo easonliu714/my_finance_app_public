@@ -106,6 +106,17 @@ class FullRestoreService {
           await _restoreTableRows(txn, tableName, data[tableName]);
         }
         await _validateRestoredRowCounts(txn, backupCounts);
+        // CURRENT V2 Scope9 requires exact cell fidelity after restore;
+        // retain legacy Scope2..8 semantics. Failure rolls back all DML.
+        if (metadata['export_format_version'] ==
+                FullBackupService.exportFormatVersion &&
+            metadata['backup_scope_version'] ==
+                FullBackupScope.backupScopeVersion &&
+            !await backupService.managedRowsMatch(txn, data)) {
+          throw const FullRestoreException(
+            '完整還原 CURRENT 資料內容與備份不一致；已取消交易以保留原資料',
+          );
+        }
         final transactionAudit = await auditReferentialIntegrity(txn);
         if (!transactionAudit.passed) {
           throw FullRestoreException(
