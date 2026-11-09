@@ -88,6 +88,10 @@ class FullRestoreService {
       // it only inside the destructive restore transaction, so a V9 category
       // payload can never be silently skipped and any failure rolls back DDL.
       await ensureExpenseCategorySchema(txn);
+      // Current-scope backup rows must not lose unknown columns or entire
+      // populated tables during a destructive restore. Validate while the
+      // SQLite write transaction still protects the custody snapshot.
+      await _assertCurrentScopeColumnCustody(txn, metadata, data);
       final hasWalletTopUpAudits =
           await _tableExists(txn, 'wallet_top_up_audits');
       if (hasWalletTopUpAudits) {
@@ -593,6 +597,49 @@ class FullRestoreService {
     for (final tableName in FullBackupScope.requiredTableNames) {
       if (!await _tableExists(db, tableName)) {
         throw FullRestoreException('目前資料庫缺少必要核心表 $tableName');
+      }
+    }
+  }
+
+  // Only the current V2 scope has a complete column-custody contract.
+  // Legacy scopes retain their explicitly supported compatibility behavior;
+  // future scopes must be reviewed before they can become current.
+  Future<void> _assertCurrentScopeColumnCustody(
+    DatabaseExecutor db,
+    Map<String, Object?> metadata,
+    Map<String, Object?> data,
+  ) async {
+    if (metadata['export_format_version'] !=
+            FullBackupService.exportFormatVersion ||
+        metadata['backup_scope_version'] !=
+            FullBackupScope.backupScopeVersion) {
+      return;
+    }
+    for (final tableName in FullBackupService.backupTableNames) {
+      final rows = data[tableName];
+      if (rows is! List) {
+        throw FullRestoreException('完整還原缺少受管資料表：$tableName');
+      }
+      if (!await _tableExists(db, tableName)) {
+        if (rows.isNotEmpty) {
+          throw FullRestoreException(
+            '完整還原目標缺少含資料的受管資料表：$tableName',
+          );
+        }
+        continue;
+      }
+      final columns = await _tableColumns(db, tableName);
+      for (final row in rows) {
+        if (row is! Map) {
+          throw FullRestoreException('完整還原 $tableName 包含非 object row');
+        }
+        for (final column in row.keys) {
+          if (column is! String || !columns.contains(column)) {
+            throw FullRestoreException(
+              '完整還原 $tableName 包含目標無法保存的欄位：$column',
+            );
+          }
+        }
       }
     }
   }
