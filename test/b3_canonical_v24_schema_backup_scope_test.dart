@@ -179,10 +179,10 @@ void main() {
     expect(targetCache.single['seller_identifier'], '87654321');
   });
 
-  // B3 #18 negative: a malformed user-owned row must roll back the complete
-  // restore transaction without deleting existing accounting or Registry cache.
+  // B3 #18 negative: a malformed current-scope row must be rejected
+  // by the pre-destructive column-custody guard without deleting user rows or Registry cache.
   // Both databases are isolated synthetic in-memory fixtures only.
-  test('B3 V24 rejected managed restore rolls back user rows and cache', () async {
+  test('B3 V24 rejected managed restore preserves user rows and cache', () async {
     final source = await openIsolatedV24();
     final target = await openIsolatedV24();
     addTearDown(source.close);
@@ -238,7 +238,15 @@ void main() {
         corruptedEnvelope,
         confirmationText: FullRestoreService.destructiveConfirmationText,
       ),
-      throwsA(isA<DatabaseException>()),
+      // Scope9 exact-column custody rejects missing fields before SQLite
+      // INSERT; a late DatabaseException is no longer the correct contract.
+      throwsA(
+        isA<FullRestoreException>().having(
+          (error) => error.message,
+          'custody failure',
+          contains('merchant_brands 缺少目標欄位'),
+        ),
+      ),
     );
     final retainedAccounts = await target.query('accounts');
     expect(retainedAccounts, hasLength(1));
