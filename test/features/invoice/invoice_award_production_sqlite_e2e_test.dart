@@ -293,8 +293,9 @@ void main() {
     expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
 
     // Direct service callers cannot bypass durable manual receipt authority.
-    // A revoked receipt during an awaited account read also cannot reach the
-    // SQLite transaction, even if the UI previously approved the same key.
+    // The same-isolate posting lease now serializes revocation behind a
+    // pending formal post; awaiting revoke before releasing the account-read
+    // barrier would deadlock the test, not demonstrate an authorization race.
     final beforeRaceRows = await db.query('transactions', orderBy: 'id');
     final beforeRaceChanges =
         (await db.rawQuery('SELECT total_changes() AS n')).single['n'];
@@ -338,20 +339,52 @@ void main() {
       authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
     );
     await accountReadStarted.future;
-    await receipts.revokeForProposal(
+    // Revoke must remain pending until the in-flight SQLite post exits its
+    // lease. Observe the pending state before releasing the test barrier.
+    final pendingRevoke = receipts.revokeForProposal(
       racing, expectedObservation: racingReceipt);
-    resumeAccountRead.complete();
-    await expectLater(
-      pendingPost,
-      throwsA(isA<StateError>().having(
-        (e) => e.toString(), 'revoked while account read awaited',
-        contains('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT'),
-      )),
-    );
+    var revokeFinished = false;
+    final revokeObserved = pendingRevoke.then((_) {
+      revokeFinished = true;
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(revokeFinished, isFalse,
+        reason: 'revoke cannot complete inside the posting lease');
     expect(await db.query('transactions', orderBy: 'id'), beforeRaceRows);
     expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
         beforeRaceChanges);
     expect(ledgerSignals, hasLength(beforeRaceSignals));
+
+    resumeAccountRead.complete();
+    expect(await pendingPost, isTrue,
+        reason: 'post-first holds authority until SQLite commit');
+    await revokeObserved;
+    expect(revokeFinished, isTrue);
+    expect(receipts.readForProposal(racing), isNull,
+        reason: 'revocation follows the completed formal post');
+    final racingId =
+        InvoiceAwardFormalIncomePostingService.stableRecordId(racing);
+    expect(await db.query('transactions',
+        where: 'id = ?', whereArgs: <Object>[racingId]), hasLength(1));
+    expect(await db.query('transactions', orderBy: 'id'),
+        hasLength(beforeRaceRows.length + 1));
+    expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+        (beforeRaceChanges as int) + 1);
+    expect(ledgerSignals, hasLength(beforeRaceSignals + 1));
+    // After revocation, a repeat of the same stale receipt cannot post
+    // again or emit an additional ledger refresh.
+    await expectLater(
+      racingService.post(
+        proposal: racing,
+        receipt: racingReceipt,
+        authorizedAtUtc: DateTime.utc(2026, 10, 9, 3),
+      ),
+      throwsA(isA<StateError>().having(
+        (e) => e.toString(), 'revoked receipt after committed post',
+        contains('INVOICE_AWARD_POSTING_RECEIPT_NOT_CURRENT'),
+      )),
+    );
+    expect(ledgerSignals, hasLength(beforeRaceSignals + 1));
     expect((await lkg.read('115-05-06'))?.payload, lkgPayload);
   });
 }
