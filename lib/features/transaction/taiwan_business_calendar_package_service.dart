@@ -210,7 +210,7 @@ class TaiwanBusinessCalendarPackageService {
       final writtenMetadata = await _metadata(writtenRows);
       if (writtenMetadata == null ||
           writtenMetadata.digest != package.digest ||
-          !_matches(writtenRows, package)) {
+          !_matches(writtenRows, package, expectedImportedAt: timestamp)) {
         throw CalendarPackageConflictException(
           'Year ${package.sourceYear} post-install row proof mismatch.',
         );
@@ -399,14 +399,19 @@ class TaiwanBusinessCalendarPackageService {
 
   bool _matches(
     List<Map<String, Object?>> rows,
-    TaiwanBusinessCalendarYearPackage package,
-  ) {
+    TaiwanBusinessCalendarYearPackage package, {
+    String? expectedImportedAt,
+  }) {
     if (rows.length != package.days.length) return false;
     final revision = package.storedMetadata.encode();
     for (var index = 0; index < rows.length; index++) {
       final row = rows[index];
       final day = package.days[index];
-      if (row['calendar_date'] != day.dateKey ||
+      // B2.20: post-write provenance must equal the timestamp issued for
+      // this transaction; a silent AFTER INSERT mutation is not LKG.
+      if ((expectedImportedAt != null &&
+              row['updated_at'] != expectedImportedAt) ||
+          row['calendar_date'] != day.dateKey ||
           (row['is_business_day'] as num).toInt() !=
               (day.isBusinessDay ? 1 : 0) ||
           row['day_label'] != day.label ||

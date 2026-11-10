@@ -584,6 +584,36 @@ void main() {
     expect((await service.status(db, 2028))!.digest, original.digest);
   });
 
+  test('B2.20 AFTER INSERT timestamp rewrite rolls back verified LKG',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    final replacement = await _package(codec, year: 2028, sequence: 2);
+    await service.install(db, original);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    await db.execute('''
+      CREATE TRIGGER rewrite_calendar_timestamp_after_insert
+      AFTER INSERT ON taiwan_business_calendar_days
+      WHEN NEW.calendar_date = '2028-07-03'
+      BEGIN
+        UPDATE taiwan_business_calendar_days
+        SET updated_at = '1999-01-01T00:00:00.000Z'
+        WHERE calendar_date = NEW.calendar_date;
+      END
+    ''');
+
+    await expectLater(service.install(db, replacement),
+        throwsA(isA<CalendarPackageConflictException>()));
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before),
+        reason: 'Silent timestamp tamper must not replace verified LKG.');
+    final retained = await service.status(db, 2028);
+    expect(retained!.digest, original.digest);
+    expect(retained.hasCanonicalRowDigest, isTrue);
+  });
+
   test('failed replacement rolls back the original year', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);
