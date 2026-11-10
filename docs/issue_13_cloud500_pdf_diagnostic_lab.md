@@ -1,3 +1,11 @@
+## Lab local-copy source proof candidate — 2026-11-10 21:16+08 | SOURCE+TEST, not official pin
+
+The official publication page links the **115-05-06 sorted Cloud-500** PDF at `https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124620_sorted_AI_D.pdf`. The execution environment cannot independently fetch/hash its 119,769,589-byte HTTP-reported payload, so the **actual file SHA256 and stable independent HTTPS provenance remain HOLD**. HTTP-reported length is not a trusted pin.
+
+New Lab-only `LabL1MayJuneLocalCopyAudit.auditLocalCopies` is a bounded **read-only local candidate proof**: two distinct app-private files, canonical path and same-file/hardlink rejection, exact period/tier/URI, streamed SHA256 and bytes, PDF magic, 200MB cap, and explicit refusal to reuse the July-August source SHA. It returns `LOCAL_COPIES_ONLY_NOT_OFFICIAL_PIN`, never enables `requirePinned("115-05-06")`, never downloads or reads Owner ledger, and never writes cursor/JSONL/LKG. Eight synthetic JVM regressions include positive local-copy agreement, wrong period/tier/URI, duplicate/hardlink, same-length corruption, truncation/bad header, path/symlink escape, byte budget and no-write contract. Local kotlinc with JUnit signature stubs: 8/8 PASS; exact-head GitHub Gradle/Flutter/Analyze/APK/Signer CI is required separately.
+
+NEXT: obtain two independently sourced official May-June PDF copies/metadata, compute actual SHA twice, verify provenance and full-page layout before approving a May-June pin. Only after that add isolated period selection and private Owner matched=true/matched=false Android oracle. **No official May-June winning or nonwinning verdict yet.**
+
 ## Lab L1 period/source custody checkpoint — 2026-11-10 20:13+08
 
 - **Exact-head Lab #46** [run 42809573739](https://github.com/easonliu714/my_finance_app_public/actions/runs/42809573739) on `9245984c3017d89e5a8f54155caa90e9391bc1e7` completed SUCCESS: Native Gradle/JVM including six sorted-page guard tests, 41 Flutter focused, Analyze 0, standalone APK, minimum permissions and fixed Lab signer. Artifact 13761788232. This is synthetic/test and build evidence, not official May-June PDF positive-oracle UAT.
