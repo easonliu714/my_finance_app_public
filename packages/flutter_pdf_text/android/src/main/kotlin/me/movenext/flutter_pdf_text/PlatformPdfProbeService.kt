@@ -17,6 +17,8 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 class PlatformPdfProbeService : Service() {
+  private val probeLease = LabL1NativeProbeLease()
+
   companion object {
     const val EXTRA_PDF_PATH = "pdf_path"
     const val EXTRA_RESULT_PATH = "result_path"
@@ -30,15 +32,46 @@ class PlatformPdfProbeService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent == null) {
-      stopSelf(startId)
+      synchronized(probeLease) {
+        probeLease.noteStart(startId)
+        if (!probeLease.isActive()) stopSelf(startId)
+      }
       return START_NOT_STICKY
     }
+    // Parse extras before acquiring the lease; malformed intent data must
+    // never strand the isolated native renderer worker slot.
     val pdfPath = intent.getStringExtra(EXTRA_PDF_PATH).orEmpty()
     val resultPath = intent.getStringExtra(EXTRA_RESULT_PATH).orEmpty()
     val requestId = intent.getStringExtra(EXTRA_REQUEST_ID).orEmpty()
     val candidate = intent.getStringExtra(EXTRA_CANDIDATE).orEmpty()
-    thread(start = true, name = "platform-pdf-probe") {
-      runProbe(pdfPath, resultPath, requestId, candidate, startId)
+    val admitted = synchronized(probeLease) {
+      probeLease.noteStart(startId)
+      probeLease.tryAcquire()
+    }
+    if (!admitted) {
+      // Do not overwrite the incumbent's terminal result. The rejected
+      // caller times out fail-closed, without a second PdfRenderer.
+      return START_NOT_STICKY
+    }
+    try {
+      thread(start = true, name = "platform-pdf-probe") {
+        try {
+          runProbe(pdfPath, resultPath, requestId, candidate)
+        } finally {
+          synchronized(probeLease) {
+            // Rejected starts advance Android's startId. Stop the latest
+            // start before releasing the single-flight worker lease.
+            stopSelf(probeLease.latestStartId())
+            probeLease.release()
+          }
+        }
+      }
+    } catch (error: Throwable) {
+      synchronized(probeLease) {
+        stopSelf(probeLease.latestStartId())
+        probeLease.release()
+      }
+      throw error
     }
     return START_NOT_STICKY
   }
@@ -47,8 +80,7 @@ class PlatformPdfProbeService : Service() {
     pdfPath: String,
     resultPath: String,
     requestId: String,
-    candidate: String,
-    startId: Int
+    candidate: String
   ) {
     val source = File(pdfPath)
     val pid = Process.myPid()
@@ -81,7 +113,6 @@ class PlatformPdfProbeService : Service() {
     if (!source.isFile || resultPath.isBlank() || requestId.isBlank()) {
       stage.set("INPUT_INVALID")
       snapshot("failure", JSONObject().put("message", "invalid input"))
-      stopSelf(startId)
       return
     }
     if (Build.VERSION.SDK_INT < 35) {
@@ -92,7 +123,6 @@ class PlatformPdfProbeService : Service() {
           .put("message", "PdfRenderer text APIs require API 35+")
           .put("sdk", Build.VERSION.SDK_INT)
       )
-      stopSelf(startId)
       return
     }
 
@@ -384,7 +414,6 @@ class PlatformPdfProbeService : Service() {
       heartbeat.interrupt()
       try { renderer?.close() } catch (_: Throwable) {}
       try { descriptor?.close() } catch (_: Throwable) {}
-      stopSelf(startId)
     }
   }
 
