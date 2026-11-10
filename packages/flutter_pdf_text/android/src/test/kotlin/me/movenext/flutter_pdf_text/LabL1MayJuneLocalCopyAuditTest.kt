@@ -10,7 +10,7 @@ import org.junit.Test
 
 class LabL1MayJuneLocalCopyAuditTest {
   private val uri = LabL1MayJuneLocalCopyAudit.officialSortedCloud500Uri
-  private val pdf = "%PDF-1.7\nsynthetic local audit fixture\n".toByteArray()
+  private val pdf = "%PDF-1.7\nsynthetic local audit fixture\n%%EOF\n".toByteArray()
 
   private fun fixture(block: (File, File, File) -> Unit) {
     val root = Files.createTempDirectory("lab-may-june-audit-").toFile()
@@ -61,7 +61,7 @@ class LabL1MayJuneLocalCopyAuditTest {
   }
 
   @Test fun changedContentWithSameByteLengthIsRejected() = fixture { root, a, b ->
-    b.writeBytes(pdf.copyOf().also { it[it.size - 2] = 'X'.code.toByte() })
+    b.writeBytes(pdf.copyOf().also { it[10] = 'X'.code.toByte() })
     rejects("L1_LOCAL_COPIES_MISMATCH") { audit(root, a, b) }
   }
 
@@ -95,4 +95,32 @@ class LabL1MayJuneLocalCopyAuditTest {
     assertEquals(before, root.list()?.sorted())
     assertTrue(candidate.sha256.matches(Regex("[0-9a-f]{64}")))
   }
+  @Test fun identicalHeaderOnlyCopiesCannotProduceCandidate() = fixture { root, a, b ->
+    val truncated = "%PDF-1.7\nheader only\n".toByteArray()
+    a.writeBytes(truncated)
+    b.writeBytes(truncated)
+    rejects("L1_LOCAL_COPY_PDF_TRAILER_MISSING") { audit(root, a, b) }
+  }
+
+  @Test fun eofMarkerMustBeTerminalNotFollowedByNonWhitespace() = fixture { root, a, b ->
+    val badTail = "%PDF-1.7\n%%EOF\ncorrupted trailing bytes".toByteArray()
+    a.writeBytes(badTail)
+    b.writeBytes(badTail)
+    rejects("L1_LOCAL_COPY_PDF_TRAILER_MISSING") { audit(root, a, b) }
+  }
+
+  @Test fun boundedTrailerSurvivesLargeStreamAndAllowsAsciiWhitespace() = fixture { root, a, b ->
+    val large = "%PDF-1.7\n".toByteArray() +
+      ByteArray(8192) { 'A'.code.toByte() } +
+      "\n%%EOF\r\n \t".toByteArray()
+    a.writeBytes(large)
+    b.writeBytes(large)
+    assertEquals(large.size.toLong(), audit(root, a, b).bytes)
+    val missingTerminal = "%PDF-1.7\n%%EOF\n".toByteArray() +
+      ByteArray(8192) { 'A'.code.toByte() }
+    a.writeBytes(missingTerminal)
+    b.writeBytes(missingTerminal)
+    rejects("L1_LOCAL_COPY_PDF_TRAILER_MISSING") { audit(root, a, b) }
+  }
+
 }

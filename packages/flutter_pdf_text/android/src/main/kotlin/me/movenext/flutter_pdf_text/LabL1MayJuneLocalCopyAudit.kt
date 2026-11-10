@@ -72,6 +72,10 @@ internal object LabL1MayJuneLocalCopyAudit {
     var total = 0L
     val header = ByteArray(pdfMagic.size)
     var headerCount = 0
+    // Retain only the final 4 KiB, never the 120 MB PDF, to reject copies
+    // that have a PDF header but no terminal %%EOF marker.
+    val trailer = ByteArray(4096)
+    var trailerCount = 0
     FileInputStream(file).use { input ->
       val buffer = ByteArray(64 * 1024)
       while (true) {
@@ -85,11 +89,37 @@ internal object LabL1MayJuneLocalCopyAudit {
           System.arraycopy(buffer, 0, header, headerCount, count)
           headerCount += count
         }
+        if (n >= trailer.size) {
+          System.arraycopy(buffer, n - trailer.size, trailer, 0, trailer.size)
+          trailerCount = trailer.size
+        } else if (trailerCount + n <= trailer.size) {
+          System.arraycopy(buffer, 0, trailer, trailerCount, n)
+          trailerCount += n
+        } else {
+          val drop = trailerCount + n - trailer.size
+          System.arraycopy(trailer, drop, trailer, 0, trailerCount - drop)
+          System.arraycopy(buffer, 0, trailer, trailerCount - drop, n)
+          trailerCount = trailer.size
+        }
         md.update(buffer, 0, n)
       }
     }
     if (headerCount != pdfMagic.size || !header.contentEquals(pdfMagic)) {
       throw IllegalStateException("L1_LOCAL_COPY_NOT_PDF")
+    }
+    // This is a bounded structural envelope check, NOT PDF parsing or an
+    // official source authority proof. Only ASCII trailing whitespace is
+    // allowed after the last %%EOF marker.
+    var end = trailerCount - 1
+    while (end >= 0 && (trailer[end] == 32.toByte() ||
+        trailer[end] == 9.toByte() || trailer[end] == 10.toByte() ||
+        trailer[end] == 13.toByte())) {
+      end--
+    }
+    val eof = byteArrayOf(37, 37, 69, 79, 70) // %%EOF
+    if (end < eof.size - 1 ||
+        eof.indices.any { trailer[end - eof.size + 1 + it] != eof[it] }) {
+      throw IllegalStateException("L1_LOCAL_COPY_PDF_TRAILER_MISSING")
     }
     val raw = md.digest()
     val chars = CharArray(raw.size * 2)

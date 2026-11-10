@@ -1,3 +1,7 @@
+## Lab local-copy PDF envelope hardening — 2026-11-10 22:16+08 | SOURCE+TEST, exact-head CI PENDING
+
+The existing two-copy candidate audit accepted two identical header-only files as a local PDF candidate because it checked only `%PDF-`. Add a bounded 4 KiB trailer ring buffer and require terminal `%%EOF` with ASCII whitespace only. Matching copies without the terminal marker, with non-whitespace after it, or with a marker only outside the last 4 KiB now fail closed as `L1_LOCAL_COPY_PDF_TRAILER_MISSING`. Synthetic tests cover both negative cases and a stream spanning the 4 KiB trailer capacity. No real PDF, private ticket, network, formal database, parser, cursor, manifest, or signer is touched. This is only an additional structural envelope check: it does not prove an official May-June source pin or authorize `requirePinned("115-05-06")`. Parent Lab #48 exact `b3a955a49bf7cb6f760551bcd07d495f4a075006` SUCCESS; successor must independently pass Native JVM, 41 focused Flutter, Analyze, APK, permissions and stable Lab signer.
+
 ## Lab local-copy source proof candidate — 2026-11-10 21:16+08 | SOURCE+TEST, not official pin
 
 The official publication page links the **115-05-06 sorted Cloud-500** PDF at `https://invoice.etax.nat.gov.tw/pdf/20260506_20260725124620_sorted_AI_D.pdf`. The execution environment cannot independently fetch/hash its 119,769,589-byte HTTP-reported payload, so the **actual file SHA256 and stable independent HTTPS provenance remain HOLD**. HTTP-reported length is not a trusted pin.
