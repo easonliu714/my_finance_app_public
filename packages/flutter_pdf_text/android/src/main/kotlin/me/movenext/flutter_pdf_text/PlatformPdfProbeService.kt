@@ -91,6 +91,8 @@ class PlatformPdfProbeService : Service() {
     val pagesRead = AtomicInteger(0)
     var descriptor: ParcelFileDescriptor? = null
     var renderer: PdfRenderer? = null
+    // One fence per worker: late heartbeat must not replace a terminal JSON.
+    val resultCustody = LabL1NativeResultCustody()
 
     fun snapshot(status: String, extra: JSONObject = JSONObject()) {
       extra
@@ -102,7 +104,7 @@ class PlatformPdfProbeService : Service() {
         .put("current_page", currentPage.get())
         .put("pages_read", pagesRead.get())
         .put("updated_at_ms", System.currentTimeMillis())
-      writeResult(resultPath, extra)
+      writeResult(resultPath, status, extra, resultCustody)
     }
 
     appendLog(
@@ -417,12 +419,17 @@ class PlatformPdfProbeService : Service() {
     }
   }
 
-  private fun writeResult(path: String, payload: JSONObject) {
+  private fun writeResult(
+    path: String,
+    status: String,
+    payload: JSONObject,
+    custody: LabL1NativeResultCustody
+  ) {
     if (path.isBlank()) return
     try {
       // Preserve the previous complete JSON when a heartbeat/terminal
       // replacement fails; never delete it or fall back to in-place writes.
-      LabL1AtomicResultWriter.replace(path, payload.toString())
+      custody.publish(path, status, payload.toString())
     } catch (_: Throwable) {
       // Dart's bounded polling remains fail-closed on an unwritable result.
     }
