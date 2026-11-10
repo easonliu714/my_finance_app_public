@@ -420,16 +420,11 @@ class PlatformPdfProbeService : Service() {
   private fun writeResult(path: String, payload: JSONObject) {
     if (path.isBlank()) return
     try {
-      val target = File(path)
-      target.parentFile?.mkdirs()
-      val temp = File(target.parentFile, target.name + ".tmp")
-      temp.writeText(payload.toString())
-      if (target.exists()) target.delete()
-      if (!temp.renameTo(target)) {
-        target.writeText(payload.toString())
-        temp.delete()
-      }
+      // Preserve the previous complete JSON when a heartbeat/terminal
+      // replacement fails; never delete it or fall back to in-place writes.
+      LabL1AtomicResultWriter.replace(path, payload.toString())
     } catch (_: Throwable) {
+      // Dart's bounded polling remains fail-closed on an unwritable result.
     }
   }
 
