@@ -59,7 +59,7 @@ class LabL1AtomicResultWriterTest {
     finished.await()
     workers.forEach { it.join() }
     assertEquals(0, failures.get())
-    assertTrue(Regex("""\\{"sequence":\\d+\\}""").matches(target.readText()))
+    assertTrue(Regex("""\{"sequence":[0-9]+\}""").matches(target.readText()))
     assertFalse(folder.root.listFiles().orEmpty().any { it.name.endsWith(".part") })
   }
 }
