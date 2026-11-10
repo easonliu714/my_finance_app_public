@@ -175,11 +175,18 @@ class PlatformPdfProbeService : Service() {
         }
         parent
       } else null
+      // Only the independently pinned 115-07-08 source may enter L1 export.
+      // A discovered 115-05-06 URI without byte/SHA proof is always HOLD.
+      val l1Identity = if (l1First != null) {
+        LabL1PeriodSourceIdentity.requirePinned("115-07-08", "cloud-500")
+      } else null
       val l1Sha = if (l1First != null) {
         stage.set("L1_SOURCE_PREFLIGHT_BEFORE_RENDERER")
         snapshot("running")
+        val identity = l1Identity
+          ?: throw IllegalStateException("L1_SOURCE_IDENTITY_MISSING")
         val sha = LabOfficialPdfPreflight.verify(
-          source, applicationContext.filesDir)
+          source, applicationContext.filesDir, identity.bytes, identity.sha256)
         appendLog("L1_SOURCE_PREFLIGHT_PASS", source,
           "request=$requestId sha256=$sha before_renderer=true")
         sha
@@ -245,8 +252,10 @@ class PlatformPdfProbeService : Service() {
                 .put("page_count", pageCount)
                 .put("pdf_sha256", sha)
                 .put("engine", "android.graphics.pdf.PdfRenderer")
-                .put("period", "115-07-08")
-                .put("tier", "cloud-500")
+                .put("period", l1Identity?.period
+                  ?: throw IllegalStateException("L1_SOURCE_IDENTITY_MISSING"))
+                .put("tier", l1Identity?.tier
+                  ?: throw IllegalStateException("L1_SOURCE_IDENTITY_MISSING"))
                 .put("text", text.toString())
               val bytes = (record.toString() + "\n").toByteArray(Charsets.UTF_8)
               if (bytes.size > 1000000 || totalBytes + bytes.size > 4000000) {
