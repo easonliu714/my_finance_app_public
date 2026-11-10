@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/backup/full_backup_service.dart';
 import 'package:my_finance_app/features/backup/full_restore_service.dart';
-import 'package:sqflite/sqflite.dart' show DatabaseExecutor;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -66,9 +65,9 @@ void main() {
     // AFTER INSERT mutates a cell but leaves row-count parity unchanged.
     // Without the new post-restore audit, this would commit silently.
     await target.execute(
-      "CREATE TRIGGER mutate_account_name AFTER INSERT ON accounts "
+      'CREATE TRIGGER mutate_account_name AFTER INSERT ON accounts '
       "BEGIN UPDATE accounts SET name = 'trigger-mutated' "
-      "WHERE id = NEW.id; END",
+      'WHERE id = NEW.id; END',
     );
     final envelope = await const FullBackupService()
         .buildFullBackupEnvelope(source, sourcePlatform: 'isolated');
