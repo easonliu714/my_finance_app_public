@@ -106,17 +106,6 @@ class FullRestoreService {
           await _restoreTableRows(txn, tableName, data[tableName]);
         }
         await _validateRestoredRowCounts(txn, backupCounts);
-        // CURRENT V2 Scope9 requires exact cell fidelity after restore;
-        // retain legacy Scope2..8 semantics. Failure rolls back all DML.
-        if (metadata['export_format_version'] ==
-                FullBackupService.exportFormatVersion &&
-            metadata['backup_scope_version'] ==
-                FullBackupScope.backupScopeVersion &&
-            !await backupService.managedRowsMatch(txn, data)) {
-          throw const FullRestoreException(
-            '完整還原 CURRENT 資料內容與備份不一致；已取消交易以保留原資料',
-          );
-        }
         final transactionAudit = await auditReferentialIntegrity(txn);
         if (!transactionAudit.passed) {
           throw FullRestoreException(
@@ -133,6 +122,20 @@ class FullRestoreService {
             await createWalletTopUpAuditImmutabilityTriggers(txn);
           }
         }
+      }
+      // B3 V31: hooks restore immutable-row guards inside this transaction.
+      // Audit exact CURRENT Scope9 cell fidelity only AFTER those hooks, so
+      // their late side effects cannot silently commit mutated managed rows.
+      // This relocates the existing scan; it does not add another full scan.
+      // Historical V2 Scope2..8 remains on its original compatibility path.
+      if (metadata['export_format_version'] ==
+              FullBackupService.exportFormatVersion &&
+          metadata['backup_scope_version'] ==
+              FullBackupScope.backupScopeVersion &&
+          !await backupService.managedRowsMatch(txn, data)) {
+        throw const FullRestoreException(
+          '完整還原 CURRENT 資料內容與備份不一致；已取消交易以保留原資料',
+        );
       }
     });
 
