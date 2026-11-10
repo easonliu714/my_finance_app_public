@@ -372,3 +372,20 @@ bounded-run, native preflight, and signer gates remain required.
 This does not prove isolated-process exit, official 135200798-byte PDF
 Android full-page extraction, renderer text completeness, global NOT_WIN,
 Owner installation, or production authorization. L1 official/L2-L4 HOLD.
+
+## L1 isolated native PSS/RSS sampling — SOURCE+TEST, device evidence HOLD
+
+The isolated Android platform PDF worker now samples `Debug.MemoryInfo.totalPss`
+and `/proc/self/status VmRSS` in kB alongside bounded native log events.
+Unavailable, malformed, zero or overflowed readings are recorded as UNKNOWN,
+not a fabricated zero or PASS. A `L1_RENDERER_CLOSED_BEFORE_TERMINAL` event
+is logged after resource closure but before terminal success publication.
+Three pure JVM regressions cover valid RSS, malformed/missing/overflow RSS,
+and mandatory `native_process_exit=UNKNOWN` despite observed PSS/RSS.
+
+This is diagnostic instrumentation only. The measurements are per-process
+snapshots, not peak native memory, not `ApplicationExitInfo` process-exit
+proof, and not proof of full 87,000-page extraction or global NOT_WIN.
+Exact-head Lab CI, Android Owner memory samples and independently confirmed
+process exit remain pending. Production PR45, signing authority, Owner data,
+formal app version, and canonical project governance are unchanged.

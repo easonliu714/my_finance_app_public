@@ -244,6 +244,9 @@ class PlatformPdfProbeService : Service() {
             renderer = null
             descriptor?.close()
             descriptor = null
+            // Lab-only evidence: renderer closure is not process exit.
+            appendLog("L1_RENDERER_CLOSED_BEFORE_TERMINAL", source,
+              "request=$requestId first=$first last=$last")
           },
           publishSuccess = {
             alive.set(false)
@@ -401,6 +404,25 @@ class PlatformPdfProbeService : Service() {
     }
   }
 
+  private fun readNativeMemoryEvidence(): String {
+    val pssKb = try {
+      val info = android.os.Debug.MemoryInfo()
+      android.os.Debug.getMemoryInfo(info)
+      info.totalPss
+    } catch (_: Throwable) {
+      null
+    }
+    val rssKb = try {
+      val line = File("/proc/self/status").useLines { lines ->
+        lines.firstOrNull { it.startsWith("VmRSS:") }
+      }
+      LabL1NativeMemoryEvidence.rssKbFromProcStatus(line.orEmpty())
+    } catch (_: Throwable) {
+      null
+    }
+    return LabL1NativeMemoryEvidence.format(pssKb, rssKb)
+  }
+
   private fun appendLog(event: String, file: File, detail: String = "") {
     try {
       val runtime = Runtime.getRuntime()
@@ -414,6 +436,8 @@ class PlatformPdfProbeService : Service() {
         append(" heap_used=").append(used)
         append(" heap_total=").append(runtime.totalMemory())
         append(" heap_max=").append(runtime.maxMemory())
+        // Sample this isolated worker's PSS/RSS; never infer process exit.
+        append(" ").append(readNativeMemoryEvidence())
         if (detail.isNotBlank()) append(" detail=").append(detail)
         append("\n")
       }
