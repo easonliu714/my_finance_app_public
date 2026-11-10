@@ -138,7 +138,10 @@ class TaiwanBusinessCalendarPackageService {
       // rows. Existing install() must also reject an inconsistent year.
       return CalendarAnnualUpdateDecision.nextYearUntrusted;
     }
+    // B2.18: future-dated receipts cannot suppress a real official check.
+    // Compare absolute instants before comparing the Taipei calendar date.
     if (lastCheckedAt != null &&
+        !lastCheckedAt.isAfter(now) &&
         taipei(lastCheckedAt).toIso8601String().substring(0, 10) == today) {
       return CalendarAnnualUpdateDecision.checkedToday;
     }

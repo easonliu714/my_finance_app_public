@@ -589,6 +589,44 @@ void main() {
         reason: 'A foreground eligibility check must not mutate SQLite.');
   });
 
+  test('B2.18 future-dated same-Taipei-day receipt never suppresses check',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    await service.install(db, await _package(codec, year: 2028, sequence: 1));
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    final now = DateTime.utc(2028, 12, 4, 1);
+
+    // Both times are Dec 4 in Taipei; only the earlier check is eligible.
+    expect(
+      await service.annualUpdateDecision(db, now,
+          lastCheckedAt: DateTime.utc(2028, 12, 4, 2)),
+      CalendarAnnualUpdateDecision.checkOfficialSource,
+    );
+    expect(
+      await service.annualUpdateDecision(db, now,
+          lastCheckedAt: DateTime.utc(2028, 12, 4, 0, 30)),
+      CalendarAnnualUpdateDecision.checkedToday,
+    );
+    // 15:59Z Dec 3 is still Dec 3 in Taipei, before the local midnight.
+    expect(
+      await service.annualUpdateDecision(db, now,
+          lastCheckedAt: DateTime.utc(2028, 12, 3, 15, 59)),
+      CalendarAnnualUpdateDecision.checkOfficialSource,
+    );
+    expect(
+      await service.annualUpdateDecision(db, now),
+      CalendarAnnualUpdateDecision.checkOfficialSource,
+    );
+    expect(
+      await db.query('taiwan_business_calendar_days',
+          orderBy: 'calendar_date ASC'),
+      equals(before),
+      reason: 'Advisory receipt checks must not write installed LKG rows.',
+    );
+  });
+
   test('B2.4 missing, legacy or corrupt years never authorize update',
       () async {
     final db = await _openCalendarDatabase();
