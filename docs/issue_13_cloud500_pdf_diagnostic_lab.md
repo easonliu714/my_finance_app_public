@@ -8,6 +8,13 @@ Fresh-read Lab HEAD `644a7eccdb6153a3f62accbcf3c4fbacfd6b8416`, PR45 `cc2bb0aefe
 
 # Issue #13 Cloud-500 PDF Diagnostic Lab
 
+## Lab diagnostic engineering checkpoint — 2026-11-10 Asia/Taipei | Exact ten-character sampled-page guard and two-period synthetic contract
+
+The owner approved retaining direct full-ten-character binary PDF search as the primary diagnostic engine, with lazy prefix bounds only as an optional measured accelerator. This SOURCE+TEST patch routes the native sampled-page extractor through `LabL1SortedPageGuard`: an invalid candidate, fewer/more than 50 tokens, duplicate tokens or malformed embedded text produces a typed error/HOLD rather than a silent false nonmatch. Original L1 streaming JSONL, cursor, renderer lifetime and production app are unchanged.
+
+New focused JVM regression fixtures explicitly cover both `115-05-06` and `115-07-08` synthetic page cases for exact positive and negative ten-character matches, cross-period isolation, 49/51-token gaps, duplicates, embedded garbage and invalid input. **These are synthetic cases, not a claim that May–June real official Cloud-500 winners were already tested.** For a genuine `115-05-06` Cloud-500 positive/negative oracle, first independently pin the corresponding official sorted PDF URI, bytes and SHA256 and select the correct period-specific source/cache. A publicly documented million-dollar winner is a different tier and must not be treated as a Cloud-500 positive. User-provided known-winning candidates remain private and may be checked only in the isolated Lab after official source matching. Pending official source proof, Android positive/negative evidence, exact-head CI, full-page completeness, native RSS/PSS and exit, formal `NOT_WIN`, Trusted9BA2 and production integration are HOLD.
+
+
 ## Owner 18:18 native search + diagnostic result UX correction — 2026-11-08
 
 Owner physical Lab #31 (0.4.31+900031, exact cbaad08) produced a 398-line

@@ -308,7 +308,9 @@ class PlatformPdfProbeService : Service() {
       // Capture a stable non-null handle for the nested invoiceTokens closure.
       val searchRenderer = renderer
         ?: throw IllegalStateException("PLATFORM_RENDERER_MISSING_FOR_SEARCH")
-      val normalized = candidate.uppercase()
+      // Treat a direct PDF binary-search candidate as an exact ten-character key.
+      // A malformed key cannot be interpreted as a diagnostic nonmatch.
+      val normalized = LabL1SortedPageGuard.normalizeCandidate(candidate)
       val cache = mutableMapOf<Int, List<String>>()
 
       fun invoiceTokens(pageNumber: Int): List<String> {
@@ -321,13 +323,9 @@ class PlatformPdfProbeService : Service() {
         val text = page.use {
           it.textContents.joinToString("\n") { content -> content.text }
         }
-        val pattern = Regex("[A-Z]\\s*[A-Z](?:\\s*[0-9]){8}")
-        val tokens = pattern.findAll(text.uppercase())
-          .map { it.value.replace(Regex("\\s+"), "") }
-          .filter { Regex("^[A-Z]{2}[0-9]{8}$").matches(it) }
-          .distinct()
-          .sorted()
-          .toList()
+        // Fail closed if this sampled sorted Cloud-500 page has missing or
+        // duplicate invoice tokens. Never turn an incomplete page into NOT_FOUND.
+        val tokens = LabL1SortedPageGuard.extractPage(text)
         pagesRead.incrementAndGet()
         cache[pageNumber] = tokens
         appendLog(
