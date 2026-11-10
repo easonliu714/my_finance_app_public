@@ -203,6 +203,18 @@ class TaiwanBusinessCalendarPackageService {
         });
       }
       await batch.commit(noResult: true);
+      // B2.19: an AFTER INSERT trigger may silently alter or delete a row
+      // without failing the batch. Verify the durable candidate inside this
+      // SAME transaction; any mismatch rolls back the previous verified LKG.
+      final writtenRows = await _rows(txn, package.sourceYear);
+      final writtenMetadata = await _metadata(writtenRows);
+      if (writtenMetadata == null ||
+          writtenMetadata.digest != package.digest ||
+          !_matches(writtenRows, package)) {
+        throw CalendarPackageConflictException(
+          'Year ${package.sourceYear} post-install row proof mismatch.',
+        );
+      }
       return _result(CalendarPackageInstallDisposition.installed, package);
     });
   }
