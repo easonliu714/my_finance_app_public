@@ -456,10 +456,16 @@ class TaiwanBusinessCalendarPackageService {
       // Reject damaged day data before any transactional year replacement.
       final row = rows[index];
       final flag = row['is_business_day'];
+      // B2.28: legacy rows may come from SQLite tables without storage-class
+      // CHECKs. A later BLOB or malformed timestamp must never make a
+      // damaged full-year LKG eligible for a destructive upgrade.
+      final updatedAt = row['updated_at'];
       if (row['source_year'] != sourceYear ||
           row['calendar_date'] != expectedDate ||
           flag is! int || (flag != 0 && flag != 1) ||
-          row['day_label'] is! String) {
+          row['day_label'] is! String ||
+          updatedAt is! String ||
+          DateTime.tryParse(updatedAt) == null) {
         return false;
       }
     }

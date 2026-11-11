@@ -339,6 +339,59 @@ void main() {
         reason: 'Untrusted next-year rows remain retained for audit');
   });
 
+  test('B2.28 corrupt legacy timestamp cannot authorize year replacement',
+      () async {
+    // Complete legacy coverage is insufficient if a later SQLite row has
+    // an invalid storage class or timestamp; preserve every original row.
+    for (final corruption in <Object>[
+      <int>[1, 2],
+      'not-a-timestamp',
+      '',
+    ]) {
+      final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
+      try {
+        await _insertLegacyYear(db, 2028);
+        await db.update(
+          'taiwan_business_calendar_days',
+          <String, Object?>{'updated_at': corruption},
+          where: 'calendar_date = ?',
+          whereArgs: <Object?>['2028-07-03'],
+        );
+        final before = await db.query('taiwan_business_calendar_days',
+            orderBy: 'calendar_date ASC');
+        final status = await service.status(db, 2028);
+        expect(status, isNotNull);
+        expect(status!.isContiguous, isFalse,
+            reason: 'Corrupt legacy timestamp must revoke upgrade authority');
+        final replacement = await _package(codec, year: 2028, sequence: 1);
+        await expectLater(service.install(db, replacement),
+            throwsA(isA<CalendarPackageConflictException>()));
+        expect(await db.query('taiwan_business_calendar_days',
+            orderBy: 'calendar_date ASC'), equals(before),
+            reason: 'Rejected legacy promotion must preserve every row');
+      } finally {
+        await db.close();
+      }
+    }
+  });
+
+  test('B2.28 valid legacy timestamps still permit an upgrade', () async {
+    final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
+    addTearDown(db.close);
+    await _insertLegacyYear(db, 2028);
+    final original = await db.query('taiwan_business_calendar_days',
+        where: 'source_year = ?', whereArgs: <Object?>[2028]);
+    expect(original, hasLength(366));
+    expect((await service.status(db, 2028))!.isContiguous, isTrue);
+    final replacement = await _package(codec, year: 2028, sequence: 1);
+    final result = await service.install(db, replacement);
+    expect(result.disposition, CalendarPackageInstallDisposition.installed);
+    final verified = await service.status(db, 2028);
+    expect(verified!.hasCanonicalRowDigest, isTrue);
+    expect(verified.digest, replacement.digest);
+    expect(verified.rowCount, original.length);
+  });
+
   test('B2 incomplete legacy year is not upgraded or overwritten', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);
