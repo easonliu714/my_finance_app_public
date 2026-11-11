@@ -14,6 +14,9 @@ internal object LabL1MayJuneOfficialStreamProvenance {
   enum class Role { SORTED, DRAW_ORDER }
 
   private const val maxPdfBytes = 200_000_000L
+  // A socket read timeout is not a whole-download deadline: slow trickles
+  // could otherwise hold the Lab worker indefinitely within the byte cap.
+  private const val maxStreamDurationNanos = 30L * 60L * 1_000_000_000L
   private val pdfMagic = "%PDF-".toByteArray(Charsets.US_ASCII)
   private val pdfEof = "%%EOF".toByteArray(Charsets.US_ASCII)
 
@@ -89,7 +92,8 @@ internal object LabL1MayJuneOfficialStreamProvenance {
     etag: String?,
     lastModified: String?,
     stream: InputStream,
-    byteBudget: Long = maxPdfBytes
+    byteBudget: Long = maxPdfBytes,
+    monotonicNanos: () -> Long = System::nanoTime
   ): Candidate {
     if (requestUri != expectedUri(role)) {
       throw IllegalStateException("L1_HTTPS_SOURCE_ROLE_URI_MISMATCH")
@@ -114,8 +118,16 @@ internal object LabL1MayJuneOfficialStreamProvenance {
     var total = 0L
     var emptyReads = 0
     val buffer = ByteArray(64 * 1024)
+    val startedNanos = monotonicNanos()
+    fun requireWithinDeadline() {
+      if (monotonicNanos() - startedNanos >= maxStreamDurationNanos) {
+        throw IllegalStateException("L1_HTTPS_STREAM_DEADLINE_EXCEEDED")
+      }
+    }
     while (true) {
+      requireWithinDeadline()
       val n = stream.read(buffer)
+      requireWithinDeadline()
       if (n < 0) break
       if (n == 0) {
         if (++emptyReads > 32) throw IllegalStateException("L1_HTTPS_STREAM_STALLED")

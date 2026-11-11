@@ -28,9 +28,10 @@ class LabL1MayJuneOfficialStreamProvenanceTest {
     encoding: String? = null,
     length: Long? = body.size.toLong(),
     budget: Long = 200_000_000L,
-    input: InputStream = ByteArrayInputStream(body)
+    input: InputStream = ByteArrayInputStream(body),
+    clock: () -> Long = System::nanoTime
   ) = api.auditResponse(role, uri, status, mime, encoding, length,
-    "\"synthetic-etag\"", "Wed, 11 Nov 2026 00:00:00 GMT", input, budget)
+    "\"synthetic-etag\"", "Wed, 11 Nov 2026 00:00:00 GMT", input, budget, clock)
 
   private fun rejects(reason: String, block: () -> Unit) {
     try { block(); fail("Expected $reason") }
@@ -103,6 +104,28 @@ class LabL1MayJuneOfficialStreamProvenanceTest {
   @Test fun largeStreamUsesBoundedTrailerWithoutWholeFileMemory() {
     val body = "%PDF-1.7\n".toByteArray() + ByteArray(9000) { 'X'.code.toByte() } + "\n%%EOF\r\n ".toByteArray()
     assertEquals(sha(body), audit(body = body, length = null).sha256)
+  }
+
+  @Test fun slowTrickleWithinByteBudgetCannotRunPastWallClockDeadline() {
+    var reads = 0
+    val monotonic = {
+      reads++
+      if (reads >= 4) 31L * 60L * 1_000_000_000L else 0L
+    }
+    rejects("L1_HTTPS_STREAM_DEADLINE_EXCEEDED") {
+      audit(length = null, clock = monotonic)
+    }
+  }
+
+  @Test fun timelyCompleteStreamStillProducesUnpinnedCandidate() {
+    var reads = 0
+    val monotonic = {
+      reads++
+      if (reads == 1) 0L else 29L * 60L * 1_000_000_000L
+    }
+    val candidate = audit(length = null, clock = monotonic)
+    assertEquals(sha(pdf), candidate.sha256)
+    assertEquals("STREAM_CANDIDATE_NOT_OFFICIAL_PIN", candidate.authority)
   }
 
   @Test fun repeatedlyEmptyStreamCannotLoopForever() {
