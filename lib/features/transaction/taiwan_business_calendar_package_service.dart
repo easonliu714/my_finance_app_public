@@ -153,6 +153,13 @@ class TaiwanBusinessCalendarPackageService {
       // rows. Existing install() must also reject an inconsistent year.
       return CalendarAnnualUpdateDecision.nextYearUntrusted;
     }
+    // B2.25: status()==null means either ABSENT or UNREADABLE. Historical
+    // SQLite may hold a next-year NULL date or BLOB provenance, making
+    // status() reject a real row. Distinguish that from a missing year before
+    // permitting an advisory source check. No write or replacement is allowed.
+    if ((await _rows(db, year + 1)).isNotEmpty) {
+      return CalendarAnnualUpdateDecision.nextYearUntrusted;
+    }
     // B2.18: future-dated receipts cannot suppress a real official check.
     // Compare absolute instants before comparing the Taipei calendar date.
     if (lastCheckedAt != null &&

@@ -910,6 +910,66 @@ void main() {
         where: 'source_year = ?', whereArgs: <Object?>[2029]), hasLength(1));
   });
 
+  test('B2.25 unreadable next-year rows never look like absent year',
+      () async {
+    // Each isolated SQLite FFI case has a real verified current-year LKG.
+    // Legacy rowid tables permit NULL TEXT PRIMARY KEY and BLOB TEXT values.
+    // status(nextYear)==null must not turn a damaged year into an absent one.
+    final corruptions = <String>[
+      'UPDATE taiwan_business_calendar_days '
+          'SET calendar_date = NULL WHERE source_year = 2029',
+      '''UPDATE taiwan_business_calendar_days
+          SET updated_at = x'0102' WHERE source_year = 2029''',
+      '''UPDATE taiwan_business_calendar_days
+          SET source_revision = x'0102' WHERE source_year = 2029''',
+      '''UPDATE taiwan_business_calendar_days
+          SET source_url = x'0102' WHERE source_year = 2029''',
+    ];
+    for (final corruption in corruptions) {
+      final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
+      addTearDown(db.close);
+      final current = await _package(codec, year: 2028, sequence: 1);
+      await service.install(db, current);
+      expect((await service.status(db, 2028))!.hasCanonicalRowDigest, isTrue);
+      await _insertLegacyDay(db, year: 2029, date: '2029-01-01');
+      await db.execute(corruption);
+      expect(await service.status(db, 2029), isNull,
+          reason: 'Malformed next-year storage class must be untrusted');
+      final before = await db.query('taiwan_business_calendar_days',
+          orderBy: 'source_year ASC, calendar_date ASC');
+      expect(
+        await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+        CalendarAnnualUpdateDecision.nextYearUntrusted,
+        reason: 'Unparseable next-year rows cannot authorize a source check',
+      );
+      expect(
+        await db.query('taiwan_business_calendar_days',
+            orderBy: 'source_year ASC, calendar_date ASC'),
+        equals(before),
+        reason: 'Read-only eligibility must preserve both years byte-for-byte',
+      );
+      expect((await service.status(db, 2028))!.digest, current.digest);
+    }
+  });
+
+  test('B2.25 truly absent next year retains source-check eligibility',
+      () async {
+    final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
+    addTearDown(db.close);
+    final current = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, current);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    expect(await service.status(db, 2029), isNull);
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.checkOfficialSource,
+    );
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before));
+    expect((await service.status(db, 2028))!.digest, current.digest);
+  });
+
   test('B2.4 fully installed next year suppresses duplicate source checks',
       () async {
     final db = await _openCalendarDatabase();
