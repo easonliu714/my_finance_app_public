@@ -231,6 +231,65 @@ void main() {
     expect(decoded.generatedAt, '2028-03-01T00:00:00.000+08:00');
   });
 
+  test('B2.31 source publication cannot follow package generation',
+      () async {
+    final days = _daysForYear(2028);
+    for (final bad in <Map<String, String>>[
+      <String, String>{
+        'published': '2027-07-02',
+        'generated': '2027-07-01T23:59:59Z',
+      },
+      <String, String>{
+        'published': '2027-07-01T12:00:00+08:00',
+        'generated': '2027-07-01T03:59:59Z',
+      },
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+          sourcePublishedAt: bad['published']!,
+          generatedAt: bad['generated']!,
+          days: days,
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('precedes source publication'),
+        )),
+      );
+    }
+  });
+
+  test('B2.31 zone-aware order and date-only publication remain valid',
+      () async {
+    for (final valid in <Map<String, String>>[
+      <String, String>{
+        'published': '2027-07-02T00:30:00+08:00',
+        'generated': '2027-07-01T17:00:00Z',
+      },
+      <String, String>{
+        'published': '2027-07-01',
+        'generated': '2027-07-01T00:00:00+08:00',
+      },
+    ]) {
+      final package = await codec.build(
+        sourceYear: 2028,
+        sourceRevision: 'DGPA-117-test',
+        revisionSequence: 1,
+        sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+        sourcePublishedAt: valid['published']!,
+        generatedAt: valid['generated']!,
+        days: _daysForYear(2028),
+      );
+      final decoded = await codec.decodeAndValidate(package.encode());
+      expect(decoded.digest, package.digest);
+      expect(decoded.generatedAt, valid['generated']);
+    }
+  });
+
   test('stored metadata round-trips and legacy text stays detectable', () async {
     final package = await codec.build(
       sourceYear: 2028,

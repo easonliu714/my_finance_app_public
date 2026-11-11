@@ -463,6 +463,15 @@ class TaiwanBusinessCalendarPackageCodec {
         'Calendar package generation time is invalid.',
       );
     }
+    // B2.31: A package cannot be generated before its claimed official
+    // publication. Compare actual instants when both timestamps carry an
+    // explicit zone; otherwise compare their original civil dates so a
+    // date-only publication never gains an invented time-of-day authority.
+    if (!_hasPlausibleProvenanceOrder(sourcePublishedAt, generatedAt)) {
+      throw const TaiwanBusinessCalendarPackageException(
+        'Calendar package generation precedes source publication.',
+      );
+    }
     final expectedStart = _dateKey(DateTime.utc(sourceYear, 1, 1));
     final expectedEnd = _dateKey(DateTime.utc(sourceYear, 12, 31));
     if (coverageStart != expectedStart || coverageEnd != expectedEnd) {
@@ -488,6 +497,68 @@ class TaiwanBusinessCalendarPackageCodec {
     return civil.year == year &&
         civil.month == month &&
         civil.day == day;
+  }
+
+  // B2.31: UTC comparisons are only unambiguous for two zone-qualified
+  // timestamps. A date-only source publication has no clock-time precision.
+  static bool _hasPlausibleProvenanceOrder(
+    String sourcePublishedAt,
+    String generatedAt,
+  ) {
+    final published = sourcePublishedAt.trim();
+    final generated = generatedAt.trim();
+    final explicitZone = RegExp(r'(?:[Zz]|[+-]\d{2}:?\d{2})
+    List<TaiwanBusinessCalendarPackageDay> days,
+  ) {
+    final start = DateTime.utc(sourceYear, 1, 1);
+    final endExclusive = DateTime.utc(sourceYear + 1, 1, 1);
+    final expectedCount = endExclusive.difference(start).inDays;
+    if (days.length != expectedCount) {
+      throw TaiwanBusinessCalendarPackageException(
+        'Calendar package for $sourceYear must contain $expectedCount rows; '
+        'received ${days.length}.',
+      );
+    }
+
+    for (var index = 0; index < days.length; index++) {
+      final expected = _dateKey(start.add(Duration(days: index)));
+      final actual = days[index].dateKey;
+      if (actual != expected) {
+        throw TaiwanBusinessCalendarPackageException(
+          'Calendar package row $index must be $expected; received $actual.',
+        );
+      }
+      final parsed = DateTime.tryParse(actual);
+      if (parsed == null || parsed.year != sourceYear) {
+        throw TaiwanBusinessCalendarPackageException(
+          'Calendar package contains an invalid or wrong-year date: $actual.',
+        );
+      }
+    }
+  }
+
+  Future<String> _sha256(String value) async {
+    final hash = await Sha256().hash(utf8.encode(value));
+    return hash.bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
+  static String _dateKey(DateTime value) {
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${value.year.toString().padLeft(4, '0')}-'
+        '${two(value.month)}-${two(value.day)}';
+  }
+}
+);
+    if (published.length > 10 &&
+        generated.length > 10 &&
+        explicitZone.hasMatch(published) &&
+        explicitZone.hasMatch(generated)) {
+      return !DateTime.parse(generated).isBefore(DateTime.parse(published));
+    }
+    return generated.substring(0, 10).compareTo(published.substring(0, 10)) >=
+        0;
   }
 
   void _validateDays(
