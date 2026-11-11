@@ -243,6 +243,10 @@ void main() {
         'published': '2027-07-01T12:00:00+08:00',
         'generated': '2027-07-01T03:59:59Z',
       },
+      <String, String>{
+        'published': '2027-07-01T23:00:00Z',
+        'generated': '2027-07-01T22:59:59Z',
+      },
     ]) {
       await expectLater(
         codec.build(

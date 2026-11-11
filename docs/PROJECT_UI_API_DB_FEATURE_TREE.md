@@ -1,4 +1,14 @@
-## CURRENT — 2026-11-12 03:19 Asia/Taipei | B2.31 source publication/generation chronology PRODUCT SOURCE+TEST; exact-head CI PENDING
+## CURRENT — 2026-11-12 03:xx Asia/Taipei | B2.31R helper splice correction + additional same-day chronology regression; new exact-head CI PENDING
+
+**Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8` untouched; PR45 OPEN/DRAFT expected parent `5163e99153539516da032e7658cbbbb6301325e3`; Lab `8bb142b096cc1d48bf4a6dba04475777e8f5bbe0` unchanged. B2.30 exact-head [#1457](https://github.com/easonliu714/my_finance_app_public/actions/runs/43076012066) 3/3 SUCCESS, Analyze0, 2438 PASS/1SKIP, API35 9 JUnit, ephemeral Release-AOT five markers, artifact 13883380015. B2.31 initial commit had an **incorrect source text splice** in helper insertion (the replacement string contained `$'`, which JavaScript String.replace interprets as the suffix token), leaving incomplete Dart code. This is a confirmed authoring error, NOT a product CI result; do not claim first B2.31 head green.
+
+**B2.31R SOURCE+TEST corrective commit:** Rebuild `taiwan_business_calendar_package.dart` from B2.30 verified source, reapply chronological validation and the COMPLETE `_hasPlausibleProvenanceOrder` function using literal-safe replacement. The function compares explicit-zone instants or original civil days when publication lacks clock precision. Existing date-only and timezone negative/positive regressions retained, plus a same-UTC-day reversed-clock negative. Static source structural checks confirm intact `_validateDays`, regex anchor and helper closure. No Owner DB, finance ledger, signer, version, release or main writes.
+
+**C500 Lab/Prod:** Lab #53 [CI](https://github.com/easonliu714/my_finance_app_public/actions/runs/43036975801) SUCCESS only for synthetic/native/diagnostic path; two official 115-05-06 PDF full-byte independent SHA, real positive and independent full negative HOLD. Lab #39 72-page/3600/cursor73 PARTIAL PASS preserved. Scheme C fail-closed; C13/C17/C18, V25, durable CAS/fsync, full87k/global NOTWIN, Trusted Signed, Owner UAT and MERGE HOLD. Owner495 signer floor unchanged.
+
+**NEXT measurable DoD:** exact new-head Analyze0, >=2440 PASS/1SKIP, API35 nine JUnit, bounded Release-AOT five markers, artifact. Fix first true CI FAIL. Next rotate C500 source provenance assessment; do not confuse candidate staging with official pin.
+
+## HISTORY — 2026-11-12 03:19 Asia/Taipei | B2.31 source publication/generation chronology PRODUCT SOURCE+TEST; exact-head CI PENDING
 
 **Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8` unchanged; PR45 OPEN/DRAFT expected parent `7c5740c59a5f7dcb993b10e625e7c7554816b3a8`; Lab `8bb142b096cc1d48bf4a6dba04475777e8f5bbe0` unchanged. [B2.30 Flutter Android CI #1457](https://github.com/easonliu714/my_finance_app_public/actions/runs/43076012066) exact parent 3/3 SUCCESS: Analyze0, **2438 PASS / 1 SKIP**, Android API35 nine native JUnit, bounded ephemeral debug-signer Release-AOT five markers, artifact 13883380015. This is NOT Trusted9BA2 Signed, Owner UAT or proof for new B2.31.
 
