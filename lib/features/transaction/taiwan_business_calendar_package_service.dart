@@ -226,19 +226,32 @@ class TaiwanBusinessCalendarPackageService {
     final rows = await _rows(db, year);
     if (rows.isEmpty) return null;
     final metadata = await _metadata(rows);
-    final start = rows.first['calendar_date'] as String;
-    final end = rows.last['calendar_date'] as String;
+    // B2.23: historical SQLite rowid tables can contain NULL TEXT PRIMARY
+    // KEY values, and TEXT-affinity columns can still hold BLOBs. A damaged
+    // year is not a calendar authority; never let status() throw TypeError.
+    final firstRow = rows.first;
+    final start = firstRow['calendar_date'];
+    final end = rows.last['calendar_date'];
+    final revision = firstRow['source_revision'];
+    final sourceUrl = firstRow['source_url'];
+    final importedAt = firstRow['updated_at'];
+    if (start is! String ||
+        end is! String ||
+        revision is! String ||
+        sourceUrl is! String ||
+        importedAt is! String) {
+      return null;
+    }
     return CalendarPackageStatus(
       year: year,
       start: start,
       end: end,
       rowCount: rows.length,
-      revision: metadata?.sourceRevision ??
-          rows.first['source_revision'] as String,
+      revision: metadata?.sourceRevision ?? revision,
       sequence: metadata?.revisionSequence ?? 0,
       digest: metadata?.digest ?? '',
-      sourceUrl: rows.first['source_url'] as String,
-      importedAt: rows.first['updated_at'] as String,
+      sourceUrl: sourceUrl,
+      importedAt: importedAt,
       isContiguous: metadata != null || _isConsistentLegacy(rows),
       hasCanonicalRowDigest: metadata?.generatedAt != null,
     );
