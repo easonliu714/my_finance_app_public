@@ -365,6 +365,66 @@ void main() {
     }
   });
 
+  test('B2.33 rejects unknown claims at every package envelope level',
+      () async {
+    final baseline = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: _daysForYear(2028),
+    );
+
+    // The unchanged digest previously verified because canonicalPayload()
+    // ignores extra input members; no signed authority may be inferred.
+    for (final section in <String>[
+      'root', 'source', 'coverage', 'digest', 'day',
+    ]) {
+      final root = Map<String, Object?>.from(
+        jsonDecode(baseline.encode()) as Map,
+      );
+      if (section == 'root') {
+        root['untracked_official_claim'] = true;
+      } else if (section == 'day') {
+        final days = List<Object?>.from(root['days']! as List);
+        final day = Map<String, Object?>.from(days.first! as Map);
+        day['untracked_official_claim'] = true;
+        days[0] = day;
+        root['days'] = days;
+      } else {
+        final nested = Map<String, Object?>.from(root[section]! as Map);
+        nested['untracked_official_claim'] = true;
+        root[section] = nested;
+      }
+      await expectLater(
+        codec.decodeAndValidate(jsonEncode(root)),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('unexpected fields'),
+        )),
+        reason: 'Unknown $section fields cannot borrow the original digest',
+      );
+    }
+  });
+
+  test('B2.33 unchanged canonical package remains digest-valid', () async {
+    final baseline = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: _daysForYear(2028),
+    );
+    final decoded = await codec.decodeAndValidate(baseline.encode());
+    expect(decoded.digest, baseline.digest);
+    expect(decoded.toJson(), baseline.toJson());
+  });
+
   test('stored metadata round-trips and legacy text stays detectable', () async {
     final package = await codec.build(
       sourceYear: 2028,

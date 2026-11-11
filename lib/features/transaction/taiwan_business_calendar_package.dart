@@ -11,6 +11,21 @@ class TaiwanBusinessCalendarPackageException implements Exception {
   String toString() => message;
 }
 
+// B2.33: SHA-256 covers the versioned canonical fields, not arbitrary
+// unknown JSON members. Reject shadow authority claims before normalization.
+void _requireExactCalendarKeys(
+  Map<String, Object?> map,
+  Set<String> expected,
+  String section,
+) {
+  if (map.length != expected.length ||
+      map.keys.any((key) => !expected.contains(key))) {
+    throw TaiwanBusinessCalendarPackageException(
+      'Calendar package $section contains unexpected fields for format version 1.',
+    );
+  }
+}
+
 class TaiwanBusinessCalendarPackageDay {
   const TaiwanBusinessCalendarPackageDay({
     required this.dateKey,
@@ -35,6 +50,11 @@ class TaiwanBusinessCalendarPackageDay {
       );
     }
     final map = Map<String, Object?>.from(value);
+    _requireExactCalendarKeys(
+      map,
+      const <String>{'date', 'is_business_day', 'label'},
+      'day',
+    );
     final date = map['date'];
     final flag = map['is_business_day'];
     final label = map['label'];
@@ -296,6 +316,13 @@ class TaiwanBusinessCalendarPackageCodec {
       );
     }
     final root = Map<String, Object?>.from(decoded);
+    _requireExactCalendarKeys(
+      root,
+      const <String>{
+        'format_version', 'source', 'generated_at', 'coverage', 'days', 'digest',
+      },
+      'root',
+    );
     final formatVersion = root['format_version'];
     final source = root['source'];
     final generatedAt = root['generated_at'];
@@ -316,6 +343,23 @@ class TaiwanBusinessCalendarPackageCodec {
     final sourceMap = Map<String, Object?>.from(source);
     final coverageMap = Map<String, Object?>.from(coverage);
     final digestValues = Map<String, Object?>.from(digestMap);
+    _requireExactCalendarKeys(
+      sourceMap,
+      const <String>{
+        'year', 'revision', 'revision_sequence', 'url', 'published_at',
+      },
+      'source',
+    );
+    _requireExactCalendarKeys(
+      coverageMap,
+      const <String>{'start', 'end', 'row_count'},
+      'coverage',
+    );
+    _requireExactCalendarKeys(
+      digestValues,
+      const <String>{'algorithm', 'value'},
+      'digest',
+    );
     final sourceYear = sourceMap['year'];
     final sourceRevision = sourceMap['revision'];
     final revisionSequence = sourceMap['revision_sequence'];
