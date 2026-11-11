@@ -1,4 +1,14 @@
-## CURRENT — 2026-11-11 17:13 Asia/Taipei | B2.25 unreadable next-year presence guard PRODUCT SOURCE+TEST; successor exact-head CI PENDING
+## CURRENT — 2026-11-11 17:22 Asia/Taipei | B2.25 exact-head Flutter TEST failure isolated; TEST_ONLY FFI lifecycle fix; successor CI PENDING
+
+**Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT expected parent `73f954f057570af70645ee83feec18c3a4577d7e`; Lab `b9c18d34424f54dfa952875a139f9a5b1a2ce427`. B2.25 [Flutter Android CI #1450](https://github.com/easonliu714/my_finance_app_public/actions/runs/42993738872) Analyze0 and focused source custody PASS, but full Flutter suite first actual failure: 2428 PASS / 1 FAIL / 1 SKIP. Failure is isolated B2.25 FFI test setup: `table taiwan_business_calendar_days already exists` when opening the same in-memory database four times without closing between iterations. This is test-fixture lifecycle, NOT a production regression; other Android/API35/Release jobs must be assessed separately and no successor CI is inherited.
+
+**TEST_ONLY repair:** the four negative SQLite storage-class cases now each close their FFI database in a `finally` block before the next fixture is opened. Production `annualUpdateDecision()` B2.25 guard is unchanged: status(nextYear)==null but existing unreadable next-year rows means `nextYearUntrusted`; a genuinely absent year permits `checkOfficialSource`. Parent SOURCE+TEST gate remains unaccepted until successor exact-head focused/full Flutter tests and three Android jobs pass. No Owner data, signer, version bump or merge.
+
+**Lab/C500 HOLD:** ROC115 05-06 sorted and draw-order official PDF distinct raw SHA pins, real positive/independent full-coverage negative remain HOLD; Owner Lab #39 72-page/3600 full10/cursor73 PARTIAL PASS. Scheme C, C13/C17/C18, full87k/global NOTWIN, V25 Scope10, durable consent+ledger CAS/fsync, Trusted9BA2 Signed, Owner production and MERGE_READY HOLD. Signer upgrade versionCode <= Owner495 remains fail-closed.
+
+**NEXT measurable DoD:** exact successor Flutter Analyze0, B2.25 four malformed next-year negatives + absent-year positive, 2429+ full test PASS / 1 SKIP, Android API35 nine native JUnit, bounded disposable Release-AOT five markers and artifacts. Fix only the first new actual failure. Single :15 PrimaryWriter; :45 read-only Watchdog.
+
+## HISTORY — 2026-11-11 17:13 Asia/Taipei | B2.25 unreadable next-year presence guard PRODUCT SOURCE+TEST; successor exact-head CI PENDING
 
 **Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT expected parent `1930d2eecb3ac13d562ed50ed5578e637a43f36d`; Lab `b9c18d34424f54dfa952875a139f9a5b1a2ce427`. Parent [Flutter Android CI #1449](https://github.com/easonliu714/my_finance_app_public/actions/runs/42986115358) exact-head 3/3 SUCCESS: Analyze0, 2427 PASS/1 SKIP, API35 9 native JUnit, ephemeral disposable-debug-signer Release-AOT five markers; this does NOT certify the successor.
 

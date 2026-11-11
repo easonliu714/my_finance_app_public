@@ -927,28 +927,33 @@ void main() {
     ];
     for (final corruption in corruptions) {
       final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
-      addTearDown(db.close);
-      final current = await _package(codec, year: 2028, sequence: 1);
-      await service.install(db, current);
-      expect((await service.status(db, 2028))!.hasCanonicalRowDigest, isTrue);
-      await _insertLegacyDay(db, year: 2029, date: '2029-01-01');
-      await db.execute(corruption);
-      expect(await service.status(db, 2029), isNull,
-          reason: 'Malformed next-year storage class must be untrusted');
-      final before = await db.query('taiwan_business_calendar_days',
-          orderBy: 'source_year ASC, calendar_date ASC');
-      expect(
-        await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
-        CalendarAnnualUpdateDecision.nextYearUntrusted,
-        reason: 'Unparseable next-year rows cannot authorize a source check',
-      );
-      expect(
-        await db.query('taiwan_business_calendar_days',
-            orderBy: 'source_year ASC, calendar_date ASC'),
-        equals(before),
-        reason: 'Read-only eligibility must preserve both years byte-for-byte',
-      );
-      expect((await service.status(db, 2028))!.digest, current.digest);
+      // sqflite_ffi reuses the same in-memory database until it is closed.
+      // Close each fixture before opening the next corruption case.
+      try {
+        final current = await _package(codec, year: 2028, sequence: 1);
+        await service.install(db, current);
+        expect((await service.status(db, 2028))!.hasCanonicalRowDigest, isTrue);
+        await _insertLegacyDay(db, year: 2029, date: '2029-01-01');
+        await db.execute(corruption);
+        expect(await service.status(db, 2029), isNull,
+            reason: 'Malformed next-year storage class must be untrusted');
+        final before = await db.query('taiwan_business_calendar_days',
+            orderBy: 'source_year ASC, calendar_date ASC');
+        expect(
+          await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+          CalendarAnnualUpdateDecision.nextYearUntrusted,
+          reason: 'Unparseable next-year rows cannot authorize a source check',
+        );
+        expect(
+          await db.query('taiwan_business_calendar_days',
+              orderBy: 'source_year ASC, calendar_date ASC'),
+          equals(before),
+          reason: 'Read-only eligibility must preserve both years byte-for-byte',
+        );
+        expect((await service.status(db, 2028))!.digest, current.digest);
+      } finally {
+        await db.close();
+      }
     }
   });
 
