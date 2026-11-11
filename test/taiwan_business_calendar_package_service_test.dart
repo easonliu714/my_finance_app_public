@@ -614,6 +614,59 @@ void main() {
     expect(retained.hasCanonicalRowDigest, isTrue);
   });
 
+  test('B2.22 later timestamp drift revokes canonical year authority', () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    final newer = await _package(codec, year: 2028, sequence: 2);
+    await service.install(db, original,
+        importedAt: DateTime.utc(2027, 7, 1));
+    final verified = await service.status(db, 2028);
+    expect(verified!.hasCanonicalRowDigest, isTrue);
+    expect(verified.digest, original.digest);
+
+    // A later SQLite edit is not part of install() and must not retain LKG.
+    await db.update('taiwan_business_calendar_days',
+        <String, Object?>{'updated_at': '2001-01-01T00:00:00.000Z'},
+        where: 'calendar_date = ?',
+        whereArgs: <Object?>['2028-07-03']);
+    final corrupted = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    final status = await service.status(db, 2028);
+    expect(status!.isContiguous, isFalse);
+    expect(status.hasCanonicalRowDigest, isFalse);
+    expect(status.sequence, 0);
+    expect(status.digest, isEmpty);
+    expect(
+        await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+        CalendarAnnualUpdateDecision.currentYearNotVerified);
+    await expectLater(service.install(db, newer),
+        throwsA(isA<CalendarPackageConflictException>()));
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(corrupted),
+        reason: 'Untrusted stored year must not be overwritten or repaired');
+  });
+
+  test('B2.22 malformed first-row timestamp fails closed without writes',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, original);
+    await db.update('taiwan_business_calendar_days',
+        <String, Object?>{'updated_at': 'not-an-iso-utc-timestamp'},
+        where: 'calendar_date = ?',
+        whereArgs: <Object?>['2028-01-01']);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    final status = await service.status(db, 2028);
+    expect(status!.importedAt, 'not-an-iso-utc-timestamp');
+    expect(status.isContiguous, isFalse);
+    expect(status.hasCanonicalRowDigest, isFalse);
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before));
+  });
+
   test('B2.21 legacy TEXT flag trigger fails typed and retains LKG', () async {
     final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
     addTearDown(db.close);

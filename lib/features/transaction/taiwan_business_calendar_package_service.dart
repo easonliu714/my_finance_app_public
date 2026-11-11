@@ -325,6 +325,17 @@ class TaiwanBusinessCalendarPackageService {
     // compatibility and are not asserted to have cryptographic row proof.
     if (metadata.generatedAt != null) {
       if (DateTime.tryParse(metadata.generatedAt!) == null) return null;
+      // B2.22: the canonical day digest excludes local import provenance.
+      // A later SQLite rewrite of one timestamp must revoke verified LKG,
+      // even if every day/label still hashes to the original package.
+      // New-format installs issue one UTC timestamp for the entire year.
+      final importedAt = rows.first['updated_at'];
+      if (importedAt is! String ||
+          !importedAt.endsWith('Z') ||
+          DateTime.tryParse(importedAt) == null ||
+          rows.any((row) => row['updated_at'] != importedAt)) {
+        return null;
+      }
       try {
         final rebuilt = await const TaiwanBusinessCalendarPackageCodec().build(
           sourceYear: metadata.sourceYear,
