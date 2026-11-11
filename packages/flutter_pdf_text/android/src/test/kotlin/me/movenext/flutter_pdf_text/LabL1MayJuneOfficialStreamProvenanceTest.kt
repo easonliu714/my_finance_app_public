@@ -162,7 +162,7 @@ class LabL1MayJuneOfficialStreamProvenanceTest {
 
   @Test fun stagedPairPointOfUseRehashRejectsSameLengthTampering() = withStaging { root ->
     val a = stage(root)
-    val bBytes = "%PDF-1.7\\ndistinct draw\\n%%EOF\\n".toByteArray()
+    val bBytes = "%PDF-1.7\ndistinct draw\n%%EOF\n".toByteArray()
     val b = stage(root, draw, bBytes)
     api.requireDistinctStagedPair(a, b)
     val originalB = b.file.readBytes()
@@ -177,7 +177,7 @@ class LabL1MayJuneOfficialStreamProvenanceTest {
 
   @Test fun stagedPairRejectsRoleFileSwapAndMissingBytes() = withStaging { root ->
     val a = stage(root)
-    val b = stage(root, draw, "%PDF-1.7\\nother draw\\n%%EOF\\n".toByteArray())
+    val b = stage(root, draw, "%PDF-1.7\nother draw\n%%EOF\n".toByteArray())
     rejects("L1_HTTPS_STAGED_PAIR_CUSTODY_INVALID") {
       api.requireDistinctStagedPair(
         a, LabL1MayJuneOfficialStreamProvenance.StagedCandidate(b.candidate, a.file)
