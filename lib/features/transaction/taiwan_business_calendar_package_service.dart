@@ -111,11 +111,26 @@ class TaiwanBusinessCalendarPackageService {
     if (december.length != 31) {
       return CalendarAnnualUpdateDecision.currentYearNotVerified;
     }
+    // B2.24: status() and this second December query are separate reads.
+    // Validate every returned day, including rows AFTER the first workday;
+    // a malformed/duplicated date or non-integer flag is never authority
+    // to suppress or initiate an official source check.
+    final decemberStart = DateTime.utc(year, 12, 1);
     String? firstBusinessDay;
-    for (final row in december) {
-      if (row['is_business_day'] == 1) {
-        firstBusinessDay = row['calendar_date'] as String;
-        break;
+    for (var index = 0; index < december.length; index++) {
+      final row = december[index];
+      final expectedDate = decemberStart
+          .add(Duration(days: index))
+          .toIso8601String()
+          .substring(0, 10);
+      final flag = row['is_business_day'];
+      if (row['calendar_date'] != expectedDate ||
+          flag is! int ||
+          (flag != 0 && flag != 1)) {
+        return CalendarAnnualUpdateDecision.currentYearNotVerified;
+      }
+      if (flag == 1 && firstBusinessDay == null) {
+        firstBusinessDay = expectedDate;
       }
     }
     if (firstBusinessDay == null) {

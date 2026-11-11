@@ -818,6 +818,42 @@ void main() {
         reason: 'A foreground eligibility check must not mutate SQLite.');
   });
 
+  test('B2.24 second December read rejects malformed rows after first workday',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, original);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    expect((await service.status(db, 2028))!.hasCanonicalRowDigest, isTrue);
+
+    // status() sees the real, verified full year. The later December query
+    // alone receives an adversarial same-count view; this models a changed
+    // second read without touching Owner data or altering the SQLite LKG.
+    for (final corruption in <Map<String, Object?>>[
+      <String, Object?>{'calendar_date': '2028-12-15'},
+      <String, Object?>{'is_business_day': '1'},
+      <String, Object?>{'is_business_day': 2},
+      <String, Object?>{'is_business_day': null},
+    ]) {
+      final view = _CalendarDecemberTamperingExecutor(db, corruption);
+      expect(
+        await service.annualUpdateDecision(view, DateTime.utc(2028, 12, 5)),
+        CalendarAnnualUpdateDecision.currentYearNotVerified,
+        reason: 'A later malformed December row must fail closed: $corruption',
+      );
+    }
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.checkOfficialSource,
+      reason: 'An intact verified year keeps normal update eligibility',
+    );
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before));
+    expect((await service.status(db, 2028))!.digest, original.digest);
+  });
+
   test('B2.18 future-dated same-Taipei-day receipt never suppresses check',
       () async {
     final db = await _openCalendarDatabase();
@@ -1002,4 +1038,52 @@ String _dateKey(DateTime value) {
   String two(int number) => number.toString().padLeft(2, '0');
   return '${value.year.toString().padLeft(4, '0')}-'
       '${two(value.month)}-${two(value.day)}';
+}
+
+ // B2.24 test-only executor: preserve the real verified first query and
+ // tamper only the later December read. No database writes or Owner data.
+class _CalendarDecemberTamperingExecutor implements DatabaseExecutor {
+  _CalendarDecemberTamperingExecutor(this.db, this.corruption);
+
+  final Database db;
+  final Map<String, Object?> corruption;
+
+  @override
+  Future<List<Map<String, Object?>>> query(
+    String table, {
+    bool? distinct,
+    List<String>? columns,
+    String? where,
+    List<Object?>? whereArgs,
+    String? groupBy,
+    String? having,
+    String? orderBy,
+    int? limit,
+    int? offset,
+  }) async {
+    final rows = await db.query(
+      table,
+      distinct: distinct,
+      columns: columns,
+      where: where,
+      whereArgs: whereArgs,
+      groupBy: groupBy,
+      having: having,
+      orderBy: orderBy,
+      limit: limit,
+      offset: offset,
+    );
+    if (where !=
+        'source_year = ? AND calendar_date >= ? AND calendar_date <= ?') {
+      return rows;
+    }
+    final altered = rows
+        .map((row) => Map<String, Object?>.from(row))
+        .toList(growable: false);
+    altered[15].addAll(corruption);
+    return altered;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
