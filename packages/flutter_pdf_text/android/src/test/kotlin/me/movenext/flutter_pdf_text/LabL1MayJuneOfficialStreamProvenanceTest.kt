@@ -1,6 +1,8 @@
 package me.movenext.flutter_pdf_text
 
+import java.io.File
 import java.io.ByteArrayInputStream
+import java.nio.file.Files
 import java.io.InputStream
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
@@ -126,6 +128,58 @@ class LabL1MayJuneOfficialStreamProvenanceTest {
     val candidate = audit(length = null, clock = monotonic)
     assertEquals(sha(pdf), candidate.sha256)
     assertEquals("STREAM_CANDIDATE_NOT_OFFICIAL_PIN", candidate.authority)
+  }
+
+
+  private fun withStaging(block: (File) -> Unit) {
+    val root = Files.createTempDirectory("lab-may-june-stage-").toFile()
+    try { block(root) } finally { root.deleteRecursively() }
+  }
+
+  private fun stage(
+    root: File, role: LabL1MayJuneOfficialStreamProvenance.Role = sorted,
+    body: ByteArray = pdf, length: Long? = body.size.toLong()
+  ) = api.auditResponseToStaging(
+    role, api.expectedUri(role), 200, "application/pdf", null,
+    length, null, null, ByteArrayInputStream(body), root
+  )
+
+  @Test fun fullBytesSurviveIndependentReadbackWithoutSourcePromotion() = withStaging { root ->
+    val a = stage(root)
+    val drawBytes = "%PDF-1.7\nsynthetic distinct draw\n%%EOF\n".toByteArray()
+    val b = stage(root, draw, drawBytes)
+    assertEquals(pdf.toList(), a.file.readBytes().toList())
+    assertEquals(drawBytes.toList(), b.file.readBytes().toList())
+    assertEquals(sha(pdf), a.candidate.sha256)
+    assertEquals(sha(drawBytes), b.candidate.sha256)
+    assertTrue(a.file.name.contains("115-05-06_cloud-500_sorted_"))
+    assertTrue(b.file.name.contains("115-05-06_cloud-500_draw_order_"))
+    api.requireDistinctPair(a.candidate, b.candidate)
+    rejects("L1_PERIOD_SOURCE_UNPINNED") {
+      LabL1PeriodSourceIdentity.requirePinned("115-05-06", "cloud-500", a.candidate.sha256)
+    }
+  }
+
+  @Test fun invalidOrTruncatedBodyNeverLeavesPartialFile() = withStaging { root ->
+    rejects("L1_HTTPS_INCOMPLETE_BYTES") { stage(root, length = pdf.size.toLong() + 1) }
+    assertTrue(root.listFiles().orEmpty().isEmpty())
+    rejects("L1_HTTPS_PDF_TRAILER_INVALID") {
+      stage(root, body = "%PDF-1.7\ntruncated".toByteArray())
+    }
+    assertTrue(root.listFiles().orEmpty().isEmpty())
+  }
+
+  @Test fun repeatedCaptureDoesNotOverwriteExistingCandidate() = withStaging { root ->
+    val first = stage(root)
+    val before = first.file.readBytes()
+    rejects("L1_HTTPS_STAGING_ALREADY_EXISTS") { stage(root) }
+    assertEquals(before.toList(), first.file.readBytes().toList())
+    assertEquals(1, root.listFiles().orEmpty().size)
+  }
+
+  @Test fun absentStagingDirectoryFailsBeforeWriting() = withStaging { root ->
+    rejects("L1_HTTPS_STAGING_ROOT_INVALID") { stage(File(root, "missing")) }
+    assertTrue(root.listFiles().orEmpty().isEmpty())
   }
 
   @Test fun repeatedlyEmptyStreamCannotLoopForever() {

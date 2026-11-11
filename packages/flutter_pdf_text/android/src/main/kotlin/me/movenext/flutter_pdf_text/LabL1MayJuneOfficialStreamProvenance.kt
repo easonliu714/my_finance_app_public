@@ -1,6 +1,9 @@
 package me.movenext.flutter_pdf_text
 
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.URL
 import java.security.MessageDigest
 import javax.net.ssl.HttpsURLConnection
@@ -33,6 +36,9 @@ internal object LabL1MayJuneOfficialStreamProvenance {
     val lastModified: String?,
     val authority: String = "STREAM_CANDIDATE_NOT_OFFICIAL_PIN"
   )
+
+  /** Retained full bytes are diagnostic, never an official source pin. */
+  data class StagedCandidate(val candidate: Candidate, val file: File)
 
   fun expectedUri(role: Role): String = when (role) {
     Role.SORTED -> LabL1MayJuneDualPdfOracle.sortedUri
@@ -81,6 +87,106 @@ internal object LabL1MayJuneOfficialStreamProvenance {
     }
   }
 
+
+  /** Actual official HTTPS GET with bounded full-byte diagnostic custody. */
+  fun fetchOfficialToStaging(
+    role: Role, stagingDirectory: File, byteBudget: Long = maxPdfBytes
+  ): StagedCandidate {
+    if (byteBudget !in 10L..maxPdfBytes) {
+      throw IllegalStateException("L1_HTTPS_BYTE_BUDGET_INVALID")
+    }
+    val connection = URL(expectedUri(role)).openConnection() as HttpsURLConnection
+    connection.instanceFollowRedirects = false
+    connection.useCaches = false
+    connection.connectTimeout = 10_000
+    connection.readTimeout = 30_000
+    connection.setRequestProperty("Accept", "application/pdf")
+    connection.setRequestProperty("Accept-Encoding", "identity")
+    try {
+      if (connection.responseCode != HttpsURLConnection.HTTP_OK) {
+        throw IllegalStateException("L1_HTTPS_STATUS_NOT_200")
+      }
+      val length = connection.getHeaderFieldLong("Content-Length", -1L)
+        .takeIf { it >= 0L }
+      val staged = connection.inputStream.use { input ->
+        auditResponseToStaging(
+          role, connection.url.toExternalForm(), connection.responseCode,
+          connection.contentType, connection.contentEncoding, length,
+          connection.getHeaderField("ETag"), connection.getHeaderField("Last-Modified"),
+          input, stagingDirectory, byteBudget
+        )
+      }
+      return staged.copy(
+        candidate = staged.candidate.copy(authority = "HTTPS_STAGED_CANDIDATE_NOT_OFFICIAL_PIN")
+      )
+    } finally {
+      connection.disconnect()
+    }
+  }
+
+  /**
+   * App-private Lab staging. Fsync, independent full-byte SHA readback,
+   * and non-overwriting role/period/SHA rename. Never modifies LKG/cursor.
+   * Any validation/readback failure removes its partial candidate.
+   */
+  fun auditResponseToStaging(
+    role: Role, requestUri: String, httpStatus: Int,
+    contentType: String?, contentEncoding: String?,
+    declaredContentLength: Long?, etag: String?, lastModified: String?,
+    stream: InputStream, stagingDirectory: File,
+    byteBudget: Long = maxPdfBytes,
+    monotonicNanos: () -> Long = System::nanoTime
+  ): StagedCandidate {
+    if (!stagingDirectory.isDirectory ||
+        stagingDirectory.canonicalFile != stagingDirectory.absoluteFile) {
+      throw IllegalStateException("L1_HTTPS_STAGING_ROOT_INVALID")
+    }
+    val partial = File.createTempFile("lab-115-05-06-", ".partial", stagingDirectory)
+    try {
+      val candidate = FileOutputStream(partial).use { output ->
+        val observed = auditResponse(
+          role, requestUri, httpStatus, contentType, contentEncoding,
+          declaredContentLength, etag, lastModified, stream, byteBudget,
+          monotonicNanos, output
+        )
+        output.fd.sync()
+        observed
+      }
+      if (partial.length() != candidate.bytes) {
+        throw IllegalStateException("L1_HTTPS_STAGING_READBACK_MISMATCH")
+      }
+      val digest = MessageDigest.getInstance("SHA-256")
+      var bytes = 0L
+      partial.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+          val n = input.read(buffer)
+          if (n < 0) break
+          if (n == 0) continue
+          bytes += n
+          if (bytes > candidate.bytes) {
+            throw IllegalStateException("L1_HTTPS_STAGING_READBACK_MISMATCH")
+          }
+          digest.update(buffer, 0, n)
+        }
+      }
+      val sha = digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+      if (bytes != candidate.bytes || sha != candidate.sha256) {
+        throw IllegalStateException("L1_HTTPS_STAGING_READBACK_MISMATCH")
+      }
+      val filename = "115-05-06_cloud-500_" + role.name.lowercase() +
+        "_" + candidate.sha256 + ".pdf"
+      val target = File(stagingDirectory, filename)
+      if (target.exists()) throw IllegalStateException("L1_HTTPS_STAGING_ALREADY_EXISTS")
+      if (!partial.renameTo(target)) {
+        throw IllegalStateException("L1_HTTPS_STAGING_RENAME_FAILED")
+      }
+      return StagedCandidate(candidate, target)
+    } finally {
+      if (partial.exists()) partial.delete()
+    }
+  }
+
   /** Testable streaming core; caller-supplied metadata is NOT HTTPS authority. */
   fun auditResponse(
     role: Role,
@@ -93,7 +199,8 @@ internal object LabL1MayJuneOfficialStreamProvenance {
     lastModified: String?,
     stream: InputStream,
     byteBudget: Long = maxPdfBytes,
-    monotonicNanos: () -> Long = System::nanoTime
+    monotonicNanos: () -> Long = System::nanoTime,
+    sink: OutputStream? = null
   ): Candidate {
     if (requestUri != expectedUri(role)) {
       throw IllegalStateException("L1_HTTPS_SOURCE_ROLE_URI_MISMATCH")
@@ -135,6 +242,7 @@ internal object LabL1MayJuneOfficialStreamProvenance {
       }
       emptyReads = 0
       if (n > byteBudget - total) throw IllegalStateException("L1_HTTPS_BYTE_BUDGET_EXCEEDED")
+      sink?.write(buffer, 0, n)
       total += n
       if (headerCount < header.size) {
         val count = minOf(n, header.size - headerCount)
