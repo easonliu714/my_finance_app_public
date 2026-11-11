@@ -1,4 +1,10 @@
-## CURRENT — 2026-11-12 06:18 Asia/Taipei | B2.32 PRODUCT SOURCE+TEST: reject normalized clock/offset overflow in official calendar provenance; exact-head CI PENDING
+## CURRENT — 2026-11-12 06:xx Asia/Taipei | B2.32R SOURCE splice correction, exact-head CI PENDING
+
+**Critical authoring correction:** B2.32 first commit `ad9cb4d17a1c07e04ada8595c2e4ff5a47e2bb75` used JavaScript String.replace with a replacement containing Dart raw regex `$'`, causing JavaScript replacement-token suffix expansion and duplicate `_validateDays`/`_hasPlausibleProvenanceOrder` methods. GitHub readback exposed duplicate methods (2 each) before any CI result; first commit is NOT a passing source. This successor reconstructs ONLY the production source from verified parent `ca0bd00551c83ee534e837b5eda53cd0dce716ec` with callback-based literal replacement, checks exactly one method definition each, retains the original two B2.32 codec tests, and does not change workflow assertions. Do not claim the first B2.32 head passed. New HEAD Flutter Analyze/full tests/API35/Release-AOT required.
+
+**Prior exact-head verified:** #1460 3/3 SUCCESS on `ca0bd00551c83ee534e837b5eda53cd0dce716ec` (Analyze0, 2440 PASS/1 SKIP, API35 nine, ephemeral AOT five). Lab `40aabaf6dbcc779f4e0188c8e7ad472a04537303` #55 remains QUEUED, 0 jobs at last read. C500 official distinct 115-05-06 sorted/draw-order bytes/SHA/real oracle HOLD; `L1_PERIOD_SOURCE_UNPINNED` remains fail-closed. main untouched; PR45 OPEN/DRAFT; no signed release, Owner device or merge authorization.
+
+### PRIOR CHECKPOINT — 2026-11-12 06:18 Asia/Taipei | B2.32 first SOURCE+TEST commit, source splice invalid (superseded)
 
 **Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8` unchanged; PR45 OPEN/DRAFT expected parent `ca0bd00551c83ee534e837b5eda53cd0dce716ec`; Lab `40aabaf6dbcc779f4e0188c8e7ad472a04537303` unchanged. Issues #4/#13/#19 OPEN. No main/merge/version/signer/Owner finance SQLite changes.
 
