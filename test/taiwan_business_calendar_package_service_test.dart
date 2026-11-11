@@ -673,10 +673,10 @@ void main() {
     addTearDown(db.close);
     await _insertLegacyDay(db, year: 2028, date: '2028-01-01');
     // SQLite rowid tables permit NULL in a TEXT PRIMARY KEY without NOT NULL.
-    await db.rawUpdate("""
+    await db.rawUpdate('''
       UPDATE taiwan_business_calendar_days SET calendar_date = NULL
       WHERE source_year = 2028
-    """);
+    ''');
     final before = await db.query('taiwan_business_calendar_days');
     expect(before.single['calendar_date'], isNull);
     expect(await service.status(db, 2028), isNull);
@@ -697,10 +697,10 @@ void main() {
     await service.install(db, original);
     expect((await service.status(db, 2028))!.hasCanonicalRowDigest, isTrue);
     // SQLite TEXT affinity does not prevent a later BLOB value.
-    await db.rawUpdate("""
+    await db.rawUpdate('''
       UPDATE taiwan_business_calendar_days SET updated_at = x'0102'
       WHERE calendar_date = '2028-01-01'
-    """);
+    ''');
     final before = await db.query('taiwan_business_calendar_days',
         orderBy: 'calendar_date ASC');
     expect(before.first['updated_at'], isNot(isA<String>()));
