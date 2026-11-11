@@ -493,9 +493,93 @@ class TaiwanBusinessCalendarPackageCodec {
     final month = int.parse(match.group(2)!);
     final day = int.parse(match.group(3)!);
     final civil = DateTime.utc(year, month, day);
-    return civil.year == year &&
-        civil.month == month &&
-        civil.day == day;
+    if (civil.year != year || civil.month != month || civil.day != day) {
+      return false;
+    }
+    // B2.32: Dart DateTime.tryParse normalizes overflowed clock fields.
+    // A valid civil date alone cannot authenticate a source timestamp.
+    if (value.length == 10) return true;
+    final clock = RegExp(
+      r'^\d{4}-\d{2}-\d{2}[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?',
+    ).firstMatch(value);
+    if (clock == null) return false;
+    final hour = int.parse(clock.group(1)!);
+    final minute = int.parse(clock.group(2)!);
+    final second = int.parse(clock.group(3) ?? '0');
+    if (hour > 23 || minute > 59 || second > 59) return false;
+    final offset = RegExp(r'[+-](\d{2}):?(\d{2})
+  }
+
+  // B2.31: Only two zone-qualified timestamps have unambiguous instants.
+  // Date-only publication is compared at calendar-day granularity.
+  static bool _hasPlausibleProvenanceOrder(
+    String sourcePublishedAt,
+    String generatedAt,
+  ) {
+    final published = sourcePublishedAt.trim();
+    final generated = generatedAt.trim();
+    final explicitZone = RegExp(r'(?:[Zz]|[+-]\d{2}:?\d{2})$');
+    if (published.length > 10 &&
+        generated.length > 10 &&
+        explicitZone.hasMatch(published) &&
+        explicitZone.hasMatch(generated)) {
+      return !DateTime.parse(generated).isBefore(DateTime.parse(published));
+    }
+    return generated.substring(0, 10).compareTo(published.substring(0, 10)) >=
+        0;
+  }
+
+  void _validateDays(
+    int sourceYear,
+    List<TaiwanBusinessCalendarPackageDay> days,
+  ) {
+    final start = DateTime.utc(sourceYear, 1, 1);
+    final endExclusive = DateTime.utc(sourceYear + 1, 1, 1);
+    final expectedCount = endExclusive.difference(start).inDays;
+    if (days.length != expectedCount) {
+      throw TaiwanBusinessCalendarPackageException(
+        'Calendar package for $sourceYear must contain $expectedCount rows; '
+        'received ${days.length}.',
+      );
+    }
+
+    for (var index = 0; index < days.length; index++) {
+      final expected = _dateKey(start.add(Duration(days: index)));
+      final actual = days[index].dateKey;
+      if (actual != expected) {
+        throw TaiwanBusinessCalendarPackageException(
+          'Calendar package row $index must be $expected; received $actual.',
+        );
+      }
+      final parsed = DateTime.tryParse(actual);
+      if (parsed == null || parsed.year != sourceYear) {
+        throw TaiwanBusinessCalendarPackageException(
+          'Calendar package contains an invalid or wrong-year date: $actual.',
+        );
+      }
+    }
+  }
+
+  Future<String> _sha256(String value) async {
+    final hash = await Sha256().hash(utf8.encode(value));
+    return hash.bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
+  static String _dateKey(DateTime value) {
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${value.year.toString().padLeft(4, '0')}-'
+        '${two(value.month)}-${two(value.day)}';
+  }
+}
+).firstMatch(value);
+    if (offset != null &&
+        (int.parse(offset.group(1)!) > 23 ||
+            int.parse(offset.group(2)!) > 59)) {
+      return false;
+    }
+    return true;
   }
 
   // B2.31: Only two zone-qualified timestamps have unambiguous instants.

@@ -1,4 +1,16 @@
-## CURRENT — 2026-11-12 05:18 Asia/Taipei | B2.31R exact-head CI toolchain drift remediation (CI_ONLY; not PRODUCT SOURCE+TEST); successor CI PENDING
+## CURRENT — 2026-11-12 06:18 Asia/Taipei | B2.32 PRODUCT SOURCE+TEST: reject normalized clock/offset overflow in official calendar provenance; exact-head CI PENDING
+
+**Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8` unchanged; PR45 OPEN/DRAFT expected parent `ca0bd00551c83ee534e837b5eda53cd0dce716ec`; Lab `40aabaf6dbcc779f4e0188c8e7ad472a04537303` unchanged. Issues #4/#13/#19 OPEN. No main/merge/version/signer/Owner finance SQLite changes.
+
+**Prior exact-head CI evidence:** B2.31R toolchain pinned Flutter 3.47.9 in all three jobs; [#1460](https://github.com/easonliu714/my_finance_app_public/actions/runs/43102361609) 3/3 SUCCESS, Analyze0, 2440 PASS/1 SKIP, API35 nine JUnit, ephemeral Release-AOT five markers, artifact 13892613281 (debug-signer, not trusted signed). Previous canonical PENDING is superseded by this exact-head result.
+
+**B2.32 ROOT CAUSE / SOURCE+TEST:** `TaiwanBusinessCalendarPackageCodec._hasValidCivilDate` already rejects normalized impossible YYYY-MM-DD but relies on `DateTime.tryParse` for time-of-day/offset; overflowed 24h, 60m, 60s or offset fields can be normalized rather than rejected. After the civil-day check, validate original clock hour 0..23, minute/second 0..59 and explicit offset hour 0..23/minute 0..59. Preserve date-only official publication, valid leap dates, timezones and all existing package digest/chronology gates. Two real codec tests cover negative publication/generation overflow and positive edge-time round trips. No changes to SQL, transactions, data or CI assertions. New HEAD CI must independently PASS; no inherited success.
+
+**C500_PROGRESS=HOLD (source bytes) / Lab previous SOURCE+TEST not reclassified:** Lab #55 [43095873515](https://github.com/easonliu714/my_finance_app_public/actions/runs/43095873515) exact `40aabaf6` QUEUED with 0 jobs at fresh read; not Native/Flutter/APK PASS. Official 115-05-06 sorted/draw-order full bytes, distinct SHA256, real matched=true and independently attested full-coverage NOT_WIN absent. `L1_PERIOD_SOURCE_UNPINNED` remains fail-closed; Lab #39 72 pages/3600 numbers/cursor73 PARTIAL PASS preserved. G0/G1 acquisition SKIPPED is not official PASS. C13/C17/C18, V25 Scope10, full87k/globalNOTWIN, cross-process CAS, trusted signed, Owner device, Merge HOLD.
+
+**NEXT measurable:** inspect B2.32 exact-head Flutter Analyze 0, at least 2442 PASS/1 SKIP, API35 nine JUnit, release-AOT five markers, artifact; first failure gets narrow correction. Independently investigate Lab #55 queue without rerun/dispatch; return to official distinct-PDF acquisition/provenance gate within next four Writer rounds. OWNER_HELP=NONE at present.
+
+### PRIOR CHECKPOINT — 2026-11-12 05:18 Asia/Taipei | B2.31R toolchain drift remediation (CI_ONLY; #1460 now SUCCESS)
 
 **Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8` unchanged; PR45 OPEN/DRAFT expected parent `d8c44df1b33074fd833e6a3b11117a8fd1f58a21`; Lab `40aabaf6dbcc779f4e0188c8e7ad472a04537303` unchanged, Lab #55 [43095873515](https://github.com/easonliu714/my_finance_app_public/actions/runs/43095873515) QUEUED (no same-head native/Flutter/diagnostic proof yet). Issues #4/#13/#19 OPEN. No concurrent branch writes, main changes, new PR/Writer, or Owner data access.
 

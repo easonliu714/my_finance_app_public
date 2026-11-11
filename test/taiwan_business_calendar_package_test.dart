@@ -294,6 +294,77 @@ void main() {
     }
   });
 
+  test('B2.32 rejects overflowed official publication clock values',
+      () async {
+    for (final published in <String>[
+      '2027-07-01T24:00:00Z',
+      '2027-07-01T12:60:00Z',
+      '2027-07-01T12:34:60Z',
+      '2027-07-01T12:00:00+24:00',
+      '2027-07-01T12:00:00+08:60',
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+          sourcePublishedAt: published,
+          generatedAt: '2027-07-03T00:00:00Z',
+          days: _daysForYear(2028),
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('publication date is invalid'),
+        )),
+      );
+    }
+  });
+
+  test('B2.32 rejects overflowed generation time but accepts valid edge',
+      () async {
+    for (final generated in <String>[
+      '2027-07-01T24:00:00Z',
+      '2027-07-01T12:60:00Z',
+      '2027-07-01T12:34:60Z',
+      '2027-07-01T12:00:00+24:00',
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+          sourcePublishedAt: '2027-06-30',
+          generatedAt: generated,
+          days: _daysForYear(2028),
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('generation time is invalid'),
+        )),
+      );
+    }
+    for (final generated in <String>[
+      '2027-07-01T23:59:59Z',
+      '2027-07-01T00:00:00+08:00',
+    ]) {
+      final package = await codec.build(
+        sourceYear: 2028,
+        sourceRevision: 'DGPA-117-test',
+        revisionSequence: 1,
+        sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+        sourcePublishedAt: '2027-06-30',
+        generatedAt: generated,
+        days: _daysForYear(2028),
+      );
+      expect((await codec.decodeAndValidate(package.encode())).digest,
+          package.digest);
+    }
+  });
+
   test('stored metadata round-trips and legacy text stays detectable', () async {
     final package = await codec.build(
       sourceYear: 2028,
