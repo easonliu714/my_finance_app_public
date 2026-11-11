@@ -614,6 +614,46 @@ void main() {
     expect(retained.hasCanonicalRowDigest, isTrue);
   });
 
+  test('B2.21 legacy TEXT flag trigger fails typed and retains LKG', () async {
+    final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    final replacement = await _package(codec, year: 2028, sequence: 2);
+    await service.install(db, original);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    final beforeStatus = await service.status(db, 2028);
+    expect(beforeStatus!.hasCanonicalRowDigest, isTrue);
+    await db.execute("""
+      CREATE TRIGGER calendar_text_flag_after_insert
+      AFTER INSERT ON taiwan_business_calendar_days
+      WHEN NEW.calendar_date = '2028-07-03'
+      BEGIN
+        UPDATE taiwan_business_calendar_days
+        SET is_business_day = 'corrupted-text'
+        WHERE calendar_date = NEW.calendar_date;
+      END
+    """);
+    await expectLater(service.install(db, replacement),
+        throwsA(isA<CalendarPackageConflictException>()));
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before),
+        reason: 'TEXT flag must rollback entire replacement transaction');
+    final retained = await service.status(db, 2028);
+    expect(retained!.digest, original.digest);
+    expect(retained.hasCanonicalRowDigest, isTrue);
+  });
+
+  test('B2.21 integer flags remain idempotent on legacy SQLite', () async {
+    final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, original);
+    final unchanged = await service.install(db, original);
+    expect(unchanged.disposition, CalendarPackageInstallDisposition.unchanged);
+    expect((await service.status(db, 2028))!.digest, original.digest);
+  });
+
   test('failed replacement rolls back the original year', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);

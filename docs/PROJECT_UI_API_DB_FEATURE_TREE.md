@@ -1,4 +1,14 @@
-## CURRENT — 2026-11-11 02:15 Asia/Taipei | PR45 B2.20 transactional post-insert timestamp provenance SOURCE+TEST; successor exact-head CI PENDING
+## CURRENT — 2026-11-11 08:17 Asia/Taipei | PR45 B2.21 legacy SQLite TEXT flag typed conflict SOURCE+TEST; exact-head CI PENDING
+
+**Authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 expected parent `47c1c0e0941d14f1b44a07f03326d3dc7558c855` OPEN/DRAFT; Lab `b9c18d34424f54dfa952875a139f9a5b1a2ce427`. PR45 [#1444](https://github.com/easonliu714/my_finance_app_public/actions/runs/42873759748) parent exact-head 3/3 SUCCESS, 2,420 Flutter PASS / 1 SKIP, API35 9 PASS and disposable Release-AOT five markers. New successor must pass its own CI.
+
+**B2.21 SOURCE+TEST:** `_matches()` rejects SQLite TEXT/REAL/NULL/out-of-domain `is_business_day` as mismatch instead of throwing untyped `TypeError`. Isolated in-memory legacy SQLite FFI regression injects AFTER INSERT TEXT tamper and requires typed `CalendarPackageConflictException`, full transaction rollback, unchanged verified LKG rows and digest; positive idempotent integer regression. No Owner DB or real ledger access, signer, version change, schema migration, main merge or cross-process CAS authority.
+
+**Cloud500:** Lab #50 synthetic dual-PDF Oracle contract CI SUCCESS, but official ROC115 05-06 sorted/draw-order PDF independent raw SHA pins, actual positive and independently attested negative are HOLD. Owner Lab #39 two private ZIP windows, 72 pages/18 batches/3,600 full10 numbers remains PARTIAL PASS, cursor=73 preserved; full 87k/global NOT_WIN, C13/C17/C18, V25 Scope10, Trusted9BA2 Signed, Owner UAT and MERGE_READY HOLD.
+
+**NEXT:** check successor exact-head Flutter Analyze/full tests including B2.21 FFI, API35 9 JUnit, Debug/native, bounded Release-AOT five markers and artifacts; repair first real failure without bypass. Then obtain independent May-June official PDF byte pins or advance another safe B2 product gate.
+
+## HISTORY — 2026-11-11 02:15 Asia/Taipei | PR45 B2.20 transactional post-insert timestamp provenance SOURCE+TEST; successor exact-head CI PENDING
 
 **Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT parent `c2e1cf5980a4d11fd55b6fa3485dcdbd36fdf019`; isolated Lab `b9c18d34424f54dfa952875a139f9a5b1a2ce427`. [PR45 #1443](https://github.com/easonliu714/my_finance_app_public/actions/runs/42863166948) exact parent 3/3 SUCCESS: Flutter Analyze/full **2,419 PASS / 1 SKIP**, Debug/native, API35 and disposable Release-AOT. [Lab #50](https://github.com/easonliu714/my_finance_app_public/actions/runs/42853275547) exact Lab HEAD SUCCESS with 41 focused Flutter, Native JVM dual-PDF synthetic contract, Analyze0, standalone APK, minimum permissions and isolated Lab signer. No Owner real May-June oracle or production signature is inferred.
 

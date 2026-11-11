@@ -407,13 +407,16 @@ class TaiwanBusinessCalendarPackageService {
     for (var index = 0; index < rows.length; index++) {
       final row = rows[index];
       final day = package.days[index];
+      // B2.21: legacy SQLite can return TEXT flags. Reject non-integer or
+      // out-of-domain values before comparison, never throw an untyped cast.
       // B2.20: post-write provenance must equal the timestamp issued for
       // this transaction; a silent AFTER INSERT mutation is not LKG.
       if ((expectedImportedAt != null &&
               row['updated_at'] != expectedImportedAt) ||
           row['calendar_date'] != day.dateKey ||
-          (row['is_business_day'] as num).toInt() !=
-              (day.isBusinessDay ? 1 : 0) ||
+          (row['is_business_day'] is! int ||
+              (row['is_business_day'] != 0 && row['is_business_day'] != 1) ||
+              row['is_business_day'] != (day.isBusinessDay ? 1 : 0)) ||
           row['day_label'] != day.label ||
           row['source_revision'] != revision ||
           row['source_url'] != package.sourceUrl) {
