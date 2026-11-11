@@ -160,6 +160,36 @@ class LabL1MayJuneOfficialStreamProvenanceTest {
     }
   }
 
+  @Test fun stagedPairPointOfUseRehashRejectsSameLengthTampering() = withStaging { root ->
+    val a = stage(root)
+    val bBytes = "%PDF-1.7\\ndistinct draw\\n%%EOF\\n".toByteArray()
+    val b = stage(root, draw, bBytes)
+    api.requireDistinctStagedPair(a, b)
+    val originalB = b.file.readBytes()
+    val altered = a.file.readBytes()
+    altered[8] = if (altered[8] == 'Z'.code.toByte()) 'Y'.code.toByte() else 'Z'.code.toByte()
+    a.file.writeBytes(altered)
+    rejects("L1_HTTPS_STAGED_PAIR_CUSTODY_INVALID") {
+      api.requireDistinctStagedPair(a, b)
+    }
+    assertEquals(originalB.toList(), b.file.readBytes().toList())
+  }
+
+  @Test fun stagedPairRejectsRoleFileSwapAndMissingBytes() = withStaging { root ->
+    val a = stage(root)
+    val b = stage(root, draw, "%PDF-1.7\\nother draw\\n%%EOF\\n".toByteArray())
+    rejects("L1_HTTPS_STAGED_PAIR_CUSTODY_INVALID") {
+      api.requireDistinctStagedPair(
+        a, LabL1MayJuneOfficialStreamProvenance.StagedCandidate(b.candidate, a.file)
+      )
+    }
+    assertTrue(b.file.delete())
+    rejects("L1_HTTPS_STAGED_PAIR_CUSTODY_INVALID") {
+      api.requireDistinctStagedPair(a, b)
+    }
+    assertTrue(a.file.isFile)
+  }
+
   @Test fun invalidOrTruncatedBodyNeverLeavesPartialFile() = withStaging { root ->
     rejects("L1_HTTPS_INCOMPLETE_BYTES") { stage(root, length = pdf.size.toLong() + 1) }
     assertTrue(root.listFiles().orEmpty().isEmpty())

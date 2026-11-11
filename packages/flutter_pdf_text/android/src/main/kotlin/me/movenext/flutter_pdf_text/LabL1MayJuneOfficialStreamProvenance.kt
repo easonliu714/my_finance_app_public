@@ -289,6 +289,61 @@ internal object LabL1MayJuneOfficialStreamProvenance {
     )
   }
 
+  /**
+   * Lab-only point-of-use custody: the capture-time digest is not enough if
+   * staged bytes change before a two-role diagnostic comparison. Rehash each
+   * complete staged file with bounded memory. This does NOT establish an
+   * independent official source pin or an immutable later consumer handle.
+   */
+  fun requireDistinctStagedPair(sorted: StagedCandidate, drawOrder: StagedCandidate) {
+    requireDistinctPair(sorted.candidate, drawOrder.candidate)
+    verifyStagedBytes(sorted)
+    verifyStagedBytes(drawOrder)
+  }
+
+  private fun verifyStagedBytes(staged: StagedCandidate) {
+    val candidate = staged.candidate
+    val file = staged.file
+    val expectedName = "115-05-06_cloud-500_${candidate.role.name.lowercase()}_${candidate.sha256}.pdf"
+    if (candidate.authority !in setOf(
+        "STREAM_CANDIDATE_NOT_OFFICIAL_PIN",
+        "HTTPS_STAGED_CANDIDATE_NOT_OFFICIAL_PIN"
+      ) ||
+      candidate.bytes !in 10L..maxPdfBytes ||
+      !Regex("[0-9a-f]{64}").matches(candidate.sha256) ||
+      !file.isFile || file.name != expectedName ||
+      file.canonicalFile != file.absoluteFile
+    ) {
+      throw IllegalStateException("L1_HTTPS_STAGED_PAIR_CUSTODY_INVALID")
+    }
+    val digest = MessageDigest.getInstance("SHA-256")
+    var observed = 0L
+    var emptyReads = 0
+    file.inputStream().use { input ->
+      val buffer = ByteArray(64 * 1024)
+      while (true) {
+        val n = input.read(buffer)
+        if (n < 0) break
+        if (n == 0) {
+          if (++emptyReads > 32) {
+            throw IllegalStateException("L1_HTTPS_STAGED_PAIR_CUSTODY_INVALID")
+          }
+          continue
+        }
+        emptyReads = 0
+        if (n > candidate.bytes - observed) {
+          throw IllegalStateException("L1_HTTPS_STAGED_PAIR_CUSTODY_INVALID")
+        }
+        observed += n
+        digest.update(buffer, 0, n)
+      }
+    }
+    val sha = digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+    if (observed != candidate.bytes || sha != candidate.sha256) {
+      throw IllegalStateException("L1_HTTPS_STAGED_PAIR_CUSTODY_INVALID")
+    }
+  }
+
   /** Different official URLs and distinct complete digests, not two copies. */
   fun requireDistinctPair(sorted: Candidate, drawOrder: Candidate) {
     if (sorted.role != Role.SORTED || drawOrder.role != Role.DRAW_ORDER ||
