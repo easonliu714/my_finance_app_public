@@ -245,7 +245,14 @@ class TaiwanBusinessCalendarPackageService {
     DatabaseExecutor db,
     int year,
   ) async {
-    final rows = await _rows(db, year);
+    // B2.26: a pre-migration database may not contain this optional table.
+    // A failed SQLite read is never evidence of a verified calendar year.
+    late final List<Map<String, Object?>> rows;
+    try {
+      rows = await _rows(db, year);
+    } on DatabaseException {
+      return null;
+    }
     if (rows.isEmpty) return null;
     final metadata = await _metadata(rows);
     // B2.23: historical SQLite rowid tables can contain NULL TEXT PRIMARY

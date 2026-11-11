@@ -910,6 +910,34 @@ void main() {
         where: 'source_year = ?', whereArgs: <Object?>[2029]), hasLength(1));
   });
 
+  test('B2.26 missing calendar table is unverified without writes', () async {
+    // An older on-device database may not yet have the optional B2 table.
+    // Only a real calendar package install requires that table to exist.
+    final db = await openDatabase(inMemoryDatabasePath);
+    addTearDown(db.close);
+    await db.execute('CREATE TABLE legacy_guard (value TEXT NOT NULL)');
+    await db.insert('legacy_guard', <String, Object?>{'value': 'LKG'});
+    final before = await db.query('legacy_guard');
+
+    expect(await service.status(db, 2028), isNull);
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.currentYearNotVerified,
+    );
+    expect(
+      await service.annualUpdateDecision(db, DateTime.utc(2028, 11, 5)),
+      CalendarAnnualUpdateDecision.outsideDecember,
+    );
+    final incoming = await _package(codec, year: 2028, sequence: 1);
+    await expectLater(
+      service.install(db, incoming),
+      throwsA(isA<DatabaseException>()),
+      reason: 'Missing table must not become a silently successful install',
+    );
+    expect(await db.query('legacy_guard'), equals(before),
+        reason: 'No migration, install or calendar read may alter old LKG');
+  });
+
   test('B2.25 unreadable next-year rows never look like absent year',
       () async {
     // Each isolated SQLite FFI case has a real verified current-year LKG.
