@@ -854,6 +854,48 @@ void main() {
     expect((await service.status(db, 2028))!.digest, original.digest);
   });
 
+  test('B2.27 second December SQLite read error fails closed without writes',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, original);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    final injected = _CalendarReadFailureExecutor(db, failDecember: true);
+    expect(
+      await service.annualUpdateDecision(injected, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.currentYearNotVerified,
+      reason: 'A second-read SQLite exception must not escape or authorize',
+    );
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before));
+    expect((await service.status(db, 2028))!.digest, original.digest);
+    expect(await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+        CalendarAnnualUpdateDecision.checkOfficialSource);
+  });
+
+  test('B2.27 unreadable next-year existence query fails closed without writes',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, original);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    final injected = _CalendarReadFailureExecutor(db, failNextYear: true);
+    expect(
+      await service.annualUpdateDecision(injected, DateTime.utc(2028, 12, 5)),
+      CalendarAnnualUpdateDecision.nextYearUntrusted,
+      reason: 'Failed existence read must not imply absent next year',
+    );
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before));
+    expect((await service.status(db, 2028))!.digest, original.digest);
+    expect(await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+        CalendarAnnualUpdateDecision.checkOfficialSource);
+  });
+
   test('B2.18 future-dated same-Taipei-day receipt never suppresses check',
       () async {
     final db = await _openCalendarDatabase();
@@ -1131,6 +1173,57 @@ String _dateKey(DateTime value) {
   String two(int number) => number.toString().padLeft(2, '0');
   return '${value.year.toString().padLeft(4, '0')}-'
       '${two(value.month)}-${two(value.day)}';
+}
+
+// B2.27: a real isolated SQLite FFI read error is injected only at the
+// second December query or next-year existence read; the first verified
+// current-year read and the stored LKG remain untouched.
+class _CalendarReadFailureExecutor extends _CalendarDecemberTamperingExecutor {
+  _CalendarReadFailureExecutor(Database db, {
+    this.failDecember = false,
+    this.failNextYear = false,
+  }) : super(db, const <String, Object?>{});
+
+  final bool failDecember;
+  final bool failNextYear;
+
+  @override
+  Future<List<Map<String, Object?>>> query(
+    String table, {
+    bool? distinct,
+    List<String>? columns,
+    String? where,
+    List<Object?>? whereArgs,
+    String? groupBy,
+    String? having,
+    String? orderBy,
+    int? limit,
+    int? offset,
+  }) {
+    if ((failDecember &&
+            where ==
+                'source_year = ? AND calendar_date >= ? AND calendar_date <= ?') ||
+        (failNextYear &&
+            where == 'source_year = ?' &&
+            whereArgs != null &&
+            whereArgs.length == 1 &&
+            whereArgs.single == 2029)) {
+      // Real SQLite FFI DatabaseException, not a fabricated exception type.
+      return db.rawQuery('SELECT * FROM b2_27_missing_read_table');
+    }
+    return super.query(
+      table,
+      distinct: distinct,
+      columns: columns,
+      where: where,
+      whereArgs: whereArgs,
+      groupBy: groupBy,
+      having: having,
+      orderBy: orderBy,
+      limit: limit,
+      offset: offset,
+    );
+  }
 }
 
  // B2.24 test-only executor: preserve the real verified first query and

@@ -1,4 +1,14 @@
-## CURRENT — 2026-11-11 18:16 Asia/Taipei | B2.26 absent legacy calendar table fail-closed PRODUCT SOURCE+TEST; exact-head CI PENDING
+## CURRENT — 2026-11-11 19:16 Asia/Taipei | B2.27 independent SQLite read-failure fail-closed PRODUCT SOURCE+TEST; exact-head CI PENDING
+
+**Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT expected parent `0d3bbb8f950c57a1b1278c70c682e3978181a8af`; Lab `b9c18d34424f54dfa952875a139f9a5b1a2ce427`. B2.26 exact-head [Flutter Android CI #1452](https://github.com/easonliu714/my_finance_app_public/actions/runs/43002609239) 3/3 SUCCESS: Analyze0, 2430 PASS/1 SKIP, API35 native job, bounded disposable-debug-signer Release-AOT job and API35 evidence artifact. Parent success does not certify B2.27.
+
+**B2.27 PRODUCT SOURCE+TEST:** `TaiwanBusinessCalendarPackageService.annualUpdateDecision()` performs two independent reads after verifying current-year status. A SQLite DatabaseException in the later December read formerly escaped the advisory decision; a failed next-year status read followed by a second failed existence query also escaped. Both now fail closed to `currentYearNotVerified` and `nextYearUntrusted` respectively. Two isolated SQLite FFI regression tests inject real missing-table read exceptions at the exact later queries, prove normal positive eligibility on the intact DB, and prove current-year LKG rows/digest unchanged. This is NOT cross-process atomic snapshot proof, official DGPA source authentication, or permission to mutate production SQLite.
+
+**C500/Lab HOLD:** ROC115 05-06 sorted/draw-order PDFs remain unpinned independently and real positive/independently attested full-coverage negative remain HOLD. Owner Lab #39 72-page/3600 full10/cursor73 PARTIAL PASS. Scheme C, C13/C17/C18, full87k/global NOTWIN, V25 Scope10, durable consent+ledger CAS/fsync, Trusted9BA2 Signed, Owner production and MERGE_READY HOLD; signer upgrade versionCode <= Owner495 remains fail-closed.
+
+**NEXT measurable DoD:** B2.27 exact new-head Flutter Analyze0, focused two new FFI negatives and 2432+ full PASS/1 SKIP, API35 nine native JUnit, bounded ephemeral Release-AOT five markers, artifact and exact SHA readback. On failure repair first real error only. Single :15 Writer, :45 strictly read-only Watchdog.
+
+## HISTORY — 2026-11-11 18:16 Asia/Taipei | B2.26 absent legacy calendar table fail-closed PRODUCT SOURCE+TEST; exact-head CI PENDING
 
 **Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; PR45 OPEN/DRAFT expected parent `a0518c0ce7b833a9ceeb811ef64b190c077ff386`; Lab `b9c18d34424f54dfa952875a139f9a5b1a2ce427`. Parent [Flutter Android CI #1451](https://github.com/easonliu714/my_finance_app_public/actions/runs/42994626869) exact-head 3/3 SUCCESS: Analyze0, 2429 PASS/1 SKIP, API35 nine JUnit, bounded disposable-debug-signer Release-AOT five-marker job, API35 evidence artifact. Parent success cannot certify this new commit.
 

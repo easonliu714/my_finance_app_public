@@ -101,13 +101,20 @@ class TaiwanBusinessCalendarPackageService {
       return CalendarAnnualUpdateDecision.currentYearNotVerified;
     }
 
-    final december = await db.query(
-      tableName,
-      columns: <String>['calendar_date', 'is_business_day'],
-      where: 'source_year = ? AND calendar_date >= ? AND calendar_date <= ?',
-      whereArgs: <Object?>[year, '$year-12-01', '$year-12-31'],
-      orderBy: 'calendar_date ASC',
-    );
+    // B2.27: the second December read is outside status()'s read window.
+    // A transient SQLite read failure cannot authorize an official check.
+    late final List<Map<String, Object?>> december;
+    try {
+      december = await db.query(
+        tableName,
+        columns: <String>['calendar_date', 'is_business_day'],
+        where: 'source_year = ? AND calendar_date >= ? AND calendar_date <= ?',
+        whereArgs: <Object?>[year, '$year-12-01', '$year-12-31'],
+        orderBy: 'calendar_date ASC',
+      );
+    } on DatabaseException {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
     if (december.length != 31) {
       return CalendarAnnualUpdateDecision.currentYearNotVerified;
     }
@@ -157,7 +164,16 @@ class TaiwanBusinessCalendarPackageService {
     // SQLite may hold a next-year NULL date or BLOB provenance, making
     // status() reject a real row. Distinguish that from a missing year before
     // permitting an advisory source check. No write or replacement is allowed.
-    if ((await _rows(db, year + 1)).isNotEmpty) {
+    // B2.27: status(nextYear) can fail closed to null on a SQLite error.
+    // Its independent existence read must also fail closed, never escape
+    // as an untyped foreground exception or imply that the year is absent.
+    late final List<Map<String, Object?>> existingNextRows;
+    try {
+      existingNextRows = await _rows(db, year + 1);
+    } on DatabaseException {
+      return CalendarAnnualUpdateDecision.nextYearUntrusted;
+    }
+    if (existingNextRows.isNotEmpty) {
       return CalendarAnnualUpdateDecision.nextYearUntrusted;
     }
     // B2.18: future-dated receipts cannot suppress a real official check.
