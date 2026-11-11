@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/transaction/taiwan_business_calendar_package.dart';
@@ -344,7 +345,8 @@ void main() {
     // Complete legacy coverage is insufficient if a later SQLite row has
     // an invalid storage class or timestamp; preserve every original row.
     for (final corruption in <Object>[
-      <int>[1, 2],
+      // sqflite FFI binds SQLite BLOBs from Uint8List, not List<int>.
+      Uint8List.fromList(<int>[1, 2]),
       'not-a-timestamp',
       '',
     ]) {
