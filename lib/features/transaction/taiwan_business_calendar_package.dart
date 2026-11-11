@@ -453,12 +453,12 @@ class TaiwanBusinessCalendarPackageCodec {
         'Calendar package source URL must name an approved official authority.',
       );
     }
-    if (DateTime.tryParse(sourcePublishedAt.trim()) == null) {
+    if (!_hasValidCivilDate(sourcePublishedAt)) {
       throw const TaiwanBusinessCalendarPackageException(
         'Calendar package publication date is invalid.',
       );
     }
-    if (DateTime.tryParse(generatedAt.trim()) == null) {
+    if (!_hasValidCivilDate(generatedAt)) {
       throw const TaiwanBusinessCalendarPackageException(
         'Calendar package generation time is invalid.',
       );
@@ -470,6 +470,24 @@ class TaiwanBusinessCalendarPackageCodec {
         'Calendar package coverage must be $expectedStart..$expectedEnd.',
       );
     }
+  }
+
+  // B2.30: DateTime.tryParse normalizes impossible civil days (e.g. Feb 30).
+  // Check the original YYYY-MM-DD fields before trusting source provenance.
+  // Preserve valid date-only and timezone-offset timestamp inputs.
+  static bool _hasValidCivilDate(String raw) {
+    final value = raw.trim();
+    if (DateTime.tryParse(value) == null) return false;
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})(?:$|[Tt ])')
+        .firstMatch(value);
+    if (match == null) return false;
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final civil = DateTime.utc(year, month, day);
+    return civil.year == year &&
+        civil.month == month &&
+        civil.day == day;
   }
 
   void _validateDays(

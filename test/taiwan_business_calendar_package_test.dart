@@ -186,6 +186,51 @@ void main() {
     );
   });
 
+  test('B2.30 impossible publication and generation dates fail closed',
+      () async {
+    final days = _daysForYear(2028);
+    for (final bad in <Map<String, String>>[
+      <String, String>{
+        'published': '2027-02-30',
+        'generated': '2027-07-01T00:00:00.000Z',
+      },
+      <String, String>{
+        'published': '2027-06-30',
+        'generated': '2027-04-31T00:00:00.000Z',
+      },
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+          sourcePublishedAt: bad['published']!,
+          generatedAt: bad['generated']!,
+          days: days,
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>()),
+      );
+    }
+  });
+
+  test('B2.30 valid leap day and timezone-offset provenance still round-trip',
+      () async {
+    final package = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2028-02-29',
+      generatedAt: '2028-03-01T00:00:00.000+08:00',
+      days: _daysForYear(2028),
+    );
+    final decoded = await codec.decodeAndValidate(package.encode());
+    expect(decoded.digest, package.digest);
+    expect(decoded.sourcePublishedAt, '2028-02-29');
+    expect(decoded.generatedAt, '2028-03-01T00:00:00.000+08:00');
+  });
+
   test('stored metadata round-trips and legacy text stays detectable', () async {
     final package = await codec.build(
       sourceYear: 2028,
