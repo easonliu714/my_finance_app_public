@@ -339,6 +339,15 @@ class TaiwanBusinessCalendarPackageService {
         !RegExp(r'^[0-9a-f]{64}$').hasMatch(metadata.digest)) {
       return null;
     }
+    // B2.29: a generated_at envelope is emitted in one canonical JSON form.
+    // Its day digest covers decoded fields, not unknown JSON keys or raw
+    // whitespace. Reject rewritten envelopes instead of accepting an
+    // untracked authority claim as a verified installed-year LKG.
+    // Historical envelopes without generated_at remain structural-only.
+    if (metadata.generatedAt != null &&
+        values.single != metadata.encode()) {
+      return null;
+    }
     final firstDay = DateTime.utc(metadata.sourceYear, 1, 1);
     final expectedCount = DateTime.utc(metadata.sourceYear + 1, 1, 1)
         .difference(firstDay)

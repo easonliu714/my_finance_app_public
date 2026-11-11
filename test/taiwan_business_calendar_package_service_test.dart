@@ -394,6 +394,76 @@ void main() {
     expect(verified.rowCount, original.length);
   });
 
+  test('B2.29 rewritten canonical metadata cannot authorize verified LKG',
+      () async {
+    // A decoded-field digest does not authenticate unknown JSON keys or
+    // noncanonical serialization. Only the original generated_at envelope
+    // can remain a verified source for the same or a newer revision.
+    for (final rewrite in <String Function(String)>[
+      (canonical) {
+        final fields = Map<String, Object?>.from(
+          jsonDecode(canonical) as Map,
+        );
+        fields['untracked_authority'] = 'attacker-claim';
+        return jsonEncode(fields);
+      },
+      (canonical) => ' $canonical',
+    ]) {
+      final db = await _openCalendarDatabase();
+      try {
+        final original = await _package(codec, year: 2028, sequence: 1);
+        final newer = await _package(codec, year: 2028, sequence: 2);
+        await service.install(db, original);
+        final canonical = original.storedMetadata.encode();
+        expect((await service.status(db, 2028))!.hasCanonicalRowDigest,
+            isTrue);
+
+        final rewritten = rewrite(canonical);
+        expect(rewritten, isNot(canonical));
+        await db.update(
+          'taiwan_business_calendar_days',
+          <String, Object?>{'source_revision': rewritten},
+          where: 'source_year = ?',
+          whereArgs: <Object?>[2028],
+        );
+        final before = await db.query('taiwan_business_calendar_days',
+            orderBy: 'calendar_date ASC');
+        final untrusted = await service.status(db, 2028);
+        expect(untrusted, isNotNull);
+        expect(untrusted!.hasCanonicalRowDigest, isFalse);
+        expect(untrusted.isContiguous, isFalse);
+
+        await expectLater(service.install(db, original),
+            throwsA(isA<CalendarPackageConflictException>()));
+        await expectLater(service.install(db, newer),
+            throwsA(isA<CalendarPackageConflictException>()));
+        expect(await db.query('taiwan_business_calendar_days',
+            orderBy: 'calendar_date ASC'), equals(before),
+            reason: 'Both idempotent and newer installs must retain '
+                'rewritten metadata rows without destructive replacement');
+      } finally {
+        await db.close();
+      }
+    }
+  });
+
+  test('B2.29 untouched canonical metadata remains verified and idempotent',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    await service.install(db, original);
+    final before = await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC');
+    final status = await service.status(db, 2028);
+    expect(status!.hasCanonicalRowDigest, isTrue);
+    expect(status.digest, original.digest);
+    final unchanged = await service.install(db, original);
+    expect(unchanged.disposition, CalendarPackageInstallDisposition.unchanged);
+    expect(await db.query('taiwan_business_calendar_days',
+        orderBy: 'calendar_date ASC'), equals(before));
+  });
+
   test('B2 incomplete legacy year is not upgraded or overwritten', () async {
     final db = await _openCalendarDatabase();
     addTearDown(db.close);
