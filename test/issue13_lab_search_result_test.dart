@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/issue13_lab_search_result.dart';
 
@@ -94,4 +94,25 @@ void main() {
       expect(find.textContaining('HOLD：'), findsOneWidget);
     }
   });
+  testWidgets('standalone Material UI keeps HOLD diagnostic visibly fail-closed',
+      (tester) async {
+    final result = LabSearchResult.hold(
+      candidate: candidate,
+      reason: 'NATIVE_NOT_COMPLETE',
+    );
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(useMaterial3: true),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: LabSearchResultCard(result: result),
+        ),
+      ),
+    ));
+    expect(find.byKey(const ValueKey<String>('lab-search-result')), findsOneWidget);
+    expect(find.textContaining('診斷搜尋：HOLD'), findsOneWidget);
+    expect(find.textContaining('禁止任何正式判定'), findsOneWidget);
+    expect(find.textContaining('NATIVE_NOT_COMPLETE'), findsOneWidget);
+    expect(find.textContaining('mode=DIAGNOSTIC_ONLY'), findsOneWidget);
+  });
+
 }
