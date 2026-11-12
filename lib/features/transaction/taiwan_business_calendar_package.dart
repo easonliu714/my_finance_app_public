@@ -576,6 +576,10 @@ class TaiwanBusinessCalendarPackageCodec {
     }
   }
 
+  // B2.35: Reuse strict source timestamp validation for legacy SQLite rows.
+  // This validates civil/clock syntax, not official publisher authenticity.
+  static bool hasValidCivilTimestamp(String raw) => _hasValidCivilDate(raw);
+
   // B2.30: DateTime.tryParse normalizes impossible civil days (e.g. Feb 30).
   // Check the original YYYY-MM-DD fields before trusting source provenance.
   // Preserve valid date-only and timezone-offset timestamp inputs.

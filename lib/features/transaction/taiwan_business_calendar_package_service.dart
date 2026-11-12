@@ -465,6 +465,8 @@ class TaiwanBusinessCalendarPackageService {
       // Reject damaged day data before any transactional year replacement.
       final row = rows[index];
       final flag = row['is_business_day'];
+      // B2.35: DateTime.tryParse normalizes impossible dates/clocks, so a
+      // parseable but impossible legacy timestamp cannot authorize replacement.
       // B2.28: legacy rows may come from SQLite tables without storage-class
       // CHECKs. A later BLOB or malformed timestamp must never make a
       // damaged full-year LKG eligible for a destructive upgrade.
@@ -474,7 +476,7 @@ class TaiwanBusinessCalendarPackageService {
           flag is! int || (flag != 0 && flag != 1) ||
           row['day_label'] is! String ||
           updatedAt is! String ||
-          DateTime.tryParse(updatedAt) == null) {
+          !TaiwanBusinessCalendarPackageCodec.hasValidCivilTimestamp(updatedAt)) {
         return false;
       }
     }

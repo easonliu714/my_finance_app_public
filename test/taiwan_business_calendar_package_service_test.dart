@@ -394,6 +394,60 @@ void main() {
     expect(verified.rowCount, original.length);
   });
 
+  test('B2.35 normalized legacy timestamps cannot authorize replacement',
+      () async {
+    // DateTime.tryParse accepts overflowed dates/clocks on some inputs;
+    // legacy year replacement must not delete those untrusted original rows.
+    for (final timestamp in <String>[
+      '2026-02-30T00:00:00.000Z',
+      '2026-01-01T24:00:00.000Z',
+      '2026-01-01T12:60:00.000Z',
+      '2026-01-01T12:00:00+24:00',
+    ]) {
+      final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
+      try {
+        await _insertLegacyYear(db, 2028);
+        await db.update(
+          'taiwan_business_calendar_days',
+          <String, Object?>{'updated_at': timestamp},
+          where: 'calendar_date = ?',
+          whereArgs: <Object?>['2028-07-03'],
+        );
+        final before = await db.query('taiwan_business_calendar_days',
+            orderBy: 'calendar_date ASC');
+        final status = await service.status(db, 2028);
+        expect(status, isNotNull);
+        expect(status!.isContiguous, isFalse,
+            reason: 'Impossible timestamp cannot be trusted: $timestamp');
+        final replacement = await _package(codec, year: 2028, sequence: 1);
+        await expectLater(service.install(db, replacement),
+            throwsA(isA<CalendarPackageConflictException>()));
+        expect(await db.query('taiwan_business_calendar_days',
+            orderBy: 'calendar_date ASC'), equals(before),
+            reason: 'Failed promotion must retain every legacy row');
+      } finally {
+        await db.close();
+      }
+    }
+  });
+
+  test('B2.35 valid leap-day legacy timestamps permit safe upgrade', () async {
+    final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
+    addTearDown(db.close);
+    await _insertLegacyYear(db, 2028);
+    await db.update(
+      'taiwan_business_calendar_days',
+      <String, Object?>{'updated_at': '2024-02-29T23:59:59+08:00'},
+      where: 'calendar_date = ?',
+      whereArgs: <Object?>['2028-07-03'],
+    );
+    expect((await service.status(db, 2028))!.isContiguous, isTrue);
+    final replacement = await _package(codec, year: 2028, sequence: 1);
+    final result = await service.install(db, replacement);
+    expect(result.disposition, CalendarPackageInstallDisposition.installed);
+    expect((await service.status(db, 2028))!.hasCanonicalRowDigest, isTrue);
+  });
+
   test('B2.29 rewritten canonical metadata cannot authorize verified LKG',
       () async {
     // A decoded-field digest does not authenticate unknown JSON keys or
