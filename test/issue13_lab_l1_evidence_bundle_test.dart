@@ -403,7 +403,16 @@ void main() {
     expect(action.onPressed, isNull);
     pending.complete();
     await tester.pump();
+    // The status is above the scrolled action in a lazily built ListView.
+    // Return it to the viewport before asserting the late-completion HOLD;
+    // do not weaken the separate disabled-action assertion.
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
+    await tester.pump();
     expect(find.text('LAB_INIT_HOLD'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      button, 220.0, scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
     action = tester.widget<OutlinedButton>(find.ancestor(
       of: button, matching: find.byType(OutlinedButton),
     ));
