@@ -380,10 +380,19 @@ void main() {
 
   testWidgets('stalled initialization times out and cannot enable late actions', (tester) async {
     final pending = Completer<void>();
-    final hooks = Cloud500DiagnosticTestHooks(initialize: () => pending.future);
+    // Short, injected deadline exercises the same Future.timeout branch as
+    // the 30-second production path without a single 31-second fake-clock jump.
+    final hooks = Cloud500DiagnosticTestHooks(
+      initialize: () => pending.future,
+      initializationTimeout: const Duration(milliseconds: 100),
+    );
     await tester.pumpWidget(Cloud500DiagnosticApp(testHooks: hooks));
-    await tester.pump(const Duration(seconds: 31));
-    await tester.pump();
+    await tester.pump(); // Ensure startup Future.timeout is registered.
+    expect(find.text('初始化中…'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('LAB_INIT_HOLD'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(); // Drain timeout error microtasks and rebuild.
     expect(find.text('LAB_INIT_HOLD'), findsOneWidget);
     final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
     await tester.scrollUntilVisible(button, 220.0, scrollable: find.byType(Scrollable).first);

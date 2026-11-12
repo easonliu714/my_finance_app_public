@@ -28,7 +28,9 @@ void main() {
 // Test-only deterministic hooks avoid fake-clock filesystem I/O in widget tests.
 // The production entry point always uses the original platform-backed paths.
 class Cloud500DiagnosticTestHooks {
-  const Cloud500DiagnosticTestHooks({this.initialize, this.writeLog, this.shareEvidenceBundle});
+  // The optional shorter timeout is a test seam; production retains 30 seconds.
+  const Cloud500DiagnosticTestHooks({this.initialize, this.writeLog, this.shareEvidenceBundle, this.initializationTimeout});
+  final Duration? initializationTimeout;
   final Future<void> Function()? initialize;
   final Future<void> Function(String)? writeLog;
   final Future<void> Function()? shareEvidenceBundle;
@@ -120,10 +122,14 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   Future<void> _initializeSafely() async {
     try {
       final testStartup = widget.testHooks?.initialize;
+      // Keep the production 30-second fail-closed boundary; a short test
+      // duration makes fake-clock timeout regression deterministic.
+      final startupTimeout = widget.testHooks?.initializationTimeout ??
+          const Duration(seconds: 30);
       if (testStartup == null) {
-        await _initialize().timeout(const Duration(seconds: 30));
+        await _initialize().timeout(startupTimeout);
       } else {
-        await testStartup().timeout(const Duration(seconds: 30));
+        await testStartup().timeout(startupTimeout);
         if (mounted && !_initializationExpired) {
           setState(() { _initialized = true; _status = '就緒'; });
         }
