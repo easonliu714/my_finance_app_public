@@ -149,8 +149,14 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
             : '$label：完成');
       }
     } catch (error, stack) {
-      await _log('ACTION_FAIL name=$label error=$error');
-      await _log('STACK=${stack.toString().replaceAll('\n', ' | ')}');
+      // L1: Unwritable/full diagnostic logs must not suppress visible failure.
+      Object? logWriteFailure;
+      try {
+        await _log('ACTION_FAIL name=$label error=$error');
+        await _log('STACK=${stack.toString().replaceAll('\n', ' | ')}');
+      } catch (loggingError) {
+        logWriteFailure = loggingError;
+      }
       if (mounted) {
         setState(() {
           if (label == _searchActionLabel) {
@@ -160,7 +166,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
             );
             _status = _searchResult!.statusLabel;
           } else {
-            _status = '$label：失敗：$error';
+            _status = '$label：失敗：$error'
+                '${logWriteFailure == null ? '' : ' [LAB_LOG_WRITE_FAILED]'}';
           }
         });
         // The share action is near the bottom of a long ListView. Report
@@ -169,10 +176,13 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
             ? '分包匯出失敗：$error。請選擇第1、2…包，每包最多12批；'
                 '原始JSONL及續傳頁碼不變，請勿清除資料。'
             : '$label：失敗：$error';
+        final visibleMessage = logWriteFailure == null
+            ? message
+            : '$message [LAB_LOG_WRITE_FAILED]';
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(
-            content: Text(message),
+            content: Text(visibleMessage),
             duration: const Duration(seconds: 10),
           ));
       }

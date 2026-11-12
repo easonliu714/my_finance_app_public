@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:cryptography/cryptography.dart' as cryptography;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:my_finance_app/issue13_cloud500_diag_main.dart';
@@ -312,6 +312,39 @@ void main() {
         .exists(), isFalse);
     expect(await File('${lab.path}/l1-evidence-share-window-0002.zip')
         .exists(), isFalse);
+  });
+
+  testWidgets('unwritable Lab log cannot suppress share failure feedback',
+      (tester) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Lab', packageName: 'com.easonliu.cloud500diag',
+      version: '0.4.37', buildNumber: '900037', buildSignature: '',
+    );
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async => root.path);
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const Cloud500DiagnosticApp());
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('就緒'), findsOneWidget);
+
+    // Simulate storage failure after initialization; no real user data.
+    final log = File('${lab.path}/issue13_cloud500_diag.log');
+    await log.delete();
+    await Directory(log.path).create();
+
+    final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
+    await tester.scrollUntilVisible(
+      button, 220.0, scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester.tap(button);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(find.textContaining('分包匯出失敗'), findsWidgets);
+    expect(find.textContaining('LAB_LOG_WRITE_FAILED'), findsWidgets);
   });
 
   testWidgets('scrolled share action shows immediate visible failure',
