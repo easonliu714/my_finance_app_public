@@ -314,6 +314,20 @@ void main() {
         .exists(), isFalse);
   });
 
+
+  // File-backed startup runs outside the fake async clock in widget tests.
+  // Wait for a visible terminal state rather than assuming a fixed 300 ms.
+  Future<void> waitForLabStatus(WidgetTester tester, String status) async {
+    for (var attempt = 0; attempt < 100; attempt++) {
+      await tester.pump();
+      if (find.text(status).evaluate().isNotEmpty) return;
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+      });
+    }
+    expect(find.text(status), findsOneWidget);
+  }
+
   testWidgets('unwritable Lab log cannot suppress share failure feedback',
       (tester) async {
     PackageInfo.setMockInitialValues(
@@ -326,8 +340,8 @@ void main() {
     addTearDown(() => TestDefaultBinaryMessengerBinding.instance
         .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const Cloud500DiagnosticApp());
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('就緒'), findsOneWidget);
+    await waitForLabStatus(tester, '就緒');
+    expect(find.text('LAB_INIT_HOLD'), findsNothing);
 
     // Simulate storage failure after initialization; no real user data.
     final log = File('${lab.path}/issue13_cloud500_diag.log');
@@ -345,6 +359,36 @@ void main() {
     expect(find.byType(SnackBar), findsOneWidget);
     expect(find.textContaining('分包匯出失敗'), findsWidgets);
     expect(find.textContaining('LAB_LOG_WRITE_FAILED'), findsWidgets);
+  });
+
+
+  testWidgets('initialization failure holds all Lab actions without dispatch',
+      (tester) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Lab', packageName: 'com.easonliu.cloud500diag',
+      version: '0.4.37', buildNumber: '900037', buildSignature: '',
+    );
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      throw PlatformException(code: 'STORAGE_UNAVAILABLE');
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const Cloud500DiagnosticApp());
+    await waitForLabStatus(tester, 'LAB_INIT_HOLD');
+    expect(find.text('就緒'), findsNothing);
+
+    final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
+    await tester.scrollUntilVisible(
+      button, 220.0, scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    final action = tester.widget<OutlinedButton>(find.ancestor(
+      of: button, matching: find.byType(OutlinedButton),
+    ));
+    expect(action.onPressed, isNull);
+    expect(find.byType(SnackBar), findsNothing);
   });
 
   testWidgets('scrolled share action shows immediate visible failure',

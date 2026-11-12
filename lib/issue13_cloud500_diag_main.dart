@@ -80,6 +80,10 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   File? _lastL1BatchFile;
   OfficialCloudAwardArtifactReference? _reference;
   bool _busy = false;
+  bool _initialized = false;
+
+  // Initialization must complete before any Lab action touches files/native code.
+  bool get _actionsDisabled => _busy || !_initialized;
   LabSearchResult? _searchResult;
   String _status = '初始化中…';
   String _runtimeVersion = '讀取中…';
@@ -88,7 +92,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_initialize());
+    unawaited(_initializeSafely());
   }
 
   @override
@@ -97,6 +101,20 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     _evidenceWindowController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // Fail closed if package, support-directory or diagnostic log setup fails.
+  // Logging may itself be unavailable; HOLD status must not depend on it.
+  Future<void> _initializeSafely() async {
+    try {
+      await _initialize();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _initialized = false;
+        _status = 'LAB_INIT_HOLD';
+      });
+    }
   }
 
   Future<void> _initialize() async {
@@ -128,12 +146,15 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       await _log('LOCAL_PDF_PRESENT path=${pdf.path} bytes=${await pdf.length()}');
     }
     if (mounted) {
-      setState(() => _status = '就緒');
+      setState(() {
+        _initialized = true;
+        _status = '就緒';
+      });
     }
   }
 
   Future<void> _run(String label, Future<void> Function() action) async {
-    if (_busy) return;
+    if (_actionsDisabled) return;
     setState(() {
       _busy = true;
       _status = label;
@@ -908,7 +929,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   Widget build(BuildContext context) {
     final buttons = <Widget>[
       FilledButton(
-        onPressed: _busy
+        onPressed: _actionsDisabled
             ? null
             : () => _run('下載/驗證 115-07-08 \$500 PDF', () async {
                   await _ensureExactPdf();
@@ -917,11 +938,11 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       ),
       FilledButton.tonal(
         onPressed:
-            _busy ? null : () => _run('系統 PDF Viewer', _openSystemViewer),
+            _actionsDisabled ? null : () => _run('系統 PDF Viewer', _openSystemViewer),
         child: const Text('2. 用系統 PDF Viewer 開啟'),
       ),
       FilledButton.tonal(
-        onPressed: _busy
+        onPressed: _actionsDisabled
             ? null
             : () => _run(
                   'Android PdfRenderer Open Only',
@@ -939,7 +960,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         ),
       ),
       FilledButton(
-        onPressed: _busy
+        onPressed: _actionsDisabled
             ? null
             : () => _run(
                   'Android PdfRenderer Binary Search',
@@ -948,19 +969,19 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         child: const Text('4. Android PdfRenderer 指定號碼二分搜尋'),
       ),
       FilledButton.tonal(
-        onPressed: _busy ? null : () => _run(
+        onPressed: _actionsDisabled ? null : () => _run(
           'L1 API35 bounded page export', () async {
             await _exportNextL1Batch();
           }),
         child: const Text('L1. 擷取下一批最多 4 頁（非完整判定）'),
       ),
       FilledButton.tonal(
-        onPressed: _busy ? null : () => _run(
+        onPressed: _actionsDisabled ? null : () => _run(
           'L1 bounded multi-batch export', _exportBoundedL1Run),
         child: const Text('L1. 有界連續擷取最多 32 頁（非官方驗收）'),
       ),
       OutlinedButton(
-        onPressed: _busy ? null : () => _run(
+        onPressed: _actionsDisabled ? null : () => _run(
           'Share partial L1 JSONL', _shareL1Batch),
         child: const Text('分享上一批 L1 JSONL'),
       ),
@@ -975,7 +996,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         ),
       ),
       OutlinedButton(
-        onPressed: _busy ? null : () => _run(
+        onPressed: _actionsDisabled ? null : () => _run(
           'Share bounded L1 evidence bundle', _shareL1EvidenceBundle),
         child: const Text('分包分享 JSONL＋SHA Manifest＋Debug Log'),
       ),
@@ -991,15 +1012,15 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       ),
       const Divider(),
       OutlinedButton(
-        onPressed: _busy ? null : () => _run('分享 Debug Log', _shareLogs),
+        onPressed: _actionsDisabled ? null : () => _run('分享 Debug Log', _shareLogs),
         child: const Text('分享完整 Debug Log'),
       ),
       OutlinedButton(
-        onPressed: _busy ? null : () => _run('複製 Debug Log', _copyLogs),
+        onPressed: _actionsDisabled ? null : () => _run('複製 Debug Log', _copyLogs),
         child: const Text('複製完整 Debug Log'),
       ),
       TextButton(
-        onPressed: _busy ? null : () => _run('清除 Log', _clearLogs),
+        onPressed: _actionsDisabled ? null : () => _run('清除 Log', _clearLogs),
         child: const Text('清除 Log'),
       ),
     ];
