@@ -81,6 +81,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   OfficialCloudAwardArtifactReference? _reference;
   bool _busy = false;
   bool _initialized = false;
+  bool _initializationExpired = false;
 
   // Initialization must complete before any Lab action touches files/native code.
   bool get _actionsDisabled => _busy || !_initialized;
@@ -103,12 +104,13 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     super.dispose();
   }
 
-  // Fail closed if package, support-directory or diagnostic log setup fails.
-  // Logging may itself be unavailable; HOLD status must not depend on it.
+  // Bound startup: a stalled platform/filesystem future must enter HOLD.
+  // A late completion cannot re-enable actions after timeout or failure.
   Future<void> _initializeSafely() async {
     try {
-      await _initialize();
+      await _initialize().timeout(const Duration(seconds: 30));
     } catch (_) {
+      _initializationExpired = true;
       if (!mounted) return;
       setState(() {
         _initialized = false;
@@ -145,7 +147,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     if (await pdf.exists()) {
       await _log('LOCAL_PDF_PRESENT path=${pdf.path} bytes=${await pdf.length()}');
     }
-    if (mounted) {
+    if (mounted && !_initializationExpired) {
       setState(() {
         _initialized = true;
         _status = '就緒';

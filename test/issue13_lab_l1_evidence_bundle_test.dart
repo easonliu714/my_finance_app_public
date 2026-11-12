@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -315,15 +316,16 @@ void main() {
   });
 
 
-  // File-backed startup runs outside the fake async clock in widget tests.
-  // Wait for a visible terminal state rather than assuming a fixed 300 ms.
+  // Bound fake-clock pumping; runAsync can deadlock with file-backed startup.
+  // Never treat an incomplete initialization as a ready, enabled Lab.
   Future<void> waitForLabStatus(WidgetTester tester, String status) async {
     for (var attempt = 0; attempt < 100; attempt++) {
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       if (find.text(status).evaluate().isNotEmpty) return;
-      await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 40));
-      });
+      if (status != 'LAB_INIT_HOLD' &&
+          find.text('LAB_INIT_HOLD').evaluate().isNotEmpty) {
+        fail('Lab initialization entered HOLD instead of $status');
+      }
     }
     expect(find.text(status), findsOneWidget);
   }
@@ -391,6 +393,36 @@ void main() {
     expect(find.byType(SnackBar), findsNothing);
   });
 
+  testWidgets('stalled initialization times out and cannot enable late actions',
+      (tester) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Lab', packageName: 'com.easonliu.cloud500diag',
+      version: '0.4.37', buildNumber: '900037', buildSignature: '',
+    );
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    final pending = Completer<String>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) => pending.future);
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const Cloud500DiagnosticApp());
+    await tester.pump(const Duration(seconds: 31));
+    expect(find.text('LAB_INIT_HOLD'), findsOneWidget);
+    final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
+    await tester.scrollUntilVisible(
+      button, 220.0, scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    final action = tester.widget<OutlinedButton>(find.ancestor(
+      of: button, matching: find.byType(OutlinedButton),
+    ));
+    expect(action.onPressed, isNull);
+    pending.complete(root.path);
+    await tester.pump();
+    expect(find.text('LAB_INIT_HOLD'), findsOneWidget);
+    expect(action.onPressed, isNull);
+  });
+
   testWidgets('scrolled share action shows immediate visible failure',
       (tester) async {
     PackageInfo.setMockInitialValues(
@@ -403,7 +435,7 @@ void main() {
     addTearDown(() => TestDefaultBinaryMessengerBinding.instance
         .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(const Cloud500DiagnosticApp());
-    await tester.pump(const Duration(milliseconds: 300));
+    await waitForLabStatus(tester, '就緒');
     final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
     // ListView builds off-screen actions lazily: ensureVisible requires an
     // already-mounted element and fails before the share action is built.
