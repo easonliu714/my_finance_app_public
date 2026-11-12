@@ -41,8 +41,14 @@ class TaiwanBusinessCalendarAnnualCheckReceiptStore {
           !(v['checked_at'] as String).endsWith('Z')) {
         return null;
       }
-      final checked = DateTime.tryParse(v['checked_at'] as String);
-      if (checked == null || checked.isAfter(now.toUtc()) ||
+      final checkedAtRaw = v['checked_at'] as String;
+      final checked = DateTime.tryParse(checkedAtRaw);
+      // B2.37: Only writeVerified()'s canonical UTC representation is a
+      // valid advisory receipt. Dart may normalize impossible dates/clocks;
+      // such a local value must not suppress a new official-source notice.
+      if (checked == null ||
+          checked.toUtc().toIso8601String() != checkedAtRaw ||
+          checked.isAfter(now.toUtc()) ||
           _day(checked) != _day(now)) {
         return null;
       }
