@@ -26,6 +26,56 @@ void _requireExactCalendarKeys(
   }
 }
 
+// B2.34: A JSON decoder may silently keep only the last duplicate object key.
+// The digest authenticates the normalized value, while another consumer could
+// trust a different duplicate. Reject raw duplicate keys before normalization.
+void _requireUniqueCalendarJsonKeys(String jsonText) {
+  final objects = <Set<String>?>[];
+  final units = jsonText.codeUnits;
+  var cursor = 0;
+  while (cursor < units.length) {
+    final code = units[cursor];
+    if (code == 34) {
+      final start = cursor;
+      cursor++;
+      while (cursor < units.length) {
+        if (units[cursor] == 92) {
+          cursor += 2;
+        } else if (units[cursor] == 34) {
+          cursor++;
+          break;
+        } else {
+          cursor++;
+        }
+      }
+      var lookahead = cursor;
+      while (lookahead < units.length &&
+          (units[lookahead] == 32 ||
+              units[lookahead] == 9 ||
+              units[lookahead] == 10 ||
+              units[lookahead] == 13)) {
+        lookahead++;
+      }
+      if (lookahead < units.length &&
+          units[lookahead] == 58 &&
+          objects.isNotEmpty &&
+          objects.last != null) {
+        final key = jsonDecode(jsonText.substring(start, cursor)) as String;
+        if (!objects.last!.add(key)) {
+          throw const TaiwanBusinessCalendarPackageException(
+            'Calendar package contains a duplicate JSON key.',
+          );
+        }
+      }
+      continue;
+    }
+    if (code == 123) objects.add(<String>{});
+    if (code == 91) objects.add(null);
+    if (code == 125 || code == 93) objects.removeLast();
+    cursor++;
+  }
+}
+
 class TaiwanBusinessCalendarPackageDay {
   const TaiwanBusinessCalendarPackageDay({
     required this.dateKey,
@@ -315,6 +365,8 @@ class TaiwanBusinessCalendarPackageCodec {
         'Calendar package root must be a JSON object.',
       );
     }
+    // B2.34: Detect duplicate raw keys, including Unicode-escaped aliases.
+    _requireUniqueCalendarJsonKeys(jsonText);
     final root = Map<String, Object?>.from(decoded);
     _requireExactCalendarKeys(
       root,

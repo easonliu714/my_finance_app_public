@@ -425,6 +425,78 @@ void main() {
     expect(decoded.toJson(), baseline.toJson());
   });
 
+  test('B2.34 duplicate raw JSON keys cannot borrow a canonical digest',
+      () async {
+    final baseline = (await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: _daysForYear(2028),
+    )).encode();
+
+    // JSON parsers can disagree on first-key versus last-key authority.
+    // A Unicode-escaped key is the same decoded name as its literal peer.
+    final duplicates = <String>[
+      baseline.replaceFirst(
+        '"format_version":1,',
+        '"format_version":1,"format_version":1,',
+      ),
+      baseline.replaceFirst(
+        '"year":2028,',
+        '"year":2028,"year":2028,',
+      ),
+      baseline.replaceFirst(
+        '"row_count":366',
+        '"row_count":366,"row_count":366',
+      ),
+      baseline.replaceFirst(
+        '"algorithm":"sha256",',
+        '"algorithm":"sha256","algorithm":"sha256",',
+      ),
+      baseline.replaceFirst(
+        '"date":"2028-01-01",',
+        r'"date":"2028-01-01","\u0064ate":"2028-01-01",',
+      ),
+    ];
+    for (final duplicate in duplicates) {
+      expect(duplicate, isNot(baseline));
+      await expectLater(
+        codec.decodeAndValidate(duplicate),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('duplicate JSON key'),
+        )),
+      );
+    }
+  });
+
+  test('B2.34 distinct nested keys and quoted JSON-like labels still work',
+      () async {
+    final days = _daysForYear(2028);
+    final original = days.first;
+    days[0] = TaiwanBusinessCalendarPackageDay(
+      dateKey: original.dateKey,
+      isBusinessDay: original.isBusinessDay,
+      label: 'literal "source": {"year":2028}',
+    );
+    final package = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: days,
+    );
+    final decoded = await codec.decodeAndValidate(package.encode());
+    expect(decoded.digest, package.digest);
+    expect(decoded.days.first.label, 'literal "source": {"year":2028}');
+  });
+
   test('stored metadata round-trips and legacy text stays detectable', () async {
     final package = await codec.build(
       sourceYear: 2028,
