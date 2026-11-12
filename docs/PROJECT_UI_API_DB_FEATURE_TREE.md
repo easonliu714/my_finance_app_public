@@ -1,4 +1,16 @@
-## CURRENT — 2026-11-12 10:15 Asia/Taipei | B2.36 PRODUCT SOURCE+TEST: canonical installed UTC provenance; exact-head CI PENDING
+## CURRENT — 2026-11-12 11:18 Asia/Taipei | B2.36R TEST_FIXTURE correction after exact-head #1466 FAIL; new CI REQUIRED
+
+**Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8` unchanged; PR #45 OPEN/DRAFT expected parent `252219edf862f3bba073fc297dfc95f5742e87dd`; Lab `40aabaf6dbcc779f4e0188c8e7ad472a04537303` unchanged; Issues #4/#13/#19 OPEN. This is TEST_ONLY repair, not new PRODUCT SOURCE+TEST or a release.
+
+**First true CI failure:** [B2.36 #1466](https://github.com/easonliu714/my_finance_app_public/actions/runs/43140572778) exact `252219edf862f3bba073fc297dfc95f5742e87dd` COMPLETED FAILURE: Flutter full suite 2,428 PASS / 22 FAIL / 1 SKIP, 22 failures concentrated in `test/features/transaction/taiwan_business_calendar_foreground_notice_test.dart`, first at B2.14a midnight notice. API35 independent-process and ephemeral Release-AOT SUCCESS, but overall CI FAIL. B2.36 focused SQLite FFI two tests passed; this does not make overall B2.36 PASS.
+
+**Root cause / exact test-only fix:** `_ReadOnlyDb._year()` populated synthetic year rows with `updated_at='2026-11-01T00:00:00Z'`; production B2.36 `_metadata()` correctly requires `DateTime.parse(importedAt).toUtc().toIso8601String() == importedAt`, whose UTC canonical representation has `.000Z` for zero milliseconds. The synthetic fixture was rejected as unverified LKG, suppressing the expected foreground notice. Change only this fixture field to `DateTime.utc(2026, 11, 1).toIso8601String()`. No production guard, test assertion, calendar day, digest, source, signing or official data changed. Static one-occurrence diff/crosswalk PASS; focused Flutter execution was unavailable locally, so new exact-head CI is the acceptance authority.
+
+**New exact-head DoD:** Flutter Analyze 0; all 28 widget tests including the 22 previously failing cases and negative/fail-closed assertions; full Flutter >=2,450 PASS / 1 SKIP; API35 nine JUnit checks; ephemeral Release-AOT five markers and artifact. New HEAD CI PENDING until independently read; do not inherit #1465 or claim B2.36 Ready.
+
+**C500 Lab:** #55 run 43095873515 exact `40aabaf6` QUEUED / 0 Jobs / 0 Artifacts; GitHub Actions check suite QUEUED with 0 check runs. Root queue reason not proven. Two 115-05-06 distinct official PDF full bytes, independent SHA, real matched full10 and independently complete negative remain HOLD; `L1_PERIOD_SOURCE_UNPINNED` fail-closed. C500 PROD / C13/C17/C18 / V25 / global NOTWIN / Trusted Signed / Owner device / merge HOLD. Owner Lab #39 cursor73 PARTIAL PASS retained. Version 4.20.37+495 does not clear Owner495 signed upgrade floor. No main, formal finance SQLite, private invoice, secret, auto-merge, or force write.
+
+## HISTORICAL CHECKPOINT — 2026-11-12 10:15 Asia/Taipei | B2.36 PRODUCT SOURCE+TEST: canonical installed UTC provenance; exact-head CI PENDING
 
 **Fresh authority:** main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8 unchanged; PR45 OPEN/DRAFT expected parent 78d60b4c46a6b43c557bc803f02e192b80a06fba; Lab 40aabaf6dbcc779f4e0188c8e7ad472a04537303 unchanged; Issues #4/#13/#19 OPEN. B2.35 [#1465](https://github.com/easonliu714/my_finance_app_public/actions/runs/43133605372) exact 78d60b4c46a6b43c557bc803f02e192b80a06fba 3/3 SUCCESS, Flutter Analyze0, 2448 PASS/1 SKIP, API35 independent-process JUnit, ephemeral Release-AOT five markers; artifact 13906886203. Debug-signer CI is not Trusted Signed or Owner-device PASS.
 

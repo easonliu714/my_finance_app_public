@@ -964,7 +964,7 @@ class _ReadOnlyDb implements DatabaseExecutor {
           'day_label': '', 'source_year': year,
           'source_revision': revision,
           'source_url': 'https://www.dgpa.gov.tw/test-only.csv',
-          'updated_at': '2026-11-01T00:00:00Z',
+          'updated_at': DateTime.utc(2026, 11, 1).toIso8601String(),
         };
       },
     );
