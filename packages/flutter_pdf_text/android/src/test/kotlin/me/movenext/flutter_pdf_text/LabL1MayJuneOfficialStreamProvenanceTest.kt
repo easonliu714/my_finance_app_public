@@ -4,6 +4,9 @@ import java.io.File
 import java.io.ByteArrayInputStream
 import java.nio.file.Files
 import java.io.InputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -205,6 +208,83 @@ class LabL1MayJuneOfficialStreamProvenanceTest {
     rejects("L1_HTTPS_STAGING_ALREADY_EXISTS") { stage(root) }
     assertEquals(before.toList(), first.file.readBytes().toList())
     assertEquals(1, root.listFiles().orEmpty().size)
+  }
+
+  @Test fun concurrentSameCandidateCanPublishOnlyOnceWithoutPartialLeak() = withStaging { root ->
+    val pool = Executors.newFixedThreadPool(2)
+    try {
+      repeat(12) { round ->
+        val targetRoot = File(root, "round-$round")
+        assertTrue(targetRoot.mkdir())
+        val start = CountDownLatch(2)
+        val tasks = (0 until 2).map {
+          pool.submit<Boolean> {
+            val synchronizedInput = object : ByteArrayInputStream(pdf) {
+              private var entered = false
+              override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (!entered) {
+                  entered = true
+                  start.countDown()
+                  if (!start.await(15, TimeUnit.SECONDS)) {
+                    throw IllegalStateException("L1_TEST_BARRIER_TIMEOUT")
+                  }
+                }
+                return super.read(b, off, len)
+              }
+            }
+            try {
+              api.auditResponseToStaging(
+                sorted, api.expectedUri(sorted), 200, "application/pdf", null,
+                pdf.size.toLong(), null, null, synchronizedInput, targetRoot
+              )
+              true
+            } catch (e: IllegalStateException) {
+              if (e.message != "L1_HTTPS_STAGING_ALREADY_EXISTS") throw e
+              false
+            }
+          }
+        }
+        assertEquals(1, tasks.count { it.get(30, TimeUnit.SECONDS) })
+        val published = targetRoot.listFiles().orEmpty()
+        assertEquals(1, published.size)
+        assertEquals(sha(pdf), sha(published.single().readBytes()))
+        assertTrue(published.none { it.name.endsWith(".partial") })
+      }
+    } finally {
+      pool.shutdownNow()
+    }
+  }
+
+  @Test fun preexistingSymlinkIsNeverReplacedByStaging() = withStaging { root ->
+    val victim = File(root, "victim.txt")
+    victim.writeText("do not replace")
+    val target = File(root, "115-05-06_cloud-500_sorted_${sha(pdf)}.pdf")
+    Files.createSymbolicLink(target.toPath(), victim.toPath())
+    rejects("L1_HTTPS_STAGING_ALREADY_EXISTS") { stage(root) }
+    assertTrue(Files.isSymbolicLink(target.toPath()))
+    assertEquals("do not replace", victim.readText())
+    assertTrue(root.listFiles().orEmpty().none { it.name.endsWith(".partial") })
+  }
+
+  @Test fun partialCleanupFailureIsExplicitAndOriginalErrorPreserved() = withStaging { root ->
+    val blocked = File(root, "blocked.partial")
+    assertTrue(blocked.mkdir())
+    val child = File(blocked, "child")
+    child.writeText("retained")
+    rejects("L1_HTTPS_STAGING_PARTIAL_CLEANUP_FAILED") {
+      api.cleanupStagingPartial(blocked)
+    }
+    val first = IllegalStateException("FIRST_FAILURE")
+    api.cleanupStagingPartial(blocked, first)
+    assertEquals("FIRST_FAILURE", first.message)
+    assertEquals(1, first.suppressed.size)
+    assertEquals("L1_HTTPS_STAGING_PARTIAL_CLEANUP_FAILED", first.suppressed[0].message)
+    assertTrue(child.isFile)
+    val clean = File(root, "clean.partial")
+    clean.writeText("temporary")
+    api.cleanupStagingPartial(clean)
+    assertTrue(!clean.exists())
+    api.cleanupStagingPartial(clean)
   }
 
   @Test fun absentStagingDirectoryFailsBeforeWriting() = withStaging { root ->

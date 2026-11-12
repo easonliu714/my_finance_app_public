@@ -2,8 +2,11 @@ package me.movenext.flutter_pdf_text
 
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.Files
 import java.net.URL
 import java.security.MessageDigest
 import javax.net.ssl.HttpsURLConnection
@@ -126,9 +129,23 @@ internal object LabL1MayJuneOfficialStreamProvenance {
 
   /**
    * App-private Lab staging. Fsync, independent full-byte SHA readback,
-   * and non-overwriting role/period/SHA rename. Never modifies LKG/cursor.
-   * Any validation/readback failure removes its partial candidate.
+   * and atomic create-if-absent hard-link publication. Never modifies LKG/cursor.
+   * Unsupported hard links fail closed; crash/directory-fsync durability is NOT proven.
+   * Cleanup failures are explicit, not silently ignored.
    */
+  /** Delete only the temporary name; preserve the first failure if cleanup also fails. */
+  internal fun cleanupStagingPartial(partial: File, originalFailure: Throwable? = null) {
+    try {
+      Files.deleteIfExists(partial.toPath())
+    } catch (e: IOException) {
+      val cleanupFailure = IllegalStateException(
+        "L1_HTTPS_STAGING_PARTIAL_CLEANUP_FAILED", e
+      )
+      if (originalFailure == null) throw cleanupFailure
+      originalFailure.addSuppressed(cleanupFailure)
+    }
+  }
+
   fun auditResponseToStaging(
     role: Role, requestUri: String, httpStatus: Int,
     contentType: String?, contentEncoding: String?,
@@ -142,6 +159,7 @@ internal object LabL1MayJuneOfficialStreamProvenance {
       throw IllegalStateException("L1_HTTPS_STAGING_ROOT_INVALID")
     }
     val partial = File.createTempFile("lab-115-05-06-", ".partial", stagingDirectory)
+    var originalFailure: Throwable? = null
     try {
       val candidate = FileOutputStream(partial).use { output ->
         val observed = auditResponse(
@@ -177,13 +195,25 @@ internal object LabL1MayJuneOfficialStreamProvenance {
       val filename = "115-05-06_cloud-500_" + role.name.lowercase() +
         "_" + candidate.sha256 + ".pdf"
       val target = File(stagingDirectory, filename)
-      if (target.exists()) throw IllegalStateException("L1_HTTPS_STAGING_ALREADY_EXISTS")
-      if (!partial.renameTo(target)) {
-        throw IllegalStateException("L1_HTTPS_STAGING_RENAME_FAILED")
+      // A same-filesystem hard link reserves the final name without replacing
+      // any existing file or symlink. Never fall back to renameTo().
+      try {
+        Files.createLink(target.toPath(), partial.toPath())
+      } catch (e: FileAlreadyExistsException) {
+        throw IllegalStateException("L1_HTTPS_STAGING_ALREADY_EXISTS", e)
+      } catch (e: UnsupportedOperationException) {
+        throw IllegalStateException("L1_HTTPS_STAGING_LINK_UNSUPPORTED", e)
+      } catch (e: IOException) {
+        throw IllegalStateException("L1_HTTPS_STAGING_LINK_FAILED", e)
       }
       return StagedCandidate(candidate, target)
+    } catch (failure: Throwable) {
+      originalFailure = failure
+      throw failure
     } finally {
-      if (partial.exists()) partial.delete()
+      // If cleanup fails after publication, the function rejects but the
+      // valid linked target may remain. No crash-durability claim is made.
+      cleanupStagingPartial(partial, originalFailure)
     }
   }
 
