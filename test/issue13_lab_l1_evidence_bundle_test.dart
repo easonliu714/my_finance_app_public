@@ -6,8 +6,6 @@ import 'package:archive/archive_io.dart';
 import 'package:cryptography/cryptography.dart' as cryptography;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:my_finance_app/issue13_cloud500_diag_main.dart';
 import 'package:my_finance_app/issue13_lab_l1_evidence_bundle.dart';
 
@@ -330,30 +328,29 @@ void main() {
     expect(find.text(status), findsOneWidget);
   }
 
-  testWidgets('unwritable Lab log cannot suppress share failure feedback',
-      (tester) async {
-    PackageInfo.setMockInitialValues(
-      appName: 'Lab', packageName: 'com.easonliu.cloud500diag',
-      version: '0.4.37', buildNumber: '900037', buildSignature: '',
-    );
-    const channel = MethodChannel('plugins.flutter.io/path_provider');
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async => root.path);
-    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
-        .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
-    await tester.pumpWidget(const Cloud500DiagnosticApp());
-    await waitForLabStatus(tester, '就緒');
-    expect(find.text('LAB_INIT_HOLD'), findsNothing);
-
-    // Simulate storage failure after initialization; no real user data.
+  test('real diagnostic log directory refuses append', () async {
     final log = File('${lab.path}/issue13_cloud500_diag.log');
     await log.delete();
     await Directory(log.path).create();
-
-    final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
-    await tester.scrollUntilVisible(
-      button, 220.0, scrollable: find.byType(Scrollable).first,
+    await expectLater(
+      log.writeAsString('ACTION_FAIL\n', mode: FileMode.append, flush: true),
+      throwsA(isA<FileSystemException>()),
     );
+  });
+
+  testWidgets('unwritable Lab log cannot suppress share failure feedback', (tester) async {
+    var logWritable = true;
+    final hooks = Cloud500DiagnosticTestHooks(
+      initialize: () async {},
+      writeLog: (_) async { if (!logWritable) throw FileSystemException('LAB_LOG_UNWRITABLE'); },
+      shareEvidenceBundle: () async { throw StateError('L1_BUNDLE_HOLD'); },
+    );
+    await tester.pumpWidget(Cloud500DiagnosticApp(testHooks: hooks));
+    await waitForLabStatus(tester, '就緒');
+    expect(find.text('LAB_INIT_HOLD'), findsNothing);
+    logWritable = false;
+    final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
+    await tester.scrollUntilVisible(button, 220.0, scrollable: find.byType(Scrollable).first);
     await tester.pump();
     await tester.tap(button);
     await tester.pump();
@@ -364,27 +361,15 @@ void main() {
   });
 
 
-  testWidgets('initialization failure holds all Lab actions without dispatch',
-      (tester) async {
-    PackageInfo.setMockInitialValues(
-      appName: 'Lab', packageName: 'com.easonliu.cloud500diag',
-      version: '0.4.37', buildNumber: '900037', buildSignature: '',
+  testWidgets('initialization failure holds all Lab actions without dispatch', (tester) async {
+    final hooks = Cloud500DiagnosticTestHooks(
+      initialize: () async { throw StateError('STORAGE_UNAVAILABLE'); },
     );
-    const channel = MethodChannel('plugins.flutter.io/path_provider');
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-      throw PlatformException(code: 'STORAGE_UNAVAILABLE');
-    });
-    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
-        .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
-    await tester.pumpWidget(const Cloud500DiagnosticApp());
+    await tester.pumpWidget(Cloud500DiagnosticApp(testHooks: hooks));
     await waitForLabStatus(tester, 'LAB_INIT_HOLD');
     expect(find.text('就緒'), findsNothing);
-
     final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
-    await tester.scrollUntilVisible(
-      button, 220.0, scrollable: find.byType(Scrollable).first,
-    );
+    await tester.scrollUntilVisible(button, 220.0, scrollable: find.byType(Scrollable).first);
     await tester.pump();
     final action = tester.widget<OutlinedButton>(find.ancestor(
       of: button, matching: find.byType(OutlinedButton),
@@ -393,55 +378,39 @@ void main() {
     expect(find.byType(SnackBar), findsNothing);
   });
 
-  testWidgets('stalled initialization times out and cannot enable late actions',
-      (tester) async {
-    PackageInfo.setMockInitialValues(
-      appName: 'Lab', packageName: 'com.easonliu.cloud500diag',
-      version: '0.4.37', buildNumber: '900037', buildSignature: '',
-    );
-    const channel = MethodChannel('plugins.flutter.io/path_provider');
-    final pending = Completer<String>();
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) => pending.future);
-    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
-        .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
-    await tester.pumpWidget(const Cloud500DiagnosticApp());
+  testWidgets('stalled initialization times out and cannot enable late actions', (tester) async {
+    final pending = Completer<void>();
+    final hooks = Cloud500DiagnosticTestHooks(initialize: () => pending.future);
+    await tester.pumpWidget(Cloud500DiagnosticApp(testHooks: hooks));
     await tester.pump(const Duration(seconds: 31));
+    await tester.pump();
     expect(find.text('LAB_INIT_HOLD'), findsOneWidget);
     final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
-    await tester.scrollUntilVisible(
-      button, 220.0, scrollable: find.byType(Scrollable).first,
-    );
+    await tester.scrollUntilVisible(button, 220.0, scrollable: find.byType(Scrollable).first);
     await tester.pump();
-    final action = tester.widget<OutlinedButton>(find.ancestor(
+    var action = tester.widget<OutlinedButton>(find.ancestor(
       of: button, matching: find.byType(OutlinedButton),
     ));
     expect(action.onPressed, isNull);
-    pending.complete(root.path);
+    pending.complete();
     await tester.pump();
     expect(find.text('LAB_INIT_HOLD'), findsOneWidget);
+    action = tester.widget<OutlinedButton>(find.ancestor(
+      of: button, matching: find.byType(OutlinedButton),
+    ));
     expect(action.onPressed, isNull);
   });
 
-  testWidgets('scrolled share action shows immediate visible failure',
-      (tester) async {
-    PackageInfo.setMockInitialValues(
-      appName: 'Lab', packageName: 'com.easonliu.cloud500diag',
-      version: '0.4.37', buildNumber: '900037', buildSignature: '',
+  testWidgets('scrolled share action shows immediate visible failure', (tester) async {
+    final hooks = Cloud500DiagnosticTestHooks(
+      initialize: () async {},
+      writeLog: (_) async {},
+      shareEvidenceBundle: () async { throw StateError('L1_BUNDLE_MISSING_BATCH'); },
     );
-    const channel = MethodChannel('plugins.flutter.io/path_provider');
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async => root.path);
-    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
-        .defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
-    await tester.pumpWidget(const Cloud500DiagnosticApp());
+    await tester.pumpWidget(Cloud500DiagnosticApp(testHooks: hooks));
     await waitForLabStatus(tester, '就緒');
     final button = find.text('分包分享 JSONL＋SHA Manifest＋Debug Log');
-    // ListView builds off-screen actions lazily: ensureVisible requires an
-    // already-mounted element and fails before the share action is built.
-    await tester.scrollUntilVisible(
-      button, 220.0, scrollable: find.byType(Scrollable).first,
-    );
+    await tester.scrollUntilVisible(button, 220.0, scrollable: find.byType(Scrollable).first);
     await tester.pump();
     await tester.tap(button);
     await tester.pump();

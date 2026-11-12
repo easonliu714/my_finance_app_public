@@ -25,8 +25,18 @@ void main() {
   runApp(const Cloud500DiagnosticApp());
 }
 
+// Test-only deterministic hooks avoid fake-clock filesystem I/O in widget tests.
+// The production entry point always uses the original platform-backed paths.
+class Cloud500DiagnosticTestHooks {
+  const Cloud500DiagnosticTestHooks({this.initialize, this.writeLog, this.shareEvidenceBundle});
+  final Future<void> Function()? initialize;
+  final Future<void> Function(String)? writeLog;
+  final Future<void> Function()? shareEvidenceBundle;
+}
+
 class Cloud500DiagnosticApp extends StatelessWidget {
-  const Cloud500DiagnosticApp({super.key});
+  const Cloud500DiagnosticApp({super.key, this.testHooks});
+  final Cloud500DiagnosticTestHooks? testHooks;
 
   @override
   Widget build(BuildContext context) {
@@ -34,13 +44,14 @@ class Cloud500DiagnosticApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Cloud500 PDF Lab',
       theme: ThemeData(useMaterial3: true),
-      home: const Cloud500DiagnosticPage(),
+      home: Cloud500DiagnosticPage(testHooks: testHooks),
     );
   }
 }
 
 class Cloud500DiagnosticPage extends StatefulWidget {
-  const Cloud500DiagnosticPage({super.key});
+  const Cloud500DiagnosticPage({super.key, this.testHooks});
+  final Cloud500DiagnosticTestHooks? testHooks;
 
   @override
   State<Cloud500DiagnosticPage> createState() =>
@@ -84,7 +95,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   bool _initializationExpired = false;
 
   // Initialization must complete before any Lab action touches files/native code.
-  bool get _actionsDisabled => _busy || !_initialized;
+  bool get _actionsDisabled => _busy || !_initialized || _initializationExpired;
   LabSearchResult? _searchResult;
   String _status = '初始化中…';
   String _runtimeVersion = '讀取中…';
@@ -108,7 +119,15 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   // A late completion cannot re-enable actions after timeout or failure.
   Future<void> _initializeSafely() async {
     try {
-      await _initialize().timeout(const Duration(seconds: 30));
+      final testStartup = widget.testHooks?.initialize;
+      if (testStartup == null) {
+        await _initialize().timeout(const Duration(seconds: 30));
+      } else {
+        await testStartup().timeout(const Duration(seconds: 30));
+        if (mounted && !_initializationExpired) {
+          setState(() { _initialized = true; _status = '就緒'; });
+        }
+      }
     } catch (_) {
       _initializationExpired = true;
       if (!mounted) return;
@@ -218,7 +237,10 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     final now = DateTime.now().toIso8601String();
     final line = '$now $message';
     final file = _dartLogFile;
-    if (file != null) {
+    final testWriter = widget.testHooks?.writeLog;
+    if (testWriter != null) {
+      await testWriter(line);
+    } else if (file != null) {
       await file.writeAsString('$line\n', mode: FileMode.append, flush: true);
     }
     if (!mounted) return;
@@ -999,7 +1021,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       ),
       OutlinedButton(
         onPressed: _actionsDisabled ? null : () => _run(
-          'Share bounded L1 evidence bundle', _shareL1EvidenceBundle),
+          'Share bounded L1 evidence bundle',
+          widget.testHooks?.shareEvidenceBundle ?? _shareL1EvidenceBundle),
         child: const Text('分包分享 JSONL＋SHA Manifest＋Debug Log'),
       ),
       const Text('每包僅包含有界JSONL、Manifest與Debug Log；'
