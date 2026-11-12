@@ -397,9 +397,13 @@ class TaiwanBusinessCalendarPackageService {
       // even if every day/label still hashes to the original package.
       // New-format installs issue one UTC timestamp for the entire year.
       final importedAt = rows.first['updated_at'];
+      // B2.36: install() emits canonical UTC ISO-8601 for every row.
+      // A uniformly rewritten but impossible/noncanonical timestamp must
+      // not preserve verified-year authority or authorize replacement.
       if (importedAt is! String ||
           !importedAt.endsWith('Z') ||
-          DateTime.tryParse(importedAt) == null ||
+          !TaiwanBusinessCalendarPackageCodec.hasValidCivilTimestamp(importedAt) ||
+          DateTime.parse(importedAt).toUtc().toIso8601String() != importedAt ||
           rows.any((row) => row['updated_at'] != importedAt)) {
         return null;
       }

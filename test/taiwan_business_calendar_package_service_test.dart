@@ -846,6 +846,74 @@ void main() {
         orderBy: 'calendar_date ASC'), equals(before));
   });
 
+  test('B2.36 uniform noncanonical installed timestamps revoke verified LKG',
+      () async {
+    // Even if every persisted row is rewritten identically, the imported
+    // timestamp must remain the canonical UTC form emitted by install().
+    for (final timestamp in <String>[
+      '2026-02-30T00:00:00.000Z',
+      '2026-01-01T24:00:00.000Z',
+      '2026-01-01T12:60:00.000Z',
+      '2026-01-01T00:00:00Z',
+    ]) {
+      final db = await _openCalendarDatabase();
+      try {
+        final original = await _package(codec, year: 2028, sequence: 1);
+        final newer = await _package(codec, year: 2028, sequence: 2);
+        await service.install(db, original,
+            importedAt: DateTime.utc(2027, 7, 1));
+        expect((await service.status(db, 2028))!.hasCanonicalRowDigest, isTrue);
+
+        await db.update(
+          'taiwan_business_calendar_days',
+          <String, Object?>{'updated_at': timestamp},
+          where: 'source_year = ?',
+          whereArgs: <Object?>[2028],
+        );
+        final before = await db.query('taiwan_business_calendar_days',
+            orderBy: 'calendar_date ASC');
+        expect(before, hasLength(366));
+        final status = await service.status(db, 2028);
+        expect(status, isNotNull);
+        expect(status!.hasCanonicalRowDigest, isFalse,
+            reason: 'Uniform timestamp rewrite must revoke LKG: $timestamp');
+        expect(status.isContiguous, isFalse);
+        expect(status.sequence, 0);
+        expect(status.digest, isEmpty);
+        expect(
+          await service.annualUpdateDecision(db, DateTime.utc(2028, 12, 5)),
+          CalendarAnnualUpdateDecision.currentYearNotVerified,
+        );
+        await expectLater(service.install(db, newer),
+            throwsA(isA<CalendarPackageConflictException>()));
+        expect(await db.query('taiwan_business_calendar_days',
+            orderBy: 'calendar_date ASC'), equals(before),
+            reason: 'Failed promotion must retain all original rows');
+      } finally {
+        await db.close();
+      }
+    }
+  });
+
+  test('B2.36 canonical leap-day UTC provenance retains install authority',
+      () async {
+    final db = await _openCalendarDatabase();
+    addTearDown(db.close);
+    final original = await _package(codec, year: 2028, sequence: 1);
+    final newer = await _package(codec, year: 2028, sequence: 2);
+    final leapDay = DateTime.utc(2024, 2, 29, 23, 59, 59);
+    await service.install(db, original, importedAt: leapDay);
+    final status = await service.status(db, 2028);
+    expect(status, isNotNull);
+    expect(status!.hasCanonicalRowDigest, isTrue);
+    expect(status.importedAt, leapDay.toIso8601String());
+    expect((await service.install(db, original)).disposition,
+        CalendarPackageInstallDisposition.unchanged);
+    expect((await service.install(db, newer)).disposition,
+        CalendarPackageInstallDisposition.installed);
+    expect((await service.status(db, 2028))!.hasCanonicalRowDigest, isTrue);
+  });
+
   test('B2.23 NULL legacy primary-key date fails closed without writes',
       () async {
     final db = await _openLegacyCalendarDatabaseWithoutModernConstraints();
