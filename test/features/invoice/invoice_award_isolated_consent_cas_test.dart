@@ -63,6 +63,15 @@ void main() {
     }
   });
 
+  test('non-BUSY closed database exception is not converted to false', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    await db.close();
+    await expectLater(
+      cas.claim(db, 'synthetic-only', 1),
+      throwsA(isA<DatabaseException>()),
+    );
+  });
+
   test('revoke wins, restart cannot revive stale revision', () async {
     final dir = await Directory.systemTemp.createTemp('v25a_revoke_');
     final path = '${dir.path}/isolated.db';

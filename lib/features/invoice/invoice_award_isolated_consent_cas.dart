@@ -27,13 +27,24 @@ class InvoiceAwardIsolatedConsentCas {
 
   /// Retry only SQLite BUSY at transaction acquisition, never change the
   /// caller's expected revision. Exhaustion must fail closed, not throw open.
+  // sqflite_common_ffi exposes SQLite BUSY through its exception text, not
+  // DatabaseException.isDatabaseLockedError() in this pinned dependency.
+  // Require both SQLite code 5 and the locked diagnostic; fail closed otherwise.
+  bool _isSqliteBusy(DatabaseException error) {
+    final diagnostic = error.toString().toLowerCase();
+    return diagnostic.contains('database is locked') &&
+        (diagnostic.contains('sqliteexception(5)') ||
+         diagnostic.contains('sqlite error 5') ||
+         diagnostic.contains('sqlite_error 5'));
+  }
+
   Future<bool> _withBoundedBusyRetry(
       Future<bool> Function() operation) async {
     for (var attempt = 0; attempt <= _maxBusyRetries; attempt++) {
       try {
         return await operation();
       } on DatabaseException catch (error) {
-        if (!error.isDatabaseLockedError()) rethrow;
+        if (!_isSqliteBusy(error)) rethrow;
         if (attempt == _maxBusyRetries) return false;
         await Future<void>.delayed(_busyRetryDelay);
       }
