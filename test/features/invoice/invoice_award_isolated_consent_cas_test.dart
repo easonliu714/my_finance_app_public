@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/invoice_award_isolated_consent_cas.dart';
@@ -26,6 +27,38 @@ void main() {
       expect(rows.single['posting_marker'], 1);
       expect(rows.single['revision'], 2);
     } finally {
+      await first.close(); await second.close(); await dir.delete(recursive: true);
+    }
+  });
+
+  test('BUSY exhaustion fails closed without changing synthetic marker', () async {
+    final dir = await Directory.systemTemp.createTemp('v25a_busy_');
+    final path = '${dir.path}/isolated.db';
+    final first = await openDatabase(path, singleInstance: false);
+    final second = await openDatabase(path, singleInstance: false);
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    try {
+      await cas.initialize(first);
+      await cas.seed(first, 'synthetic-only');
+      final blocker = first.transaction<void>((txn) async {
+        await txn.rawUpdate('''
+          UPDATE ${InvoiceAwardIsolatedConsentCas.table}
+          SET revision = revision WHERE id = ?
+        ''', <Object>['synthetic-only']);
+        entered.complete();
+        await release.future;
+      });
+      await entered.future;
+      expect(await cas.claim(second, 'synthetic-only', 1), isFalse);
+      release.complete();
+      await blocker;
+      final rows = await second.query(InvoiceAwardIsolatedConsentCas.table);
+      expect(rows.single['revision'], 1);
+      expect(rows.single['state'], 'active');
+      expect(rows.single['posting_marker'], 0);
+    } finally {
+      if (!release.isCompleted) release.complete();
       await first.close(); await second.close(); await dir.delete(recursive: true);
     }
   });
