@@ -1,3 +1,9 @@
+## CURRENT — 2026-11-13 22:15 Asia/Taipei | V25-A isolated SQLite CAS SOURCE+TEST candidate; exact-head CI REQUIRED
+
+**Authority:** main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8; PR #45 previous head 9f021e3341559d894c80e08f59f7665a586b57a9; Lab 6bc1b8cf4c5baa133d32f66af51e7a29154f69d7. B2.37 exact-head CI #1468 3/3 SUCCESS (2451 Flutter PASS/1 SKIP; API35 nine; ephemeral AOT five); Lab #63 CI SUCCESS, diagnostic APK only, Owner device HOLD. Gate map: #47 governance OPEN, #48 V25-A isolated CAS OPEN, #49 official May/June PDF source HOLD, #50 real full10 oracle depends #49 HOLD, #51 B2.37 CLOSED with evidence; parents #13/#19 remain OPEN. This is an unverified new SOURCE+TEST candidate until its own exact-head CI completes. No production SQLite schema/ledger integration; no Trusted Signed/Owner Device/merge. #55 is historical queued evidence only.
+
+**V25-A:** new isolated revision CAS helper and disposable SQLite FFI tests for competing connections, revocation/restart and rollback. Source/test changes require new exact-head CI and formal regression before #48 closure. Production V25-B, C500, full87k/globalNOTWIN and signing remain HOLD.
+
 ## CURRENT — 2026-11-12 13:15 Asia/Taipei | B2.37 PRODUCT SOURCE+TEST: reject noncanonical advisory receipt timestamps; exact-head CI REQUIRED
 
 **Fresh authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8` unchanged; PR #45 OPEN/DRAFT parent `1d7a64cf1761d6eaa4dcfe56d969571ce90f1846`; Lab `40aabaf6dbcc779f4e0188c8e7ad472a04537303` unchanged; Issues #4/#13/#19 OPEN. B2.36R [#1467](https://github.com/easonliu714/my_finance_app_public/actions/runs/43147688164) exact parent 3/3 SUCCESS: Analyze 0, Flutter 2450 PASS / 0 FAIL / 1 SKIP, API35 9 tests, ephemeral Release-AOT 5 markers, artifact 13911824021. Debug signer is NOT Trusted 9BA2 Signed or Owner-device acceptance.
