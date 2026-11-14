@@ -58,7 +58,7 @@ void main() {
       await db.insert('transactions', <String, Object>{'id': 'synthetic-existing'});
       try {
         await db.transaction((txn) async {
-          await txn.execute('CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')))');
+          await txn.execute("CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')))");
           expect(await preflight.hasCandidateSchemaShape(txn), isTrue);
           expect(await preflight.canActivate(txn), isFalse);
           throw StateError('synthetic rollback');
