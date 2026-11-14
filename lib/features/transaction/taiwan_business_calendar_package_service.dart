@@ -40,6 +40,7 @@ class CalendarPackageStatus {
     required this.sourceUrl,
     required this.importedAt,
     required this.isContiguous,
+    this.hasCanonicalRowDigest = false,
   });
   final int year;
   final String start;
@@ -51,6 +52,21 @@ class CalendarPackageStatus {
   final String sourceUrl;
   final String importedAt;
   final bool isContiguous;
+  // True only when persisted days were rebuilt and matched the canonical
+  // package SHA-256. Legacy metadata without generated_at is structural-only.
+  // This does not establish official publisher authenticity.
+  final bool hasCanonicalRowDigest;
+}
+
+
+enum CalendarAnnualUpdateDecision {
+  outsideDecember,
+  currentYearNotVerified,
+  beforeFirstBusinessDay,
+  nextYearUntrusted,
+  nextYearInstalled,
+  checkedToday,
+  checkOfficialSource,
 }
 
 class TaiwanBusinessCalendarPackageService {
@@ -58,39 +74,154 @@ class TaiwanBusinessCalendarPackageService {
 
   static const tableName = 'taiwan_business_calendar_days';
 
+
+  // B2.4: read-only foreground eligibility, never an authority to download,
+  // install or infer holidays. Taiwan is UTC+08:00 with no DST.
+  // A verified current-year package supplies the *actual* first December
+  // business day; a weekend heuristic or incomplete legacy rows cannot.
+  // The caller must persist lastCheckedAt after a real attempted check.
+  Future<CalendarAnnualUpdateDecision> annualUpdateDecision(
+    DatabaseExecutor db,
+    DateTime now, {
+    DateTime? lastCheckedAt,
+  }) async {
+    DateTime taipei(DateTime value) =>
+        value.toUtc().add(const Duration(hours: 8));
+    final local = taipei(now);
+    if (local.month != DateTime.december) {
+      return CalendarAnnualUpdateDecision.outsideDecember;
+    }
+    final year = local.year;
+    final current = await status(db, year);
+    if (current == null ||
+        !current.isContiguous ||
+        !current.hasCanonicalRowDigest ||
+        current.sequence < 1 ||
+        current.digest.isEmpty) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+
+    // B2.27: the second December read is outside status()'s read window.
+    // A transient SQLite read failure cannot authorize an official check.
+    late final List<Map<String, Object?>> december;
+    try {
+      december = await db.query(
+        tableName,
+        columns: <String>['calendar_date', 'is_business_day'],
+        where: 'source_year = ? AND calendar_date >= ? AND calendar_date <= ?',
+        whereArgs: <Object?>[year, '$year-12-01', '$year-12-31'],
+        orderBy: 'calendar_date ASC',
+      );
+    } on DatabaseException {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+    if (december.length != 31) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+    // B2.24: status() and this second December query are separate reads.
+    // Validate every returned day, including rows AFTER the first workday;
+    // a malformed/duplicated date or non-integer flag is never authority
+    // to suppress or initiate an official source check.
+    final decemberStart = DateTime.utc(year, 12, 1);
+    String? firstBusinessDay;
+    for (var index = 0; index < december.length; index++) {
+      final row = december[index];
+      final expectedDate = decemberStart
+          .add(Duration(days: index))
+          .toIso8601String()
+          .substring(0, 10);
+      final flag = row['is_business_day'];
+      if (row['calendar_date'] != expectedDate ||
+          flag is! int ||
+          (flag != 0 && flag != 1)) {
+        return CalendarAnnualUpdateDecision.currentYearNotVerified;
+      }
+      if (flag == 1 && firstBusinessDay == null) {
+        firstBusinessDay = expectedDate;
+      }
+    }
+    if (firstBusinessDay == null) {
+      return CalendarAnnualUpdateDecision.currentYearNotVerified;
+    }
+    final today = local.toIso8601String().substring(0, 10);
+    if (today.compareTo(firstBusinessDay) < 0) {
+      return CalendarAnnualUpdateDecision.beforeFirstBusinessDay;
+    }
+
+    final next = await status(db, year + 1);
+    if (next != null) {
+      if (next.isContiguous &&
+          next.hasCanonicalRowDigest &&
+          next.sequence > 0 &&
+          next.digest.isNotEmpty) {
+        return CalendarAnnualUpdateDecision.nextYearInstalled;
+      }
+      // Never let a foreground trigger overwrite damaged/partial next-year
+      // rows. Existing install() must also reject an inconsistent year.
+      return CalendarAnnualUpdateDecision.nextYearUntrusted;
+    }
+    // B2.25: status()==null means either ABSENT or UNREADABLE. Historical
+    // SQLite may hold a next-year NULL date or BLOB provenance, making
+    // status() reject a real row. Distinguish that from a missing year before
+    // permitting an advisory source check. No write or replacement is allowed.
+    // B2.27: status(nextYear) can fail closed to null on a SQLite error.
+    // Its independent existence read must also fail closed, never escape
+    // as an untyped foreground exception or imply that the year is absent.
+    late final List<Map<String, Object?>> existingNextRows;
+    try {
+      existingNextRows = await _rows(db, year + 1);
+    } on DatabaseException {
+      return CalendarAnnualUpdateDecision.nextYearUntrusted;
+    }
+    if (existingNextRows.isNotEmpty) {
+      return CalendarAnnualUpdateDecision.nextYearUntrusted;
+    }
+    // B2.18: future-dated receipts cannot suppress a real official check.
+    // Compare absolute instants before comparing the Taipei calendar date.
+    if (lastCheckedAt != null &&
+        !lastCheckedAt.isAfter(now) &&
+        taipei(lastCheckedAt).toIso8601String().substring(0, 10) == today) {
+      return CalendarAnnualUpdateDecision.checkedToday;
+    }
+    return CalendarAnnualUpdateDecision.checkOfficialSource;
+  }
+
+  // B2.5: revision reads and replacement writes must share the same
+  // transaction. Otherwise concurrent refreshes can both accept a stale
+  // pre-transaction revision and silently downgrade the verified year LKG.
   Future<CalendarPackageInstallResult> install(
     Database db,
     TaiwanBusinessCalendarYearPackage package, {
     DateTime? importedAt,
-  }) async {
-    final current = await _rows(db, package.sourceYear);
-    final metadata = _metadata(current);
-    if (metadata != null) {
-      if (metadata.revisionSequence > package.revisionSequence) {
-        throw CalendarPackageConflictException(
-          'Year ${package.sourceYear} already has newer revision '
-          '${metadata.revisionSequence}.',
-        );
-      }
-      if (metadata.revisionSequence == package.revisionSequence) {
-        if (_matches(current, package)) {
-          return _result(CalendarPackageInstallDisposition.unchanged, package);
+  }) {
+    return db.transaction((txn) async {
+      final current = await _rows(txn, package.sourceYear);
+      final metadata = await _metadata(current);
+      if (metadata != null) {
+        if (metadata.revisionSequence > package.revisionSequence) {
+          throw CalendarPackageConflictException(
+            'Year ${package.sourceYear} already has newer revision '
+            '${metadata.revisionSequence}.',
+          );
         }
+        if (metadata.revisionSequence == package.revisionSequence) {
+          if (_matches(current, package)) {
+            return _result(CalendarPackageInstallDisposition.unchanged, package);
+          }
+          throw CalendarPackageConflictException(
+            'Year ${package.sourceYear} sequence ${package.revisionSequence} '
+            'already exists with different content.',
+          );
+        }
+      } else if (current.isNotEmpty && !_isConsistentLegacy(current)) {
         throw CalendarPackageConflictException(
-          'Year ${package.sourceYear} sequence ${package.revisionSequence} '
-          'already exists with different content.',
+          'Year ${package.sourceYear} contains inconsistent calendar metadata.',
         );
       }
-    } else if (current.isNotEmpty && !_isConsistentLegacy(current)) {
-      throw CalendarPackageConflictException(
-        'Year ${package.sourceYear} contains inconsistent calendar metadata.',
-      );
-    }
 
-    final timestamp = (importedAt ?? DateTime.now().toUtc())
-        .toUtc()
-        .toIso8601String();
-    await db.transaction((txn) async {
+      final timestamp = (importedAt ?? DateTime.now().toUtc())
+          .toUtc()
+          .toIso8601String();
       await txn.delete(
         tableName,
         where: 'source_year = ?',
@@ -110,33 +241,64 @@ class TaiwanBusinessCalendarPackageService {
         });
       }
       await batch.commit(noResult: true);
+      // B2.19: an AFTER INSERT trigger may silently alter or delete a row
+      // without failing the batch. Verify the durable candidate inside this
+      // SAME transaction; any mismatch rolls back the previous verified LKG.
+      final writtenRows = await _rows(txn, package.sourceYear);
+      final writtenMetadata = await _metadata(writtenRows);
+      if (writtenMetadata == null ||
+          writtenMetadata.digest != package.digest ||
+          !_matches(writtenRows, package, expectedImportedAt: timestamp)) {
+        throw CalendarPackageConflictException(
+          'Year ${package.sourceYear} post-install row proof mismatch.',
+        );
+      }
+      return _result(CalendarPackageInstallDisposition.installed, package);
     });
-    return _result(CalendarPackageInstallDisposition.installed, package);
   }
 
   Future<CalendarPackageStatus?> status(
     DatabaseExecutor db,
     int year,
   ) async {
-    final rows = await _rows(db, year);
+    // B2.26: a pre-migration database may not contain this optional table.
+    // A failed SQLite read is never evidence of a verified calendar year.
+    late final List<Map<String, Object?>> rows;
+    try {
+      rows = await _rows(db, year);
+    } on DatabaseException {
+      return null;
+    }
     if (rows.isEmpty) return null;
-    final metadata = _metadata(rows);
-    final start = rows.first['calendar_date'] as String;
-    final end = rows.last['calendar_date'] as String;
-    final expected =
-        DateTime.parse(end).difference(DateTime.parse(start)).inDays + 1;
+    final metadata = await _metadata(rows);
+    // B2.23: historical SQLite rowid tables can contain NULL TEXT PRIMARY
+    // KEY values, and TEXT-affinity columns can still hold BLOBs. A damaged
+    // year is not a calendar authority; never let status() throw TypeError.
+    final firstRow = rows.first;
+    final start = firstRow['calendar_date'];
+    final end = rows.last['calendar_date'];
+    final revision = firstRow['source_revision'];
+    final sourceUrl = firstRow['source_url'];
+    final importedAt = firstRow['updated_at'];
+    if (start is! String ||
+        end is! String ||
+        revision is! String ||
+        sourceUrl is! String ||
+        importedAt is! String) {
+      return null;
+    }
     return CalendarPackageStatus(
       year: year,
       start: start,
       end: end,
       rowCount: rows.length,
-      revision: metadata?.sourceRevision ??
-          rows.first['source_revision'] as String,
+      revision: metadata?.sourceRevision ?? revision,
       sequence: metadata?.revisionSequence ?? 0,
       digest: metadata?.digest ?? '',
-      sourceUrl: rows.first['source_url'] as String,
-      importedAt: rows.first['updated_at'] as String,
-      isContiguous: rows.length == expected,
+      sourceUrl: sourceUrl,
+      importedAt: importedAt,
+      isContiguous: metadata != null || _isConsistentLegacy(rows),
+      hasCanonicalRowDigest: metadata?.generatedAt != null,
     );
   }
 
@@ -152,46 +314,199 @@ class TaiwanBusinessCalendarPackageService {
     );
   }
 
-  TaiwanBusinessCalendarStoredMetadata? _metadata(
+  Future<TaiwanBusinessCalendarStoredMetadata?> _metadata(
     List<Map<String, Object?>> rows,
-  ) {
+  ) async {
     if (rows.isEmpty) return null;
     final values = rows.map((row) => row['source_revision']).toSet();
     if (values.length != 1 || values.single is! String) return null;
     final metadata = TaiwanBusinessCalendarStoredMetadata.tryDecode(
       values.single! as String,
     );
-    if (metadata == null || metadata.rowCount != rows.length) return null;
-    if (metadata.coverageStart != rows.first['calendar_date'] ||
-        metadata.coverageEnd != rows.last['calendar_date']) {
+    // B2.1: a parseable metadata envelope alone is not an installed-year
+    // authority. Require full-year row/metadata coherence before allowing a
+    // higher revision to replace it. This is structural validation, NOT a
+    // recomputation of the source package SHA-256 from SQLite rows.
+    if (metadata == null ||
+        metadata.formatVersion !=
+            TaiwanBusinessCalendarYearPackage.currentFormatVersion ||
+        metadata.sourceYear < 1900 ||
+        metadata.sourceYear > 9999 ||
+        metadata.sourceYear != rows.first['source_year'] ||
+        metadata.revisionSequence < 1 ||
+        metadata.sourceRevision.trim().isEmpty ||
+        DateTime.tryParse(metadata.sourcePublishedAt) == null ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(metadata.digest)) {
       return null;
+    }
+    // B2.29: a generated_at envelope is emitted in one canonical JSON form.
+    // Its day digest covers decoded fields, not unknown JSON keys or raw
+    // whitespace. Reject rewritten envelopes instead of accepting an
+    // untracked authority claim as a verified installed-year LKG.
+    // Historical envelopes without generated_at remain structural-only.
+    if (metadata.generatedAt != null &&
+        values.single != metadata.encode()) {
+      return null;
+    }
+    final firstDay = DateTime.utc(metadata.sourceYear, 1, 1);
+    final expectedCount = DateTime.utc(metadata.sourceYear + 1, 1, 1)
+        .difference(firstDay)
+        .inDays;
+    if (rows.length != expectedCount ||
+        metadata.rowCount != expectedCount ||
+        metadata.coverageStart !=
+            firstDay.toIso8601String().substring(0, 10) ||
+        metadata.coverageEnd !=
+            DateTime.utc(metadata.sourceYear, 12, 31)
+                .toIso8601String()
+                .substring(0, 10)) {
+      return null;
+    }
+    final url = rows.first['source_url'];
+    // B2.3: installed metadata must retain the same official-host authority
+    // as the incoming package; a replaced SQLite source URL is not LKG.
+    if (url is! String ||
+        !TaiwanBusinessCalendarPackageCodec.isApprovedOfficialSourceUrl(url)) {
+      return null;
+    }
+    for (var index = 0; index < rows.length; index++) {
+      final row = rows[index];
+      final expectedDate = firstDay
+          .add(Duration(days: index))
+          .toIso8601String()
+          .substring(0, 10);
+      if (row['source_year'] != metadata.sourceYear ||
+          row['calendar_date'] != expectedDate ||
+          row['source_url'] != url ||
+          row['source_revision'] != rows.first['source_revision'] ||
+          row['day_label'] is! String ||
+          row['is_business_day'] is! int ||
+          (row['is_business_day'] != 0 && row['is_business_day'] != 1)) {
+        return null;
+      }
+    }
+    // B2.16: structurally valid 0/1 flags and labels may still be damaged.
+    // New installations retain generated_at, allowing a full canonical
+    // SHA-256 rebuild from persisted rows before accepting year authority.
+    // Historical envelopes without generated_at retain structural-only
+    // compatibility and are not asserted to have cryptographic row proof.
+    if (metadata.generatedAt != null) {
+      if (DateTime.tryParse(metadata.generatedAt!) == null) return null;
+      // B2.22: the canonical day digest excludes local import provenance.
+      // A later SQLite rewrite of one timestamp must revoke verified LKG,
+      // even if every day/label still hashes to the original package.
+      // New-format installs issue one UTC timestamp for the entire year.
+      final importedAt = rows.first['updated_at'];
+      // B2.36: install() emits canonical UTC ISO-8601 for every row.
+      // A uniformly rewritten but impossible/noncanonical timestamp must
+      // not preserve verified-year authority or authorize replacement.
+      if (importedAt is! String ||
+          !importedAt.endsWith('Z') ||
+          !TaiwanBusinessCalendarPackageCodec.hasValidCivilTimestamp(importedAt) ||
+          DateTime.parse(importedAt).toUtc().toIso8601String() != importedAt ||
+          rows.any((row) => row['updated_at'] != importedAt)) {
+        return null;
+      }
+      try {
+        final rebuilt = await const TaiwanBusinessCalendarPackageCodec().build(
+          sourceYear: metadata.sourceYear,
+          sourceRevision: metadata.sourceRevision,
+          revisionSequence: metadata.revisionSequence,
+          sourceUrl: url,
+          sourcePublishedAt: metadata.sourcePublishedAt,
+          generatedAt: metadata.generatedAt!,
+          days: rows.map((row) => TaiwanBusinessCalendarPackageDay(
+            dateKey: row['calendar_date'] as String,
+            isBusinessDay: row['is_business_day'] == 1,
+            label: row['day_label'] as String,
+          )).toList(growable: false),
+        );
+        if (rebuilt.digest != metadata.digest) return null;
+      } on TaiwanBusinessCalendarPackageException {
+        return null;
+      }
     }
     return metadata;
   }
 
+  // B2: only a *complete* legacy calendar may be upgraded. A damaged
+  // package-metadata string is not legacy, even if its dates are contiguous.
+  // Never replace an incomplete or ambiguous installed year with new data.
   bool _isConsistentLegacy(List<Map<String, Object?>> rows) {
+    if (rows.isEmpty) return false;
     final revisions = rows.map((row) => row['source_revision']).toSet();
     final urls = rows.map((row) => row['source_url']).toSet();
     if (revisions.length != 1 || urls.length != 1) return false;
-    final start = DateTime.tryParse(rows.first['calendar_date'] as String);
-    final end = DateTime.tryParse(rows.last['calendar_date'] as String);
-    return start != null &&
-        end != null &&
-        rows.length == end.difference(start).inDays + 1;
+    final revision = revisions.single;
+    final legacyUrl = urls.single;
+    // A complete historical row set with an unapproved source is not an
+    // authoritative legacy year and must not be silently upgraded.
+    if (legacyUrl is! String ||
+        !TaiwanBusinessCalendarPackageCodec.isApprovedOfficialSourceUrl(
+          legacyUrl,
+        )) {
+      return false;
+    }
+    if (revision is! String || revision.trim().isEmpty ||
+        revision.trimLeft().startsWith('{') ||
+        revision.trimLeft().startsWith('[')) {
+      return false;
+    }
+    final sourceYear = rows.first['source_year'];
+    if (sourceYear is! int || sourceYear < 1900 || sourceYear > 9999) {
+      return false;
+    }
+    final firstDay = DateTime.utc(sourceYear, 1, 1);
+    final expectedCount =
+        DateTime.utc(sourceYear + 1, 1, 1).difference(firstDay).inDays;
+    if (rows.length != expectedCount) return false;
+    for (var index = 0; index < rows.length; index++) {
+      final expectedDate = firstDay
+          .add(Duration(days: index))
+          .toIso8601String()
+          .substring(0, 10);
+      // Legacy SQLite schemas may lack modern NOT NULL/CHECK constraints.
+      // Reject damaged day data before any transactional year replacement.
+      final row = rows[index];
+      final flag = row['is_business_day'];
+      // B2.35: DateTime.tryParse normalizes impossible dates/clocks, so a
+      // parseable but impossible legacy timestamp cannot authorize replacement.
+      // B2.28: legacy rows may come from SQLite tables without storage-class
+      // CHECKs. A later BLOB or malformed timestamp must never make a
+      // damaged full-year LKG eligible for a destructive upgrade.
+      final updatedAt = row['updated_at'];
+      if (row['source_year'] != sourceYear ||
+          row['calendar_date'] != expectedDate ||
+          flag is! int || (flag != 0 && flag != 1) ||
+          row['day_label'] is! String ||
+          updatedAt is! String ||
+          !TaiwanBusinessCalendarPackageCodec.hasValidCivilTimestamp(updatedAt)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   bool _matches(
     List<Map<String, Object?>> rows,
-    TaiwanBusinessCalendarYearPackage package,
-  ) {
+    TaiwanBusinessCalendarYearPackage package, {
+    String? expectedImportedAt,
+  }) {
     if (rows.length != package.days.length) return false;
     final revision = package.storedMetadata.encode();
     for (var index = 0; index < rows.length; index++) {
       final row = rows[index];
       final day = package.days[index];
-      if (row['calendar_date'] != day.dateKey ||
-          (row['is_business_day'] as num).toInt() !=
-              (day.isBusinessDay ? 1 : 0) ||
+      // B2.21: legacy SQLite can return TEXT flags. Reject non-integer or
+      // out-of-domain values before comparison, never throw an untyped cast.
+      // B2.20: post-write provenance must equal the timestamp issued for
+      // this transaction; a silent AFTER INSERT mutation is not LKG.
+      if ((expectedImportedAt != null &&
+              row['updated_at'] != expectedImportedAt) ||
+          row['calendar_date'] != day.dateKey ||
+          (row['is_business_day'] is! int ||
+              (row['is_business_day'] != 0 && row['is_business_day'] != 1) ||
+              row['is_business_day'] != (day.isBusinessDay ? 1 : 0)) ||
           row['day_label'] != day.label ||
           row['source_revision'] != revision ||
           row['source_url'] != package.sourceUrl) {

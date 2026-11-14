@@ -82,9 +82,13 @@ jobs:
             if [[ ! -s changed_files.txt ]]; then
               run_heavy=true
               reason="changed file list unavailable"
-            elif grep -Ev '^(docs/|.*\.md$|\.gitignore$)' changed_files.txt | grep -q .; then
-              run_heavy=true
-              reason="non-docs files changed"
+            else
+              grep -Ev '^(docs/|.*\.md$|\.gitignore$)' changed_files.txt \
+                > non_docs_changed_files.txt || true
+              if [[ -s non_docs_changed_files.txt ]]; then
+                run_heavy=true
+                reason="non-docs files changed"
+              fi
             fi
           fi
 
@@ -111,6 +115,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Show Flutter doctor
@@ -226,12 +231,24 @@ jobs:
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         run: flutter analyze
 
+      - name: Focused source custody Flutter contract regressions
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test \
+            test/features/invoice/invoice_award_cloud_lifecycle_contract_test.dart \
+            test/features/invoice/invoice_award_cloud_pdfium_successor_routing_contract_test.dart \
+            test/issue_13_cloud500_pdfium_successor_contract_test.dart \
+            test/issue_13_owner_4_20_14_followup_contract_test.dart \
+            2>&1 | tee flutter-test.log
+
       - name: Run tests
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         shell: bash
         run: |
           set -o pipefail
-          flutter test 2>&1 | tee flutter-test.log
+          flutter test 2>&1 | tee -a flutter-test.log
 
       - name: Summarize failed test evidence
         if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' }}
@@ -247,8 +264,20 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload failed full-test log
+      - name: Check failed full-test log availability
         if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' }}
+        id: failed_test_log
+        shell: bash
+        run: |
+          if [[ -f flutter-test.log ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No flutter-test.log: failure occurred before the test step." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload failed full-test log
+        if: ${{ failure() && steps.changes.outputs.run_heavy == 'true' && steps.failed_test_log.outputs.available == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: flutter-full-test-failure-${{ github.event.pull_request.head.sha || github.sha }}
@@ -274,6 +303,38 @@ jobs:
           flutter build apk --debug
           --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB="$ENABLE_PRIVATE_CLOUD_INVOICE_LAB"
 
+      # Native JVM contract gate: a RED result is a real HOLD, never skipped or masked.
+      - name: Android Platform Worker channel, heartbeat, atomic-result, foreground, OS-lock, terminal and source-FD custody native regressions
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :flutter_pdf_text:testDebugUnitTest \
+            --tests "me.movenext.flutter_pdf_text.PlatformPdfCandidateWorkerServiceNotificationChannelTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformOpenHeartbeatJoinTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultAtomicWriterTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformWorkerStartLeaseTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultProcessLeaseTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultParentCustodyTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultTerminalFenceTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultWorkerEpochTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformResultTerminalProvenanceTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformSourceSnapshotCustodyTest" \
+            --tests "me.movenext.flutter_pdf_text.PlatformSourceSnapshotOrphanCleanupTest" \
+            --no-daemon --stacktrace
+
+      # Compiles an Android API35 two-process RED witness. It does NOT run
+      # instrumentation or assert a device PASS; no emulator is provisioned.
+      - name: Compile Android API35 two-process lease instrumentation (not executed)
+        if: ${{ steps.changes.outputs.run_heavy == 'true' }}
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :flutter_pdf_text:assembleDebugAndroidTest --no-daemon --stacktrace
+          echo "ANDROID_NATIVE_REAL_DEVICE_PROOF_HOLD=1 (compile-only)"
+
       - name: Record debug APK SHA256
         if: >-
           ${{ steps.changes.outputs.run_heavy == 'true' &&
@@ -297,3 +358,416 @@ jobs:
             app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 1
+
+  android-api35-two-process-lease:
+    name: Android API35 independent-process lease runtime (RED witness)
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 45 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact PR HEAD (not synthetic merge ref)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify exact HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          echo "ANDROID_API35_SOURCE_HEAD=$(git rev-parse HEAD)"
+      - name: Enable hardware accelerated Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -c /dev/kvm ]]; then
+            echo 'ANDROID_API35_KVM_DEVICE_MISSING' >&2
+            exit 60
+          fi
+          sudo chmod a+rw /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.9'
+          cache: true
+      - name: Generate Android host and resolve dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android .
+          flutter pub get
+      # CI #1265 first failure was host disk, not a C18 assertion:
+      # emulator needed 7372.80 MB for default userdata but only 6060.07 MB
+      # remained after SDK provisioning. Preserve the same API35/JUnit witness.
+      - name: API35 bounded host disk preflight before AVD provisioning
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android/avd"
+          available_mb="$(df -Pm "$HOME/.android/avd" | awk 'NR==2 {print $4}')"
+          if [[ ! "$available_mb" =~ ^[0-9]+$ ]]; then
+            echo 'ANDROID_API35_HOST_DISK_PROBE_INVALID' >&2
+            exit 62
+          fi
+          echo "ANDROID_API35_HOST_AVAILABLE_MB=$available_mb"
+          if (( available_mb < 6144 )); then
+            echo "ANDROID_API35_HOST_DISK_INSUFFICIENT_PREBOOT available_mb=$available_mb required_mb=6144" >&2
+            exit 62
+          fi
+      # CI #1298 failed before emulator/JUnit: sdkmanager downloaded an
+      # invalid API35 google_apis x86_64 ZIP. Retry only this disposable
+      # system image with a strict installed-image integrity check. Never
+      # convert an SDK infrastructure failure into a security test PASS.
+      - name: API35 bounded SDK system image integrity and retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          image_dir="$sdk/system-images/android-35/google_apis/x86_64"
+          package='system-images;android-35;google_apis;x86_64'
+          # The emulator action augments PATH only inside its own process;
+          # the preflight runs earlier, so locate the already installed SDK
+          # manager by absolute path instead of assuming a global command.
+          sdkmanager_bin="$(command -v sdkmanager || true)"
+          if [[ -z "$sdkmanager_bin" && -d "$sdk/cmdline-tools" ]]; then
+            sdkmanager_bin="$(find "$sdk/cmdline-tools" -maxdepth 3 -name sdkmanager -print -quit 2>/dev/null || true)"
+          fi
+          if [[ -z "$sdkmanager_bin" || ! -x "$sdkmanager_bin" ]]; then
+            echo "ANDROID_API35_SDKMANAGER_MISSING sdk_root=$sdk" >&2
+            exit 63
+          fi
+          echo "ANDROID_API35_SDKMANAGER_PATH=$sdkmanager_bin"
+          image_ready() {
+            test -s "$image_dir/system.img" && test -s "$image_dir/package.xml"
+          }
+          for attempt in 1 2 3; do
+            if image_ready; then
+              echo "ANDROID_API35_SYSTEM_IMAGE_VERIFIED attempt=$attempt"
+              break
+            fi
+            # Never delete the SDK root or other installed system images.
+            if [[ -d "$image_dir" ]]; then
+              rm -rf -- "$image_dir"
+            fi
+            echo "ANDROID_API35_SYSTEM_IMAGE_FETCH attempt=$attempt"
+            if timeout 300s "$sdkmanager_bin" --sdk_root="$sdk" --install "$package" --channel=0; then
+              echo "ANDROID_API35_SDKMANAGER_RETURNED_SUCCESS attempt=$attempt"
+            else
+              echo "ANDROID_API35_SDKMANAGER_FAILED attempt=$attempt" >&2
+            fi
+            if image_ready; then
+              echo "ANDROID_API35_SYSTEM_IMAGE_VERIFIED attempt=$attempt"
+              break
+            fi
+            if (( attempt == 3 )); then
+              echo 'ANDROID_API35_SYSTEM_IMAGE_CORRUPT_OR_MISSING' >&2
+              exit 63
+            fi
+            sleep "$((attempt * 3))"
+          done
+      # Actual Android API35 emulator execution. The sidecar-swap negative
+      # is expected RED until kernel ownership is repaired; do not mask it.
+      - name: Execute Android API35 independent PID/UID lease instrumentation
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          # Bound only the disposable AVD userdata partition (not test coverage).
+          # The default 7.37 GB partition failed on CI #1265 at emulator launch.
+          disk-size: 4096M
+          disable-animations: true
+          working-directory: ./android
+          script: |
+            # The emulator runner executes EACH script line through /usr/bin/sh -c.
+            # Keep Gradle and its arguments on ONE line: trailing backslash is
+            # passed as a literal task name (Task '\\' not found), not a shell continuation.
+            adb shell getprop ro.build.version.sdk
+            # Capture logcat while the emulator is alive, including on a real RED.
+            # Preserve Gradle's original exit status: no masking or skip.
+            ./gradlew :flutter_pdf_text:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=me.movenext.flutter_pdf_text.PlatformResultProcessLeaseInstrumentedTest --no-daemon --stacktrace; native_status=$?; mkdir -p ../android-api35-evidence; (timeout 20s adb -e logcat -d -v threadtime > ../android-api35-evidence/logcat.txt || true); (timeout 10s adb -e shell getprop ro.build.version.sdk > ../android-api35-evidence/api-level.txt || true); (timeout 10s adb -e shell getenforce > ../android-api35-evidence/selinux-mode.txt || true); exit "$native_status"
+            test -n "$(find ../build -path '*/androidTest-results/*' -name '*.xml' -print -quit)" || { echo 'ANDROID_API35_JUNIT_XML_MISSING' >&2; exit 61; }
+            echo 'ANDROID_API35_TWO_PROCESS_LEASE_TESTS_EXECUTED=PASS'
+      - name: Preserve Android API35 native JUnit and device evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p android-api35-evidence
+          # Bound evidence collection if emulator launch fails before ADB.
+          if command -v adb >/dev/null 2>&1 && timeout 8s adb devices | grep -Eq '^emulator-[0-9]+[[:space:]]+device$'; then
+            (timeout 20s adb -e logcat -d -v threadtime > android-api35-evidence/logcat.txt) || true
+            (timeout 10s adb -e shell getprop ro.build.version.sdk > android-api35-evidence/api-level.txt) || true
+            (timeout 10s adb -e shell getenforce > android-api35-evidence/selinux-mode.txt) || true
+          else
+            echo 'ANDROID_API35_ADB_DEVICE_UNAVAILABLE' > android-api35-evidence/device-status.txt
+          fi
+          find build -path '*/androidTest-results/*' -type f -name '*.xml' -exec cp --parents '{}' android-api35-evidence/ \; 2>/dev/null || true
+          find build -path '*/reports/androidTests/*' -type f -exec cp --parents '{}' android-api35-evidence/ \; 2>/dev/null || true
+      - name: Upload Android API35 JUnit and logcat evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr45-android-api35-lease-${{ github.event.pull_request.head.sha }}
+          path: android-api35-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
+  c500-release-aot-witness:
+    name: C500 release-AOT fail-closed runtime (ephemeral API35, not signed release)
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 45 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact PR source HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify exact source HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          echo "C500_RELEASE_WITNESS_HEAD=$(git rev-parse HEAD)"
+      - name: Enable API35 emulator acceleration
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.9'
+          cache: true
+      - name: Generate isolated Android host
+        run: flutter create --platforms=android .
+      - name: Patch Android permissions and desugaring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+          permissions = [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+          ]
+          missing = [permission for permission in permissions if permission not in text]
+          if missing:
+              text = text.replace(
+                  marker,
+                  marker + ''.join(f'\n    {permission}' for permission in missing),
+                  1,
+              )
+          manifest.write_text(text)
+
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+
+          def patch_compile_options(source: str) -> str:
+              if 'isCoreLibraryDesugaringEnabled = true' in source:
+                  return source
+              lines = source.splitlines()
+              output = []
+              i = 0
+              patched = False
+              while i < len(lines):
+                  line = lines[i]
+                  output.append(line)
+                  if line.strip() == 'compileOptions {':
+                      block_start_indent = line[: len(line) - len(line.lstrip())]
+                      inner_indent = block_start_indent + '    '
+                      i += 1
+                      block_lines = []
+                      depth = 1
+                      while i < len(lines):
+                          current = lines[i]
+                          stripped = current.strip()
+                          if stripped.endswith('{'):
+                              depth += stripped.count('{')
+                          if stripped == '}':
+                              depth -= 1
+                              if depth == 0:
+                                  if not any(
+                                      'isCoreLibraryDesugaringEnabled = true' in item
+                                      for item in block_lines
+                                  ):
+                                      block_lines.append(
+                                          inner_indent
+                                          + 'isCoreLibraryDesugaringEnabled = true'
+                                      )
+                                  output.extend(block_lines)
+                                  output.append(current)
+                                  patched = True
+                                  break
+                          block_lines.append(current)
+                          i += 1
+                  i += 1
+
+              if patched:
+                  return '\n'.join(output) + ('\n' if source.endswith('\n') else '')
+
+              android_marker = 'android {'
+              if android_marker not in source:
+                  raise SystemExit('Unable to patch desugaring: android block not found')
+              replacement = (
+                  'android {\n'
+                  '    compileOptions {\n'
+                  '        sourceCompatibility = JavaVersion.VERSION_11\n'
+                  '        targetCompatibility = JavaVersion.VERSION_11\n'
+                  '        isCoreLibraryDesugaringEnabled = true\n'
+                  '    }'
+              )
+              return source.replace(android_marker, replacement, 1)
+
+          text = patch_compile_options(text)
+
+          dependency = (
+              'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          )
+          if dependency not in text:
+              marker = 'dependencies {'
+              if marker in text:
+                  text = text.replace(marker, marker + '\n    ' + dependency, 1)
+              else:
+                  text += '\n\ndependencies {\n    ' + dependency + '\n}\n'
+          gradle.write_text(text)
+          PY
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Apply exact optional OCR R8 rules to ephemeral witness only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path('android/app/build.gradle.kts')
+          text = gradle.read_text()
+          marker = 'signingConfig = signingConfigs.getByName("debug")'
+          if text.count(marker) != 1:
+              raise SystemExit('HOLD_WITNESS_DEBUG_SIGNING_CONFIG_DRIFT')
+          # Explicitly bind Gradle's effective release-AOT signingConfig to the
+          # disposable key provisioned and DER-exported by this same job.
+          # Do not rely on AGP's implicit debug-keystore search path.
+          witness_signing = (
+              'signingConfig = signingConfigs.getByName("debug").apply {\n'
+              '                val witnessHome = System.getenv("HOME")\n'
+              '                    ?: throw GradleException("HOLD_WITNESS_HOME_UNSET")\n'
+              '                storeFile = file("$witnessHome/.android/debug.keystore")\n'
+              '                if (storeFile?.isFile != true) {\n'
+              '                    throw GradleException("HOLD_WITNESS_EXPLICIT_DEBUG_KEY_MISSING")\n'
+              '                }\n'
+              '            }'
+          )
+          if text.count(marker) != 1:
+              raise SystemExit('HOLD_WITNESS_DEBUG_SIGNING_CONFIG_DRIFT')
+          text = text.replace(marker, 'proguardFiles("c500-witness-proguard.pro")\n            ' + witness_signing, 1)
+          gradle.write_text(text)
+          Path('android/app/c500-witness-proguard.pro').write_text(
+              '-dontwarn com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions\n'
+              '-dontwarn com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions$Builder\n'
+              '-dontwarn com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions\n'
+              '-dontwarn com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions$Builder\n'
+              '-dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions\n'
+              '-dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions$Builder\n'
+          )
+          PY
+      # Parse only public certificate digests; fail closed on absent/multiple signers.
+      - name: Test C500 disposable signer certificate parity parser
+        shell: bash
+        run: python3 -m unittest discover -s tool -p 'test_c500_witness_signer_verify.py'
+      # This CI-only signer is disposable and unrelated to the trusted 9BA2 release key.
+      # Generate it BEFORE Gradle's release-AOT build, not after the APK is produced.
+      - name: Provision disposable debug signer for C500 release-AOT witness
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.android"
+          if [[ -e "$HOME/.android/debug.keystore" ]]; then
+            echo 'HOLD_WITNESS_UNEXPECTED_PREEXISTING_DEBUG_KEY' >&2
+            exit 65
+          fi
+          keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" \
+            -alias androiddebugkey -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 2
+          test -s "$HOME/.android/debug.keystore" || {
+            echo 'HOLD_WITNESS_DEBUG_KEY_GENERATION_FAILED' >&2
+            exit 65
+          }
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" \
+            -alias androiddebugkey -storepass android -keypass android >/dev/null
+          echo 'C500_WITNESS_DISPOSABLE_DEBUG_KEY_READY'
+      - name: Build ephemeral release-AOT witness with default debug key only
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build apk --release --target=tool/c500_release_witness.dart --dart-define=ENABLE_PRIVATE_CLOUD_INVOICE_LAB=false --dart-define=C500_FULL_PATH_WITNESS=true
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          echo "C500_RELEASE_WITNESS_APK_SHA256=$(sha256sum build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)"
+          # Require the generated debug certificate, never a production signer.
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$sdk" || ! -d "$sdk/build-tools" ]]; then
+            echo 'HOLD_WITNESS_ANDROID_SDK_BUILD_TOOLS_MISSING' >&2
+            exit 65
+          fi
+          # Android build-tools may expose apksigner as a symlink; never silently fail on an empty find.
+          apksigner="$(find "$sdk/build-tools" -maxdepth 2 -name apksigner \( -type f -o -type l \) | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" || ! -x "$apksigner" ]]; then
+            echo 'HOLD_WITNESS_APKSIGNER_NOT_FOUND' >&2
+            exit 65
+          fi
+          if [[ ! -f "$HOME/.android/debug.keystore" ]]; then
+            echo 'HOLD_WITNESS_DEBUG_KEYSTORE_MISSING' >&2
+            exit 65
+          fi
+          if ! apk_info="$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk 2>&1)"; then
+            echo 'HOLD_WITNESS_APK_SIGNATURE_INVALID' >&2
+            exit 65
+          fi
+          # DER SHA-256 is the certificate fingerprint; avoid locale-sensitive
+          # keytool -list formatting. This is the disposable debug key only.
+          if ! keytool -exportcert -keystore "$HOME/.android/debug.keystore" \
+              -alias androiddebugkey -storepass android \
+              > "$RUNNER_TEMP/c500-witness-debug-cert.der" 2>/dev/null; then
+            echo 'HOLD_WITNESS_DEBUG_CERT_EXPORT_FAILED' >&2
+            exit 65
+          fi
+          # Require exactly one APK signer, and match its cert to the DER bytes.
+          if ! printf '%s\n' "$apk_info" | python3 tool/c500_witness_signer_verify.py \
+              "$RUNNER_TEMP/c500-witness-debug-cert.der"; then
+            echo 'HOLD_WITNESS_CERTIFICATE_VERIFICATION_FAILED' >&2
+            exit 65
+          fi
+          rm -f "$RUNNER_TEMP/c500-witness-debug-cert.der"
+          echo 'CI-only emulator witness. No production signing or artifact publication.'
+      - name: Execute real release-AOT on disposable Android API35 emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disk-size: 4096M
+          disable-animations: true
+          script: bash tool/run_c500_release_witness_android.sh build/app/outputs/flutter-apk/app-release.apk

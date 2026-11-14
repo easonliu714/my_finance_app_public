@@ -128,6 +128,375 @@ void main() {
     );
   });
 
+  test('B2.2 package provenance rejects unapproved HTTPS and host confusion',
+      () async {
+    final days = _daysForYear(2028);
+    for (final sourceUrl in <String>[
+      'https://example.org/office-calendar.csv',
+      'https://www.dgpa.gov.tw.attacker.example/calendar.csv',
+      'https://www.dgpa.gov.tw@attacker.example/calendar.csv',
+      'https://www.dgpa.gov.tw:8443/calendar.csv',
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: sourceUrl,
+          sourcePublishedAt: '2027-06-30',
+          generatedAt: '2027-07-01T00:00:00.000Z',
+          days: days,
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('approved official authority'),
+        )),
+      );
+    }
+
+    // The official government open-data host is a permitted source locator,
+    // not a claim that this synthetic test has downloaded real annual data.
+    final officialMirror = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://data.gov.tw/dataset/official-calendar',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: days,
+    );
+    expect((await codec.decodeAndValidate(officialMirror.encode())).sourceUrl,
+        officialMirror.sourceUrl);
+
+    // Decoder must reject an attacker URL before considering a package hash.
+    final poisoned = Map<String, Object?>.from(
+      jsonDecode(officialMirror.encode()) as Map,
+    );
+    final source = Map<String, Object?>.from(poisoned['source']! as Map);
+    source['url'] = 'https://attacker.example/forged-calendar.json';
+    poisoned['source'] = source;
+    await expectLater(
+      codec.decodeAndValidate(jsonEncode(poisoned)),
+      throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+        (error) => error.message,
+        'message',
+        contains('approved official authority'),
+      )),
+    );
+  });
+
+  test('B2.30 impossible publication and generation dates fail closed',
+      () async {
+    final days = _daysForYear(2028);
+    for (final bad in <Map<String, String>>[
+      <String, String>{
+        'published': '2027-02-30',
+        'generated': '2027-07-01T00:00:00.000Z',
+      },
+      <String, String>{
+        'published': '2027-06-30',
+        'generated': '2027-04-31T00:00:00.000Z',
+      },
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+          sourcePublishedAt: bad['published']!,
+          generatedAt: bad['generated']!,
+          days: days,
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>()),
+      );
+    }
+  });
+
+  test('B2.30 valid leap day and timezone-offset provenance still round-trip',
+      () async {
+    final package = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2028-02-29',
+      generatedAt: '2028-03-01T00:00:00.000+08:00',
+      days: _daysForYear(2028),
+    );
+    final decoded = await codec.decodeAndValidate(package.encode());
+    expect(decoded.digest, package.digest);
+    expect(decoded.sourcePublishedAt, '2028-02-29');
+    expect(decoded.generatedAt, '2028-03-01T00:00:00.000+08:00');
+  });
+
+  test('B2.31 source publication cannot follow package generation',
+      () async {
+    final days = _daysForYear(2028);
+    for (final bad in <Map<String, String>>[
+      <String, String>{
+        'published': '2027-07-02',
+        'generated': '2027-07-01T23:59:59Z',
+      },
+      <String, String>{
+        'published': '2027-07-01T12:00:00+08:00',
+        'generated': '2027-07-01T03:59:59Z',
+      },
+      <String, String>{
+        'published': '2027-07-01T23:00:00Z',
+        'generated': '2027-07-01T22:59:59Z',
+      },
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+          sourcePublishedAt: bad['published']!,
+          generatedAt: bad['generated']!,
+          days: days,
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('precedes source publication'),
+        )),
+      );
+    }
+  });
+
+  test('B2.31 zone-aware order and date-only publication remain valid',
+      () async {
+    for (final valid in <Map<String, String>>[
+      <String, String>{
+        'published': '2027-07-02T00:30:00+08:00',
+        'generated': '2027-07-01T17:00:00Z',
+      },
+      <String, String>{
+        'published': '2027-07-01',
+        'generated': '2027-07-01T00:00:00+08:00',
+      },
+    ]) {
+      final package = await codec.build(
+        sourceYear: 2028,
+        sourceRevision: 'DGPA-117-test',
+        revisionSequence: 1,
+        sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+        sourcePublishedAt: valid['published']!,
+        generatedAt: valid['generated']!,
+        days: _daysForYear(2028),
+      );
+      final decoded = await codec.decodeAndValidate(package.encode());
+      expect(decoded.digest, package.digest);
+      expect(decoded.generatedAt, valid['generated']);
+    }
+  });
+
+  test('B2.32 rejects overflowed official publication clock values',
+      () async {
+    for (final published in <String>[
+      '2027-07-01T24:00:00Z',
+      '2027-07-01T12:60:00Z',
+      '2027-07-01T12:34:60Z',
+      '2027-07-01T12:00:00+24:00',
+      '2027-07-01T12:00:00+08:60',
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+          sourcePublishedAt: published,
+          generatedAt: '2027-07-03T00:00:00Z',
+          days: _daysForYear(2028),
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('publication date is invalid'),
+        )),
+      );
+    }
+  });
+
+  test('B2.32 rejects overflowed generation time but accepts valid edge',
+      () async {
+    for (final generated in <String>[
+      '2027-07-01T24:00:00Z',
+      '2027-07-01T12:60:00Z',
+      '2027-07-01T12:34:60Z',
+      '2027-07-01T12:00:00+24:00',
+    ]) {
+      await expectLater(
+        codec.build(
+          sourceYear: 2028,
+          sourceRevision: 'DGPA-117-test',
+          revisionSequence: 1,
+          sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+          sourcePublishedAt: '2027-06-30',
+          generatedAt: generated,
+          days: _daysForYear(2028),
+        ),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('generation time is invalid'),
+        )),
+      );
+    }
+    for (final generated in <String>[
+      '2027-07-01T23:59:59Z',
+      '2027-07-01T00:00:00+08:00',
+    ]) {
+      final package = await codec.build(
+        sourceYear: 2028,
+        sourceRevision: 'DGPA-117-test',
+        revisionSequence: 1,
+        sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+        sourcePublishedAt: '2027-06-30',
+        generatedAt: generated,
+        days: _daysForYear(2028),
+      );
+      expect((await codec.decodeAndValidate(package.encode())).digest,
+          package.digest);
+    }
+  });
+
+  test('B2.33 rejects unknown claims at every package envelope level',
+      () async {
+    final baseline = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: _daysForYear(2028),
+    );
+
+    // The unchanged digest previously verified because canonicalPayload()
+    // ignores extra input members; no signed authority may be inferred.
+    for (final section in <String>[
+      'root', 'source', 'coverage', 'digest', 'day',
+    ]) {
+      final root = Map<String, Object?>.from(
+        jsonDecode(baseline.encode()) as Map,
+      );
+      if (section == 'root') {
+        root['untracked_official_claim'] = true;
+      } else if (section == 'day') {
+        final days = List<Object?>.from(root['days']! as List);
+        final day = Map<String, Object?>.from(days.first! as Map);
+        day['untracked_official_claim'] = true;
+        days[0] = day;
+        root['days'] = days;
+      } else {
+        final nested = Map<String, Object?>.from(root[section]! as Map);
+        nested['untracked_official_claim'] = true;
+        root[section] = nested;
+      }
+      await expectLater(
+        codec.decodeAndValidate(jsonEncode(root)),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('unexpected fields'),
+        )),
+        reason: 'Unknown $section fields cannot borrow the original digest',
+      );
+    }
+  });
+
+  test('B2.33 unchanged canonical package remains digest-valid', () async {
+    final baseline = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: _daysForYear(2028),
+    );
+    final decoded = await codec.decodeAndValidate(baseline.encode());
+    expect(decoded.digest, baseline.digest);
+    expect(decoded.toJson(), baseline.toJson());
+  });
+
+  test('B2.34 duplicate raw JSON keys cannot borrow a canonical digest',
+      () async {
+    final baseline = (await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: _daysForYear(2028),
+    )).encode();
+
+    // JSON parsers can disagree on first-key versus last-key authority.
+    // A Unicode-escaped key is the same decoded name as its literal peer.
+    final duplicates = <String>[
+      baseline.replaceFirst(
+        '"format_version":1,',
+        '"format_version":1,"format_version":1,',
+      ),
+      baseline.replaceFirst(
+        '"year":2028,',
+        '"year":2028,"year":2028,',
+      ),
+      baseline.replaceFirst(
+        '"row_count":366',
+        '"row_count":366,"row_count":366',
+      ),
+      baseline.replaceFirst(
+        '"algorithm":"sha256",',
+        '"algorithm":"sha256","algorithm":"sha256",',
+      ),
+      baseline.replaceFirst(
+        '"date":"2028-01-01",',
+        r'"date":"2028-01-01","\u0064ate":"2028-01-01",',
+      ),
+    ];
+    for (final duplicate in duplicates) {
+      expect(duplicate, isNot(baseline));
+      await expectLater(
+        codec.decodeAndValidate(duplicate),
+        throwsA(isA<TaiwanBusinessCalendarPackageException>().having(
+          (error) => error.message,
+          'message',
+          contains('duplicate JSON key'),
+        )),
+      );
+    }
+  });
+
+  test('B2.34 distinct nested keys and quoted JSON-like labels still work',
+      () async {
+    final days = _daysForYear(2028);
+    final original = days.first;
+    days[0] = TaiwanBusinessCalendarPackageDay(
+      dateKey: original.dateKey,
+      isBusinessDay: original.isBusinessDay,
+      label: 'literal "source": {"year":2028}',
+    );
+    final package = await codec.build(
+      sourceYear: 2028,
+      sourceRevision: 'DGPA-117-test',
+      revisionSequence: 1,
+      sourceUrl: 'https://www.dgpa.gov.tw/informationlist?uid=41',
+      sourcePublishedAt: '2027-06-30',
+      generatedAt: '2027-07-01T00:00:00.000Z',
+      days: days,
+    );
+    final decoded = await codec.decodeAndValidate(package.encode());
+    expect(decoded.digest, package.digest);
+    expect(decoded.days.first.label, 'literal "source": {"year":2028}');
+  });
+
   test('stored metadata round-trips and legacy text stays detectable', () async {
     final package = await codec.build(
       sourceYear: 2028,

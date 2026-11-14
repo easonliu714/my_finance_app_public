@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:my_finance_app/app_build_metadata.dart';
 import 'package:my_finance_app/features/merchant/business_registry_pack.dart';
 import 'package:my_finance_app/features/merchant/business_registry_repository.dart';
 import 'package:my_finance_app/features/profile/business_registry_update_card.dart';
@@ -23,6 +22,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BusinessRegistryUpdateCard(
+            appVersion: '9.9.9+999',
             snapshot: snapshot,
             loading: false,
             updating: false,
@@ -39,7 +39,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('App 版本'), findsOneWidget);
-    expect(find.text(AppBuildMetadata.appVersion), findsOneWidget);
+    expect(find.text('9.9.9+999'), findsOneWidget);
     expect(
       find.byKey(BusinessRegistryUpdateCard.versionKey),
       findsOneWidget,

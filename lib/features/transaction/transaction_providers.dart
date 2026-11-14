@@ -119,7 +119,9 @@ class TransactionLedgerController
     state = const AsyncValue.loading();
     try {
       final now = DateTime.now();
-      final records = await _store.listRecent();
+      // Dashboard and report are ledger views, not a 50-row recent-items preview.
+      // limit <= 0 is the repository contract for an unbounded ledger read.
+      final records = await _store.listRecent(limit: 0);
       final income = await _store.monthlyIncome(now);
       final expense = await _store.monthlyExpense(now);
       state = AsyncValue.data(

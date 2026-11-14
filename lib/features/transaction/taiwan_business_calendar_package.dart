@@ -11,6 +11,71 @@ class TaiwanBusinessCalendarPackageException implements Exception {
   String toString() => message;
 }
 
+// B2.33: SHA-256 covers the versioned canonical fields, not arbitrary
+// unknown JSON members. Reject shadow authority claims before normalization.
+void _requireExactCalendarKeys(
+  Map<String, Object?> map,
+  Set<String> expected,
+  String section,
+) {
+  if (map.length != expected.length ||
+      map.keys.any((key) => !expected.contains(key))) {
+    throw TaiwanBusinessCalendarPackageException(
+      'Calendar package $section contains unexpected fields for format version 1.',
+    );
+  }
+}
+
+// B2.34: A JSON decoder may silently keep only the last duplicate object key.
+// The digest authenticates the normalized value, while another consumer could
+// trust a different duplicate. Reject raw duplicate keys before normalization.
+void _requireUniqueCalendarJsonKeys(String jsonText) {
+  final objects = <Set<String>?>[];
+  final units = jsonText.codeUnits;
+  var cursor = 0;
+  while (cursor < units.length) {
+    final code = units[cursor];
+    if (code == 34) {
+      final start = cursor;
+      cursor++;
+      while (cursor < units.length) {
+        if (units[cursor] == 92) {
+          cursor += 2;
+        } else if (units[cursor] == 34) {
+          cursor++;
+          break;
+        } else {
+          cursor++;
+        }
+      }
+      var lookahead = cursor;
+      while (lookahead < units.length &&
+          (units[lookahead] == 32 ||
+              units[lookahead] == 9 ||
+              units[lookahead] == 10 ||
+              units[lookahead] == 13)) {
+        lookahead++;
+      }
+      if (lookahead < units.length &&
+          units[lookahead] == 58 &&
+          objects.isNotEmpty &&
+          objects.last != null) {
+        final key = jsonDecode(jsonText.substring(start, cursor)) as String;
+        if (!objects.last!.add(key)) {
+          throw const TaiwanBusinessCalendarPackageException(
+            'Calendar package contains a duplicate JSON key.',
+          );
+        }
+      }
+      continue;
+    }
+    if (code == 123) objects.add(<String>{});
+    if (code == 91) objects.add(null);
+    if (code == 125 || code == 93) objects.removeLast();
+    cursor++;
+  }
+}
+
 class TaiwanBusinessCalendarPackageDay {
   const TaiwanBusinessCalendarPackageDay({
     required this.dateKey,
@@ -35,6 +100,11 @@ class TaiwanBusinessCalendarPackageDay {
       );
     }
     final map = Map<String, Object?>.from(value);
+    _requireExactCalendarKeys(
+      map,
+      const <String>{'date', 'is_business_day', 'label'},
+      'day',
+    );
     final date = map['date'];
     final flag = map['is_business_day'];
     final label = map['label'];
@@ -68,6 +138,7 @@ class TaiwanBusinessCalendarStoredMetadata {
     required this.sourceRevision,
     required this.revisionSequence,
     required this.sourcePublishedAt,
+    this.generatedAt,
     required this.coverageStart,
     required this.coverageEnd,
     required this.rowCount,
@@ -79,6 +150,9 @@ class TaiwanBusinessCalendarStoredMetadata {
   final String sourceRevision;
   final int revisionSequence;
   final String sourcePublishedAt;
+  // New installs bind stored SQLite days to the original package digest.
+  // Historical metadata may omit this field and remains structural-only.
+  final String? generatedAt;
   final String coverageStart;
   final String coverageEnd;
   final int rowCount;
@@ -90,6 +164,7 @@ class TaiwanBusinessCalendarStoredMetadata {
         'source_revision': sourceRevision,
         'revision_sequence': revisionSequence,
         'source_published_at': sourcePublishedAt,
+        if (generatedAt != null) 'generated_at': generatedAt,
         'coverage_start': coverageStart,
         'coverage_end': coverageEnd,
         'row_count': rowCount,
@@ -108,6 +183,7 @@ class TaiwanBusinessCalendarStoredMetadata {
       final sourceRevision = map['source_revision'];
       final revisionSequence = map['revision_sequence'];
       final sourcePublishedAt = map['source_published_at'];
+      final generatedAt = map['generated_at'];
       final coverageStart = map['coverage_start'];
       final coverageEnd = map['coverage_end'];
       final rowCount = map['row_count'];
@@ -123,12 +199,14 @@ class TaiwanBusinessCalendarStoredMetadata {
           digest is! String) {
         return null;
       }
+      if (generatedAt != null && generatedAt is! String) return null;
       return TaiwanBusinessCalendarStoredMetadata(
         formatVersion: formatVersion,
         sourceYear: sourceYear,
         sourceRevision: sourceRevision,
         revisionSequence: revisionSequence,
         sourcePublishedAt: sourcePublishedAt,
+        generatedAt: generatedAt as String?,
         coverageStart: coverageStart,
         coverageEnd: coverageEnd,
         rowCount: rowCount,
@@ -176,6 +254,7 @@ class TaiwanBusinessCalendarYearPackage {
         sourceRevision: sourceRevision,
         revisionSequence: revisionSequence,
         sourcePublishedAt: sourcePublishedAt,
+        generatedAt: generatedAt,
         coverageStart: coverageStart,
         coverageEnd: coverageEnd,
         rowCount: days.length,
@@ -286,7 +365,16 @@ class TaiwanBusinessCalendarPackageCodec {
         'Calendar package root must be a JSON object.',
       );
     }
+    // B2.34: Detect duplicate raw keys, including Unicode-escaped aliases.
+    _requireUniqueCalendarJsonKeys(jsonText);
     final root = Map<String, Object?>.from(decoded);
+    _requireExactCalendarKeys(
+      root,
+      const <String>{
+        'format_version', 'source', 'generated_at', 'coverage', 'days', 'digest',
+      },
+      'root',
+    );
     final formatVersion = root['format_version'];
     final source = root['source'];
     final generatedAt = root['generated_at'];
@@ -307,6 +395,23 @@ class TaiwanBusinessCalendarPackageCodec {
     final sourceMap = Map<String, Object?>.from(source);
     final coverageMap = Map<String, Object?>.from(coverage);
     final digestValues = Map<String, Object?>.from(digestMap);
+    _requireExactCalendarKeys(
+      sourceMap,
+      const <String>{
+        'year', 'revision', 'revision_sequence', 'url', 'published_at',
+      },
+      'source',
+    );
+    _requireExactCalendarKeys(
+      coverageMap,
+      const <String>{'start', 'end', 'row_count'},
+      'coverage',
+    );
+    _requireExactCalendarKeys(
+      digestValues,
+      const <String>{'algorithm', 'value'},
+      'digest',
+    );
     final sourceYear = sourceMap['year'];
     final sourceRevision = sourceMap['revision'];
     final revisionSequence = sourceMap['revision_sequence'];
@@ -376,6 +481,25 @@ class TaiwanBusinessCalendarPackageCodec {
     return package;
   }
 
+  // B2.3: reuse the same allowlist for new packages and existing SQLite
+  // provenance. HTTPS alone does not authenticate an official source.
+  static bool isApprovedOfficialSourceUrl(String sourceUrl) {
+    final uri = Uri.tryParse(sourceUrl.trim());
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasPort) {
+      return false;
+    }
+    const officialHosts = <String>{
+      'dgpa.gov.tw',
+      'www.dgpa.gov.tw',
+      'data.gov.tw',
+    };
+    return officialHosts.contains(uri.host.toLowerCase());
+  }
+
   void _validateMetadata({
     required int formatVersion,
     required int sourceYear,
@@ -417,14 +541,30 @@ class TaiwanBusinessCalendarPackageCodec {
         'Calendar package source URL must be an absolute HTTPS URL.',
       );
     }
-    if (DateTime.tryParse(sourcePublishedAt.trim()) == null) {
+    // B2.2: HTTPS by itself does not establish official calendar provenance.
+    // Only explicitly approved DGPA/data.gov.tw hosts may enter a new package;
+    // source authenticity and full-year data remain separate validation gates.
+    if (!isApprovedOfficialSourceUrl(sourceUrl)) {
+      throw const TaiwanBusinessCalendarPackageException(
+        'Calendar package source URL must name an approved official authority.',
+      );
+    }
+    if (!_hasValidCivilDate(sourcePublishedAt)) {
       throw const TaiwanBusinessCalendarPackageException(
         'Calendar package publication date is invalid.',
       );
     }
-    if (DateTime.tryParse(generatedAt.trim()) == null) {
+    if (!_hasValidCivilDate(generatedAt)) {
       throw const TaiwanBusinessCalendarPackageException(
         'Calendar package generation time is invalid.',
+      );
+    }
+    // B2.31: Reject generation before publication. When both source fields
+    // have explicit zones, compare absolute instants. A date-only publication
+    // has no clock precision, so compare the original civil dates instead.
+    if (!_hasPlausibleProvenanceOrder(sourcePublishedAt, generatedAt)) {
+      throw const TaiwanBusinessCalendarPackageException(
+        'Calendar package generation precedes source publication.',
       );
     }
     final expectedStart = _dateKey(DateTime.utc(sourceYear, 1, 1));
@@ -434,6 +574,65 @@ class TaiwanBusinessCalendarPackageCodec {
         'Calendar package coverage must be $expectedStart..$expectedEnd.',
       );
     }
+  }
+
+  // B2.35: Reuse strict source timestamp validation for legacy SQLite rows.
+  // This validates civil/clock syntax, not official publisher authenticity.
+  static bool hasValidCivilTimestamp(String raw) => _hasValidCivilDate(raw);
+
+  // B2.30: DateTime.tryParse normalizes impossible civil days (e.g. Feb 30).
+  // Check the original YYYY-MM-DD fields before trusting source provenance.
+  // Preserve valid date-only and timezone-offset timestamp inputs.
+  static bool _hasValidCivilDate(String raw) {
+    final value = raw.trim();
+    if (DateTime.tryParse(value) == null) return false;
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})(?:$|[Tt ])')
+        .firstMatch(value);
+    if (match == null) return false;
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final civil = DateTime.utc(year, month, day);
+    if (civil.year != year || civil.month != month || civil.day != day) {
+      return false;
+    }
+    // B2.32: Dart DateTime.tryParse normalizes overflowed clock fields.
+    // A valid civil date alone cannot authenticate a source timestamp.
+    if (value.length == 10) return true;
+    final clock = RegExp(
+      r'^\d{4}-\d{2}-\d{2}[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?',
+    ).firstMatch(value);
+    if (clock == null) return false;
+    final hour = int.parse(clock.group(1)!);
+    final minute = int.parse(clock.group(2)!);
+    final second = int.parse(clock.group(3) ?? '0');
+    if (hour > 23 || minute > 59 || second > 59) return false;
+    final offset = RegExp(r'[+-](\d{2}):?(\d{2})$').firstMatch(value);
+    if (offset != null &&
+        (int.parse(offset.group(1)!) > 23 ||
+            int.parse(offset.group(2)!) > 59)) {
+      return false;
+    }
+    return true;
+  }
+
+  // B2.31: Only two zone-qualified timestamps have unambiguous instants.
+  // Date-only publication is compared at calendar-day granularity.
+  static bool _hasPlausibleProvenanceOrder(
+    String sourcePublishedAt,
+    String generatedAt,
+  ) {
+    final published = sourcePublishedAt.trim();
+    final generated = generatedAt.trim();
+    final explicitZone = RegExp(r'(?:[Zz]|[+-]\d{2}:?\d{2})$');
+    if (published.length > 10 &&
+        generated.length > 10 &&
+        explicitZone.hasMatch(published) &&
+        explicitZone.hasMatch(generated)) {
+      return !DateTime.parse(generated).isBefore(DateTime.parse(published));
+    }
+    return generated.substring(0, 10).compareTo(published.substring(0, 10)) >=
+        0;
   }
 
   void _validateDays(

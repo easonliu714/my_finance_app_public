@@ -47,26 +47,34 @@ class FullRestoreServiceV7 extends FullRestoreService {
   }) async {
     final normalized = _normalizeScopeV6(envelope);
     _validateExecutionReferences(normalized);
-    final hasExecutionTable = await _tableExists(
+    return super.restoreFromEnvelope(
       db,
-      'wallet_top_up_executions',
+      normalized,
+      confirmationText: confirmationText,
+      preRestoreBackupCreatedAt: preRestoreBackupCreatedAt,
+      sourcePlatform: sourcePlatform,
+      persistPreRestoreBackup: persistPreRestoreBackup,
     );
-    if (hasExecutionTable) {
-      await dropWalletTopUpExecutionImmutabilityTriggers(db);
+  }
+
+  // Do not drop execution immutability guards during confirmation, source
+  // validation, backup capture or pre-restore custody persistence.
+  @override
+  Future<void> beforeManagedRestoreTransaction(DatabaseExecutor txn) async {
+    await super.beforeManagedRestoreTransaction(txn);
+    if (await _tableExists(txn, 'wallet_top_up_executions')) {
+      await dropWalletTopUpExecutionImmutabilityTriggers(txn);
     }
+  }
+
+  @override
+  Future<void> afterManagedRestoreTransaction(DatabaseExecutor txn) async {
     try {
-      return await super.restoreFromEnvelope(
-        db,
-        normalized,
-        confirmationText: confirmationText,
-        preRestoreBackupCreatedAt: preRestoreBackupCreatedAt,
-        sourcePlatform: sourcePlatform,
-        persistPreRestoreBackup: persistPreRestoreBackup,
-      );
-    } finally {
-      if (hasExecutionTable) {
-        await createWalletTopUpExecutionImmutabilityTriggers(db);
+      if (await _tableExists(txn, 'wallet_top_up_executions')) {
+        await createWalletTopUpExecutionImmutabilityTriggers(txn);
       }
+    } finally {
+      await super.afterManagedRestoreTransaction(txn);
     }
   }
 
