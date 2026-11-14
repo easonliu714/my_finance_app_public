@@ -105,7 +105,7 @@ void main() {
         "CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')))",
         "CREATE TABLE invoice_award_durable_consent (id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')))",
         "CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL, state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')))",
-        "CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL)",
+        'CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL)',
         "CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL, state TEXT NOT NULL) /* CHECK (revision >= 0) CHECK (state IN ('granted', 'revoked')) */",
         "CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')), injected TEXT)",
       ];

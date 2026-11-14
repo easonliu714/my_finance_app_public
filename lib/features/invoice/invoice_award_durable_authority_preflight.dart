@@ -27,9 +27,9 @@ class InvoiceAwardDurableAuthorityPreflight {
     // deliberately narrow, non-production fixture contract byte-for-byte.
     // PRAGMA table_info alone cannot establish CHECK constraints; permissive
     // substring/regex matching would accept SQL comments or weakened clauses.
-    const expectedDdl = "CREATE TABLE invoice_award_durable_consent "
-        "(id TEXT NOT NULL PRIMARY KEY, "
-        "revision INTEGER NOT NULL CHECK (revision >= 0), "
+    const expectedDdl = 'CREATE TABLE invoice_award_durable_consent '
+        '(id TEXT NOT NULL PRIMARY KEY, '
+        'revision INTEGER NOT NULL CHECK (revision >= 0), '
         "state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')))";
     final rows = await db.rawQuery(
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
