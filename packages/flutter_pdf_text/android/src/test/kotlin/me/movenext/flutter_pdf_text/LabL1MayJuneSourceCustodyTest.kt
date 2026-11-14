@@ -13,15 +13,15 @@ class LabL1MayJuneSourceCustodyTest {
 
   @Test fun ownerAndHttpsRemainDistinctUnpinnedEvidence() {
     val custody = LabL1MayJuneSourceCustody
-    assertEquals(custody.Status.OWNER_BYTES_VERIFIED_NOT_OFFICIAL_PIN,
-      custody.classify(sample(custody.Origin.OWNER_SUPPLIED)))
-    assertEquals(custody.Status.HTTPS_BYTES_VERIFIED_NOT_OFFICIAL_PIN,
-      custody.classify(sample(custody.Origin.HTTPS_STREAM)))
+    assertEquals(LabL1MayJuneSourceCustody.Status.OWNER_BYTES_VERIFIED_NOT_OFFICIAL_PIN,
+      custody.classify(sample(LabL1MayJuneSourceCustody.Origin.OWNER_SUPPLIED)))
+    assertEquals(LabL1MayJuneSourceCustody.Status.HTTPS_BYTES_VERIFIED_NOT_OFFICIAL_PIN,
+      custody.classify(sample(LabL1MayJuneSourceCustody.Origin.HTTPS_STREAM)))
   }
 
   @Test fun invalidRolePairsCannotBecomeEvidence() {
     val custody = LabL1MayJuneSourceCustody
-    val valid = sample(custody.Origin.OWNER_SUPPLIED)
+    val valid = sample(LabL1MayJuneSourceCustody.Origin.OWNER_SUPPLIED)
     for (invalid in listOf(
       valid.copy(period = "115-07-08"),
       valid.copy(tier = "cloud-800"),
@@ -31,13 +31,13 @@ class LabL1MayJuneSourceCustodyTest {
       valid.copy(drawSha256 = valid.sortedSha256),
       valid.copy(drawSha256 = "A".repeat(64))
     )) {
-      assertEquals(custody.Status.INVALID_EVIDENCE, custody.classify(invalid))
+      assertEquals(LabL1MayJuneSourceCustody.Status.INVALID_EVIDENCE, custody.classify(invalid))
     }
   }
 
   @Test fun noEvidenceOriginCanGrantOfficialAuthority() {
     val custody = LabL1MayJuneSourceCustody
-    for (origin in custody.Origin.values()) {
+    for (origin in LabL1MayJuneSourceCustody.Origin.values()) {
       try {
         custody.requireOfficialAuthority(sample(origin))
         fail("Must fail closed")
