@@ -123,6 +123,25 @@ void main() {
     }
   });
 
+  test('restored trigger or explicit index fails closed without ledger mutation', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    try {
+      await db.execute('CREATE TABLE transactions (id TEXT PRIMARY KEY)');
+      await db.insert('transactions', <String, Object>{'id': 'synthetic-existing'});
+      await db.execute("CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')))");
+      expect(await preflight.hasCandidateSchemaShape(db), isTrue);
+      await db.execute('CREATE INDEX injected_idx ON invoice_award_durable_consent(revision)');
+      expect(await preflight.hasCandidateSchemaShape(db), isFalse);
+      await db.execute('DROP INDEX injected_idx');
+      await db.execute("CREATE TRIGGER injected_trg AFTER INSERT ON invoice_award_durable_consent BEGIN UPDATE transactions SET id = 'tampered'; END");
+      expect(await preflight.hasCandidateSchemaShape(db), isFalse);
+      expect(await preflight.canActivate(db), isFalse);
+      expect((await db.query('transactions')).single['id'], 'synthetic-existing');
+    } finally {
+      await db.close();
+    }
+  });
+
   test('read-only inspection preserves existing ledger and schema', () async {
     final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
     try {

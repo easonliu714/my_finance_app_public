@@ -48,6 +48,20 @@ class InvoiceAwardDurableAuthorityPreflight {
         return false;
       }
     }
+    // A restored trigger or explicit index can change the behavior of an
+    // otherwise byte-identical candidate table. Reject attached objects.
+    final attached = await db.rawQuery(
+      "SELECT type, name, sql FROM sqlite_master WHERE tbl_name = ? "
+      "AND type IN ('index', 'trigger')",
+      <Object>[authorityTable],
+    );
+    for (final object in attached) {
+      if (object['type'] != 'index' ||
+          object['name'] != 'sqlite_autoindex_${authorityTable}_1' ||
+          object['sql'] != null) {
+        return false;
+      }
+    }
     // This proves a synthetic candidate shape only, never its provenance.
     return true;
   }
