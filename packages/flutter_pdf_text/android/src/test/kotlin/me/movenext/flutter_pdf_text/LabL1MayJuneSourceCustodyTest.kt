@@ -7,7 +7,10 @@ import org.junit.Test
 class LabL1MayJuneSourceCustodyTest {
   private fun sample(origin: LabL1MayJuneSourceCustody.Origin) =
     LabL1MayJuneSourceCustody.Evidence(
-      origin, "115-05-06", "cloud-500", 119769589L, "a".repeat(64),
+      origin, "115-05-06", "cloud-500",
+      LabL1MayJuneSourceCustody.Role.SORTED,
+      119769589L, "a".repeat(64),
+      LabL1MayJuneSourceCustody.Role.DRAW_ORDER,
       146461156L, "b".repeat(64)
     )
 
@@ -21,17 +24,24 @@ class LabL1MayJuneSourceCustodyTest {
 
   @Test fun invalidRolePairsCannotBecomeEvidence() {
     val custody = LabL1MayJuneSourceCustody
-    val valid = sample(LabL1MayJuneSourceCustody.Origin.OWNER_SUPPLIED)
-    for (invalid in listOf(
-      valid.copy(period = "115-07-08"),
-      valid.copy(tier = "cloud-800"),
-      valid.copy(sortedBytes = 0L),
-      valid.copy(drawBytes = -1L),
-      valid.copy(sortedSha256 = "bad"),
-      valid.copy(drawSha256 = valid.sortedSha256),
-      valid.copy(drawSha256 = "A".repeat(64))
-    )) {
-      assertEquals(LabL1MayJuneSourceCustody.Status.INVALID_EVIDENCE, custody.classify(invalid))
+    for (origin in LabL1MayJuneSourceCustody.Origin.values()) {
+      val valid = sample(origin)
+      for (invalid in listOf(
+        valid.copy(period = "115-07-08"),
+        valid.copy(tier = "cloud-800"),
+        valid.copy(sortedRole = LabL1MayJuneSourceCustody.Role.DRAW_ORDER),
+        valid.copy(drawRole = LabL1MayJuneSourceCustody.Role.SORTED),
+        valid.copy(sortedRole = LabL1MayJuneSourceCustody.Role.DRAW_ORDER,
+          drawRole = LabL1MayJuneSourceCustody.Role.SORTED),
+        valid.copy(sortedBytes = 0L),
+        valid.copy(drawBytes = -1L),
+        valid.copy(sortedSha256 = "bad"),
+        valid.copy(drawSha256 = valid.sortedSha256),
+        valid.copy(drawSha256 = "A".repeat(64))
+      )) {
+        assertEquals(LabL1MayJuneSourceCustody.Status.INVALID_EVIDENCE,
+          custody.classify(invalid))
+      }
     }
   }
 
