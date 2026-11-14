@@ -36,6 +36,43 @@ void main() {
     }
   });
 
+  test('candidate schema inspection rejects restored/tampered layout', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    try {
+      await db.execute('CREATE TABLE invoice_award_durable_consent (id TEXT PRIMARY KEY)');
+      expect(await preflight.hasCandidateSchemaShape(db), isFalse);
+      expect(await preflight.canActivate(db), isFalse);
+      await db.execute('DROP TABLE invoice_award_durable_consent');
+      await db.execute('CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL, revision INTEGER NOT NULL, state TEXT NOT NULL, injected TEXT)');
+      expect(await preflight.hasCandidateSchemaShape(db), isFalse);
+      expect(await preflight.canActivate(db), isFalse);
+    } finally {
+      await db.close();
+    }
+  });
+
+  test('candidate shape cannot bypass custody and rollback preserves ledger', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    try {
+      await db.execute('CREATE TABLE transactions (id TEXT PRIMARY KEY)');
+      await db.insert('transactions', <String, Object>{'id': 'synthetic-existing'});
+      try {
+        await db.transaction((txn) async {
+          await txn.execute('CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL, revision INTEGER NOT NULL, state TEXT NOT NULL)');
+          expect(await preflight.hasCandidateSchemaShape(txn), isTrue);
+          expect(await preflight.canActivate(txn), isFalse);
+          throw StateError('synthetic rollback');
+        });
+      } on StateError catch (error) {
+        expect(error.message, 'synthetic rollback');
+      }
+      expect(await preflight.hasCandidateSchemaShape(db), isFalse);
+      expect((await db.query('transactions')).single['id'], 'synthetic-existing');
+    } finally {
+      await db.close();
+    }
+  });
+
   test('read-only inspection preserves existing ledger and schema', () async {
     final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
     try {
