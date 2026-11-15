@@ -5,6 +5,8 @@ package me.movenext.flutter_pdf_text
  * is NOT byte custody: the caller must separately prove that the parser reads
  * the SHA-verified bytes without reopening a mutable path.
  *
+ * Once a role has been closed, the entire pair is invalidated. Reopening either
+ * role under a new identifier cannot inherit an earlier source verification.
  * This guard deliberately never authorizes OwnerPositiveGate by itself.
  */
 internal class LabL1ParserSessionLifecycle {
@@ -28,7 +30,7 @@ internal class LabL1ParserSessionLifecycle {
   @Synchronized
   fun close(role: Role, sessionId: String): Boolean {
     if (closed || active[role] != sessionId) return false
-    active.remove(role)
+    invalidate()
     return true
   }
 

@@ -21,21 +21,31 @@ class LabL1ParserSessionLifecycleTest {
     assertFalse(gate.isActivePair("s", "s"))
   }
 
-  @Test fun replacementReopenAndCloseAreFailClosed() {
+  @Test fun closingEitherRoleInvalidatesWholePairAndForbidsReopen() {
+    for (role in listOf(sorted, draw)) {
+      val gate = LabL1ParserSessionLifecycle()
+      assertTrue(gate.register(sorted, "s"))
+      assertTrue(gate.register(draw, "d"))
+      assertFalse(gate.register(sorted, "replacement"))
+      assertFalse(gate.close(draw, "wrong"))
+      assertTrue(gate.isActivePair("s", "d"))
+      assertTrue(gate.close(role, if (role == sorted) "s" else "d"))
+      assertFalse(gate.isActivePair("s", "d"))
+      assertFalse(gate.register(role, "new-session"))
+      assertFalse(gate.register(if (role == sorted) draw else sorted, "other"))
+      assertFalse(gate.close(sorted, "s"))
+      assertFalse(gate.close(draw, "d"))
+    }
+  }
+
+  @Test fun explicitInvalidationForbidsReuse() {
     val gate = LabL1ParserSessionLifecycle()
     assertTrue(gate.register(sorted, "s"))
     assertTrue(gate.register(draw, "d"))
-    assertFalse(gate.register(sorted, "replacement"))
-    assertFalse(gate.close(draw, "wrong"))
-    assertTrue(gate.close(draw, "d"))
-    assertFalse(gate.isActivePair("s", "d"))
-    assertTrue(gate.register(draw, "d2"))
-    assertFalse(gate.isActivePair("s", "d"))
-    assertTrue(gate.isActivePair("s", "d2"))
     gate.invalidate()
-    assertFalse(gate.isActivePair("s", "d2"))
-    assertFalse(gate.register(sorted, "s3"))
-    assertFalse(gate.close(sorted, "s"))
+    assertFalse(gate.isActivePair("s", "d"))
+    assertFalse(gate.register(sorted, "s2"))
+    assertFalse(gate.close(draw, "d"))
   }
 
   @Test fun rejectsBlankAndDuplicateIdentifiers() {
