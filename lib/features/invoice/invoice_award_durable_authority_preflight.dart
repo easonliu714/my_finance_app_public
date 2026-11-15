@@ -55,12 +55,14 @@ class InvoiceAwardDurableAuthorityPreflight {
       'AND type IN (\'index\', \'trigger\')',
       <Object>[authorityTable],
     );
-    for (final object in attached) {
-      if (object['type'] != 'index' ||
-          object['name'] != 'sqlite_autoindex_${authorityTable}_1' ||
-          object['sql'] != null) {
-        return false;
-      }
+    // A valid TEXT PRIMARY KEY must have exactly one SQLite-owned autoindex.
+    // Absence of that index is not evidence of a valid primary-key custodian.
+    if (attached.length != 1) return false;
+    final autoindex = attached.single;
+    if (autoindex['type'] != 'index' ||
+        autoindex['name'] != 'sqlite_autoindex_${authorityTable}_1' ||
+        autoindex['sql'] != null) {
+      return false;
     }
     // This proves a synthetic candidate shape only, never its provenance.
     return true;

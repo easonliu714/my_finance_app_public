@@ -78,6 +78,14 @@ void main() {
     try {
       await db.execute("CREATE TABLE invoice_award_durable_consent (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision >= 0), state TEXT NOT NULL CHECK (state IN ('granted', 'revoked')))");
       expect(await preflight.hasCandidateSchemaShape(db), isTrue);
+      // Positive control: the sole index is SQLite's implicit TEXT PK index.
+      final pkIndexes = await db.rawQuery(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?",
+        <Object>['invoice_award_durable_consent'],
+      );
+      expect(pkIndexes, hasLength(1));
+      expect(pkIndexes.single['name'], 'sqlite_autoindex_invoice_award_durable_consent_1');
+      expect(pkIndexes.single['sql'], isNull);
       expect(await preflight.canActivate(db), isFalse);
       await db.insert('invoice_award_durable_consent', <String, Object>{
         'id': 'synthetic', 'revision': 0, 'state': 'granted',
