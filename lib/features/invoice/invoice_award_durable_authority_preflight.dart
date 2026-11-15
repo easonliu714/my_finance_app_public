@@ -52,7 +52,7 @@ class InvoiceAwardDurableAuthorityPreflight {
     // otherwise byte-identical candidate table. Reject attached objects.
     final attached = await db.rawQuery(
       "SELECT type, name, sql FROM sqlite_master WHERE tbl_name = ? "
-      "AND type IN ('index', 'trigger')",
+      'AND type IN (\'index\', \'trigger\')',
       <Object>[authorityTable],
     );
     for (final object in attached) {
