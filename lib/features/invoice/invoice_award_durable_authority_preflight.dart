@@ -51,7 +51,7 @@ class InvoiceAwardDurableAuthorityPreflight {
     // A restored trigger or explicit index can change the behavior of an
     // otherwise byte-identical candidate table. Reject attached objects.
     final attached = await db.rawQuery(
-      "SELECT type, name, sql FROM sqlite_master WHERE tbl_name = ? "
+      'SELECT type, name, sql FROM sqlite_master WHERE tbl_name = ? '
       'AND type IN (\'index\', \'trigger\')',
       <Object>[authorityTable],
     );
