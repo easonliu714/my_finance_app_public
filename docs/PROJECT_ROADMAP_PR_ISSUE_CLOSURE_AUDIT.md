@@ -2945,3 +2945,7 @@ my_finance_app_public — 台灣個人記帳（五分頁：帳戶／計畫／首
 
 ### G0 test preflight correction — 2026-10-29 20:26 Asia/Taipei
 - Replace invalid Dart synthetic block string repetition with `List<String>.filled(65536, 'X').join()` before exact-head CI; this is a test-only compilation correction. Official binary availability and Android engine comparison remain HOLD, no security gate closure.
+
+
+### 2026-11-17 V25-C isolated Android native candidate (pending CI)
+Android plugin now contains a native SQLite floor candidate confined to Context.noBackupFilesDir, with explicit isolated initialization, persistent reopen, independent connection CAS and an Android instrumentation race test. It is **not** wired to Dart/formal ledger, does not prove separate OS PIDs, does not resist reinstall/device rollback, and is not production authority. Existing Dart candidate remains isolated; canActivateProduction=false. PR45 previous HEAD 8d48b8a0 Analyze #669 and Android #1486 succeeded; new HEAD CI pending. #50 five real PDF positives and global negative HOLD; Signed/Owner UAT/main merge HOLD.
