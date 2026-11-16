@@ -19,6 +19,23 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
     return candidate
   }
 
+  /** Reject modified DDL, indexes, views and triggers before trusting any floor bytes. */
+  private fun hasExactSchema(db: SQLiteDatabase): Boolean {
+    val expected = "CREATE TABLE floor (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL CHECK(revision >= 0))"
+    db.rawQuery("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'", null).use { c ->
+      if (!c.moveToFirst()) return false
+      if (c.getString(0) != "table" || c.getString(1) != "floor" ||
+          c.getString(2) != "floor" || c.getString(3) != expected || c.moveToNext()) return false
+    }
+    db.rawQuery("PRAGMA table_info(floor)", null).use { c ->
+      if (!c.moveToFirst() || c.getString(1) != "id" || c.getString(2) != "INTEGER" ||
+          c.getInt(5) != 1 || !c.moveToNext() || c.getString(1) != "revision" ||
+          c.getString(2) != "INTEGER" || c.getInt(3) != 1 || c.getInt(5) != 0 ||
+          c.moveToNext()) return false
+    }
+    return true
+  }
+
   fun initializeForIsolatedTest(initialRevision: Long = 0L) {
     require(initialRevision >= 0L)
     val db = SQLiteDatabase.openOrCreateDatabase(isolatedPathForTest(), null)
@@ -26,6 +43,7 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
       db.beginTransaction()
       try {
         db.execSQL("CREATE TABLE IF NOT EXISTS floor (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL CHECK(revision >= 0))")
+        check(hasExactSchema(db)) { "Untrusted floor schema" }
         db.execSQL("INSERT OR IGNORE INTO floor(id,revision) VALUES(1,?)", arrayOf(initialRevision))
         db.setTransactionSuccessful()
       } finally { db.endTransaction() }
@@ -39,6 +57,7 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
     val db = try { SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY) }
       catch (_: Exception) { return null }
     try {
+      if (!hasExactSchema(db)) return null
       db.rawQuery("SELECT id,revision FROM floor", null).use { cursor ->
         if (!cursor.moveToFirst() || cursor.getLong(0) != 1L) return null
         val value = cursor.getLong(1)
@@ -56,6 +75,7 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
     try {
       db.beginTransaction()
       try {
+        if (!hasExactSchema(db)) return false
         db.rawQuery("SELECT id,revision FROM floor", null).use { cursor ->
           if (!cursor.moveToFirst() || cursor.getLong(0) != 1L ||
               cursor.getLong(1) != expected || cursor.moveToNext()) return false
