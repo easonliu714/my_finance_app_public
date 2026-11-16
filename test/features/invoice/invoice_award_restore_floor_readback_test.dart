@@ -69,4 +69,62 @@ void main() {
       ), isFalse, reason: '$values');
     }
   });
+  test('read-only boundary rejects independent revision movement', () async {
+    final store = _IndependentSyntheticFloor([12, 13]);
+    var invoked = 0;
+    expect(await gate.isCandidateStableAcrossBoundary(
+      store: store, independentlyAuthenticated: true, restoredRevision: 12,
+      readOnlyBoundary: () async { invoked++; },
+    ), isFalse);
+    expect(invoked, 1);
+    expect(store.reads, 2);
+    expect(gate.canActivateProduction(), isFalse);
+  });
+
+  test('read-only boundary accepts stable candidate but not activation', () async {
+    final store = _IndependentSyntheticFloor([12, 12]);
+    var invoked = 0;
+    expect(await gate.isCandidateStableAcrossBoundary(
+      store: store, independentlyAuthenticated: true, restoredRevision: 12,
+      readOnlyBoundary: () async { invoked++; },
+    ), isTrue);
+    expect(invoked, 1);
+    expect(store.reads, 2);
+    expect(gate.canActivateProduction(), isFalse);
+  });
+
+  test('missing custody and stale floor never enter boundary', () async {
+    for (final values in <List<int?>>[[null], [13], [-1]]) {
+      final store = _IndependentSyntheticFloor(values);
+      var invoked = 0;
+      expect(await gate.isCandidateStableAcrossBoundary(
+        store: store, independentlyAuthenticated: true, restoredRevision: 12,
+        readOnlyBoundary: () async { invoked++; },
+      ), isFalse);
+      expect(invoked, 0);
+      expect(store.reads, 1);
+    }
+    var invoked = 0;
+    expect(await gate.isCandidateStableAcrossBoundary(
+      store: null, independentlyAuthenticated: true, restoredRevision: 12,
+      readOnlyBoundary: () async { invoked++; },
+    ), isFalse);
+    expect(invoked, 0);
+  });
+
+  test('boundary failure and missing second read fail closed', () async {
+    final failed = _IndependentSyntheticFloor([12, 12]);
+    expect(await gate.isCandidateStableAcrossBoundary(
+      store: failed, independentlyAuthenticated: true, restoredRevision: 12,
+      readOnlyBoundary: () async { throw StateError('boundary failed'); },
+    ), isFalse);
+    expect(failed.reads, 1);
+    final lost = _IndependentSyntheticFloor([12]);
+    expect(await gate.isCandidateStableAcrossBoundary(
+      store: lost, independentlyAuthenticated: true, restoredRevision: 12,
+      readOnlyBoundary: () async {},
+    ), isFalse);
+    expect(lost.reads, 2);
+  });
+
 }

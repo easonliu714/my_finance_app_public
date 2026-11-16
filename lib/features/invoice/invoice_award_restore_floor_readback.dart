@@ -30,5 +30,32 @@ class InvoiceAwardRestoreFloorReadback {
     }
   }
 
+  /// Isolated read-only boundary fence; never a production restore authority.
+  /// The caller must supply an independently authenticated custody provider.
+  Future<bool> isCandidateStableAcrossBoundary({
+    required InvoiceAwardIndependentRevisionStore? store,
+    required bool independentlyAuthenticated,
+    required int? restoredRevision,
+    required Future<void> Function() readOnlyBoundary,
+  }) async {
+    if (!independentlyAuthenticated ||
+        store == null ||
+        restoredRevision == null ||
+        restoredRevision < 0) {
+      return false;
+    }
+    try {
+      final before = await store.readFloor();
+      if (before == null || before < 0 || before != restoredRevision) {
+        return false;
+      }
+      await readOnlyBoundary();
+      final after = await store.readFloor();
+      return after == before;
+    } catch (_) {
+      return false;
+    }
+  }
+
   bool canActivateProduction() => false;
 }
