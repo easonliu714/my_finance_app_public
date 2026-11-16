@@ -36,6 +36,13 @@ internal object LabL1MayJuneOwnerAttestedBytePair {
     }
   }
 
+  /** Known Owner-attested pair only; this is not an independent MOF download. */
+  internal fun pinnedRole(role: LabL1MayJuneDualPdfOracle.Role): Pair<Long, String> =
+    when (role) {
+      LabL1MayJuneDualPdfOracle.Role.SORTED -> Pair(sortedLength, sortedHash)
+      LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER -> Pair(drawLength, drawHash)
+    }
+
   private val ownerManifest = Manifest(
     LabL1PeriodSourceIdentity.mayJunePeriod,
     LabL1PeriodSourceIdentity.cloud500Tier,

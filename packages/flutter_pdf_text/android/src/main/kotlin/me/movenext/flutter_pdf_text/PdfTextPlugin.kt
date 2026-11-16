@@ -131,6 +131,12 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val path = args["path"] as String
             openPdfiumSession(result, path)
           }
+          "openLabOwnerVerifiedPdfiumSession" -> {
+            val args = call.arguments as Map<*, *>
+            val path = args["path"] as String
+            val role = args["role"] as String
+            openLabOwnerVerifiedPdfiumSession(result, path, role)
+          }
           "getPdfiumSessionPageText" -> {
             val args = call.arguments as Map<*, *>
             val sessionId = args["sessionId"] as String
@@ -454,6 +460,65 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       )
       Handler(Looper.getMainLooper()).post {
         result.error("PDFIUM_OPEN_FAILED", e.message, null)
+      }
+    }
+  }
+
+  /**
+   * Lab-only explicit Owner-attested 115-05-06 PDFium handoff.
+   * Copy/hash/fsync/unlink an app-private snapshot; duplicate its SAME opened
+   * read-only FD into Pdfium. The mutable caller pathname is never re-opened
+   * after verification. Legacy openPdfiumSession is intentionally unchanged.
+   */
+  private fun openLabOwnerVerifiedPdfiumSession(
+    result: Result, path: String, roleName: String
+  ) {
+    val role = when (roleName) {
+      "sorted" -> LabL1MayJuneDualPdfOracle.Role.SORTED
+      "draw_order" -> LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER
+      else -> {
+        Handler(Looper.getMainLooper()).post {
+          result.error("L1_OWNER_VERIFIED_ROLE_INVALID", "Invalid diagnostic role", null)
+        }
+        return
+      }
+    }
+    var descriptor: ParcelFileDescriptor? = null
+    var document: PdfiumDocument? = null
+    try {
+      LabL1VerifiedPdfSnapshot.openOwner(
+        File(path), applicationContext.filesDir, applicationContext.cacheDir, role
+      ).use { snapshot ->
+        // dup refers to the unlinked, SHA-verified inode. NO second path open.
+        val duplicated = ParcelFileDescriptor.dup(snapshot.readOnlyFile.fd)
+        descriptor = duplicated
+        document = pdfiumCore.newDocument(duplicated)
+        descriptor = null // ownership transferred to Pdfium document
+      }
+      val opened = document
+        ?: throw IllegalStateException("L1_OWNER_PDFIUM_DOCUMENT_MISSING")
+      val pages = opened.getPageCount()
+      if (pages !in 1..100_000) {
+        throw IllegalStateException("L1_OWNER_PDFIUM_PAGE_COUNT_INVALID")
+      }
+      val sessionId = UUID.randomUUID().toString()
+      pdfiumDocuments[sessionId] = opened
+      pdfiumDocumentPaths[sessionId] = "LAB_OWNER_VERIFIED_" + role.name
+      Handler(Looper.getMainLooper()).post {
+        result.success(hashMapOf(
+          "sessionId" to sessionId,
+          "length" to pages,
+          "role" to roleName,
+          "authority" to "LAB_OWNER_ATTESTED_BYTES_ONLY"
+        ))
+      }
+      document = null
+    } catch (error: Throwable) {
+      try { descriptor?.close() } catch (_: Exception) {}
+      try { document?.close() } catch (_: Exception) {}
+      // No exception message/path/financial content is exposed to Flutter.
+      Handler(Looper.getMainLooper()).post {
+        result.error("L1_OWNER_VERIFIED_OPEN_HOLD", error.javaClass.simpleName, null)
       }
     }
   }
