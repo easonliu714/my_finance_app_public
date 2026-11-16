@@ -32,7 +32,7 @@ class InvoiceAwardSqliteRevisionFloorCandidate
       return false;
     }
     final attached = await executor.rawQuery(
-      "SELECT type, name, sql FROM sqlite_master WHERE tbl_name = ? "
+      'SELECT type, name, sql FROM sqlite_master WHERE tbl_name = ? '
       "AND type IN ('index', 'trigger')",
       <Object>[table],
     );

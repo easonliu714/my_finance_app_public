@@ -30,7 +30,7 @@ void main() {
 
   test('two independent disk SQLite connections allow exactly one CAS', () async {
     final dir = await Directory.systemTemp.createTemp('v25b_cas_');
-    final path = dir.path + '/candidate-floor.db';
+    final path = '${dir.path}/candidate-floor.db';
     final first = await openDatabase(path, singleInstance: false);
     final second = await openDatabase(path, singleInstance: false);
     try {
@@ -61,7 +61,7 @@ void main() {
 
   test('on-disk restart persists floor, stale retry and restore reject', () async {
     final dir = await Directory.systemTemp.createTemp('v25b_restart_');
-    final path = dir.path + '/candidate-floor.db';
+    final path = '${dir.path}/candidate-floor.db';
     final first = await openDatabase(path, singleInstance: false);
     try {
       await _seed(first, 2);
@@ -94,9 +94,9 @@ void main() {
   test('restored separate ledger file cannot lower independently stored floor',
       () async {
     final dir = await Directory.systemTemp.createTemp('v25b_restore_');
-    final ledgerPath = dir.path + '/synthetic-ledger.db';
-    final backupPath = dir.path + '/synthetic-ledger-backup.db';
-    final floorPath = dir.path + '/isolated-floor.db';
+    final ledgerPath = '${dir.path}/synthetic-ledger.db';
+    final backupPath = '${dir.path}/synthetic-ledger-backup.db';
+    final floorPath = '${dir.path}/isolated-floor.db';
     final oldLedger = await openDatabase(ledgerPath, singleInstance: false);
     try {
       await oldLedger.execute('CREATE TABLE snapshot (revision INTEGER NOT NULL)');
