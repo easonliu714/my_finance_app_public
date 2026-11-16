@@ -26,8 +26,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Verify analyzer and Android SDK pin parity
+        run: python3 -m unittest discover -s test -p 'issue13_analyze_toolchain_test.py' -v
+
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.9'
           channel: stable
           cache: true
 
