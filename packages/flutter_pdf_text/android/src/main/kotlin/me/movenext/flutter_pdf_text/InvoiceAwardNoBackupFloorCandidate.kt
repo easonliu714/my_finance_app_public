@@ -102,5 +102,24 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
     finally { db.close() }
   }
 
+
+  /**
+   * V25-H isolated, read-only restore-replay probe. The caller must attest
+   * provenance independently: a noBackup file can still be restored or
+   * rolled back with full device access and is not trusted production custody.
+   * No automatic initialisation, database mutation or posting is allowed.
+   */
+  fun isRestoredSnapshotCurrentForIsolatedTest(
+    restoredRevision: Long?,
+    independentlyAttested: Boolean
+  ): Boolean {
+    if (!independentlyAttested || restoredRevision == null || restoredRevision < 0L) return false
+    val before = readFloor() ?: return false
+    if (before != restoredRevision) return false
+    // A second disk read catches observable floor advancement during an
+    // isolated restore decision; it is NOT an atomic posting lease.
+    return readFloor() == before
+  }
+
   fun canActivateProduction(): Boolean = false
 }

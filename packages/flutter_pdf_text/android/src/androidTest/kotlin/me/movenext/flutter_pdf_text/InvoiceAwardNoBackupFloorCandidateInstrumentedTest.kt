@@ -18,6 +18,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
@@ -275,6 +276,77 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
       secondConnection?.let { context.unbindService(it) }
       firstConnection?.let { context.unbindService(it) }
       path.delete()
+    }
+  }
+
+  /**
+   * V25-H: actual on-disk backup/restore of a disposable ledger-like SQLite
+   * file MUST NOT roll back the separately stored noBackup floor. This is
+   * a narrowly scoped data rollback regression, not FullRestoreService or
+   * hardware-backed anti-rollback integration.
+   */
+  @Test fun restoredOldLedgerSnapshotCannotReviveStaleFloor() {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val floor = InvoiceAwardNoBackupFloorCandidate(context)
+    val floorPath = floor.isolatedPathForTest()
+    val nonce = System.nanoTime().toString()
+    val ledgerPath = File(context.cacheDir, "pr45-v25h-ledger-$nonce.sqlite")
+    val backupPath = File(context.cacheDir, "pr45-v25h-old-ledger-$nonce.sqlite")
+    floorPath.delete()
+    try {
+      // Real SQLite file in cache: never touch the canonical ledger.
+      assertNotEquals(floorPath.canonicalPath, ledgerPath.canonicalPath)
+      SQLiteDatabase.openDatabase(ledgerPath.path, null,
+        SQLiteDatabase.CREATE_IF_NECESSARY or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
+        db.execSQL("CREATE TABLE restored_snapshot (revision INTEGER NOT NULL)")
+        db.execSQL("INSERT INTO restored_snapshot(revision) VALUES(80)")
+      }
+      // Capture a physically separate old backup only after SQLite closes.
+      ledgerPath.copyTo(backupPath, overwrite = false)
+      floor.initializeForIsolatedTest(80)
+      assertTrue(floor.isRestoredSnapshotCurrentForIsolatedTest(80L, true))
+      assertFalse(floor.isRestoredSnapshotCurrentForIsolatedTest(80L, false))
+      assertFalse(floor.isRestoredSnapshotCurrentForIsolatedTest(null, true))
+
+      // A legitimate independent floor move happens after backup capture.
+      assertTrue(floor.compareAndAdvance(80, 81))
+      assertEquals(81L, floor.readFloor())
+      SQLiteDatabase.openDatabase(ledgerPath.path, null,
+        SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
+        db.execSQL("UPDATE restored_snapshot SET revision=81")
+      }
+
+      // Simulate restoring ONLY the old ledger; noBackup floor remains 81.
+      backupPath.copyTo(ledgerPath, overwrite = true)
+      val oldRevision = SQLiteDatabase.openDatabase(ledgerPath.path, null,
+        SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
+        db.rawQuery("SELECT revision FROM restored_snapshot", null).use { cursor ->
+          assertTrue(cursor.moveToFirst())
+          val value = cursor.getLong(0)
+          assertFalse(cursor.moveToNext())
+          value
+        }
+      }
+      assertEquals(80L, oldRevision)
+      assertEquals(81L, floor.readFloor())
+      assertFalse("Old ledger snapshot may not re-authorize a stale floor",
+        floor.isRestoredSnapshotCurrentForIsolatedTest(oldRevision, true))
+      assertFalse("Old ledger snapshot cannot CAS the independent floor",
+        floor.compareAndAdvance(oldRevision, 82))
+      assertFalse("Future or forged restored revision cannot become current",
+        floor.isRestoredSnapshotCurrentForIsolatedTest(82L, true))
+      assertTrue(floor.isRestoredSnapshotCurrentForIsolatedTest(81L, true))
+      assertFalse(floor.canActivateProduction())
+
+      // If the supposed independent floor disappears, even an equal
+      // restored revision is NOT sufficient evidence to authorize reuse.
+      floorPath.delete()
+      assertFalse(floor.isRestoredSnapshotCurrentForIsolatedTest(81L, true))
+      println("V25_H_52_LEDGER_ONLY_RESTORE_REPLAY_REJECTED floor=81 restored=80")
+    } finally {
+      floorPath.delete()
+      ledgerPath.delete()
+      backupPath.delete()
     }
   }
 
