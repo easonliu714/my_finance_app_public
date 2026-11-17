@@ -3252,3 +3252,7 @@ PR OPEN/DRAFT/Merge HOLD, version 4.20.36+494; no Signed/Owner APK. Previous exa
 
 ### 2026-11-17 V25-C isolated Android native candidate (pending CI)
 Android plugin now contains a native SQLite floor candidate confined to Context.noBackupFilesDir, with explicit isolated initialization, persistent reopen, independent connection CAS and an Android instrumentation race test. It is **not** wired to Dart/formal ledger, does not prove separate OS PIDs, does not resist reinstall/device rollback, and is not production authority. Existing Dart candidate remains isolated; canActivateProduction=false. PR45 previous HEAD 8d48b8a0 Analyze #669 and Android #1486 succeeded; new HEAD CI pending. #50 five real PDF positives and global negative HOLD; Signed/Owner UAT/main merge HOLD.
+
+
+### 2026-11-17 V25-F-52 prepared cross-PID CAS barrier (CI pending)
+Debug-only non-exported Android probe adds FLOOR_CAS_PREPARE/FLOOR_CAS_GO: remote worker and local worker each report readiness before gate release, then independently execute real SQLite conditional CAS against the fixed isolated noBackup floor. Instrumentation asserts one winner, distinct PIDs and same UID; CI retains named API35 class and JUnit XML custody. This improves race evidence but does not claim simultaneous CPU scheduling, remote process death/restart, authenticated restore anti-rollback, production ledger authority or signed Owner UAT. canActivateProduction=false. #50 full10 real positives and 77k global negative remain HOLD; no main merge.

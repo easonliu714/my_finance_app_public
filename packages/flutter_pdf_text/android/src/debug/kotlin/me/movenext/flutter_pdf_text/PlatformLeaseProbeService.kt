@@ -10,6 +10,7 @@ import android.os.Message
 import android.os.Messenger
 import android.os.Process
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -27,9 +28,13 @@ class PlatformLeaseProbeService : Service() {
     const val RELEASE = 2
     const val SWAP_C12_PARENT = 3
     const val FLOOR_CAS_ISOLATED = 4
+    const val FLOOR_CAS_PREPARE = 5
+    const val FLOOR_CAS_GO = 6
   }
 
   private var held: PlatformResultProcessLease? = null
+  private var pendingFloorGate: CountDownLatch? = null
+  private var pendingFloorWorker: Thread? = null
   private val messenger = Messenger(Handler(Looper.getMainLooper()) { request ->
     val reply = Message.obtain(null, request.what)
     val data = Bundle()
@@ -92,6 +97,47 @@ class PlatformLeaseProbeService : Service() {
             request.data.getLong("expected"), request.data.getLong("next")))
           data.putLong("floor", floor.readFloor() ?: -1L)
         }
+        // V25-F-52: a remote OS worker is READY before the local process
+        // releases the race. The worker never accepts a caller-supplied path.
+        FLOOR_CAS_PREPARE -> {
+          if (pendingFloorWorker?.isAlive == true || pendingFloorGate != null) {
+            throw IllegalStateException("FLOOR_RACE_ALREADY_PREPARED")
+          }
+          val expected = request.data.getLong("expected")
+          val next = request.data.getLong("next")
+          val recipient = request.replyTo ?: throw IllegalArgumentException("FLOOR_REPLY_REQUIRED")
+          val gate = CountDownLatch(1)
+          pendingFloorGate = gate
+          val worker = Thread {
+            try {
+              gate.await()
+              val floor = InvoiceAwardNoBackupFloorCandidate(this@PlatformLeaseProbeService)
+              val result = Message.obtain(null, FLOOR_CAS_ISOLATED)
+              result.data = Bundle().apply {
+                putInt("pid", Process.myPid())
+                putInt("uid", Process.myUid())
+                putBoolean("advanced", floor.compareAndAdvance(expected, next))
+                putLong("floor", floor.readFloor() ?: -1L)
+              }
+              recipient.send(result)
+            } catch (error: Exception) {
+              try {
+                val failed = Message.obtain(null, FLOOR_CAS_ISOLATED)
+                failed.data = Bundle().apply { putString("error", error.javaClass.simpleName) }
+                recipient.send(failed)
+              } catch (_: Exception) { }
+            }
+          }
+          pendingFloorWorker = worker
+          worker.start()
+          data.putBoolean("ready", true)
+        }
+        FLOOR_CAS_GO -> {
+          val gate = pendingFloorGate ?: throw IllegalStateException("FLOOR_RACE_NOT_PREPARED")
+          pendingFloorGate = null
+          gate.countDown()
+          data.putBoolean("released", true)
+        }
         else -> data.putString("error", "UNKNOWN_PROBE_COMMAND")
       }
     } catch (error: Exception) {
@@ -105,6 +151,8 @@ class PlatformLeaseProbeService : Service() {
   override fun onBind(intent: Intent?): IBinder = messenger.binder
 
   override fun onDestroy() {
+    pendingFloorGate?.countDown()
+    pendingFloorGate = null
     try { held?.close() } finally {
       held = null
       super.onDestroy()

@@ -121,30 +121,46 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
     try {
       assertTrue("Cross-PID floor service bind timeout", connected.await(15, TimeUnit.SECONDS))
       val sender = remote ?: error("CROSS_PID_FLOOR_BINDER_MISSING")
+      val ready = CountDownLatch(1)
       val received = CountDownLatch(1)
       var reply: Bundle? = null
+      var prepareReply: Bundle? = null
       val receiver = Messenger(Handler(Looper.getMainLooper()) { message ->
-        reply = message.data
-        received.countDown()
+        when (message.what) {
+          PlatformLeaseProbeService.FLOOR_CAS_PREPARE -> {
+            prepareReply = message.data
+            ready.countDown()
+          }
+          PlatformLeaseProbeService.FLOOR_CAS_ISOLATED -> {
+            reply = message.data
+            received.countDown()
+          }
+        }
         true
       })
       val start = CountDownLatch(1)
+      val localReady = CountDownLatch(1)
       var localWon = false
       val local = thread {
+        localReady.countDown()
         start.await()
         localWon = InvoiceAwardNoBackupFloorCandidate(context).compareAndAdvance(40, 41)
       }
-      val request = Message.obtain(null, PlatformLeaseProbeService.FLOOR_CAS_ISOLATED)
-      request.replyTo = receiver
-      request.data = Bundle().apply {
+      assertTrue("Local CAS worker not ready", localReady.await(15, TimeUnit.SECONDS))
+      val prepare = Message.obtain(null, PlatformLeaseProbeService.FLOOR_CAS_PREPARE)
+      prepare.replyTo = receiver
+      prepare.data = Bundle().apply {
         putLong("expected", 40)
         putLong("next", 41)
       }
-      try {
-        sender.send(request)
-      } finally {
-        start.countDown()
-      }
+      sender.send(prepare)
+      assertTrue("Remote CAS worker not ready", ready.await(15, TimeUnit.SECONDS))
+      assertTrue("Remote CAS prepare failed", prepareReply?.getBoolean("ready") == true)
+      // Both OS-process workers are now parked at explicit gates. The remote
+      // gate is released by IPC, immediately followed by the local gate.
+      // This proves readiness, not nanosecond-simultaneous CPU scheduling.
+      val go = Message.obtain(null, PlatformLeaseProbeService.FLOOR_CAS_GO)
+      try { sender.send(go) } finally { start.countDown() }
       assertTrue("Cross-PID floor CAS reply timeout", received.await(15, TimeUnit.SECONDS))
       local.join(15000)
       assertFalse("Local CAS worker hung", local.isAlive)
