@@ -83,6 +83,11 @@ class FullRestoreService {
           '還原前備份快照與目前資料不一致；請重新確認備份後再還原',
         );
       }
+      // V25-I isolated boundary: a separately authenticated revision floor
+      // must be checked before any destructive DDL, trigger drop, or DML.
+      // The default hook is a no-op to preserve existing V7/V8 restores;
+      // it is NOT a production invoice-award authority until custody exists.
+      await beforeDestructiveRestoreTransaction(txn, envelope);
       await _assertRequiredTablesExist(txn);
       // The category table is lazy-created on some installations. Materialize
       // it only inside the destructive restore transaction, so a V9 category
@@ -148,6 +153,19 @@ class FullRestoreService {
           ),
     );
   }
+
+  /// V25-I: isolated opt-in preflight extension point. Executes inside the
+  /// managed SQLite restore transaction AFTER current-ledger snapshot checks
+  /// and BEFORE any destructive schema or data change.
+  ///
+  /// Default remains no-op for legacy V7/V8 compatibility. A test subclass
+  /// may reject a restored revision using a separately stored floor. This
+  /// hook alone CANNOT attest the floor, prove rollback resistance, or grant
+  /// formal invoice-award posting/restore authority.
+  Future<void> beforeDestructiveRestoreTransaction(
+    DatabaseExecutor txn,
+    Map<String, Object?> envelope,
+  ) async {}
 
   // Versioned restore services override these hooks to temporarily release
   // immutable-row triggers ONLY within the destructive SQLite transaction.
