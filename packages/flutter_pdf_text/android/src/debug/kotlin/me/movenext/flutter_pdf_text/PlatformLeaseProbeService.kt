@@ -30,6 +30,7 @@ class PlatformLeaseProbeService : Service() {
     const val FLOOR_CAS_ISOLATED = 4
     const val FLOOR_CAS_PREPARE = 5
     const val FLOOR_CAS_GO = 6
+    const val TERMINATE_ISOLATED_PROCESS = 7
   }
 
   private var held: PlatformResultProcessLease? = null
@@ -131,6 +132,18 @@ class PlatformLeaseProbeService : Service() {
           pendingFloorWorker = worker
           worker.start()
           data.putBoolean("ready", true)
+        }
+        // V25-G-52: debug-only, non-exported service terminates ONLY its own
+        // separate OS process. Reply first so instrumentation can observe binder
+        // death; never expose process termination through a release manifest.
+        TERMINATE_ISOLATED_PROCESS -> {
+          if (!android.app.Application.getProcessName().endsWith(":pr45_native_lease_probe")) {
+            throw IllegalStateException("INVALID_REMOTE_PROCESS_ID")
+          }
+          data.putBoolean("terminating", true)
+          Handler(Looper.getMainLooper()).postDelayed({
+            Process.killProcess(Process.myPid())
+          }, 250L)
         }
         FLOOR_CAS_GO -> {
           val gate = pendingFloorGate ?: throw IllegalStateException("FLOOR_RACE_NOT_PREPARED")

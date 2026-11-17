@@ -182,4 +182,100 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
     }
   }
 
+  /**
+   * V25-G-52: the remote OS PID actually dies and a fresh service process
+   * reopens the same fixed noBackup floor. This does not prove restore
+   * anti-rollback or authorize production ledger posting.
+   */
+  @Test fun isolatedFloorSurvivesRealRemoteProcessDeathAndRestart() {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val floor = InvoiceAwardNoBackupFloorCandidate(context)
+    val path = floor.isolatedPathForTest()
+    path.delete()
+    floor.initializeForIsolatedTest(70)
+    val intent = Intent().setClassName(context.packageName,
+      "me.movenext.flutter_pdf_text.PlatformLeaseProbeService")
+
+    fun bindRemote(): Triple<Messenger, IBinder, ServiceConnection> {
+      val connected = CountDownLatch(1)
+      var binder: IBinder? = null
+      val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+          binder = service
+          connected.countDown()
+        }
+        override fun onServiceDisconnected(name: ComponentName?) { }
+      }
+      assertTrue("Remote restart bind refused",
+        context.bindService(intent, connection, Context.BIND_AUTO_CREATE))
+      if (!connected.await(20, TimeUnit.SECONDS) || binder == null) {
+        context.unbindService(connection)
+        fail("Remote restart bind timeout")
+      }
+      val liveBinder = binder ?: error("REMOTE_RESTART_BINDER_MISSING")
+      return Triple(Messenger(liveBinder), liveBinder, connection)
+    }
+
+    fun request(remote: Messenger, command: Int, expected: Long = 0, next: Long = 0): Bundle {
+      val received = CountDownLatch(1)
+      var reply: Bundle? = null
+      val receiver = Messenger(Handler(Looper.getMainLooper()) { message ->
+        reply = message.data
+        received.countDown()
+        true
+      })
+      val message = Message.obtain(null, command)
+      message.replyTo = receiver
+      message.data = Bundle().apply {
+        putLong("expected", expected)
+        putLong("next", next)
+      }
+      remote.send(message)
+      assertTrue("Remote restart command timeout: $command",
+        received.await(15, TimeUnit.SECONDS))
+      return reply ?: error("REMOTE_RESTART_REPLY_MISSING")
+    }
+
+    var firstConnection: ServiceConnection? = null
+    var secondConnection: ServiceConnection? = null
+    try {
+      val (first, firstBinder, connection) = bindRemote()
+      firstConnection = connection
+      val initial = request(first, PlatformLeaseProbeService.FLOOR_CAS_ISOLATED, 70, 71)
+      val oldPid = initial.getInt("pid")
+      assertNotEquals(Process.myPid(), oldPid)
+      assertEquals(Process.myUid(), initial.getInt("uid"))
+      assertTrue("Remote initial CAS failed", initial.getBoolean("advanced"))
+      assertEquals(71L, floor.readFloor())
+
+      val died = CountDownLatch(1)
+      firstBinder.linkToDeath({ died.countDown() }, 0)
+      val termination = request(first, PlatformLeaseProbeService.TERMINATE_ISOLATED_PROCESS)
+      assertEquals(oldPid, termination.getInt("pid"))
+      assertTrue("Remote process termination not acknowledged",
+        termination.getBoolean("terminating"))
+      assertTrue("Remote binder never died", died.await(20, TimeUnit.SECONDS))
+      context.unbindService(connection)
+      firstConnection = null
+
+      val (second, _, newConnection) = bindRemote()
+      secondConnection = newConnection
+      val stale = request(second, PlatformLeaseProbeService.FLOOR_CAS_ISOLATED, 70, 72)
+      assertNotEquals("Restart must have a new Android OS PID", oldPid, stale.getInt("pid"))
+      assertEquals(Process.myUid(), stale.getInt("uid"))
+      assertFalse("Stale revision accepted after process restart", stale.getBoolean("advanced"))
+      assertEquals(71L, stale.getLong("floor"))
+      assertEquals(71L, floor.readFloor())
+      assertTrue("Fresh revision CAS must still work",
+        request(second, PlatformLeaseProbeService.FLOOR_CAS_ISOLATED, 71, 72)
+          .getBoolean("advanced"))
+      assertEquals(72L, floor.readFloor())
+      println("V25_G_52_PROCESS_RESTART old=$oldPid new=${stale.getInt("pid")} durable=true stale_rejected=true")
+    } finally {
+      secondConnection?.let { context.unbindService(it) }
+      firstConnection?.let { context.unbindService(it) }
+      path.delete()
+    }
+  }
+
 }
