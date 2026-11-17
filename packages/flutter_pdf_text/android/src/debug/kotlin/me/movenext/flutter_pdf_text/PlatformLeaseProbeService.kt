@@ -26,6 +26,7 @@ class PlatformLeaseProbeService : Service() {
     const val ACQUIRE = 1
     const val RELEASE = 2
     const val SWAP_C12_PARENT = 3
+    const val FLOOR_CAS_ISOLATED = 4
   }
 
   private var held: PlatformResultProcessLease? = null
@@ -82,6 +83,14 @@ class PlatformLeaseProbeService : Service() {
           Files.write(parent.resolve(temp.fileName), "FORGED_RESULT".toByteArray(Charsets.UTF_8),
             StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
           data.putBoolean("swapped", true)
+        }
+        // V25-E-52: only the fixed noBackup test floor; no caller-supplied paths,
+        // no ledger authority and no production activation.
+        FLOOR_CAS_ISOLATED -> {
+          val floor = InvoiceAwardNoBackupFloorCandidate(this@PlatformLeaseProbeService)
+          data.putBoolean("advanced", floor.compareAndAdvance(
+            request.data.getLong("expected"), request.data.getLong("next")))
+          data.putLong("floor", floor.readFloor() ?: -1L)
         }
         else -> data.putString("error", "UNKNOWN_PROBE_COMMAND")
       }
