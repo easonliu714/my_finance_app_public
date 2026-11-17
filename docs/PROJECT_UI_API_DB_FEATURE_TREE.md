@@ -1,4 +1,10 @@
-## CURRENT — 2026-11-17 Asia/Taipei | V25-I-52 real FullRestoreService isolated transaction-boundary preflight SOURCE+TEST; successor exact-head CI REQUIRED
+## CURRENT — 2026-11-18 Asia/Taipei | V25-J-52 post-hook managed SQLite custody recheck SOURCE+TEST; exact-head CI PENDING
+
+**Authority:** PR45 predecessor f47278f350f9b1cf149311bd39e511c4fb2f87d8, main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8 unchanged, Lab a3d66600405e9ca30570c8a90ec979a1d3bb2618 unchanged. Predecessor Flutter Android #1495 run44114490572 3/3 SUCCESS and strict Analyze #678 SUCCESS; these are NOT successor results.
+
+**Root cause / minimal repair:** V25-I checks managed schema and rows BEFORE invoking overridable beforeDestructiveRestoreTransaction(), but an override may mutate managed SQLite rows within the transaction and then return. V25-J rechecks the same captured schema and snapshot immediately AFTER the hook and BEFORE any restore DDL/DML. The real on-disk SQLite negative regression overrides the hook to mutate accounts and asserts FullRestoreException, full transaction rollback, preserved transaction rows and no expense_categories DDL. Existing equal-floor successful isolated restore remains a positive regression. Default V7/V8 no-op hook unchanged. No trusted invoice-award custody, production restore authorization, posting, signer or Owner device activation; #50 full10/77k global negative and #52 authenticated antirollback remain HOLD.
+
+## HISTORICAL — prior V25-I CURRENT
 
 **Authority:** easonliu714/my_finance_app_public; main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8 unchanged, PR #45 OPEN/DRAFT issue-13-invoice-award-official-data predecessor HEAD f4a99bc0e067aeaa2042c61b8515da4826d22c7a, Lab a3d66600405e9ca30570c8a90ec979a1d3bb2618 unchanged. V25-H predecessor Flutter Android #1494 run44083153430 3/3 SUCCESS (API35 Floor/Analyze-Test-APK/C500 ephemeral AOT), strict Analyze #677 run44083139573 SUCCESS; these results do NOT apply to the successor. Owner direct work follows :15 Writer 21:15/22:15/23:15 NO_CODE_PROGRESS. #49 CLOSED OWNER_ATTESTED, #50 full-10 5 real positives/77000-page global negative HOLD.
 

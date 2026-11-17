@@ -88,6 +88,20 @@ class FullRestoreService {
       // The default hook is a no-op to preserve existing V7/V8 restores;
       // it is NOT a production invoice-award authority until custody exists.
       await beforeDestructiveRestoreTransaction(txn, envelope);
+      // V25-J: an opt-in restore hook is external code inside this transaction.
+      // Revalidate the captured ledger after it returns: a hook that changed
+      // managed rows/schema must not silently inherit the earlier snapshot
+      // authority, even when it later throws or a restore would overwrite it.
+      if (!await backupService.managedSchemaMatches(
+            txn, preRestoreManagedSchema,
+          ) ||
+          !await backupService.managedSnapshotMatches(
+            txn, preRestoreBackupEnvelope,
+          )) {
+        throw const FullRestoreException(
+          '還原前檢查期間資料或結構已變更；已取消交易以保留原資料',
+        );
+      }
       await _assertRequiredTablesExist(txn);
       // The category table is lazy-created on some installations. Materialize
       // it only inside the destructive restore transaction, so a V9 category

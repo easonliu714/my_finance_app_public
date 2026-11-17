@@ -45,6 +45,23 @@ class _IsolatedBoundaryRestore extends FullRestoreService {
   }
 }
 
+// V25-J negative witness: a hook is not allowed to modify managed rows and
+// then rely on the pre-hook snapshot check to authorize destructive restore.
+class _MutatingBoundaryRestore extends FullRestoreService {
+  const _MutatingBoundaryRestore();
+
+  @override
+  Future<void> beforeDestructiveRestoreTransaction(
+    DatabaseExecutor txn,
+    Map<String, Object?> envelope,
+  ) async {
+    await txn.rawUpdate(
+      'UPDATE accounts SET name = ? WHERE id = ?',
+      <Object>['hook-tampered', 'account-1'],
+    );
+  }
+}
+
 class _RealDiskRestoreFixture {
   _RealDiskRestoreFixture(this.source, this.target, this.floor, this.envelope);
 
@@ -131,6 +148,31 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+  });
+
+  test('V25-J hook mutation fails closed and rolls back real SQLite rows',
+      () async {
+    final fixture = await _newFixture();
+    await expectLater(
+      const _MutatingBoundaryRestore().restoreFromEnvelope(
+        fixture.target,
+        fixture.envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+      ),
+      throwsA(isA<FullRestoreException>()),
+    );
+    expect((await fixture.target.query('accounts')).single['name'],
+        'preserved');
+    expect((await fixture.target.query('transactions')).single['amount'],
+        300);
+    expect(
+      await fixture.target.query(
+        'sqlite_master',
+        where: 'type = ? AND name = ?',
+        whereArgs: <Object>['table', 'expense_categories'],
+      ),
+      isEmpty,
+    );
   });
 
   test('V25-I stale disk floor blocks REAL restore before DDL or DML',
