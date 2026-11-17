@@ -19,7 +19,8 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
     path.delete()
     try {
       store.initializeForIsolatedTest(20)
-      SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+      SQLiteDatabase.openDatabase(path.path, null,
+        SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
         db.execSQL("CREATE TRIGGER malicious AFTER UPDATE ON floor BEGIN DELETE FROM floor; END")
       }
       assertNull(store.readFloor())
@@ -28,7 +29,8 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
         store.initializeForIsolatedTest(20)
         fail("Existing trigger must not be trusted")
       } catch (_: IllegalStateException) { }
-      SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+      SQLiteDatabase.openDatabase(path.path, null,
+        SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
         db.execSQL("DROP TRIGGER malicious")
         db.execSQL("ALTER TABLE floor ADD COLUMN unexpected INTEGER")
       }
@@ -49,6 +51,13 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
     assertEquals(10L, store.readFloor())
     assertTrue(path.canonicalPath.startsWith(context.noBackupFilesDir.canonicalPath + "/"))
     assertEquals(10L, InvoiceAwardNoBackupFloorCandidate(context).readFloor())
+    // API35 must not inject android_metadata into this numeric-only floor DB.
+    SQLiteDatabase.openDatabase(path.path, null,
+      SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
+      db.rawQuery("SELECT name FROM sqlite_master WHERE name='android_metadata'", null).use { cursor ->
+        assertFalse(cursor.moveToFirst())
+      }
+    }
     val start = CountDownLatch(1)
     val wins = AtomicInteger()
     val workers = (1..2).map {
@@ -62,6 +71,14 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
     assertEquals(1, wins.get())
     assertEquals(11L, InvoiceAwardNoBackupFloorCandidate(context).readFloor())
     assertFalse(store.compareAndAdvance(10, 12))
+    // Even an otherwise valid-looking system metadata table inserted by an
+    // external database opener must not silently be accepted as trusted DDL.
+    SQLiteDatabase.openDatabase(path.path, null,
+      SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
+      db.execSQL("CREATE TABLE android_metadata (locale TEXT)")
+    }
+    assertNull(store.readFloor())
+    assertFalse(store.compareAndAdvance(11, 12))
     assertFalse(store.canActivateProduction())
     path.delete()
   }

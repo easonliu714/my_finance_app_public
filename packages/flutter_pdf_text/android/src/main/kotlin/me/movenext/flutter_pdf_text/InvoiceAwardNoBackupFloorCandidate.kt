@@ -38,7 +38,13 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
 
   fun initializeForIsolatedTest(initialRevision: Long = 0L) {
     require(initialRevision >= 0L)
-    val db = SQLiteDatabase.openOrCreateDatabase(isolatedPathForTest(), null)
+    // Android normally creates android_metadata while registering locale collators.
+    // This numeric-only isolated floor uses no localized collators: allowing that
+    // extra table in hasExactSchema() would weaken our fail-closed custody check.
+    val db = SQLiteDatabase.openDatabase(
+      isolatedPathForTest().path, null,
+      SQLiteDatabase.CREATE_IF_NECESSARY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
+    )
     try {
       db.beginTransaction()
       try {
@@ -57,7 +63,8 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
   fun readFloor(): Long? {
     val path = isolatedPathForTest()
     if (!path.isFile) return null
-    val db = try { SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY) }
+    val db = try { SQLiteDatabase.openDatabase(path.path, null,
+      SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS) }
       catch (_: Exception) { return null }
     try {
       if (!hasExactSchema(db)) return null
@@ -73,7 +80,8 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
 
   fun compareAndAdvance(expected: Long, next: Long): Boolean {
     if (expected < 0L || next <= expected || !isolatedPathForTest().isFile) return false
-    val db = try { SQLiteDatabase.openDatabase(isolatedPathForTest().path, null, SQLiteDatabase.OPEN_READWRITE) }
+    val db = try { SQLiteDatabase.openDatabase(isolatedPathForTest().path, null,
+      SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS) }
       catch (_: Exception) { return false }
     try {
       db.beginTransaction()
