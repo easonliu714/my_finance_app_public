@@ -42,7 +42,10 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
     try {
       db.beginTransaction()
       try {
-        db.execSQL("CREATE TABLE IF NOT EXISTS floor (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL CHECK(revision >= 0))")
+        // Match the exact sqlite_master DDL; an existing trusted table is handled by the schema guard.
+        if (!db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='floor'", null).use { it.moveToFirst() }) {
+          db.execSQL("CREATE TABLE floor (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL CHECK(revision >= 0))")
+        }
         check(hasExactSchema(db)) { "Untrusted floor schema" }
         db.execSQL("INSERT OR IGNORE INTO floor(id,revision) VALUES(1,?)", arrayOf(initialRevision))
         db.setTransactionSuccessful()

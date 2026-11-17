@@ -44,6 +44,9 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
     path.delete()
     assertNull(store.readFloor())
     store.initializeForIsolatedTest(10)
+    // Reinitialization of an already trusted floor must preserve the monotonic revision.
+    store.initializeForIsolatedTest(0)
+    assertEquals(10L, store.readFloor())
     assertTrue(path.canonicalPath.startsWith(context.noBackupFilesDir.canonicalPath + "/"))
     assertEquals(10L, InvoiceAwardNoBackupFloorCandidate(context).readFloor())
     val start = CountDownLatch(1)
