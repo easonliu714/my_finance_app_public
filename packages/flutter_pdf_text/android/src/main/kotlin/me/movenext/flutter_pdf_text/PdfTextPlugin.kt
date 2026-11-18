@@ -33,6 +33,9 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   private val openDocumentPaths = ConcurrentHashMap<String, String>()
   private val pdfiumDocuments = ConcurrentHashMap<String, PdfiumDocument>()
   private val pdfiumDocumentPaths = ConcurrentHashMap<String, String>()
+  // Lab-only role custody: a generic PDFium session is never an Owner-verified role.
+  private val labVerifiedRoles = ConcurrentHashMap<String, LabL1MayJuneDualPdfOracle.Role>()
+
   private val diagnosticFileName = "flutter_pdf_text_last_diagnostic.txt"
   private val cloud500LabLogFileName = "issue13_cloud500_diag_native.log"
   private lateinit var pdfiumCore: PdfiumCore
@@ -137,6 +140,24 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val role = args["role"] as String
             openLabOwnerVerifiedPdfiumSession(result, path, role)
           }
+          "getLabVerifiedPdfiumPageText" -> {
+            val args = call.arguments as Map<*, *>
+            val sessionId = args["sessionId"] as String
+            val roleName = args["role"] as String
+            val pageNumber = (args["number"] as Number).toInt()
+            val role = when (roleName) {
+              "sorted" -> LabL1MayJuneDualPdfOracle.Role.SORTED
+              "draw_order" -> LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER
+              else -> null
+            }
+            if (!LabL1RoleSessionGuard.allows(labVerifiedRoles[sessionId], role)) {
+              Handler(Looper.getMainLooper()).post {
+                result.error("L1_ROLE_SESSION_MISMATCH_HOLD", "Role-bound session required", null)
+              }
+            } else {
+              getPdfiumSessionPageText(result, sessionId, pageNumber)
+            }
+          }
           "getPdfiumSessionPageText" -> {
             val args = call.arguments as Map<*, *>
             val sessionId = args["sessionId"] as String
@@ -189,6 +210,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     }
     pdfiumDocuments.clear()
     pdfiumDocumentPaths.clear()
+    labVerifiedRoles.clear()
   }
 
   /**
@@ -504,6 +526,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       val sessionId = UUID.randomUUID().toString()
       pdfiumDocuments[sessionId] = opened
       pdfiumDocumentPaths[sessionId] = "LAB_OWNER_VERIFIED_" + role.name
+      labVerifiedRoles[sessionId] = role
       Handler(Looper.getMainLooper()).post {
         result.success(hashMapOf(
           "sessionId" to sessionId,
@@ -602,6 +625,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   private fun closePdfiumSession(result: Result, sessionId: String) {
     val document = pdfiumDocuments.remove(sessionId)
     val path = pdfiumDocumentPaths.remove(sessionId) ?: ""
+    labVerifiedRoles.remove(sessionId)
     val pageCount = try { document?.getPageCount() ?: 0 } catch (_: Exception) { 0 }
     try { document?.close() } catch (_: Exception) {}
     writeDiagnostic("PDFIUM_SESSION_CLOSED", path, pageCount = pageCount)
