@@ -1,6 +1,7 @@
 package me.movenext.flutter_pdf_text
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -16,6 +17,24 @@ class LabL1PdfiumTokenResponseTest {
     assertEquals(listOf("AB12345678", "CD87654321"), actual["tokens"])
     assertEquals(true, actual["extractionComplete"])
     assertEquals("LAB_PDFIUM_PAGE_TOKENS_ONLY", actual["authority"])
+  }
+
+  @Test fun roleBoundPdfiumPageCarriesExactOwnerAttestedPinNotCallerMetadata() {
+    val sorted = LabL1PdfiumTokenResponse.fromVerifiedPage(
+      "sorted-session", LabL1MayJuneDualPdfOracle.Role.SORTED, 1, 2, "AB12345678")
+    val draw = LabL1PdfiumTokenResponse.fromVerifiedPage(
+      "draw-session", LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER, 1, 2, "AB12345678")
+    for (role in LabL1MayJuneDualPdfOracle.Role.values()) {
+      val actual = if (role == LabL1MayJuneDualPdfOracle.Role.SORTED) sorted else draw
+      val pin = LabL1MayJuneOwnerAttestedBytePair.pinnedRole(role)
+      assertEquals(pin.first, actual["sourceBytes"])
+      assertEquals(pin.second, actual["sourceSha256"])
+      assertEquals(LabL1PeriodSourceIdentity.mayJunePeriod, actual["period"])
+      assertEquals(LabL1PeriodSourceIdentity.cloud500Tier, actual["tier"])
+      assertEquals(LabL1PeriodSourceIdentity.parserVersion, actual["parserVersion"])
+    }
+    assertNotEquals(sorted["sourceSha256"], draw["sourceSha256"])
+    assertNotEquals(sorted["sourceBytes"], draw["sourceBytes"])
   }
 
   @Test fun wrongRoleOrMissingSessionFailsClosed() {
