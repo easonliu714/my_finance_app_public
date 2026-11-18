@@ -25,14 +25,14 @@ class InvoiceAwardSqliteRevisionFloorCandidate
 
   Future<bool> _hasExpectedShape(DatabaseExecutor executor) async {
     final schema = await executor.rawQuery(
-      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+      "SELECT sql FROM main.sqlite_master WHERE type = 'table' AND name = ?",
       <Object>[table],
     );
     if (schema.length != 1 || schema.single['sql'] != candidateDdl) {
       return false;
     }
     final attached = await executor.rawQuery(
-      'SELECT type, name, sql FROM sqlite_master WHERE tbl_name = ? '
+      'SELECT type, name, sql FROM main.sqlite_master WHERE tbl_name = ? '
       "AND type IN ('index', 'trigger')",
       <Object>[table],
     );
@@ -47,7 +47,8 @@ class InvoiceAwardSqliteRevisionFloorCandidate
   Future<int?> _readCandidate(DatabaseExecutor executor) async {
     if (!await _hasExpectedShape(executor)) return null;
     // An injected second row is malformed state, never a new authority.
-    final rows = await executor.query(table, columns: const ['id', 'revision']);
+    // Qualify the authority table: TEMP tables can shadow an unqualified name.
+    final rows = await executor.rawQuery('SELECT id, revision FROM main.$table');
     if (rows.length != 1 || rows.single['id'] != singletonId) return null;
     final revision = rows.single['revision'];
     return revision is int && revision >= 0 ? revision : null;
@@ -73,7 +74,7 @@ class InvoiceAwardSqliteRevisionFloorCandidate
       return await _db.transaction<bool>((txn) async {
         if (await _readCandidate(txn) != expectedFloor) return false;
         final changed = await txn.rawUpdate(
-        'UPDATE $table SET revision = ? '
+        'UPDATE main.$table SET revision = ? '
         'WHERE id = ? AND revision = ?',
         <Object>[nextFloor, singletonId, expectedFloor],
       );

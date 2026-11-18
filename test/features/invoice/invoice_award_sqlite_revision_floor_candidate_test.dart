@@ -186,6 +186,38 @@ void main() {
     }
   });
 
+  test('TEMP shadow table cannot spoof main floor or intercept CAS', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    try {
+      await _seed(db, 8);
+      // TEMP shadows unqualified table names on this same SQLite connection.
+      await db.execute(
+        'CREATE TEMP TABLE $_table (id TEXT PRIMARY KEY, revision INTEGER)',
+      );
+      await db.rawInsert(
+        'INSERT INTO temp.$_table (id, revision) VALUES (?, ?)',
+        <Object>[_id, 99],
+      );
+      expect(await _store(db).readFloor(), 8);
+      expect(await _custody.advanceCandidate(
+        store: _store(db), independentlyAuthenticated: true,
+        expectedFloor: 99, nextFloor: 100,
+      ), isFalse);
+      expect(await _custody.advanceCandidate(
+        store: _store(db), independentlyAuthenticated: true,
+        expectedFloor: 8, nextFloor: 9,
+      ), isTrue);
+      expect((await db.rawQuery(
+        'SELECT revision FROM main.$_table',
+      )).single['revision'], 9);
+      expect((await db.rawQuery(
+        'SELECT revision FROM temp.$_table',
+      )).single['revision'], 99);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('SQLite rollback preserves the original revision', () async {
     final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
     try {
