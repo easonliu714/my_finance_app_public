@@ -38,6 +38,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   private val labVerifiedReceipts = ConcurrentHashMap<String, LabL1VerifiedPdfSnapshot.Expected>()
   // Native-only bounded latest page per role; never accept caller-supplied probe maps.
   private val labNativePageTokens = ConcurrentHashMap<String, Map<String, Any>>()
+  private val labNativePageEpochs = ConcurrentHashMap<String, Long>()
 
   private val diagnosticFileName = "flutter_pdf_text_last_diagnostic.txt"
   private val cloud500LabLogFileName = "issue13_cloud500_diag_native.log"
@@ -259,6 +260,8 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     pdfiumDocumentPaths.clear()
     labVerifiedRoles.clear()
     labVerifiedReceipts.clear()
+    labNativePageTokens.clear()
+    labNativePageEpochs.clear()
   }
 
   /**
@@ -609,9 +612,11 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   ) {
     // A new role-bound page request invalidates the previous probe before any
     // session/page validation. A failed second read must never replay page one.
-    if (structuredTokens) {
-      LabL1NativePageCacheGuard.beginRead(sessionId, labNativePageTokens)
-    }
+    val readEpoch = if (structuredTokens) {
+      LabL1NativePageCacheGuard.beginVersionedRead(
+        sessionId, labNativePageTokens, labNativePageEpochs
+      )
+    } else null
     val document = pdfiumDocuments[sessionId]
     if (document == null) {
       Handler(Looper.getMainLooper()).post {
@@ -670,7 +675,10 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
           } else text
           if (structuredTokens) {
             @Suppress("UNCHECKED_CAST")
-            labNativePageTokens[sessionId] = response as Map<String, Any>
+            if (!LabL1NativePageCacheGuard.publishIfCurrent(
+                sessionId, readEpoch ?: -1L, response as Map<String, Any>,
+                labNativePageTokens, labNativePageEpochs, pdfiumDocuments.keys
+              )) throw IllegalStateException("L1_STALE_NATIVE_PAGE_READ_HOLD")
           }
           Handler(Looper.getMainLooper()).post { result.success(response) }
         }
@@ -702,7 +710,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
 
   /** A failed role-bound extraction permanently retires its native session. */
   private fun invalidateFailedLabPdfiumSession(sessionId: String) {
-    labNativePageTokens.remove(sessionId)
+    LabL1NativePageCacheGuard.retire(sessionId, labNativePageTokens, labNativePageEpochs)
     labVerifiedReceipts.remove(sessionId)
     if (labVerifiedRoles.remove(sessionId) == null) return
     pdfiumDocumentPaths.remove(sessionId)
@@ -715,7 +723,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     val path = pdfiumDocumentPaths.remove(sessionId) ?: ""
     labVerifiedRoles.remove(sessionId)
     labVerifiedReceipts.remove(sessionId)
-    labNativePageTokens.remove(sessionId)
+    LabL1NativePageCacheGuard.retire(sessionId, labNativePageTokens, labNativePageEpochs)
     val pageCount = try { document?.getPageCount() ?: 0 } catch (_: Exception) { 0 }
     try { document?.close() } catch (_: Exception) {}
     writeDiagnostic("PDFIUM_SESSION_CLOSED", path, pageCount = pageCount)
