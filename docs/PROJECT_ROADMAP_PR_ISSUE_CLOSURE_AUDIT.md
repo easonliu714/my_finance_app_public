@@ -1,3 +1,7 @@
+## CURRENT — 2026-11-19 Asia/Taipei | V25-K-52 isolated closed SQLite custody fail-closed SOURCE+TEST; exact-head CI UNVERIFIED
+
+**Scope:** In the test-only `InvoiceAwardSqliteRevisionFloorCandidate`, unavailable/closed SQLite readFloor now yields null (UNKNOWN) and failed compareAndAdvance yields false, rather than allowing an exception to be interpreted by a caller as a successful custody operation. Real on-disk SQLite regression closes the independent floor connection, asserts both operations reject, actual FullRestoreService refuses restoration and preserves target transactions. This is NOT authenticated rollback-proof production custody. `canActivateProduction=false`; no Owner SQLite, posting, signer or merge. #50 official Full10/global negative remains HOLD. This checkpoint requires exact-head CI before PASS.
+
 ## CURRENT — 2026-11-18 Asia/Taipei | V25-J-52 post-hook managed SQLite custody recheck SOURCE+TEST; exact-head CI PENDING
 
 **Authority:** PR45 predecessor f47278f350f9b1cf149311bd39e511c4fb2f87d8, main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8 unchanged, Lab a3d66600405e9ca30570c8a90ec979a1d3bb2618 unchanged. Predecessor Flutter Android #1495 run44114490572 3/3 SUCCESS and strict Analyze #678 SUCCESS; these are NOT successor results.

@@ -54,7 +54,14 @@ class InvoiceAwardSqliteRevisionFloorCandidate
   }
 
   @override
-  Future<int?> readFloor() => _readCandidate(_db);
+  Future<int?> readFloor() async {
+    // Closed or unavailable isolated custody is UNKNOWN, never authority.
+    try {
+      return await _readCandidate(_db);
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// SQLite's conditional UPDATE under a real write transaction is the CAS
   /// linearization point, not an in-memory compare/SharedPreferences lock.
@@ -62,15 +69,20 @@ class InvoiceAwardSqliteRevisionFloorCandidate
   @override
   Future<bool> compareAndAdvance(int expectedFloor, int nextFloor) async {
     if (expectedFloor < 0 || nextFloor <= expectedFloor) return false;
-    return _db.transaction<bool>((txn) async {
-      if (await _readCandidate(txn) != expectedFloor) return false;
-      final changed = await txn.rawUpdate(
+    try {
+      return await _db.transaction<bool>((txn) async {
+        if (await _readCandidate(txn) != expectedFloor) return false;
+        final changed = await txn.rawUpdate(
         'UPDATE $table SET revision = ? '
         'WHERE id = ? AND revision = ?',
         <Object>[nextFloor, singletonId, expectedFloor],
       );
-      return changed == 1;
-    });
+        return changed == 1;
+      });
+    } catch (_) {
+      // A failed SQLite custody read/write cannot authorize advancement.
+      return false;
+    }
   }
 
   bool canActivateProduction() => false;

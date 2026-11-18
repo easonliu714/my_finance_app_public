@@ -295,4 +295,25 @@ void main() {
       isFalse,
     );
   });
+  test('V25-K closed independent SQLite custody fails closed on read and CAS',
+      () async {
+    final fixture = await _newFixture();
+    final custody = fixture.floorStore;
+    await fixture.floor.close();
+    expect(await custody.readFloor(), isNull);
+    expect(await custody.compareAndAdvance(80, 81), isFalse);
+    fixture.setRestoredRevision(80);
+    await expectLater(
+      _IsolatedBoundaryRestore(
+        floorStore: custody,
+        independentlyAttested: true,
+      ).restoreFromEnvelope(
+        fixture.target,
+        fixture.envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+      ),
+      throwsA(isA<FullRestoreException>()),
+    );
+    expect((await fixture.target.query('transactions')).single['amount'], 300);
+  });
 }
