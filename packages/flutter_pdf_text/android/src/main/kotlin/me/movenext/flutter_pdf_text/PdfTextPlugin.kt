@@ -158,6 +158,24 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
               getPdfiumSessionPageText(result, sessionId, pageNumber)
             }
           }
+          "getLabVerifiedPdfiumPageTokens" -> {
+            val args = call.arguments as Map<*, *>
+            val sessionId = args["sessionId"] as String
+            val roleName = args["role"] as String
+            val pageNumber = (args["number"] as Number).toInt()
+            val role = when (roleName) {
+              "sorted" -> LabL1MayJuneDualPdfOracle.Role.SORTED
+              "draw_order" -> LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER
+              else -> null
+            }
+            if (!LabL1RoleSessionGuard.allows(labVerifiedRoles[sessionId], role)) {
+              Handler(Looper.getMainLooper()).post {
+                result.error("L1_ROLE_SESSION_MISMATCH_HOLD", "Role-bound session required", null)
+              }
+            } else {
+              getPdfiumSessionPageText(result, sessionId, pageNumber, true)
+            }
+          }
           "getPdfiumSessionPageText" -> {
             val args = call.arguments as Map<*, *>
             val sessionId = args["sessionId"] as String
@@ -290,7 +308,22 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       stripper.endPage = pageNumber
       val text = stripper.getText(doc)
       writeDiagnostic("PAGE_OK", path, pageNumber, doc.numberOfPages)
-      Handler(Looper.getMainLooper()).post { result.success(text) }
+      val response: Any = if (structuredTokens) {
+            // Tokens are parsed from the actual PDFium text page, never caller-supplied.
+            // This diagnostic response is NOT an authenticated full-10 oracle.
+            val tokens = LabL1PageTokenExtractor.extract(text)
+            hashMapOf(
+              "sessionId" to sessionId,
+              "role" to (if (labVerifiedRoles[sessionId] ==
+                LabL1MayJuneDualPdfOracle.Role.SORTED) "sorted" else "draw_order"),
+              "pageNumber" to pageNumber,
+              "pageCount" to pageCount,
+              "extractionComplete" to true,
+              "tokens" to tokens,
+              "authority" to "LAB_PDFIUM_PAGE_TOKENS_ONLY"
+            )
+          } else text
+          Handler(Looper.getMainLooper()).post { result.success(response) }
     } catch (oom: OutOfMemoryError) {
       writeDiagnostic("PAGE_OOM", path, pageNumber, doc.numberOfPages, oom.javaClass.simpleName)
       val doomed = openDocuments.remove(sessionId)
@@ -557,7 +590,8 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   private fun getPdfiumSessionPageText(
     result: Result,
     sessionId: String,
-    pageNumber: Int
+    pageNumber: Int,
+    structuredTokens: Boolean = false
   ) {
     val document = pdfiumDocuments[sessionId]
     if (document == null) {
