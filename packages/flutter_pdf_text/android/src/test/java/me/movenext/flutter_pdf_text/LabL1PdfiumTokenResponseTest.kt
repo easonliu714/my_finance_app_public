@@ -14,7 +14,6 @@ class LabL1PdfiumTokenResponseTest {
     val actual = LabL1PdfiumTokenResponse.fromVerifiedPage(
       "verified-session", LabL1MayJuneDualPdfOracle.Role.SORTED,
       2, 3, "AB12345678 CD87654321", receipt(LabL1MayJuneDualPdfOracle.Role.SORTED))
-    )
     assertEquals("sorted", actual["role"])
     assertEquals(2, actual["pageNumber"])
     assertEquals(3, actual["pageCount"])
@@ -75,6 +74,16 @@ class LabL1PdfiumTokenResponseTest {
           "verified-session", sorted, 1, 2, "AB12345678", bad)
       }
     }
+  }
+
+  @Test fun mismatchedReceiptIsRejectedBeforeUntrustedTextParsing() {
+    val sorted = LabL1MayJuneDualPdfOracle.Role.SORTED
+    val wrong = receipt(LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER)
+    val failure = assertThrows(IllegalArgumentException::class.java) {
+      LabL1PdfiumTokenResponse.fromVerifiedPage(
+        "verified-session", sorted, 1, 2, "A".repeat(2_000_000), wrong)
+    }
+    assertEquals("L1_SESSION_SNAPSHOT_RECEIPT_MISMATCH_HOLD", failure.message)
   }
 
   @Test fun embeddedPartialInvoiceIsNeverReturned() {

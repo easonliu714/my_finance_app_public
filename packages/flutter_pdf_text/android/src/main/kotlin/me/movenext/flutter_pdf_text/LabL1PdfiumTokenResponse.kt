@@ -15,7 +15,6 @@ internal object LabL1PdfiumTokenResponse {
       "L1_PAGE_BOUNDS_HOLD"
     }
     require(text.isNotBlank()) { "L1_PAGE_EXTRACTION_EMPTY_HOLD" }
-    val tokens = LabL1PageTokenExtractor.extract(text)
     // The role comes from the plugin's verified-session registry, not Flutter.
     // These immutable Owner-attested pins are diagnostic identity hints only;
     // they do not independently attest MOF bytes or authorize an Oracle result.
@@ -25,6 +24,8 @@ internal object LabL1PdfiumTokenResponse {
     require(verifiedSnapshot.role == role &&
       verifiedSnapshot.bytes == pinned.first &&
       verifiedSnapshot.sha256 == pinned.second) { "L1_SESSION_SNAPSHOT_RECEIPT_MISMATCH_HOLD" }
+    // Reject untrusted role/receipt mismatches before parsing potentially large PDFium text.
+    val tokens = LabL1PageTokenExtractor.extract(text)
     return mapOf(
       "sessionId" to sessionId,
       "role" to (if (role == LabL1MayJuneDualPdfOracle.Role.SORTED)
