@@ -553,11 +553,13 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
         throw IllegalStateException("L1_OWNER_PDFIUM_PAGE_COUNT_INVALID")
       }
       val sessionId = UUID.randomUUID().toString()
-      pdfiumDocuments[sessionId] = opened
-      pdfiumDocumentPaths[sessionId] = "LAB_OWNER_VERIFIED_" + role.name
-      labVerifiedReceipts[sessionId] = verifiedReceipt
+      val receipt = verifiedReceipt
         ?: throw IllegalStateException("L1_SESSION_SNAPSHOT_RECEIPT_MISSING_HOLD")
-      labVerifiedRoles[sessionId] = role
+      // Commit all custody maps atomically; reject duplicate role/session replay.
+      LabL1NativeSessionAdmission.register(
+        sessionId, role, receipt, opened,
+        pdfiumDocuments, pdfiumDocumentPaths, labVerifiedRoles, labVerifiedReceipts
+      )
       Handler(Looper.getMainLooper()).post {
         result.success(hashMapOf(
           "sessionId" to sessionId,
