@@ -7,7 +7,8 @@ internal object LabL1PdfiumTokenResponse {
     role: LabL1MayJuneDualPdfOracle.Role?,
     pageNumber: Int,
     pageCount: Int,
-    text: String
+    text: String,
+    verifiedSnapshot: LabL1VerifiedPdfSnapshot.Expected
   ): Map<String, Any> {
     require(sessionId.isNotBlank() && role != null) { "L1_ROLE_SESSION_MISMATCH_HOLD" }
     require(pageCount in 1..100_000 && pageNumber in 1..pageCount) {
@@ -19,12 +20,17 @@ internal object LabL1PdfiumTokenResponse {
     // These immutable Owner-attested pins are diagnostic identity hints only;
     // they do not independently attest MOF bytes or authorize an Oracle result.
     val pinned = LabL1MayJuneOwnerAttestedBytePair.pinnedRole(role)
+    // Compare the receipt captured from the SHA-verified unlinked inode, not
+    // only a role label or caller-supplied expected metadata.
+    require(verifiedSnapshot.role == role &&
+      verifiedSnapshot.bytes == pinned.first &&
+      verifiedSnapshot.sha256 == pinned.second) { "L1_SESSION_SNAPSHOT_RECEIPT_MISMATCH_HOLD" }
     return mapOf(
       "sessionId" to sessionId,
       "role" to (if (role == LabL1MayJuneDualPdfOracle.Role.SORTED)
         "sorted" else "draw_order"),
-      "sourceBytes" to pinned.first,
-      "sourceSha256" to pinned.second,
+      "sourceBytes" to verifiedSnapshot.bytes,
+      "sourceSha256" to verifiedSnapshot.sha256,
       "period" to LabL1PeriodSourceIdentity.mayJunePeriod,
       "tier" to LabL1PeriodSourceIdentity.cloud500Tier,
       "parserVersion" to LabL1PeriodSourceIdentity.parserVersion,

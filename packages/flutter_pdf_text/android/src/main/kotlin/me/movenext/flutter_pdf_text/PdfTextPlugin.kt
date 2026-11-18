@@ -35,6 +35,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   private val pdfiumDocumentPaths = ConcurrentHashMap<String, String>()
   // Lab-only role custody: a generic PDFium session is never an Owner-verified role.
   private val labVerifiedRoles = ConcurrentHashMap<String, LabL1MayJuneDualPdfOracle.Role>()
+  private val labVerifiedReceipts = ConcurrentHashMap<String, LabL1VerifiedPdfSnapshot.Expected>()
 
   private val diagnosticFileName = "flutter_pdf_text_last_diagnostic.txt"
   private val cloud500LabLogFileName = "issue13_cloud500_diag_native.log"
@@ -236,6 +237,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     pdfiumDocuments.clear()
     pdfiumDocumentPaths.clear()
     labVerifiedRoles.clear()
+    labVerifiedReceipts.clear()
   }
 
   /**
@@ -532,10 +534,12 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     }
     var descriptor: ParcelFileDescriptor? = null
     var document: PdfiumDocument? = null
+    var verifiedReceipt: LabL1VerifiedPdfSnapshot.Expected? = null
     try {
       LabL1VerifiedPdfSnapshot.openOwner(
         File(path), applicationContext.filesDir, applicationContext.cacheDir, role
       ).use { snapshot ->
+        verifiedReceipt = LabL1VerifiedPdfSnapshot.Expected(snapshot.role, snapshot.bytes, snapshot.sha256)
         // dup refers to the unlinked, SHA-verified inode. NO second path open.
         val duplicated = ParcelFileDescriptor.dup(snapshot.readOnlyFile.fd)
         descriptor = duplicated
@@ -551,6 +555,8 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       val sessionId = UUID.randomUUID().toString()
       pdfiumDocuments[sessionId] = opened
       pdfiumDocumentPaths[sessionId] = "LAB_OWNER_VERIFIED_" + role.name
+      labVerifiedReceipts[sessionId] = verifiedReceipt
+        ?: throw IllegalStateException("L1_SESSION_SNAPSHOT_RECEIPT_MISSING_HOLD")
       labVerifiedRoles[sessionId] = role
       Handler(Looper.getMainLooper()).post {
         result.success(hashMapOf(
@@ -629,7 +635,9 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
           // Only the native PDFium text page may supply lab diagnostic tokens.
           val response: Any = if (structuredTokens) {
             LabL1PdfiumTokenResponse.fromVerifiedPage(
-              sessionId, labVerifiedRoles[sessionId], pageNumber, pageCount, text
+              sessionId, labVerifiedRoles[sessionId], pageNumber, pageCount, text,
+              labVerifiedReceipts[sessionId]
+                ?: throw IllegalStateException("L1_SESSION_SNAPSHOT_RECEIPT_MISSING_HOLD")
             )
           } else text
           Handler(Looper.getMainLooper()).post { result.success(response) }
@@ -662,6 +670,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
 
   /** A failed role-bound extraction permanently retires its native session. */
   private fun invalidateFailedLabPdfiumSession(sessionId: String) {
+    labVerifiedReceipts.remove(sessionId)
     if (labVerifiedRoles.remove(sessionId) == null) return
     pdfiumDocumentPaths.remove(sessionId)
     val failed = pdfiumDocuments.remove(sessionId)
@@ -672,6 +681,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     val document = pdfiumDocuments.remove(sessionId)
     val path = pdfiumDocumentPaths.remove(sessionId) ?: ""
     labVerifiedRoles.remove(sessionId)
+    labVerifiedReceipts.remove(sessionId)
     val pageCount = try { document?.getPageCount() ?: 0 } catch (_: Exception) { 0 }
     try { document?.close() } catch (_: Exception) {}
     writeDiagnostic("PDFIUM_SESSION_CLOSED", path, pageCount = pageCount)
