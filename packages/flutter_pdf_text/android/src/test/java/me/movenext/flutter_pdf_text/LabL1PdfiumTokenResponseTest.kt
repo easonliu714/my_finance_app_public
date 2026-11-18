@@ -13,7 +13,7 @@ class LabL1PdfiumTokenResponseTest {
   @Test fun nativePageProducesBoundedRoleTaggedTokens() {
     val actual = LabL1PdfiumTokenResponse.fromVerifiedPage(
       "verified-session", LabL1MayJuneDualPdfOracle.Role.SORTED,
-      2, 3, "AB12345678 CD87654321", receipt(LabL1MayJuneDualPdfOracle.Role.SORTED)
+      2, 3, "AB12345678 CD87654321", receipt(LabL1MayJuneDualPdfOracle.Role.SORTED))
     )
     assertEquals("sorted", actual["role"])
     assertEquals(2, actual["pageNumber"])
@@ -81,7 +81,7 @@ class LabL1PdfiumTokenResponseTest {
     val response = LabL1PdfiumTokenResponse.fromVerifiedPage(
       "session", LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER,
       1, 1, "XAB12345678 AB123456789", receipt(LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER))
-    )
+    
     assertEquals(emptyList<String>(), response["tokens"])
   }
 }
