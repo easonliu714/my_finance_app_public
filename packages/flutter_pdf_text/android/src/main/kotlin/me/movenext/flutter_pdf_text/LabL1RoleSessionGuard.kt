@@ -10,4 +10,7 @@ internal object LabL1RoleSessionGuard {
     registered: LabL1MayJuneDualPdfOracle.Role?,
     requested: LabL1MayJuneDualPdfOracle.Role?
   ): Boolean = registered != null && requested != null && registered == requested
+  /** Generic reads cannot strip the role binding from a verified session. */
+  fun allowsGenericRead(registered: LabL1MayJuneDualPdfOracle.Role?): Boolean =
+    registered == null
 }

@@ -20,4 +20,11 @@ class LabL1RoleSessionGuardTest {
     assertFalse(LabL1RoleSessionGuard.allows(sorted, null))
     assertFalse(LabL1RoleSessionGuard.allows(null, null))
   }
+  @Test fun genericReadCannotBypassRoleCustody() {
+    assertTrue(LabL1RoleSessionGuard.allowsGenericRead(null))
+    assertFalse(LabL1RoleSessionGuard.allowsGenericRead(
+      LabL1MayJuneDualPdfOracle.Role.SORTED))
+    assertFalse(LabL1RoleSessionGuard.allowsGenericRead(
+      LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER))
+  }
 }

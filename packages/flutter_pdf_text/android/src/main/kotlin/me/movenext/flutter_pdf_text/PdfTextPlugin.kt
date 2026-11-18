@@ -162,7 +162,14 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val args = call.arguments as Map<*, *>
             val sessionId = args["sessionId"] as String
             val pageNumber = args["number"] as Int
-            getPdfiumSessionPageText(result, sessionId, pageNumber)
+            // Prevent generic channel reads from bypassing Owner-verified role custody.
+            if (!LabL1RoleSessionGuard.allowsGenericRead(labVerifiedRoles[sessionId])) {
+              Handler(Looper.getMainLooper()).post {
+                result.error("L1_ROLE_SESSION_MISMATCH_HOLD", "Use role-bound lab read", null)
+              }
+            } else {
+              getPdfiumSessionPageText(result, sessionId, pageNumber)
+            }
           }
           "closePdfiumSession" -> {
             val args = call.arguments as Map<*, *>
