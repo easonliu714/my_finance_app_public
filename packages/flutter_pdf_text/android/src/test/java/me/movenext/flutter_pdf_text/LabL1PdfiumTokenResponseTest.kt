@@ -48,7 +48,7 @@ class LabL1PdfiumTokenResponseTest {
     }
     assertThrows(IllegalArgumentException::class.java) {
       LabL1PdfiumTokenResponse.fromVerifiedPage(
-        "", LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER, 1, 2, "AB12345678", receipt(LabL1MayJuneDualPdfOracle.Role.SORTED))
+        "", LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER, 1, 2, "AB12345678", receipt(LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER))
     }
   }
 
@@ -80,7 +80,7 @@ class LabL1PdfiumTokenResponseTest {
   @Test fun embeddedPartialInvoiceIsNeverReturned() {
     val response = LabL1PdfiumTokenResponse.fromVerifiedPage(
       "session", LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER,
-      1, 1, "XAB12345678 AB123456789", receipt(LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER)
+      1, 1, "XAB12345678 AB123456789", receipt(LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER))
     )
     assertEquals(emptyList<String>(), response["tokens"])
   }
