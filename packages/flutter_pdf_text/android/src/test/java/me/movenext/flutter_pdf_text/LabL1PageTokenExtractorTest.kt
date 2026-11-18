@@ -16,6 +16,13 @@ class LabL1PageTokenExtractorTest {
       "XAB12345678 AB123456789 AB1234567 ab12345678 AB12345678X"))
   }
 
+  @Test fun rejectsUnicodeLetterAndNumberAdjacentSubstrings() {
+    assertEquals(emptyList<String>(), LabL1PageTokenExtractor.extract(
+      "中AB12345678 AB12345678文 ９AB12345678 AB12345678٣"))
+    assertEquals(listOf("AB12345678", "CD87654321"),
+      LabL1PageTokenExtractor.extract("（AB12345678）\nCD87654321"))
+  }
+
   @Test fun doesNotDeduplicateOrClaimSortedOrder() {
     assertEquals(listOf("AB12345678", "AB12345678"),
       LabL1PageTokenExtractor.extract("AB12345678 AB12345678"))
