@@ -607,6 +607,11 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     pageNumber: Int,
     structuredTokens: Boolean = false
   ) {
+    // A new role-bound page request invalidates the previous probe before any
+    // session/page validation. A failed second read must never replay page one.
+    if (structuredTokens) {
+      LabL1NativePageCacheGuard.beginRead(sessionId, labNativePageTokens)
+    }
     val document = pdfiumDocuments[sessionId]
     if (document == null) {
       Handler(Looper.getMainLooper()).post {
