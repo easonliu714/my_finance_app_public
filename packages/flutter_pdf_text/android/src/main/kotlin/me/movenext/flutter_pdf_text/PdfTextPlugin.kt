@@ -36,6 +36,8 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
   // Lab-only role custody: a generic PDFium session is never an Owner-verified role.
   private val labVerifiedRoles = ConcurrentHashMap<String, LabL1MayJuneDualPdfOracle.Role>()
   private val labVerifiedReceipts = ConcurrentHashMap<String, LabL1VerifiedPdfSnapshot.Expected>()
+  // Native-only bounded latest page per role; never accept caller-supplied probe maps.
+  private val labNativePageTokens = ConcurrentHashMap<String, Map<String, Any>>()
 
   private val diagnosticFileName = "flutter_pdf_text_last_diagnostic.txt"
   private val cloud500LabLogFileName = "issue13_cloud500_diag_native.log"
@@ -176,6 +178,25 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             } else {
               getPdfiumSessionPageText(result, sessionId, pageNumber, true)
             }
+          }
+          "getLabNativeDualPositiveProbe" -> {
+            val args = call.arguments as Map<*, *>
+            val candidate = args["candidate"] as? String ?: ""
+            val drawId = args["drawSessionId"] as? String ?: ""
+            val sortedId = args["sortedSessionId"] as? String ?: ""
+            val outcome = LabL1NativeDualProbeBridge.positive(
+              candidate, drawId, sortedId, labNativePageTokens,
+              labVerifiedRoles, labVerifiedReceipts, pdfiumDocuments.keys
+            )
+            val response = when (outcome) {
+              is LabL1MayJuneDualPdfOracle.Outcome.PositiveCandidate ->
+                mapOf("status" to "LAB_DIAGNOSTIC_POSITIVE_CANDIDATE",
+                  "candidate" to outcome.candidate,
+                  "drawPage" to outcome.drawOrderPage, "sortedPage" to outcome.sortedPage,
+                  "authority" to "LAB_DIAGNOSTIC_ONLY")
+              else -> mapOf("status" to "HOLD", "authority" to "LAB_DIAGNOSTIC_ONLY")
+            }
+            Handler(Looper.getMainLooper()).post { result.success(response) }
           }
           "getPdfiumSessionPageText" -> {
             val args = call.arguments as Map<*, *>
@@ -642,6 +663,10 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
                 ?: throw IllegalStateException("L1_SESSION_SNAPSHOT_RECEIPT_MISSING_HOLD")
             )
           } else text
+          if (structuredTokens) {
+            @Suppress("UNCHECKED_CAST")
+            labNativePageTokens[sessionId] = response as Map<String, Any>
+          }
           Handler(Looper.getMainLooper()).post { result.success(response) }
         }
       }
@@ -672,6 +697,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
 
   /** A failed role-bound extraction permanently retires its native session. */
   private fun invalidateFailedLabPdfiumSession(sessionId: String) {
+    labNativePageTokens.remove(sessionId)
     labVerifiedReceipts.remove(sessionId)
     if (labVerifiedRoles.remove(sessionId) == null) return
     pdfiumDocumentPaths.remove(sessionId)
@@ -684,6 +710,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     val path = pdfiumDocumentPaths.remove(sessionId) ?: ""
     labVerifiedRoles.remove(sessionId)
     labVerifiedReceipts.remove(sessionId)
+    labNativePageTokens.remove(sessionId)
     val pageCount = try { document?.getPageCount() ?: 0 } catch (_: Exception) { 0 }
     try { document?.close() } catch (_: Exception) {}
     writeDiagnostic("PDFIUM_SESSION_CLOSED", path, pageCount = pageCount)
