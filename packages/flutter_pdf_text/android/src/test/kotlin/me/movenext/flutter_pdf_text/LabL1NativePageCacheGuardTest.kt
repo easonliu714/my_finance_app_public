@@ -64,5 +64,30 @@ class LabL1NativePageCacheGuardTest {
     ))
     assertTrue(cache.isEmpty())
   }
-}
+  @Test fun retiredIdReusedCannotPublishStaleRead() {
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf<String, Long>()
+    val oldEpoch = LabL1NativePageCacheGuard.beginVersionedRead("reused", cache, epochs)
+    LabL1NativePageCacheGuard.retire("reused", cache, epochs)
+    val newEpoch = LabL1NativePageCacheGuard.beginVersionedRead("reused", cache, epochs)
+    assertTrue(newEpoch > oldEpoch)
+    assertFalse(LabL1NativePageCacheGuard.publishIfCurrent(
+      "reused", oldEpoch, mapOf("pageNumber" to 1), cache, epochs, setOf("reused")
+    ))
+    assertTrue(cache.isEmpty())
+  }
 
+  @Test fun exhaustedEpochCannotWrapAndReplayOldRead() {
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf("draw" to Long.MAX_VALUE)
+    var rejected = false
+    try {
+      LabL1NativePageCacheGuard.beginVersionedRead("draw", cache, epochs)
+    } catch (_: IllegalStateException) { rejected = true }
+    assertTrue(rejected)
+    assertFalse(LabL1NativePageCacheGuard.publishIfCurrent(
+      "draw", 1L, mapOf("pageNumber" to 1), cache, epochs, setOf("draw")
+    ))
+    assertTrue(cache.isEmpty())
+  }
+}
