@@ -596,6 +596,10 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
         textPage.use {
           val count = textPage.textPageCountChars()
           val text = if (count <= 0) "" else textPage.textPageGetText(0, count).orEmpty()
+          // A blank verified extraction is never a valid diagnostic probe.
+          if (!LabL1RoleSessionGuard.allowsExtractedPage(labVerifiedRoles[sessionId], text)) {
+            throw IllegalStateException("L1_ROLE_PAGE_EXTRACTION_EMPTY_HOLD")
+          }
           writeDiagnostic("PDFIUM_PAGE_OK", path, pageNumber, pageCount)
           appendCloud500LabLog(
             "PDFIUM_PAGE_TEXT_OK",
@@ -607,6 +611,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
         }
       }
     } catch (oom: OutOfMemoryError) {
+      invalidateFailedLabPdfiumSession(sessionId)
       writeDiagnostic("PDFIUM_PAGE_OOM", path, pageNumber, pageCount, oom.javaClass.simpleName)
       appendCloud500LabLog(
         "PDFIUM_PAGE_OOM",
@@ -617,6 +622,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
         result.error("PDFIUM_PAGE_OOM", "PDFium page extraction exhausted memory", null)
       }
     } catch (e: Exception) {
+      invalidateFailedLabPdfiumSession(sessionId)
       writeDiagnostic("PDFIUM_PAGE_FAILED", path, pageNumber, pageCount, e.javaClass.simpleName)
       appendCloud500LabLog(
         "PDFIUM_PAGE_FAILED",
@@ -627,6 +633,14 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
         result.error("PDFIUM_PAGE_FAILED", e.message, null)
       }
     }
+  }
+
+  /** A failed role-bound extraction permanently retires its native session. */
+  private fun invalidateFailedLabPdfiumSession(sessionId: String) {
+    if (labVerifiedRoles.remove(sessionId) == null) return
+    pdfiumDocumentPaths.remove(sessionId)
+    val failed = pdfiumDocuments.remove(sessionId)
+    try { failed?.close() } catch (_: Exception) {}
   }
 
   private fun closePdfiumSession(result: Result, sessionId: String) {

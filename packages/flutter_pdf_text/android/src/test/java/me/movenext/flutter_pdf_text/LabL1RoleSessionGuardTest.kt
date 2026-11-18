@@ -27,4 +27,13 @@ class LabL1RoleSessionGuardTest {
     assertFalse(LabL1RoleSessionGuard.allowsGenericRead(
       LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER))
   }
+  @Test fun blankVerifiedExtractionHolds() {
+    val sorted = LabL1MayJuneDualPdfOracle.Role.SORTED
+    val draw = LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER
+    assertTrue(LabL1RoleSessionGuard.allowsExtractedPage(sorted, "AB12345678"))
+    assertTrue(LabL1RoleSessionGuard.allowsExtractedPage(draw, "CD87654321"))
+    assertFalse(LabL1RoleSessionGuard.allowsExtractedPage(sorted, ""))
+    assertFalse(LabL1RoleSessionGuard.allowsExtractedPage(draw, "   "))
+    assertTrue(LabL1RoleSessionGuard.allowsExtractedPage(null, ""))
+  }
 }

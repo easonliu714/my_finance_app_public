@@ -11,6 +11,10 @@ internal object LabL1RoleSessionGuard {
     requested: LabL1MayJuneDualPdfOracle.Role?
   ): Boolean = registered != null && requested != null && registered == requested
   /** Generic reads cannot strip the role binding from a verified session. */
+  /** Verified sessions cannot treat blank page extraction as a successful probe. */
+  fun allowsExtractedPage(registered: LabL1MayJuneDualPdfOracle.Role?, text: String): Boolean =
+    registered == null || text.isNotBlank()
+
   fun allowsGenericRead(registered: LabL1MayJuneDualPdfOracle.Role?): Boolean =
     registered == null
 }
