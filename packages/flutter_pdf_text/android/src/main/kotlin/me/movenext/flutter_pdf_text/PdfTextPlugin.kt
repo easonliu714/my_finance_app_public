@@ -308,22 +308,7 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       stripper.endPage = pageNumber
       val text = stripper.getText(doc)
       writeDiagnostic("PAGE_OK", path, pageNumber, doc.numberOfPages)
-      val response: Any = if (structuredTokens) {
-            // Tokens are parsed from the actual PDFium text page, never caller-supplied.
-            // This diagnostic response is NOT an authenticated full-10 oracle.
-            val tokens = LabL1PageTokenExtractor.extract(text)
-            hashMapOf(
-              "sessionId" to sessionId,
-              "role" to (if (labVerifiedRoles[sessionId] ==
-                LabL1MayJuneDualPdfOracle.Role.SORTED) "sorted" else "draw_order"),
-              "pageNumber" to pageNumber,
-              "pageCount" to pageCount,
-              "extractionComplete" to true,
-              "tokens" to tokens,
-              "authority" to "LAB_PDFIUM_PAGE_TOKENS_ONLY"
-            )
-          } else text
-          Handler(Looper.getMainLooper()).post { result.success(response) }
+      Handler(Looper.getMainLooper()).post { result.success(text) }
     } catch (oom: OutOfMemoryError) {
       writeDiagnostic("PAGE_OOM", path, pageNumber, doc.numberOfPages, oom.javaClass.simpleName)
       val doomed = openDocuments.remove(sessionId)
@@ -641,7 +626,13 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             "page=$pageNumber chars=$count elapsed_ms=" +
               (android.os.SystemClock.elapsedRealtime() - pageStartedAt)
           )
-          Handler(Looper.getMainLooper()).post { result.success(text) }
+          // Only the native PDFium text page may supply lab diagnostic tokens.
+          val response: Any = if (structuredTokens) {
+            LabL1PdfiumTokenResponse.fromVerifiedPage(
+              sessionId, labVerifiedRoles[sessionId], pageNumber, pageCount, text
+            )
+          } else text
+          Handler(Looper.getMainLooper()).post { result.success(response) }
         }
       }
     } catch (oom: OutOfMemoryError) {
