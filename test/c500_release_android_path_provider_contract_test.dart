@@ -61,6 +61,16 @@ bool _lockPackageSectionsAreWellFormed(String lockfile) {
   return true;
 }
 
+// Shell interpolation must remain literal in Dart contract assertions. This
+// predicate also makes both the approved command and unsafe mutation testable.
+bool _hasIsolatedScaffoldCustody(String workflow) {
+  return workflow.contains(r'scaffold="$(mktemp -d)"') &&
+      workflow.contains(r'flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"') &&
+      workflow.contains(r'cp -an -- "$scaffold/android/." ./android/') &&
+      workflow.contains('flutter pub get --enforce-lockfile') &&
+      !workflow.contains('flutter create --no-pub --platforms=android .');
+}
+
 void main() {
   final pubspec = File('pubspec.yaml').readAsStringSync();
   final lockfile = File('pubspec.lock').readAsStringSync();
@@ -70,10 +80,11 @@ void main() {
   test('CI enforces reviewed lockfile before Flutter tests', () {
     final workflow = File('.github/workflows/flutter_android_ci.yml')
         .readAsStringSync();
+    expect(_hasIsolatedScaffoldCustody(workflow), isTrue);
     expect(workflow, contains('flutter pub get --enforce-lockfile'));
-    expect(workflow, contains('flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"'));
-    expect(workflow, contains('scaffold="$(mktemp -d)"'));
-    expect(workflow, contains('cp -an -- "$scaffold/android/." ./android/'));
+    expect(workflow, contains(r'flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"'));
+    expect(workflow, contains(r'scaffold="$(mktemp -d)"'));
+    expect(workflow, contains(r'cp -an -- "$scaffold/android/." ./android/'));
     expect(workflow, contains('test -s packages/flutter_pdf_text/android/build.gradle'));
     expect(workflow, contains('PASS_C500_ISOLATED_ANDROID_SCAFFOLD_LOCK_CUSTODY'));
     expect(workflow, isNot(contains('flutter create --no-pub --platforms=android .')));
@@ -82,13 +93,14 @@ void main() {
     expect(workflow, contains('PASS_C500_CI_REVIEWED_LOCKFILE_UNCHANGED'));
     expect(workflow, isNot(contains('run: flutter pub get\\n')));
     final unsafeCreate = workflow.replaceFirst(
-      'flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"',
+      r'flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"',
       'flutter create --platforms=android .',
     );
-    expect(unsafeCreate, isNot(contains('flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"')));
+    expect(unsafeCreate, isNot(contains(r'flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"')));
     final unsafe = workflow.replaceFirst(
       'flutter pub get --enforce-lockfile', 'flutter pub get');
     expect(unsafe, isNot(contains('flutter pub get --enforce-lockfile')));
+    expect(_hasIsolatedScaffoldCustody(unsafe), isFalse);
   });
 
   test('scaffold cannot write repository lockfile or silently skip custody', () {
@@ -96,14 +108,15 @@ void main() {
     expect(workflow, isNot(contains('flutter create --no-pub --platforms=android .')));
     expect(workflow, contains('test -s packages/flutter_pdf_text/android/build.gradle'));
     expect(workflow, contains('git diff --exit-code -- pubspec.yaml pubspec.lock'));
-    expect(workflow, contains('test -s "$scaffold/android/app/build.gradle.kts"'));
+    expect(workflow, contains(r'test -s "$scaffold/android/app/build.gradle.kts"'));
     expect(workflow, contains('test -d packages/flutter_pdf_text/android/src/main'));
     expect(workflow, contains('test ! -e android/flutter_pdf_text'));
     expect(workflow, isNot(contains('test -d android/flutter_pdf_text')));
     final falseLegacyGuard = workflow.replaceFirst('test -s packages/flutter_pdf_text/android/build.gradle', 'test -d android/flutter_pdf_text');
     expect(falseLegacyGuard, isNot(contains('test -s packages/flutter_pdf_text/android/build.gradle')));
-    final unsafe = workflow.replaceFirst('cp -an -- "$scaffold/android/." ./android/', 'cp -a -- "$scaffold" .');
-    expect(unsafe, isNot(contains('cp -an -- "$scaffold/android/." ./android/')));
+    expect(_hasIsolatedScaffoldCustody(workflow.replaceFirst(r'cp -an -- "$scaffold/android/." ./android/', 'cp -a android .')), isFalse);
+    final unsafe = workflow.replaceFirst(r'cp -an -- "$scaffold/android/." ./android/', 'cp -a -- "$scaffold" .');
+    expect(unsafe, isNot(contains(r'cp -an -- "$scaffold/android/." ./android/')));
   });
 
   test('pre-JNI dependency closure excludes obsolete JNI tooling', () {

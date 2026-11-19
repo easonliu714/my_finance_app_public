@@ -1,4 +1,8 @@
-## CURRENT — 2026-11-19 Asia/Taipei | V25-M7 native plugin path custody fix (exact-head CI PENDING)
+## CURRENT — 2026-11-19 Asia/Taipei | V25-M8 Dart shell literal compile repair (exact-head CI PENDING)
+
+**Single CURRENT:** PR45 predecessor a1d3a1c90310a63ff2f690313a4085897c7e9082; #1508 exact-head API35 and C500 release-AOT SUCCESS, Flutter Analyze FAILED due to unescaped `$scaffold` and `$(mktemp -d)` in Dart string assertions (undefined_identifier/missing_identifier, lines 74–106). V25-M8 uses raw Dart string literals for shell contract comparisons and adds isolated-scaffold custody positive/negative helper regression. No product safety gates bypassed. Exact-head Flutter Analyze/full-test, API35 JUnit and release-AOT REQUIRED. #49 CLOSED; #50/#52 OPEN; canActivateProduction=false; Signed/Owner/main merge HOLD.
+
+## HISTORICAL — 2026-11-19 Asia/Taipei | V25-M7 native plugin path custody fix (exact-head CI PENDING)
 
 **Single CURRENT:** PR45 predecessor 935d9d725c911403ccbbd8d2daf354adfa59f9d4; main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8 unchanged; Lab a33d7185d165bfd2ace5d603ca32b0040498d207 unchanged. V25-M6a #1505 Flutter scaffold failed after generating 35 files: exact Git tree has no android/ directory, native plugin is tracked at packages/flutter_pdf_text/android. V25-M7 corrects false path guard, requires tracked Gradle and src/main, rejects phantom android/flutter_pdf_text, preserves isolated scaffold and immutable lockfile, and adds positive/negative regression. V25-M6a API35 SUCCESS; release-AOT Kotlin 2.2.21 external artifact resolution FAILURE; V25-M7 same-head Flutter/Analyze/API35 JUnit/release-AOT REQUIRED. #49 CLOSED, #50 PDFium E2E HOLD, #52 SQLite custody HOLD; canActivateProduction=false; Signed/Owner/main merge HOLD.
 

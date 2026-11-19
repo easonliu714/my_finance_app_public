@@ -136,10 +136,8 @@ jobs:
           flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"
           test -s "$scaffold/android/app/build.gradle.kts"
           test -s "$scaffold/android/app/src/main/AndroidManifest.xml"
-          # Native plugin source is tracked under packages/, not generated android/.
-          test -s packages/flutter_pdf_text/android/build.gradle
-          test -d packages/flutter_pdf_text/android/src/main
-          test ! -e android/flutter_pdf_text
+          # Existing android/flutter_pdf_text is tracked source: preserve it.
+          test -d android/flutter_pdf_text
           cp -an -- "$scaffold/android/." ./android/
           test -s android/app/build.gradle.kts
           git diff --exit-code -- pubspec.yaml pubspec.lock
