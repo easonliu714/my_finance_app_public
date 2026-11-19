@@ -127,7 +127,7 @@ void main() {
     );
     expect(_hasIsolatedScaffoldCustody(obsoleteNativeGuard), isFalse);
     expect(_hasIsolatedScaffoldCustody(workflow.replaceFirst(r'cp -an -- "$scaffold/android/." ./android/', 'cp -a android .')), isFalse);
-    final unsafe = workflow.replaceFirst(r'cp -an -- "$scaffold/android/." ./android/', 'cp -a -- "$scaffold" .');
+    final unsafe = workflow.replaceFirst(r'cp -an -- "$scaffold/android/." ./android/', r'cp -a -- "$scaffold" .');
     expect(unsafe, isNot(contains(r'cp -an -- "$scaffold/android/." ./android/')));
   });
 
