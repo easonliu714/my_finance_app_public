@@ -45,16 +45,16 @@ bool _lockPackageSectionsAreWellFormed(String lockfile) {
   final end = lockfile.indexOf('\nsdks:\n');
   if (start < 0 || end <= start) return false;
   final packages = lockfile.substring(start + 'packages:\n'.length, end);
-  final labels = RegExp(r'(?m)^  [a-zA-Z0-9_]+:$')
+  final labels = RegExp(r'^  [a-zA-Z0-9_]+:$', multiLine: true)
       .allMatches(packages).toList();
   if (labels.isEmpty) return false;
   for (var i = 0; i < labels.length; i++) {
     final from = labels[i].start;
     final to = i + 1 < labels.length ? labels[i + 1].start : packages.length;
     final block = packages.substring(from, to);
-    if (RegExp(r'(?m)^    dependency: ').allMatches(block).length != 1 ||
-        RegExp(r'(?m)^    source: ').allMatches(block).length != 1 ||
-        RegExp(r'(?m)^    version: ').allMatches(block).length != 1) {
+    if (RegExp(r'^    dependency: ', multiLine: true).allMatches(block).length != 1 ||
+        RegExp(r'^    source: ', multiLine: true).allMatches(block).length != 1 ||
+        RegExp(r'^    version: ', multiLine: true).allMatches(block).length != 1) {
       return false;
     }
   }
