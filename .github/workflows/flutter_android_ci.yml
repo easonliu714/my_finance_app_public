@@ -126,10 +126,20 @@ jobs:
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         run: |
           set -euo pipefail
-          # flutter create must not resolve or mutate the reviewed pubspec.lock.
+          # Flutter 3.47.9 'create --no-pub' still replaces the project
+          # lockfile with a 74-line template. Generate only Android files in
+          # a disposable directory; never let the template touch the reviewed
+          # repository dependency closure.
           git diff --exit-code -- pubspec.yaml pubspec.lock
-          flutter create --no-pub --platforms=android .
+          scaffold="$(mktemp -d)"
+          trap 'rm -rf -- "$scaffold"' EXIT
+          flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"
+          test -s "$scaffold/android/app/build.gradle.kts"
+          test -s "$scaffold/android/app/src/main/AndroidManifest.xml"
+          test ! -e android
+          cp -a -- "$scaffold/android" ./android
           git diff --exit-code -- pubspec.yaml pubspec.lock
+          echo 'PASS_C500_ISOLATED_ANDROID_SCAFFOLD_LOCK_CUSTODY'
 
       - name: Patch Android permissions and desugaring
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
