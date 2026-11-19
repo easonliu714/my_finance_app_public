@@ -52,6 +52,8 @@ class InvoiceAwardIsolatedConsentCas {
     return false;
   }
 
+  /// A pre-existing synthetic posting marker is inconsistent with active
+  /// consent and must never be claimed or revoked into an accepted transition.
   /// Claim and synthetic marker are one SQLite transaction. A stale revision
   /// cannot claim after another connection has committed a revoke/claim.
   Future<bool> claim(Database db, String id, int expectedRevision,
@@ -62,6 +64,7 @@ class InvoiceAwardIsolatedConsentCas {
         UPDATE $table SET state = 'claimed', revision = revision + 1,
           posting_marker = 1
         WHERE id = ? AND revision = ? AND state = 'active'
+          AND posting_marker = 0
       ''', <Object>[id, expectedRevision]);
       if (changed != 1) return false;
       if (injectFailure) throw StateError('ISOLATED_CAS_ROLLBACK_PROBE');
@@ -75,6 +78,7 @@ class InvoiceAwardIsolatedConsentCas {
       final changed = await txn.rawUpdate('''
         UPDATE $table SET state = 'revoked', revision = revision + 1
         WHERE id = ? AND revision = ? AND state = 'active'
+          AND posting_marker = 0
       ''', <Object>[id, expectedRevision]);
       return changed == 1;
     }));

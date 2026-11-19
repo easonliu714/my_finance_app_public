@@ -72,6 +72,31 @@ void main() {
     );
   });
 
+  test('inconsistent active posting marker rejects claim and revoke without write', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    try {
+      await cas.initialize(db);
+      await cas.seed(db, 'synthetic-only');
+      // Simulate a stale/partially restored marker in isolated custody.
+      await db.update(InvoiceAwardIsolatedConsentCas.table,
+          <String, Object>{'posting_marker': 1},
+          where: 'id = ?', whereArgs: <Object>['synthetic-only']);
+      expect(await cas.claim(db, 'synthetic-only', 1), isFalse);
+      expect(await cas.revoke(db, 'synthetic-only', 1), isFalse);
+      final row = (await db.query(InvoiceAwardIsolatedConsentCas.table)).single;
+      expect(row['revision'], 1);
+      expect(row['state'], 'active');
+      expect(row['posting_marker'], 1);
+      // Positive control: valid marker zero remains claimable.
+      await db.update(InvoiceAwardIsolatedConsentCas.table,
+          <String, Object>{'posting_marker': 0},
+          where: 'id = ?', whereArgs: <Object>['synthetic-only']);
+      expect(await cas.claim(db, 'synthetic-only', 1), isTrue);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('revoke wins, restart cannot revive stale revision', () async {
     final dir = await Directory.systemTemp.createTemp('v25a_revoke_');
     final path = '${dir.path}/isolated.db';
