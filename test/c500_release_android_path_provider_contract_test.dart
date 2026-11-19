@@ -94,7 +94,21 @@ void main() {
     expect(workflow, contains('test -s packages/flutter_pdf_text/android/build.gradle'));
     expect(workflow, contains('PASS_C500_ISOLATED_ANDROID_SCAFFOLD_LOCK_CUSTODY'));
     expect(workflow, isNot(contains('flutter create --no-pub --platforms=android .')));
-    expect(workflow, isNot(contains('run: flutter create --platforms=android .')));
+    // Only this job is subject to the reviewed-lockfile scaffold contract;
+    // independent API35 and AOT jobs use their own Android host.
+    final scaffoldStep = workflow.split('      - name: Ensure Android platform files exist').last
+        .split('      - name: Patch Android permissions and desugaring').first;
+    expect(scaffoldStep, isNot(contains('flutter create --platforms=android .')));
+    expect(scaffoldStep, contains('flutter create --no-pub --platforms=android'));
+    final unsafeStep = scaffoldStep.replaceFirst(
+      'flutter create --no-pub --platforms=android --project-name my_finance_app_android',
+      'flutter create --platforms=android',
+    );
+    expect(unsafeStep, contains('flutter create --platforms=android'));
+    expect(_hasIsolatedScaffoldCustody(workflow.replaceFirst(
+      'flutter create --no-pub --platforms=android --project-name my_finance_app_android',
+      'flutter create --platforms=android',
+    )), isFalse);
     expect(workflow, contains('git diff --exit-code -- pubspec.yaml pubspec.lock'));
     expect(workflow, contains('PASS_C500_CI_REVIEWED_LOCKFILE_UNCHANGED'));
     expect(workflow, isNot(contains('run: flutter pub get\\n')));

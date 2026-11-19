@@ -126,6 +126,8 @@ jobs:
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
         run: |
           set -euo pipefail
+          # Only this Analyze/Test/Build scaffold must preserve the reviewed lockfile;
+          # API35 and AOT use independent disposable Android hosts.
           # Flutter 3.47.9 'create --no-pub' still replaces the project
           # lockfile with a 74-line template. Generate only Android files in
           # a disposable directory; never let the template touch the reviewed
