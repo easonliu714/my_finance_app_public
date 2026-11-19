@@ -38,9 +38,41 @@ bool _hasPinnedPreJniAndroidPathProvider(String pubspec, String lockfile) {
           '    version: "$_nonJniPin"';
 }
 
+/// Detect orphan package fields and duplicate YAML keys in pubspec.lock.
+/// Complements flutter pub get --enforce-lockfile and isolates the regression.
+bool _lockPackageSectionsAreWellFormed(String lockfile) {
+  final start = lockfile.indexOf('packages:\n');
+  final end = lockfile.indexOf('\nsdks:\n');
+  if (start < 0 || end <= start) return false;
+  final packages = lockfile.substring(start + 'packages:\n'.length, end);
+  final labels = RegExp(r'(?m)^  [a-zA-Z0-9_]+:$')
+      .allMatches(packages).toList();
+  if (labels.isEmpty) return false;
+  for (var i = 0; i < labels.length; i++) {
+    final from = labels[i].start;
+    final to = i + 1 < labels.length ? labels[i + 1].start : packages.length;
+    final block = packages.substring(from, to);
+    if (RegExp(r'(?m)^    dependency: ').allMatches(block).length != 1 ||
+        RegExp(r'(?m)^    source: ').allMatches(block).length != 1 ||
+        RegExp(r'(?m)^    version: ').allMatches(block).length != 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void main() {
   final pubspec = File('pubspec.yaml').readAsStringSync();
   final lockfile = File('pubspec.lock').readAsStringSync();
+
+  test('lock cannot leave orphan dependency YAML fields', () {
+    expect(_lockPackageSectionsAreWellFormed(lockfile), isTrue);
+    final malformed = lockfile.replaceFirst(
+      '  js:\n    dependency: transitive',
+      '    dependency: transitive\n  js:\n    dependency: transitive',
+    );
+    expect(_lockPackageSectionsAreWellFormed(malformed), isFalse);
+  });
 
   test('C500 release-AOT resolves exact reviewed pre-JNI Android provider',
       () {
