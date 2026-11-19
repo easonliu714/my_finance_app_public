@@ -1,6 +1,8 @@
 import 'package:sqflite/sqflite.dart';
 
 /// Isolated revision-CAS primitive. No production schema, ledger or preferences.
+/// Qualified main-table writes prevent same-connection TEMP namespace shadows
+/// from reporting successful consent transitions without durable custody.
 class InvoiceAwardIsolatedConsentCas {
   const InvoiceAwardIsolatedConsentCas();
 
@@ -10,7 +12,7 @@ class InvoiceAwardIsolatedConsentCas {
 
   Future<void> initialize(Database db) async {
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS $table (
+      CREATE TABLE IF NOT EXISTS main.$table (
         id TEXT PRIMARY KEY,
         revision INTEGER NOT NULL CHECK(revision > 0),
         state TEXT NOT NULL CHECK(state IN ('active','claimed','revoked')),
@@ -22,9 +24,13 @@ class InvoiceAwardIsolatedConsentCas {
   /// Reject unowned consent identity before durable SQLite insertion.
   Future<void> seed(Database db, String id) async {
     if (id.trim().isEmpty) throw ArgumentError.value(id, 'id', 'EMPTY_CONSENT_ID');
-    await db.insert(table, <String, Object>{
-      'id': id, 'revision': 1, 'state': 'active', 'posting_marker': 0,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    // INSERT OR IGNORE preserves existing durable rows without consulting a
+    // same-named TEMP table created by another code path on this connection.
+    await db.rawInsert('''
+      INSERT OR IGNORE INTO main.$table
+        (id, revision, state, posting_marker)
+      VALUES (?, 1, 'active', 0)
+    ''', <Object>[id]);
   }
 
   /// Retry only SQLite BUSY at transaction acquisition, never change the
@@ -63,7 +69,7 @@ class InvoiceAwardIsolatedConsentCas {
     if (id.trim().isEmpty || expectedRevision <= 0) return false;
     return _withBoundedBusyRetry(() => db.transaction<bool>((txn) async {
       final changed = await txn.rawUpdate('''
-        UPDATE $table SET state = 'claimed', revision = revision + 1,
+        UPDATE main.$table SET state = 'claimed', revision = revision + 1,
           posting_marker = 1
         WHERE id = ? AND revision = ? AND state = 'active'
           AND posting_marker = 0
@@ -78,7 +84,7 @@ class InvoiceAwardIsolatedConsentCas {
     if (id.trim().isEmpty || expectedRevision <= 0) return false;
     return _withBoundedBusyRetry(() => db.transaction<bool>((txn) async {
       final changed = await txn.rawUpdate('''
-        UPDATE $table SET state = 'revoked', revision = revision + 1
+        UPDATE main.$table SET state = 'revoked', revision = revision + 1
         WHERE id = ? AND revision = ? AND state = 'active'
           AND posting_marker = 0
       ''', <Object>[id, expectedRevision]);

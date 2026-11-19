@@ -29,6 +29,66 @@ void main() {
     }
   });
 
+  test('TEMP table shadow cannot claim or seed against durable main authority', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    const table = InvoiceAwardIsolatedConsentCas.table;
+    try {
+      await cas.initialize(db);
+      await cas.seed(db, 'synthetic-shadow');
+      // Same connection, intentionally conflicting SQLite namespaces. The
+      // TEMP row is a stale revision-1 decoy; durable main is revision 2.
+      await db.execute('''
+        CREATE TEMP TABLE $table (
+          id TEXT PRIMARY KEY,
+          revision INTEGER NOT NULL,
+          state TEXT NOT NULL,
+          posting_marker INTEGER NOT NULL
+        )
+      ''');
+      await db.rawInsert('''
+        INSERT INTO temp.$table (id, revision, state, posting_marker)
+        VALUES (?, 1, 'active', 0)
+      ''', <Object>['synthetic-shadow']);
+      await db.rawUpdate(
+        'UPDATE main.$table SET revision = 2 WHERE id = ?',
+        <Object>['synthetic-shadow'],
+      );
+
+      // Negative: never report a success from the stale TEMP decoy.
+      expect(await cas.claim(db, 'synthetic-shadow', 1), isFalse);
+      expect(await cas.revoke(db, 'synthetic-shadow', 1), isFalse);
+      // Positive: the current durable revision is still claimable.
+      expect(await cas.claim(db, 'synthetic-shadow', 2), isTrue);
+      // New seeds must land in main even while TEMP shadows the table name.
+      await cas.seed(db, 'synthetic-main-only');
+      expect(await cas.revoke(db, 'synthetic-main-only', 1), isTrue);
+
+      final durable = await db.rawQuery(
+        'SELECT id, revision, state, posting_marker FROM main.$table ORDER BY id',
+      );
+      expect(durable, hasLength(2));
+      expect(durable[0]['id'], 'synthetic-main-only');
+      expect(durable[0]['revision'], 2);
+      expect(durable[0]['state'], 'revoked');
+      expect(durable[0]['posting_marker'], 0);
+      expect(durable[1]['id'], 'synthetic-shadow');
+      expect(durable[1]['revision'], 3);
+      expect(durable[1]['state'], 'claimed');
+      expect(durable[1]['posting_marker'], 1);
+
+      final decoy = await db.rawQuery(
+        'SELECT id, revision, state, posting_marker FROM temp.$table',
+      );
+      expect(decoy, hasLength(1));
+      expect(decoy.single['id'], 'synthetic-shadow');
+      expect(decoy.single['revision'], 1);
+      expect(decoy.single['state'], 'active');
+      expect(decoy.single['posting_marker'], 0);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('two independent connections: exactly one claim, stale claim fails', () async {
     final dir = await Directory.systemTemp.createTemp('v25a_cas_');
     final path = '${dir.path}/isolated.db';
