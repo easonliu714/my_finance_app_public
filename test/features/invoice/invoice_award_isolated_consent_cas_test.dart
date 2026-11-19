@@ -29,6 +29,33 @@ void main() {
     }
   });
 
+  test('seed replay refuses claimed or revoked durable identity', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    try {
+      await cas.initialize(db);
+      await cas.seed(db, 'replay-claim');
+      await cas.seed(db, 'replay-claim'); // Safe idempotent active seed.
+      expect(await cas.claim(db, 'replay-claim', 1), isTrue);
+      await expectLater(cas.seed(db, 'replay-claim'),
+          throwsA(isA<StateError>()));
+      await cas.seed(db, 'replay-revoke');
+      expect(await cas.revoke(db, 'replay-revoke', 1), isTrue);
+      await expectLater(cas.seed(db, 'replay-revoke'),
+          throwsA(isA<StateError>()));
+      final rows = await db.rawQuery(
+          'SELECT id, revision, state, posting_marker FROM main.${InvoiceAwardIsolatedConsentCas.table} ORDER BY id');
+      expect(rows, hasLength(2));
+      expect(rows[0]['state'], 'claimed');
+      expect(rows[0]['revision'], 2);
+      expect(rows[0]['posting_marker'], 1);
+      expect(rows[1]['state'], 'revoked');
+      expect(rows[1]['revision'], 2);
+      expect(rows[1]['posting_marker'], 0);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('TEMP table shadow cannot claim or seed against durable main authority', () async {
     final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
     const table = InvoiceAwardIsolatedConsentCas.table;

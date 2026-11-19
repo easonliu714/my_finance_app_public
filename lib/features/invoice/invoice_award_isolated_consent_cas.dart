@@ -26,11 +26,25 @@ class InvoiceAwardIsolatedConsentCas {
     if (id.trim().isEmpty) throw ArgumentError.value(id, 'id', 'EMPTY_CONSENT_ID');
     // INSERT OR IGNORE preserves existing durable rows without consulting a
     // same-named TEMP table created by another code path on this connection.
-    await db.rawInsert('''
-      INSERT OR IGNORE INTO main.$table
-        (id, revision, state, posting_marker)
-      VALUES (?, 1, 'active', 0)
-    ''', <Object>[id]);
+    // A duplicate ID must not silently acknowledge a claimed, revoked, or
+    // advanced revision as a fresh active consent. Read durable main only.
+    // The transaction also serializes this check with competing claim/revoke.
+    await db.transaction<void>((txn) async {
+      await txn.rawInsert('''
+        INSERT OR IGNORE INTO main.$table
+          (id, revision, state, posting_marker)
+        VALUES (?, 1, 'active', 0)
+      ''', <Object>[id]);
+      final rows = await txn.rawQuery('''
+        SELECT revision, state, posting_marker FROM main.$table WHERE id = ?
+      ''', <Object>[id]);
+      if (rows.length != 1 ||
+          rows.single['revision'] != 1 ||
+          rows.single['state'] != 'active' ||
+          rows.single['posting_marker'] != 0) {
+        throw StateError('ISOLATED_CONSENT_SEED_IDENTITY_CONFLICT');
+      }
+    });
   }
 
   /// Retry only SQLite BUSY at transaction acquisition, never change the
