@@ -65,6 +65,16 @@ void main() {
   final pubspec = File('pubspec.yaml').readAsStringSync();
   final lockfile = File('pubspec.lock').readAsStringSync();
 
+  test('pre-JNI dependency closure excludes obsolete JNI tooling', () {
+    for (final removed in <String>['jni', 'jni_flutter', 'package_config']) {
+      expect(
+        lockfile.contains('\n  $removed:\n'),
+        isFalse,
+        reason: 'Removed JNI dependency chain must not leave stale pub lock.',
+      );
+    }
+  });
+
   test('lock cannot leave orphan dependency YAML fields', () {
     expect(_lockPackageSectionsAreWellFormed(lockfile), isTrue);
     final malformed = lockfile.replaceFirst(
