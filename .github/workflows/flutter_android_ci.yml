@@ -223,9 +223,17 @@ jobs:
           gradle.write_text(text)
           PY
 
-      - name: Get dependencies
+      - name: Get dependencies with immutable reviewed lockfile
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
-        run: flutter pub get
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Never silently rewrite the reviewed dependency closure during CI.
+          # Flutter create and pub resolution may otherwise mask stale JNI entries.
+          git diff --exit-code -- pubspec.yaml pubspec.lock
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.yaml pubspec.lock
+          echo 'PASS_C500_CI_REVIEWED_LOCKFILE_UNCHANGED'
 
       - name: Analyze Dart code
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
