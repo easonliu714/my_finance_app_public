@@ -94,9 +94,14 @@ void main() {
   test('scaffold cannot write repository lockfile or silently skip custody', () {
     final workflow = File('.github/workflows/flutter_android_ci.yml').readAsStringSync();
     expect(workflow, isNot(contains('flutter create --no-pub --platforms=android .')));
-    expect(workflow, contains('test -d android/flutter_pdf_text'));
+    expect(workflow, contains('test -s packages/flutter_pdf_text/android/build.gradle'));
     expect(workflow, contains('git diff --exit-code -- pubspec.yaml pubspec.lock'));
     expect(workflow, contains('test -s "$scaffold/android/app/build.gradle.kts"'));
+    expect(workflow, contains('test -d packages/flutter_pdf_text/android/src/main'));
+    expect(workflow, contains('test ! -e android/flutter_pdf_text'));
+    expect(workflow, isNot(contains('test -d android/flutter_pdf_text')));
+    final falseLegacyGuard = workflow.replaceFirst('test -s packages/flutter_pdf_text/android/build.gradle', 'test -d android/flutter_pdf_text');
+    expect(falseLegacyGuard, isNot(contains('test -s packages/flutter_pdf_text/android/build.gradle')));
     final unsafe = workflow.replaceFirst('cp -an -- "$scaffold/android/." ./android/', 'cp -a -- "$scaffold" .');
     expect(unsafe, isNot(contains('cp -an -- "$scaffold/android/." ./android/')));
   });
