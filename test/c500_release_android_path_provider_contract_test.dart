@@ -73,8 +73,8 @@ void main() {
     expect(workflow, contains('flutter pub get --enforce-lockfile'));
     expect(workflow, contains('flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"'));
     expect(workflow, contains('scaffold="$(mktemp -d)"'));
-    expect(workflow, contains('cp -a -- "$scaffold/android" ./android'));
-    expect(workflow, contains("test ! -e android"));
+    expect(workflow, contains('cp -an -- "$scaffold/android/." ./android/'));
+    expect(workflow, contains("test -d android/flutter_pdf_text"));
     expect(workflow, contains('PASS_C500_ISOLATED_ANDROID_SCAFFOLD_LOCK_CUSTODY'));
     expect(workflow, isNot(contains('flutter create --no-pub --platforms=android .')));
     expect(workflow, isNot(contains('run: flutter create --platforms=android .')));
@@ -94,11 +94,11 @@ void main() {
   test('scaffold cannot write repository lockfile or silently skip custody', () {
     final workflow = File('.github/workflows/flutter_android_ci.yml').readAsStringSync();
     expect(workflow, isNot(contains('flutter create --no-pub --platforms=android .')));
-    expect(workflow, contains('test ! -e android'));
+    expect(workflow, contains('test -d android/flutter_pdf_text'));
     expect(workflow, contains('git diff --exit-code -- pubspec.yaml pubspec.lock'));
     expect(workflow, contains('test -s "$scaffold/android/app/build.gradle.kts"'));
-    final unsafe = workflow.replaceFirst('cp -a -- "$scaffold/android" ./android', 'cp -a -- "$scaffold" .');
-    expect(unsafe, isNot(contains('cp -a -- "$scaffold/android" ./android')));
+    final unsafe = workflow.replaceFirst('cp -an -- "$scaffold/android/." ./android/', 'cp -a -- "$scaffold" .');
+    expect(unsafe, isNot(contains('cp -an -- "$scaffold/android/." ./android/')));
   });
 
   test('pre-JNI dependency closure excludes obsolete JNI tooling', () {
