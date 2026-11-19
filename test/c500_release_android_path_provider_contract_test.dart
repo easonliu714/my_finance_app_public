@@ -68,6 +68,12 @@ bool _hasIsolatedScaffoldCustody(String workflow) {
       workflow.contains(r'flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"') &&
       workflow.contains(r'cp -an -- "$scaffold/android/." ./android/') &&
       workflow.contains('flutter pub get --enforce-lockfile') &&
+      workflow.contains(
+        'test -s packages/flutter_pdf_text/android/build.gradle',
+      ) &&
+      workflow.contains('test -d packages/flutter_pdf_text/android/src/main') &&
+      workflow.contains('test ! -e android/flutter_pdf_text') &&
+      !workflow.contains('test -d android/flutter_pdf_text') &&
       !workflow.contains('flutter create --no-pub --platforms=android .');
 }
 
@@ -114,6 +120,12 @@ void main() {
     expect(workflow, isNot(contains('test -d android/flutter_pdf_text')));
     final falseLegacyGuard = workflow.replaceFirst('test -s packages/flutter_pdf_text/android/build.gradle', 'test -d android/flutter_pdf_text');
     expect(falseLegacyGuard, isNot(contains('test -s packages/flutter_pdf_text/android/build.gradle')));
+    expect(_hasIsolatedScaffoldCustody(falseLegacyGuard), isFalse);
+    final obsoleteNativeGuard = workflow.replaceFirst(
+      'test -d packages/flutter_pdf_text/android/src/main',
+      'test -d android/flutter_pdf_text',
+    );
+    expect(_hasIsolatedScaffoldCustody(obsoleteNativeGuard), isFalse);
     expect(_hasIsolatedScaffoldCustody(workflow.replaceFirst(r'cp -an -- "$scaffold/android/." ./android/', 'cp -a android .')), isFalse);
     final unsafe = workflow.replaceFirst(r'cp -an -- "$scaffold/android/." ./android/', 'cp -a -- "$scaffold" .');
     expect(unsafe, isNot(contains(r'cp -an -- "$scaffold/android/." ./android/')));
