@@ -19,7 +19,9 @@ class InvoiceAwardIsolatedConsentCas {
     ''');
   }
 
+  /// Reject unowned consent identity before durable SQLite insertion.
   Future<void> seed(Database db, String id) async {
+    if (id.trim().isEmpty) throw ArgumentError.value(id, 'id', 'EMPTY_CONSENT_ID');
     await db.insert(table, <String, Object>{
       'id': id, 'revision': 1, 'state': 'active', 'posting_marker': 0,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -58,7 +60,7 @@ class InvoiceAwardIsolatedConsentCas {
   /// cannot claim after another connection has committed a revoke/claim.
   Future<bool> claim(Database db, String id, int expectedRevision,
       {bool injectFailure = false}) async {
-    if (expectedRevision <= 0) return false;
+    if (id.trim().isEmpty || expectedRevision <= 0) return false;
     return _withBoundedBusyRetry(() => db.transaction<bool>((txn) async {
       final changed = await txn.rawUpdate('''
         UPDATE $table SET state = 'claimed', revision = revision + 1,
@@ -73,7 +75,7 @@ class InvoiceAwardIsolatedConsentCas {
   }
 
   Future<bool> revoke(Database db, String id, int expectedRevision) async {
-    if (expectedRevision <= 0) return false;
+    if (id.trim().isEmpty || expectedRevision <= 0) return false;
     return _withBoundedBusyRetry(() => db.transaction<bool>((txn) async {
       final changed = await txn.rawUpdate('''
         UPDATE $table SET state = 'revoked', revision = revision + 1

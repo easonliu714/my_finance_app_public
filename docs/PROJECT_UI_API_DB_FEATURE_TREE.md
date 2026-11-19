@@ -1,4 +1,8 @@
-## CURRENT — 2026-11-19 22:16 Asia/Taipei | V25-B isolated consent CAS rejects inconsistent active posting marker (CI PENDING)
+## CURRENT — 2026-11-19 23:15 Asia/Taipei | V25-B reject blank consent custody identity (CI PENDING)
+
+**Single CURRENT:** PR45 predecessor 47e5f5b993380133950fa003ec059452c9cedf32; #1513 exact-head Flutter Android CI three jobs SUCCESS, not Trusted Signed. Isolated SQLite seed previously accepted blank/whitespace consent identities and claim/revoke accepted the same, creating unowned custody rows. Seed now rejects before INSERT; claim/revoke return false without mutation; focused negative/positive regression added. No production SQLite, backup, posting or activation. #50 dual PDFium full10 and #52 production integration HOLD; exact-head CI/JUnit pending; Signed/Owner Device/main merge HOLD; canActivateProduction=false. OWNER_HELP=NONE.
+
+## HISTORICAL — 2026-11-19 22:16 Asia/Taipei | V25-B isolated consent CAS rejects inconsistent active posting marker (CI PENDING)
 
 **Single CURRENT:** PR45 predecessor d2d294a60ea0256019f46a52450ccb99222f309f; #1512 exact-head Flutter Android CI three jobs SUCCESS, not Trusted Signed. Isolated SQLite consent CAS previously accepted `state=active` with `posting_marker=1` as eligible for claim/revoke; this inconsistent marker can arise from synthetic tampering or restore and must fail closed. Both SQL transitions now require `posting_marker=0` in their atomic WHERE predicates; focused positive/negative regression asserts no revision/state/marker write on invalid state and valid claim after reset. No production SQLite, backup, posting, or activation enabled. #50 native dual PDFium full10 HOLD; #52 production integration HOLD; #49 CLOSED; Signed/Owner Device/main merge HOLD; canActivateProduction=false. Same-head CI/JUnit pending. OWNER_HELP=NONE.
 

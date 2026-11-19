@@ -8,6 +8,27 @@ void main() {
   setUpAll(() { sqfliteFfiInit(); databaseFactory = databaseFactoryFfi; });
   const cas = InvoiceAwardIsolatedConsentCas();
 
+  test('blank consent identity fails closed before any SQLite mutation', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    try {
+      await cas.initialize(db);
+      for (final invalidId in <String>['', '   ', '\t\n']) {
+        await expectLater(cas.seed(db, invalidId), throwsArgumentError);
+        expect(await cas.claim(db, invalidId, 1), isFalse);
+        expect(await cas.revoke(db, invalidId, 1), isFalse);
+      }
+      expect(await db.query(InvoiceAwardIsolatedConsentCas.table), isEmpty);
+      await cas.seed(db, 'synthetic-valid');
+      expect(await cas.claim(db, 'synthetic-valid', 1), isTrue);
+      final row = (await db.query(InvoiceAwardIsolatedConsentCas.table)).single;
+      expect(row['id'], 'synthetic-valid');
+      expect(row['revision'], 2);
+      expect(row['posting_marker'], 1);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('two independent connections: exactly one claim, stale claim fails', () async {
     final dir = await Directory.systemTemp.createTemp('v25a_cas_');
     final path = '${dir.path}/isolated.db';
