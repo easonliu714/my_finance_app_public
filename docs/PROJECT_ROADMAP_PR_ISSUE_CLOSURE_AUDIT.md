@@ -1,6 +1,10 @@
-## CURRENT — 2026-11-19 Asia/Taipei | V25-M4 immutable CI dependency resolution candidate (exact-head CI PENDING)
+## CURRENT — 2026-11-19 Asia/Taipei | V25-M5 Flutter create no-pub lock custody (exact-head CI PENDING)
 
-**Single CURRENT:** PR45 predecessor 06aa50dcb20f4ce5f8d3980c85a24870b96068a8; main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8 unchanged; Lab a33d7185d165bfd2ace5d603ca32b0040498d207 unchanged. #1502 exact-head Analyzer #685 SUCCESS; Android API35 rerun SUCCESS; release-AOT SUCCESS; Flutter full-test FAIL at test/c500_release_android_path_provider_contract_test.dart:70. Committed lock has no jni/jni_flutter/package_config but CI used unconstrained flutter pub get after flutter create; precise runtime reintroduced package is unproven. V25-M4 changes CI dependency resolution to flutter pub get --enforce-lockfile and pre/post git diff fail-closed, with paired Flutter contract regression. This exposes drift rather than weakening negative assertions. New exact-head full CI/JUnit still REQUIRED, no claim of PASS. #49 CLOSED, #50 real native PDFium dual-session official full10 HOLD, #52 production authenticated custody HOLD; canActivateProduction=false. Signed/Owner device/main merge HOLD.
+**Single CURRENT:** PR45 predecessor 2aee011b31b30f2b7a8068b18546374eb7cd139c; main a8f1ad67671b93d9bbe52d5cf7599e2f308474b8 unchanged; Lab a33d7185d165bfd2ace5d603ca32b0040498d207 unchanged. #1503 exact-head API35 SUCCESS and release-AOT SUCCESS; Analyze/Test/Build FAIL at immutable lock check before pub get. Real CI diff shows flutter create auto-resolved dependency graph, changing lock SDK minimum and transitive packages. V25-M5 changes flutter create to --no-pub, adds pre/post lock diff and paired regression. No tests bypassed; exact-head Flutter full-test, JUnit and release-AOT successor REQUIRED. #49 CLOSED, #50 native dual PDFium HOLD, #52 authenticated custody HOLD; canActivateProduction=false; Signed/Owner/main merge HOLD.
+
+## HISTORICAL — 2026-11-19 Asia/Taipei | V25-M4 immutable CI dependency resolution candidate
+
+**Historical predecessor:** CI #1503 found flutter create implicit pub resolution before immutable lock gate; no full Flutter PASS.
 
 ## HISTORICAL — 2026-11-19 Asia/Taipei | V25-M3 exact Flutter dependency graph Lockfile pruning, CI successor REQUIRED
 

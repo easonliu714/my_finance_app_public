@@ -71,9 +71,16 @@ void main() {
     final workflow = File('.github/workflows/flutter_android_ci.yml')
         .readAsStringSync();
     expect(workflow, contains('flutter pub get --enforce-lockfile'));
+    expect(workflow, contains('flutter create --no-pub --platforms=android .'));
+    expect(workflow, isNot(contains('run: flutter create --platforms=android .')));
     expect(workflow, contains('git diff --exit-code -- pubspec.yaml pubspec.lock'));
     expect(workflow, contains('PASS_C500_CI_REVIEWED_LOCKFILE_UNCHANGED'));
     expect(workflow, isNot(contains('run: flutter pub get\\n')));
+    final unsafeCreate = workflow.replaceFirst(
+      'flutter create --no-pub --platforms=android .',
+      'flutter create --platforms=android .',
+    );
+    expect(unsafeCreate, isNot(contains('flutter create --no-pub --platforms=android .')));
     final unsafe = workflow.replaceFirst(
       'flutter pub get --enforce-lockfile', 'flutter pub get');
     expect(unsafe, isNot(contains('flutter pub get --enforce-lockfile')));

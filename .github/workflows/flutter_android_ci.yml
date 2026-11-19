@@ -124,7 +124,12 @@ jobs:
 
       - name: Ensure Android platform files exist
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
-        run: flutter create --platforms=android .
+        run: |
+          set -euo pipefail
+          # flutter create must not resolve or mutate the reviewed pubspec.lock.
+          git diff --exit-code -- pubspec.yaml pubspec.lock
+          flutter create --no-pub --platforms=android .
+          git diff --exit-code -- pubspec.yaml pubspec.lock
 
       - name: Patch Android permissions and desugaring
         if: ${{ steps.changes.outputs.run_heavy == 'true' }}
