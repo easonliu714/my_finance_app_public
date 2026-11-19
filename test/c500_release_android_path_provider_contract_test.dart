@@ -74,7 +74,7 @@ void main() {
     expect(workflow, contains('flutter create --no-pub --platforms=android --project-name my_finance_app_android "$scaffold"'));
     expect(workflow, contains('scaffold="$(mktemp -d)"'));
     expect(workflow, contains('cp -an -- "$scaffold/android/." ./android/'));
-    expect(workflow, contains("test -d android/flutter_pdf_text"));
+    expect(workflow, contains('test -s packages/flutter_pdf_text/android/build.gradle'));
     expect(workflow, contains('PASS_C500_ISOLATED_ANDROID_SCAFFOLD_LOCK_CUSTODY'));
     expect(workflow, isNot(contains('flutter create --no-pub --platforms=android .')));
     expect(workflow, isNot(contains('run: flutter create --platforms=android .')));
