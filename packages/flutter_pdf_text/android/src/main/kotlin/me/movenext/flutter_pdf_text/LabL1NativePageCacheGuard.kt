@@ -11,7 +11,8 @@ internal object LabL1NativePageCacheGuard {
   ): Long = synchronized(epochs) {
     val prior = epochs[sessionId] ?: 0L
     // Never wrap to an epoch that a stale read may still hold.
-    // Reserve MAX_VALUE for retirement: issuing it permits stale publication after retire.\n    check(prior >= 0L && prior < Long.MAX_VALUE - 1L) { "L1_SESSION_EPOCH_EXHAUSTED" }
+    // Reserve MAX_VALUE for retirement; reject exhaustion before changing cache or epoch.
+    check(prior >= 0L && prior < Long.MAX_VALUE - 1L) { "L1_SESSION_EPOCH_EXHAUSTED" }
     val next = prior + 1L
     epochs[sessionId] = next
     cachedPages.remove(sessionId)
