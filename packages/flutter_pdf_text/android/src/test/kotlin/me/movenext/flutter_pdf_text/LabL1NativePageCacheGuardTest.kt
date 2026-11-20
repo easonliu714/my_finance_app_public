@@ -90,4 +90,37 @@ class LabL1NativePageCacheGuardTest {
     ))
     assertTrue(cache.isEmpty())
   }
+
+  @Test fun nearExhaustedReadCannotReplayAfterRetireAndIdReuse() {
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf("draw" to Long.MAX_VALUE - 2L)
+    val issued = LabL1NativePageCacheGuard.beginVersionedRead("draw", cache, epochs)
+    assertTrue(issued == Long.MAX_VALUE - 1L)
+    LabL1NativePageCacheGuard.retire("draw", cache, epochs)
+    // A reused live ID must not revive the retired last valid epoch.
+    assertFalse(LabL1NativePageCacheGuard.publishIfCurrent(
+      "draw", issued, mapOf("pageNumber" to 1), cache, epochs, setOf("draw")
+    ))
+    assertTrue(cache.isEmpty())
+    var rejected = false
+    try {
+      LabL1NativePageCacheGuard.beginVersionedRead("draw", cache, epochs)
+    } catch (_: IllegalStateException) { rejected = true }
+    assertTrue(rejected)
+    assertTrue(cache.isEmpty())
+  }
+
+  @Test fun reservedTombstoneNeverPublishesEvenIfLiveSessionIsReused() {
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf("draw" to Long.MAX_VALUE)
+    assertFalse(LabL1NativePageCacheGuard.publishIfCurrent(
+      "draw", Long.MAX_VALUE, mapOf("pageNumber" to 1), cache, epochs, setOf("draw")
+    ))
+    assertTrue(cache.isEmpty())
+    val other = LabL1NativePageCacheGuard.beginVersionedRead("sorted", cache, epochs)
+    assertTrue(LabL1NativePageCacheGuard.publishIfCurrent(
+      "sorted", other, mapOf("pageNumber" to 2), cache, epochs, setOf("sorted")
+    ))
+    assertTrue(cache.containsKey("sorted"))
+  }
 }
