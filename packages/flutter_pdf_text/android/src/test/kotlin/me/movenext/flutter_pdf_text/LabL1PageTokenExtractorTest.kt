@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Regression for real PDFium Unicode text boundaries, not a source/award oracle. */
-class LabL1PageTokenExtractorTest {
+class LabL1UnicodeCombiningMarkBoundaryTest {
   private val invoice = "AB12345678"
 
   @Test fun validExactFull10AndPunctuationSeparatedTokensRemainReadable() {
