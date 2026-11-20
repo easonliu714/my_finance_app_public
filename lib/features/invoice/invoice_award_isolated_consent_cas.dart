@@ -18,7 +18,7 @@ class InvoiceAwardIsolatedConsentCas {
       'CREATE TABLE $table (\n'
       '        id TEXT PRIMARY KEY,\n'
       '        revision INTEGER NOT NULL CHECK(revision > 0),\n'
-      "        state TEXT NOT NULL CHECK(state IN ('active','claimed','revoked')),\n"
+      '        state TEXT NOT NULL CHECK(state IN (\'active\',\'claimed\',\'revoked\')),\n'
       '        posting_marker INTEGER NOT NULL DEFAULT 0 CHECK(posting_marker IN (0,1))\n'
       '      )';
 
