@@ -11,7 +11,7 @@ internal object LabL1NativePageCacheGuard {
   ): Long = synchronized(epochs) {
     val prior = epochs[sessionId] ?: 0L
     // Never wrap to an epoch that a stale read may still hold.
-    check(prior < Long.MAX_VALUE) { "L1_SESSION_EPOCH_EXHAUSTED" }
+    // Reserve MAX_VALUE for retirement: issuing it permits stale publication after retire.\n    check(prior >= 0L && prior < Long.MAX_VALUE - 1L) { "L1_SESSION_EPOCH_EXHAUSTED" }
     val next = prior + 1L
     epochs[sessionId] = next
     cachedPages.remove(sessionId)
@@ -26,7 +26,7 @@ internal object LabL1NativePageCacheGuard {
     epochs: MutableMap<String, Long>,
     liveSessions: Set<String>
   ): Boolean = synchronized(epochs) {
-    if (epochs[sessionId] != epoch || !liveSessions.contains(sessionId)) false
+    if (epoch <= 0L || epoch == Long.MAX_VALUE || epochs[sessionId] != epoch || !liveSessions.contains(sessionId)) false
     else {
       cachedPages[sessionId] = page
       true
@@ -41,7 +41,7 @@ internal object LabL1NativePageCacheGuard {
     // Retain a tombstone until plugin detach so a reopened ID cannot replay
     // a previously issued epoch. Exhaustion remains fail closed.
     val prior = epochs[sessionId]
-    epochs[sessionId] = if (prior == null || prior == Long.MAX_VALUE) Long.MAX_VALUE else prior + 1L
+    epochs[sessionId] = if (prior == null || prior >= Long.MAX_VALUE - 1L) Long.MAX_VALUE else prior + 1L
     cachedPages.remove(sessionId)
   }
 
