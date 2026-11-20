@@ -110,6 +110,29 @@ class LabL1NativePageCacheGuardTest {
     assertTrue(cache.isEmpty())
   }
 
+  @Test fun maxMinusOneEpochRejectsWithoutMutatingCacheOrOtherRole() {
+    val cache = mutableMapOf<String, Map<String, Any>>(
+      "draw" to mapOf("pageNumber" to 4),
+      "sorted" to mapOf("pageNumber" to 2)
+    )
+    val epochs = mutableMapOf("draw" to Long.MAX_VALUE - 1L, "sorted" to 3L)
+    var rejected = false
+    try {
+      LabL1NativePageCacheGuard.beginVersionedRead("draw", cache, epochs)
+    } catch (e: IllegalStateException) {
+      rejected = e.message == "L1_SESSION_EPOCH_EXHAUSTED"
+    }
+    assertTrue(rejected)
+    assertTrue(epochs["draw"] == Long.MAX_VALUE - 1L)
+    assertTrue(cache["draw"]?.get("pageNumber") == 4)
+    assertTrue(cache["sorted"]?.get("pageNumber") == 2)
+    val sorted = LabL1NativePageCacheGuard.beginVersionedRead("sorted", cache, epochs)
+    assertTrue(sorted == 4L)
+    assertTrue(LabL1NativePageCacheGuard.publishIfCurrent(
+      "sorted", sorted, mapOf("pageNumber" to 3), cache, epochs, setOf("sorted")
+    ))
+  }
+
   @Test fun reservedTombstoneNeverPublishesEvenIfLiveSessionIsReused() {
     val cache = mutableMapOf<String, Map<String, Any>>()
     val epochs = mutableMapOf("draw" to Long.MAX_VALUE)
