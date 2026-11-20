@@ -274,6 +274,59 @@ void main() {
     } finally { await reopened.close(); await dir.delete(recursive: true); }
   });
 
+
+  test('SQLite INTEGER overflow refuses claim and revoke without marker mutation', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    const table = InvoiceAwardIsolatedConsentCas.table;
+    const maxRevision = 9223372036854775807;
+    const penultimateRevision = 9223372036854775806;
+    try {
+      await cas.initialize(db);
+      await cas.seed(db, 'overflow-claim');
+      await cas.seed(db, 'overflow-revoke');
+      await cas.seed(db, 'penultimate-positive');
+      for (final id in <String>['overflow-claim', 'overflow-revoke']) {
+        await db.rawUpdate(
+          'UPDATE main.$table SET revision = ? WHERE id = ?',
+          <Object>[maxRevision, id],
+        );
+      }
+      // SQLite INTEGER MAX + 1 becomes REAL. Neither transition may
+      // acknowledge success or write a posting marker at that boundary.
+      expect(await cas.claim(db, 'overflow-claim', maxRevision), isFalse);
+      expect(await cas.revoke(db, 'overflow-revoke', maxRevision), isFalse);
+      final blocked = await db.rawQuery(
+        'SELECT id, revision, typeof(revision) AS storage, state, posting_marker '
+        'FROM main.$table WHERE id LIKE ? ORDER BY id',
+        <Object>['overflow-%'],
+      );
+      expect(blocked, hasLength(2));
+      for (final row in blocked) {
+        expect(row['revision'], maxRevision);
+        expect(row['storage'], 'integer');
+        expect(row['state'], 'active');
+        expect(row['posting_marker'], 0);
+      }
+      // Positive boundary: MAX-1 can advance to MAX exactly once.
+      await db.rawUpdate(
+        'UPDATE main.$table SET revision = ? WHERE id = ?',
+        <Object>[penultimateRevision, 'penultimate-positive'],
+      );
+      expect(await cas.claim(db, 'penultimate-positive', penultimateRevision), isTrue);
+      final positive = (await db.rawQuery(
+        'SELECT revision, typeof(revision) AS storage, state, posting_marker '
+        'FROM main.$table WHERE id = ?',
+        <Object>['penultimate-positive'],
+      )).single;
+      expect(positive['revision'], maxRevision);
+      expect(positive['storage'], 'integer');
+      expect(positive['state'], 'claimed');
+      expect(positive['posting_marker'], 1);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('injected exception rolls back revision and synthetic marker', () async {
     final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
     try {

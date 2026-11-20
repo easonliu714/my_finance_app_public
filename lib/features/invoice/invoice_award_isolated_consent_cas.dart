@@ -126,6 +126,8 @@ class InvoiceAwardIsolatedConsentCas {
           posting_marker = 1
         WHERE id = ? AND revision = ? AND state = 'active'
           AND posting_marker = 0
+          AND typeof(revision) = 'integer'
+          AND revision < 9223372036854775807
       ''', <Object>[id, expectedRevision]);
       if (changed != 1) return false;
       if (injectFailure) throw StateError('ISOLATED_CAS_ROLLBACK_PROBE');
@@ -141,6 +143,8 @@ class InvoiceAwardIsolatedConsentCas {
         UPDATE main.$table SET state = 'revoked', revision = revision + 1
         WHERE id = ? AND revision = ? AND state = 'active'
           AND posting_marker = 0
+          AND typeof(revision) = 'integer'
+          AND revision < 9223372036854775807
       ''', <Object>[id, expectedRevision]);
       return changed == 1;
     }));
