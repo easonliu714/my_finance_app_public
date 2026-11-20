@@ -6,8 +6,10 @@ package me.movenext.flutter_pdf_text
  */
 internal object LabL1PageTokenExtractor {
   // PDFium can emit non-ASCII letters/digits beside ASCII invoice-shaped text.
-  // ASCII-only boundaries would incorrectly turn a substring into a Full-10 token.
-  private val token = Regex("(?<![\\p{L}\\p{N}])[A-Z]{2}[0-9]{8}(?![\\p{L}\\p{N}])")
+  // Unicode combining marks are part of the neighboring grapheme, not token
+  // separators. PDFium can split a malformed identifier across such a mark.
+  // Reject the substring instead of promoting it to an exact Full-10 match.
+  private val token = Regex("(?<![\\p{L}\\p{N}\\p{M}])[A-Z]{2}[0-9]{8}(?![\\p{L}\\p{N}\\p{M}])")
   fun extract(text: String): List<String> {
     require(text.length <= 2_000_000) { "L1_PAGE_TEXT_TOO_LARGE_HOLD" }
     val matches = token.findAll(text).map { it.value }.take(100_001).toList()
