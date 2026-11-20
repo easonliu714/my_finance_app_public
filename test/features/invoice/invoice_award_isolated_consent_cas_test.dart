@@ -56,6 +56,57 @@ void main() {
     }
   });
 
+  test('weakened restored SQLite schema is rejected before custody writes', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    const table = InvoiceAwardIsolatedConsentCas.table;
+    try {
+      // Mimic a restored table with the right columns but no CHECK contract.
+      await db.execute('''
+        CREATE TABLE main.$table (
+          id TEXT PRIMARY KEY,
+          revision INTEGER,
+          state TEXT,
+          posting_marker INTEGER
+        )
+      ''');
+      await expectLater(cas.initialize(db), throwsStateError);
+      await expectLater(cas.seed(db, 'restore-spoof'), throwsStateError);
+      expect(await cas.claim(db, 'restore-spoof', 1), isFalse);
+      expect(await cas.revoke(db, 'restore-spoof', 1), isFalse);
+      expect(await db.rawQuery('SELECT * FROM main.$table'), isEmpty);
+    } finally {
+      await db.close();
+    }
+  });
+
+  test('injected trigger blocks every isolated consent mutation', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    const table = InvoiceAwardIsolatedConsentCas.table;
+    try {
+      await cas.initialize(db);
+      await cas.seed(db, 'canonical');
+      await db.execute('''
+        CREATE TRIGGER malicious_consent_hook BEFORE UPDATE ON $table
+        BEGIN SELECT RAISE(ABORT, 'TRIGGER_MUST_NOT_EXECUTE'); END
+      ''');
+      // Trigger is an unauthorized modification even though the original
+      // main table definition has not changed.
+      await expectLater(cas.initialize(db), throwsStateError);
+      await expectLater(cas.seed(db, 'new-after-trigger'), throwsStateError);
+      expect(await cas.claim(db, 'canonical', 1), isFalse);
+      expect(await cas.revoke(db, 'canonical', 1), isFalse);
+      final rows = await db.rawQuery(
+          'SELECT id, revision, state, posting_marker FROM main.$table');
+      expect(rows, hasLength(1));
+      expect(rows.single['id'], 'canonical');
+      expect(rows.single['revision'], 1);
+      expect(rows.single['state'], 'active');
+      expect(rows.single['posting_marker'], 0);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('TEMP table shadow cannot claim or seed against durable main authority', () async {
     final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
     const table = InvoiceAwardIsolatedConsentCas.table;

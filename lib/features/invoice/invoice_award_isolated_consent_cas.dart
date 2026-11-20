@@ -10,6 +10,37 @@ class InvoiceAwardIsolatedConsentCas {
   static const _maxBusyRetries = 16;
   static const _busyRetryDelay = Duration(milliseconds: 25);
 
+  // SQLite normalizes CREATE TABLE IF NOT EXISTS main.<name> into the
+  // following main.sqlite_master.sql text. Exact DDL plus the sole SQLite
+  // autoindex is a candidate-only schema integrity boundary: extra triggers
+  // or weakened CHECKs must never authorize isolated consent transitions.
+  static const _expectedDdl =
+      'CREATE TABLE $table (\n'
+      '        id TEXT PRIMARY KEY,\n'
+      '        revision INTEGER NOT NULL CHECK(revision > 0),\n'
+      "        state TEXT NOT NULL CHECK(state IN ('active','claimed','revoked')),\n"
+      '        posting_marker INTEGER NOT NULL DEFAULT 0 CHECK(posting_marker IN (0,1))\n'
+      '      )';
+
+  Future<bool> _hasExpectedSchema(DatabaseExecutor executor) async {
+    // Qualified metadata prevents TEMP shadowing. Explicit triggers/indexes
+    // change security semantics even if the table's own DDL remains intact.
+    final objects = await executor.rawQuery(
+      "SELECT type, name, sql FROM main.sqlite_master "
+      "WHERE tbl_name = ? AND type IN ('table','index','trigger')",
+      <Object>[table],
+    );
+    if (objects.length != 2) return false;
+    final tables = objects.where((row) => row['type'] == 'table').toList();
+    final indexes = objects.where((row) => row['type'] == 'index').toList();
+    return tables.length == 1 &&
+        tables.single['name'] == table &&
+        tables.single['sql'] == _expectedDdl &&
+        indexes.length == 1 &&
+        indexes.single['name'] == 'sqlite_autoindex_${table}_1' &&
+        indexes.single['sql'] == null;
+  }
+
   Future<void> initialize(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS main.$table (
@@ -19,6 +50,10 @@ class InvoiceAwardIsolatedConsentCas {
         posting_marker INTEGER NOT NULL DEFAULT 0 CHECK(posting_marker IN (0,1))
       )
     ''');
+    // IF NOT EXISTS must not bless a restored or altered lookalike table.
+    if (!await _hasExpectedSchema(db)) {
+      throw StateError('ISOLATED_CONSENT_SCHEMA_MISMATCH');
+    }
   }
 
   /// Reject unowned consent identity before durable SQLite insertion.
@@ -30,6 +65,9 @@ class InvoiceAwardIsolatedConsentCas {
     // advanced revision as a fresh active consent. Read durable main only.
     // The transaction also serializes this check with competing claim/revoke.
     await db.transaction<void>((txn) async {
+      if (!await _hasExpectedSchema(txn)) {
+        throw StateError('ISOLATED_CONSENT_SCHEMA_MISMATCH');
+      }
       await txn.rawInsert('''
         INSERT OR IGNORE INTO main.$table
           (id, revision, state, posting_marker)
@@ -82,6 +120,7 @@ class InvoiceAwardIsolatedConsentCas {
       {bool injectFailure = false}) async {
     if (id.trim().isEmpty || expectedRevision <= 0) return false;
     return _withBoundedBusyRetry(() => db.transaction<bool>((txn) async {
+      if (!await _hasExpectedSchema(txn)) return false;
       final changed = await txn.rawUpdate('''
         UPDATE main.$table SET state = 'claimed', revision = revision + 1,
           posting_marker = 1
@@ -97,6 +136,7 @@ class InvoiceAwardIsolatedConsentCas {
   Future<bool> revoke(Database db, String id, int expectedRevision) async {
     if (id.trim().isEmpty || expectedRevision <= 0) return false;
     return _withBoundedBusyRetry(() => db.transaction<bool>((txn) async {
+      if (!await _hasExpectedSchema(txn)) return false;
       final changed = await txn.rawUpdate('''
         UPDATE main.$table SET state = 'revoked', revision = revision + 1
         WHERE id = ? AND revision = ? AND state = 'active'
