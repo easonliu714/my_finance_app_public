@@ -26,7 +26,7 @@ class InvoiceAwardIsolatedConsentCas {
     // Qualified metadata prevents TEMP shadowing. Explicit triggers/indexes
     // change security semantics even if the table's own DDL remains intact.
     final objects = await executor.rawQuery(
-      "SELECT type, name, sql FROM main.sqlite_master "
+      'SELECT type, name, sql FROM main.sqlite_master '
       "WHERE tbl_name = ? AND type IN ('table','index','trigger')",
       <Object>[table],
     );
