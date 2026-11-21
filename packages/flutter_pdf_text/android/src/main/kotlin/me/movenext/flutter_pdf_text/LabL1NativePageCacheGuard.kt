@@ -19,6 +19,23 @@ internal object LabL1NativePageCacheGuard {
     next
   }
 
+  /**
+   * Each owner-verified page request supersedes previous native tokens even
+   * when the caller asks for plain text rather than structured tokens.
+   * Epoch invalidation rejects a slower structured callback after text read.
+   * Generic, unverified PDF sessions do not change the role-bound cache.
+   */
+  fun beginPageRequest(
+    sessionId: String,
+    structuredTokens: Boolean,
+    verifiedRole: Boolean,
+    cachedPages: MutableMap<String, Map<String, Any>>,
+    epochs: MutableMap<String, Long>
+  ): Long? =
+    if (structuredTokens || verifiedRole)
+      beginVersionedRead(sessionId, cachedPages, epochs)
+    else null
+
   fun publishIfCurrent(
     sessionId: String,
     epoch: Long,

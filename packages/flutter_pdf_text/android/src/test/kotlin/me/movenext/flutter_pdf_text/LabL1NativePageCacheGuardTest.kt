@@ -39,6 +39,55 @@ class LabL1NativePageCacheGuardTest {
     assertTrue(second > first)
   }
 
+  @Test fun verifiedPlainTextReadClearsPriorStructuredCandidate() {
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf<String, Long>()
+    val first = LabL1NativePageCacheGuard.beginPageRequest(
+      "draw", true, true, cache, epochs
+    )!!
+    assertTrue(LabL1NativePageCacheGuard.publishIfCurrent(
+      "draw", first, mapOf("pageNumber" to 1), cache, epochs, setOf("draw")
+    ))
+    val text = LabL1NativePageCacheGuard.beginPageRequest(
+      "draw", false, true, cache, epochs
+    )!!
+    assertTrue(text > first)
+    assertFalse(cache.containsKey("draw"))
+    assertFalse(LabL1NativePageCacheGuard.publishIfCurrent(
+      "draw", first, mapOf("pageNumber" to 1), cache, epochs, setOf("draw")
+    ))
+    assertTrue(cache.isEmpty())
+  }
+
+  @Test fun concurrentLateTokenReadCannotRepublishAfterVerifiedTextRead() {
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf<String, Long>()
+    val slow = LabL1NativePageCacheGuard.beginPageRequest(
+      "sorted", true, true, cache, epochs
+    )!!
+    LabL1NativePageCacheGuard.beginPageRequest(
+      "sorted", false, true, cache, epochs
+    )
+    assertFalse(LabL1NativePageCacheGuard.publishIfCurrent(
+      "sorted", slow, mapOf("pageNumber" to 77_000),
+      cache, epochs, setOf("sorted")
+    ))
+    assertTrue(cache.isEmpty())
+  }
+
+  @Test fun genericPlainTextReadDoesNotInvalidateOtherRoleCache() {
+    val cache = mutableMapOf<String, Map<String, Any>>(
+      "draw" to mapOf("pageNumber" to 1)
+    )
+    val epochs = mutableMapOf("draw" to 5L)
+    val generic = LabL1NativePageCacheGuard.beginPageRequest(
+      "generic", false, false, cache, epochs
+    )
+    assertTrue(generic == null)
+    assertTrue(cache.containsKey("draw"))
+    assertFalse(epochs.containsKey("generic"))
+  }
+
   @Test fun retiredSessionRejectsLateSuccessAndOtherSessionSurvives() {
     val cache = mutableMapOf<String, Map<String, Any>>()
     val epochs = mutableMapOf<String, Long>()
