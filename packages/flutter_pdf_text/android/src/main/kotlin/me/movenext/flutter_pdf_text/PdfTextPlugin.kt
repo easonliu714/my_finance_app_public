@@ -573,8 +573,10 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
       val opened = document
         ?: throw IllegalStateException("L1_OWNER_PDFIUM_DOCUMENT_MISSING")
       val pages = opened.getPageCount()
-      if (pages !in 1..100_000) {
-        throw IllegalStateException("L1_OWNER_PDFIUM_PAGE_COUNT_INVALID")
+      // Hash-matched Owner bytes are not enough when native PDFium reports
+      // an impossible page count. Never register a verified-role session.
+      if (pages != LabL1MayJuneOwnerAttestedBytePair.expectedPageCount) {
+        throw IllegalStateException("L1_OWNER_PDFIUM_PAGE_COUNT_MISMATCH_HOLD")
       }
       val sessionId = UUID.randomUUID().toString()
       val receipt = verifiedReceipt

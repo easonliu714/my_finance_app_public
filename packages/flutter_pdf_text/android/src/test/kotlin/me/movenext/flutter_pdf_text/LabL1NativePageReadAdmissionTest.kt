@@ -119,6 +119,58 @@ class LabL1NativePageReadAdmissionTest {
     assertNotNull(docs["generic"])
   }
 
+  @Test fun verifiedRoleRejectsTruncatedAndInflatedOfficialPageCount() {
+    val docs = mapOf("draw" to Document(77_000), "sorted" to Document(77_000))
+    val epochs = mutableMapOf("draw" to 8L, "sorted" to 5L)
+    val cache = mutableMapOf<String, Map<String, Any>>(
+      "draw" to mapOf("pageNumber" to 1),
+      "sorted" to mapOf("pageNumber" to 2)
+    )
+    for (badCount in listOf(1, 2, 76_999, 77_001, 100_000)) {
+      val held = admission(
+        "draw", 1, true, true, docs, cache, epochs
+      ) { badCount }
+      assertTrue(held is LabL1NativePageReadAdmission.Outcome.Hold)
+      held as LabL1NativePageReadAdmission.Outcome.Hold
+      assertEquals("L1_OWNER_PDFIUM_PAGE_COUNT_MISMATCH_HOLD", held.code)
+      assertTrue(held.retire)
+      assertFalse(cache.containsKey("draw"))
+      assertTrue(cache.containsKey("sorted"))
+      assertEquals(5L, epochs["sorted"])
+    }
+  }
+
+  @Test fun verifiedPlainTextAlsoRejectsWrongCountWithoutReturningBytes() {
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf<String, Long>()
+    val held = admission(
+      "sorted", 1, false, true, mapOf("sorted" to Document(76_999)),
+      cache, epochs
+    )
+    assertTrue(held is LabL1NativePageReadAdmission.Outcome.Hold)
+    held as LabL1NativePageReadAdmission.Outcome.Hold
+    assertEquals("L1_OWNER_PDFIUM_PAGE_COUNT_MISMATCH_HOLD", held.code)
+    assertTrue(held.retire)
+  }
+
+  @Test fun exactOfficialCountPassesAndGenericSmallPdfStillWorks() {
+    val docs = mapOf("draw" to Document(77_000), "generic" to Document(2))
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf<String, Long>()
+    val role = admission("draw", 77_000, true, true, docs, cache, epochs)
+    assertTrue(role is LabL1NativePageReadAdmission.Outcome.Ready)
+    assertEquals(
+      LabL1MayJuneOwnerAttestedBytePair.expectedPageCount,
+      (role as LabL1NativePageReadAdmission.Outcome.Ready).pageCount
+    )
+    val generic = admission("generic", 2, false, false, docs, cache, epochs)
+    assertTrue(generic is LabL1NativePageReadAdmission.Outcome.Ready)
+    assertEquals(
+      2, (generic as LabL1NativePageReadAdmission.Outcome.Ready).pageCount
+    )
+    assertFalse(epochs.containsKey("generic"))
+  }
+
   @Test fun emptyNativePageCountNeverReturnsReadyOrPublishesTokens() {
     val cache = mutableMapOf<String, Map<String, Any>>()
     val epochs = mutableMapOf<String, Long>()

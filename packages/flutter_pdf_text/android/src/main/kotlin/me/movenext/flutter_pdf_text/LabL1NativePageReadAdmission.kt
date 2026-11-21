@@ -49,6 +49,13 @@ internal object LabL1NativePageReadAdmission {
     if (count <= 0) {
       return Outcome.Hold("PDFIUM_PAGE_COUNT_INVALID", retire = verifiedRole)
     }
+    // Even after admission, a native PDFium document might be corrupted or
+    // replaced by a broken renderer state. Recheck the fixed official count
+    // on every role-verified request, including plain-text reads.
+    if (verifiedRole &&
+        count != LabL1MayJuneOwnerAttestedBytePair.expectedPageCount) {
+      return Outcome.Hold("L1_OWNER_PDFIUM_PAGE_COUNT_MISMATCH_HOLD", retire = true)
+    }
     if (pageNumber < 1 || pageNumber > count) {
       return Outcome.Hold("PDFIUM_PAGE_OUT_OF_RANGE", retire = false)
     }

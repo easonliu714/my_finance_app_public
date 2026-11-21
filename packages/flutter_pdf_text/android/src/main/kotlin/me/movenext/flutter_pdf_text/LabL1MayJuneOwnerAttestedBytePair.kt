@@ -11,6 +11,9 @@ import java.security.MessageDigest
  */
 internal object LabL1MayJuneOwnerAttestedBytePair {
   private const val maxBytes = 200_000_000L
+  // The two Owner-attested 115-05-06 source PDFs each have 77,000 pages.
+  // This is a diagnostic-only identity constraint, NOT official award proof.
+  const val expectedPageCount = 77_000
   private const val sortedLength = 119_769_589L
   private const val drawLength = 146_461_156L
   private const val sortedHash =
