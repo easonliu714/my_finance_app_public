@@ -610,26 +610,27 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     pageNumber: Int,
     structuredTokens: Boolean = false
   ) {
-    // Every role-bound page read, including plain-text, invalidates the
-    // preceding PageTokens BEFORE any session or page-bounds validation.
-    val readEpoch = LabL1NativePageCacheGuard.beginPageRequest(
-      sessionId, structuredTokens, labVerifiedRoles.containsKey(sessionId),
+    // Admission owns epoch/session/page-count failure handling. Each reject
+    // completes exactly one MethodChannel error instead of escaping the worker.
+    // Verified role failures retire native custody before returning HOLD.
+    val admitted = LabL1NativePageReadAdmission.admit(
+      sessionId, pageNumber, structuredTokens,
+      labVerifiedRoles.containsKey(sessionId), pdfiumDocuments,
       labNativePageTokens, labNativePageEpochs
-    )
-    val document = pdfiumDocuments[sessionId]
-    if (document == null) {
-      Handler(Looper.getMainLooper()).post {
-        result.error("PDFIUM_SESSION_NOT_FOUND", "PDFium session is not available", null)
+    ) { it.getPageCount() }
+    val ready = when (admitted) {
+      is LabL1NativePageReadAdmission.Outcome.Ready -> admitted
+      is LabL1NativePageReadAdmission.Outcome.Hold -> {
+        if (admitted.retire) invalidateFailedLabPdfiumSession(sessionId)
+        Handler(Looper.getMainLooper()).post {
+          result.error(admitted.code, "PDFium page admission rejected", null)
+        }
+        return
       }
-      return
     }
-    val pageCount = document.getPageCount()
-    if (pageNumber < 1 || pageNumber > pageCount) {
-      Handler(Looper.getMainLooper()).post {
-        result.error("PDFIUM_PAGE_OUT_OF_RANGE", "PDFium page is outside document bounds", null)
-      }
-      return
-    }
+    val document = ready.document
+    val pageCount = ready.pageCount
+    val readEpoch = ready.epoch
     val path = pdfiumDocumentPaths[sessionId] ?: ""
     writeDiagnostic("PDFIUM_PAGE_BEGIN", path, pageNumber, pageCount)
     val pageStartedAt = android.os.SystemClock.elapsedRealtime()
