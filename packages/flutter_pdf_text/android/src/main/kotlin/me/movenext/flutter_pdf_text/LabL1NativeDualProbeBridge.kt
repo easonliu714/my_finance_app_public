@@ -38,7 +38,9 @@ internal object LabL1NativeDualProbeBridge {
           page["extractionComplete"] != true) return null
       val number = page["pageNumber"] as? Int ?: return null
       val count = page["pageCount"] as? Int ?: return null
-      if (count !in 1..100_000 || number !in 1..count) return null
+      // The pinned official 115-05-06 PDFs each contain exactly 77,000 pages.
+      // A truncated/replaced document must never yield a diagnostic positive.
+      if (count != 77_000 || number !in 1..count) return null
       val raw = page["tokens"] as? List<*> ?: return null
       if (raw.size !in 1..50 || raw.any { it !is String }) return null
       val tokens = raw.filterIsInstance<String>()

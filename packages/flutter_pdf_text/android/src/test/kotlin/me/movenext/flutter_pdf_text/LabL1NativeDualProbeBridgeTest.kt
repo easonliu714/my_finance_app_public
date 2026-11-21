@@ -23,7 +23,7 @@ class LabL1NativeDualProbeBridgeTest {
       "period" to LabL1PeriodSourceIdentity.mayJunePeriod,
       "tier" to LabL1PeriodSourceIdentity.cloud500Tier,
       "parserVersion" to LabL1PeriodSourceIdentity.parserVersion,
-      "pageNumber" to 1, "pageCount" to 2,
+      "pageNumber" to 1, "pageCount" to 77_000,
       "extractionComplete" to true, "tokens" to listOf(candidate),
       "authority" to "LAB_PDFIUM_PAGE_TOKENS_ONLY"
     )
@@ -41,6 +41,12 @@ class LabL1NativeDualProbeBridgeTest {
     assertTrue(value is LabL1MayJuneDualPdfOracle.Outcome.Hold)
 
   @Test fun independentRoleBoundNativePagesReachDiagnosticOracle() {
+    assertTrue(check() is LabL1MayJuneDualPdfOracle.Outcome.PositiveCandidate)
+  }
+  @Test fun truncatedOrInflatedOfficialPageCountCannotYieldDiagnosticPositive() {
+    held(check(p = pages + (sorted to (pages.getValue(sorted) + ("pageCount" to 2)))))
+    held(check(p = pages + (draw to (pages.getValue(draw) + ("pageCount" to 76_999)))))
+    held(check(p = pages + (sorted to (pages.getValue(sorted) + ("pageCount" to 77_001)))))
     assertTrue(check() is LabL1MayJuneDualPdfOracle.Outcome.PositiveCandidate)
   }
   @Test fun swappedRoleAndSameSessionReplayHold() {
