@@ -186,6 +186,63 @@ void main() {
     }
   });
 
+  test('TEMP trigger cannot silently execute on durable floor CAS', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    try {
+      await _seed(db, 4);
+      await db.execute(
+        'CREATE TABLE synthetic_side_effect (touched INTEGER NOT NULL)',
+      );
+      await db.rawInsert(
+        'INSERT INTO synthetic_side_effect (touched) VALUES (0)',
+      );
+
+      // SQLite records this trigger in TEMP metadata, NOT main metadata.
+      // Without TEMP checks, compareAndAdvance would run the trigger and
+      // falsely acknowledge a revision advance with unrelated writes.
+      await db.execute('''
+        CREATE TEMP TRIGGER injected_floor_hook
+        BEFORE UPDATE ON main.$_table
+        BEGIN UPDATE synthetic_side_effect SET touched = touched + 1; END
+      ''');
+      expect(await db.rawQuery(
+        "SELECT name FROM main.sqlite_master "
+        "WHERE type = 'trigger' AND tbl_name = ?",
+        <Object>[_table],
+      ), isEmpty);
+      expect(await db.rawQuery(
+        "SELECT name FROM temp.sqlite_master "
+        "WHERE type = 'trigger' AND tbl_name = ?",
+        <Object>[_table],
+      ), hasLength(1));
+
+      // Negative: floor is unavailable and the trigger never executes.
+      expect(await _store(db).readFloor(), isNull);
+      expect(await _custody.advanceCandidate(
+        store: _store(db), independentlyAuthenticated: true,
+        expectedFloor: 4, nextFloor: 5,
+      ), isFalse);
+      expect((await db.rawQuery(
+        'SELECT revision FROM main.$_table',
+      )).single['revision'], 4);
+      expect((await db.query('synthetic_side_effect')).single['touched'], 0);
+
+      // Positive: the same valid floor becomes usable after cleanup.
+      await db.execute('DROP TRIGGER temp.injected_floor_hook');
+      expect(await _store(db).readFloor(), 4);
+      expect(await _custody.advanceCandidate(
+        store: _store(db), independentlyAuthenticated: true,
+        expectedFloor: 4, nextFloor: 5,
+      ), isTrue);
+      expect((await db.rawQuery(
+        'SELECT revision FROM main.$_table',
+      )).single['revision'], 5);
+      expect((await db.query('synthetic_side_effect')).single['touched'], 0);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('TEMP shadow table cannot spoof main floor or intercept CAS', () async {
     final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
     try {

@@ -37,6 +37,15 @@ class InvoiceAwardSqliteRevisionFloorCandidate
       <Object>[table],
     );
     if (attached.length != 1) return false;
+    // SQLite stores a TEMP trigger on main.$table in temp.sqlite_master,
+    // outside main.sqlite_master. Reject it before any candidate floor read
+    // or CAS: a hidden trigger could mutate other tables on floor advance.
+    final tempTriggers = await executor.rawQuery(
+      'SELECT name FROM temp.sqlite_master '
+      "WHERE type = 'trigger' AND tbl_name = ?",
+      <Object>[table],
+    );
+    if (tempTriggers.isNotEmpty) return false;
     final index = attached.single;
     return index['type'] == 'index' &&
         index['name'] ==
