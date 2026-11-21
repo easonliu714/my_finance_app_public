@@ -1,0 +1,513 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/features/invoice/existing_invoice_award_candidate_repository.dart';
+import 'package:my_finance_app/features/invoice/existing_invoice_award_cloud_batch_matcher.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud_candidate_scope.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud_index_lkg_repository.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud_pdf_index.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_cloud500_production_policy.dart';
+
+void main() {
+  late Directory tempDir;
+  late Map<String, CloudAwardValidatedIndexSnapshot> snapshots;
+
+  setUp(() async {
+    tempDir = await Directory.systemTemp.createTemp('cloud_batch_matcher_');
+    snapshots = <String, CloudAwardValidatedIndexSnapshot>{};
+  });
+
+  tearDown(() async {
+    if (await tempDir.exists()) {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
+  Future<void> addTier(
+    String tier,
+    List<String> numbers, {
+    String periodId = '115-07-08',
+  }) async {
+    final index = File('${tempDir.path}/$periodId-$tier.index')
+      ..writeAsStringSync('${numbers.join('\n')}\n');
+    final manifestFile = File('${tempDir.path}/$periodId-$tier.json')
+      ..writeAsStringSync('{}');
+    snapshots['$periodId|$tier'] = CloudAwardValidatedIndexSnapshot(
+      indexFile: index,
+      manifestFile: manifestFile,
+      manifest: CloudAwardLocalIndexManifest(
+        periodId: periodId,
+        tierCode: tier,
+        officialSourceUri: Uri.parse(
+          'https://invoice.etax.nat.gov.tw/pdf/fixture_sorted_AI_X.pdf',
+        ),
+        pdfSha256: _shaChar(tier, 'a') * 64,
+        indexSha256: _shaChar(tier, 'b') * 64,
+        extractorVersion: 'fixture-v1',
+        rowCount: numbers.length,
+        builtAt: DateTime.utc(2026, 9, 25, 7),
+      ),
+    );
+  }
+
+  Future<void> addAllTiers({
+    String? million,
+    String? twoThousand,
+    String? eightHundred,
+    String? fiveHundred,
+  }) async {
+    // A validated Cloud LKG index can never be empty. Use legal non-matching
+    // fixture numbers for tiers that are present but do not contain the
+    // candidate under test.
+    await addTier(
+      'cloud-1000000',
+      <String>[million ?? 'ZX00000001'],
+    );
+    await addTier(
+      'cloud-2000',
+      <String>[twoThousand ?? 'ZX00000002'],
+    );
+    await addTier(
+      'cloud-800',
+      <String>[eightHundred ?? 'ZX00000003'],
+    );
+    await addTier(
+      'cloud-500',
+      <String>[fiveHundred ?? 'ZX00000004'],
+    );
+  }
+
+  ExistingInvoiceAwardCandidate candidate({
+    String invoiceNumber = 'AB12345678',
+    ExistingInvoiceAwardIdentitySource source =
+        ExistingInvoiceAwardIdentitySource.cloudMetadata,
+    ExistingInvoiceAwardCloudEligibility eligibility =
+        ExistingInvoiceAwardCloudEligibility.eligible,
+    String awardPeriod = '115/08',
+  }) =>
+      ExistingInvoiceAwardCandidate(
+        transactionId: 'tx-$invoiceNumber',
+        invoiceNumber: invoiceNumber,
+        invoiceDate: DateTime(2026, 8, 10),
+        awardPeriod: awardPeriod,
+        identitySource: source,
+        sourceProvenance: 'fixture',
+        cloudEligibility: eligibility,
+      );
+
+  ExistingInvoiceAwardCloudBatchMatcher matcher({
+    bool allowCloud500Diagnostic = true,
+  }) =>
+      ExistingInvoiceAwardCloudBatchMatcher(
+        allowCloud500Diagnostic: allowCloud500Diagnostic,
+        readLatest: ({
+          required String periodId,
+          required String tierCode,
+        }) async =>
+            snapshots['$periodId|$tierCode'],
+      );
+
+  test('Owner C legacy evaluation getters fail closed without losing other tiers',
+      () {
+    final oldCandidate = candidate();
+    ExistingInvoiceAwardCloudEvaluation legacy({
+      required String? selected,
+      required Set<String> matched,
+      required ExistingInvoiceAwardCloudEvaluationStatus status,
+    }) =>
+        ExistingInvoiceAwardCloudEvaluation(
+          candidate: oldCandidate,
+          status: status,
+          missingTierCodes: const <String>{},
+          matchedTierCodes: matched,
+          selectedTierCode: selected,
+          grossAmount: selected == 'cloud-500' ? 500 : 800,
+        );
+
+    // The same compile-time policy used by production is checked for both
+    // build modes; no caller-controlled build flag is exposed on the model.
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: 'cloud-500',
+        isReleaseBuild: true,
+      ),
+      isTrue,
+    );
+    expect(
+      Cloud500ProductionPolicy.blocksCloud500PersistenceForBuild(
+        tierCode: 'cloud-500',
+        isReleaseBuild: false,
+      ),
+      isFalse,
+    );
+
+    final stale500 = legacy(
+      selected: 'cloud-500',
+      matched: const <String>{'cloud-500'},
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(stale500.hasCloudNumberMatch, !kReleaseMode);
+    expect(stale500.isConfirmedCloudNumberMatch, !kReleaseMode);
+    expect(stale500.hasCompleteAuthority, !kReleaseMode);
+    expect(stale500.requiresReview, kReleaseMode);
+
+    final staleGlobalMiss = legacy(
+      selected: null,
+      matched: const <String>{},
+      status: ExistingInvoiceAwardCloudEvaluationStatus.notMatched,
+    );
+    expect(staleGlobalMiss.hasCloudNumberMatch, isFalse);
+    expect(staleGlobalMiss.hasCompleteAuthority, !kReleaseMode);
+    expect(staleGlobalMiss.requiresReview, kReleaseMode);
+
+    final independentlyMatched800 = legacy(
+      selected: 'cloud-800',
+      matched: const <String>{'cloud-800'},
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(independentlyMatched800.hasCloudNumberMatch, isTrue);
+    expect(independentlyMatched800.isConfirmedCloudNumberMatch, isTrue);
+    expect(independentlyMatched800.requiresReview, isFalse);
+    expect(independentlyMatched800.hasCompleteAuthority, !kReleaseMode);
+
+    final staleMixed = legacy(
+      selected: 'cloud-800',
+      matched: const <String>{'cloud-800', 'cloud-500'},
+      status: ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(staleMixed.isConfirmedCloudNumberMatch, !kReleaseMode);
+    expect(staleMixed.requiresReview, kReleaseMode);
+  });
+
+  test('Owner C rejects stale cloud-500 LKG as WIN and global NOT_WIN',
+      () async {
+    await addAllTiers(fiveHundred: 'AB12345678');
+    final result = (await matcher(allowCloud500Diagnostic: false).evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+    )).single;
+    expect(result.status, ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete);
+    expect(result.missingTierCodes, contains('cloud-500'));
+    expect(result.selectedTierCode, isNull);
+    expect(result.grossAmount, 0);
+    expect(result.isConfirmedCloudNumberMatch, isFalse);
+    expect(result.hasCompleteAuthority, isFalse);
+  });
+
+  test('eligible cloud invoice gets confirmed second-chance tier match',
+      () async {
+    await addAllTiers(eightHundred: 'AB12345678');
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+    ))
+        .single;
+
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(result.selectedTierCode, 'cloud-800');
+    expect(result.grossAmount, 800);
+    expect(result.hasCompleteAuthority, isTrue);
+    expect(result.isConfirmedCloudNumberMatch, isTrue);
+  });
+
+  test('eligible cloud invoice with complete authority can be not matched',
+      () async {
+    await addAllTiers();
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+    ))
+        .single;
+
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.notMatched,
+    );
+    expect(result.grossAmount, 0);
+  });
+
+  test('unknown eligibility preserves number match as review required',
+      () async {
+    await addAllTiers(fiveHundred: 'AB12345678');
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[
+        candidate(
+          eligibility:
+              ExistingInvoiceAwardCloudEligibility.unknownReviewRequired,
+        ),
+      ],
+    ))
+        .single;
+
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.matchedReviewRequired,
+    );
+    expect(result.selectedTierCode, 'cloud-500');
+    expect(result.grossAmount, 500);
+    expect(result.isConfirmedCloudNumberMatch, isFalse);
+    expect(result.requiresReview, isTrue);
+  });
+
+  test('ineligible and non-cloud candidates do not receive second chance',
+      () async {
+    await addAllTiers(million: 'AB12345678');
+
+    final results = await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[
+        candidate(eligibility: ExistingInvoiceAwardCloudEligibility.ineligible),
+        candidate(
+          invoiceNumber: 'CD87654321',
+          source: ExistingInvoiceAwardIdentitySource.governedReviewNote,
+          eligibility: ExistingInvoiceAwardCloudEligibility.ineligible,
+        ),
+      ],
+    );
+
+    expect(
+      results[0].status,
+      ExistingInvoiceAwardCloudEvaluationStatus.ineligible,
+    );
+    expect(
+      results[1].status,
+      ExistingInvoiceAwardCloudEvaluationStatus.notApplicable,
+    );
+  });
+
+  test('missing tier authority prevents a definitive cloud conclusion',
+      () async {
+    await addTier('cloud-1000000', const <String>['ZX00000001']);
+    await addTier('cloud-2000', const <String>['ZX00000002']);
+    await addTier('cloud-800', const <String>['AB12345678']);
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+    ))
+        .single;
+
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete,
+    );
+    expect(result.selectedTierCode, 'cloud-800');
+    expect(result.missingTierCodes, contains('cloud-500'));
+    expect(result.isConfirmedCloudNumberMatch, isFalse);
+  });
+
+  test('candidate-scoped 500 miss cannot prove global NOT_WIN', () async {
+    await addTier('cloud-1000000', const <String>['ZX00000001']);
+    await addTier('cloud-2000', const <String>['ZX00000002']);
+    await addTier('cloud-800', const <String>['ZX00000003']);
+
+    final scoped = CloudAwardCandidateScopedAuthority(
+      periodId: '115-07-08',
+      tierCode: 'cloud-500',
+      officialSourceUri: Uri.parse(
+        'https://invoice.etax.nat.gov.tw/pdf/fixture_sorted_AI_D.pdf',
+      ),
+      pdfSha256: 'a' * 64,
+      candidateUniverseSha256: 'c' * 64,
+      candidateNumbers: const <String>{'AB12345678'},
+      matchedInvoiceNumbers: const <String>{},
+    );
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[scoped],
+    ))
+        .single;
+
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete,
+    );
+    expect(result.missingTierCodes, contains('cloud-500'));
+    expect(result.hasCompleteAuthority, isFalse);
+    expect(result.selectedTierCode, isNull);
+    expect(result.grossAmount, 0);
+  });
+
+  test('candidate-scoped 500 match remains eligible and exact-set bound',
+      () async {
+    await addTier('cloud-1000000', const <String>['ZX00000001']);
+    await addTier('cloud-2000', const <String>['ZX00000002']);
+    await addTier('cloud-800', const <String>['ZX00000003']);
+
+    final scoped = CloudAwardCandidateScopedAuthority(
+      periodId: '115-07-08',
+      tierCode: 'cloud-500',
+      officialSourceUri: Uri.parse(
+        'https://invoice.etax.nat.gov.tw/pdf/fixture_sorted_AI_D.pdf',
+      ),
+      pdfSha256: 'a' * 64,
+      candidateUniverseSha256: 'd' * 64,
+      candidateNumbers: const <String>{'AB12345678'},
+      matchedInvoiceNumbers: const <String>{'AB12345678'},
+      matchedPageNumbers: const <String, int>{'AB12345678': 42},
+    );
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[scoped],
+    ))
+        .single;
+
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(result.selectedTierCode, 'cloud-500');
+    expect(result.grossAmount, 500);
+
+    final changedUniverse = await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[
+        candidate(),
+        candidate(invoiceNumber: 'CD87654321'),
+      ],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[scoped],
+    );
+    expect(
+      changedUniverse.first.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete,
+    );
+    expect(changedUniverse.first.missingTierCodes, contains('cloud-500'));
+  });
+
+  test('owner-reported known 5-6 winner is candidate-only, never a shortcut',
+      () async {
+    final knownInvoice = <String>['BM', '23888900'].join();
+
+    final productionRoots = <Directory>[
+      Directory('lib'),
+      Directory('packages/flutter_pdf_text/android/src/main/kotlin'),
+    ];
+    for (final root in productionRoots) {
+      if (!root.existsSync()) continue;
+      for (final entity in root.listSync(recursive: true)) {
+        if (entity is! File) continue;
+        final extension = entity.path.split('.').last.toLowerCase();
+        if (!const <String>{'dart', 'kt', 'java'}.contains(extension)) continue;
+        expect(
+          entity.readAsStringSync(),
+          isNot(contains(knownInvoice)),
+          reason: 'known winner must never be hard-coded in production: '
+              '${entity.path}',
+        );
+      }
+    }
+
+    await addTier('cloud-1000000', const <String>['ZX00000001'], periodId: '115-05-06');
+    await addTier('cloud-2000', const <String>['ZX00000002'], periodId: '115-05-06');
+    await addTier('cloud-800', const <String>['ZX00000003'], periodId: '115-05-06');
+
+    CloudAwardCandidateScopedAuthority scoped({required bool matched}) =>
+        CloudAwardCandidateScopedAuthority(
+          periodId: '115-05-06',
+          tierCode: 'cloud-500',
+          officialSourceUri: Uri.parse(
+            'https://invoice.etax.nat.gov.tw/pdf/fixture_sorted_AI_D.pdf',
+          ),
+          pdfSha256: 'e' * 64,
+          candidateUniverseSha256: 'f' * 64,
+          candidateNumbers: <String>{knownInvoice},
+          matchedInvoiceNumbers:
+              matched ? <String>{knownInvoice} : const <String>{},
+          matchedPageNumbers:
+              matched ? <String, int>{knownInvoice: 1} : const <String, int>{},
+        );
+
+    final knownCandidate = candidate(
+      invoiceNumber: knownInvoice,
+      awardPeriod: '115/06',
+    );
+
+    final noOfficialMatch = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[knownCandidate],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[
+        scoped(matched: false),
+      ],
+    ))
+        .single;
+
+    expect(
+      noOfficialMatch.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete,
+    );
+    expect(noOfficialMatch.missingTierCodes, contains('cloud-500'));
+    expect(noOfficialMatch.selectedTierCode, isNull);
+    expect(noOfficialMatch.grossAmount, 0);
+
+    final officialMatch = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[knownCandidate],
+      candidateScopedAuthorities: <CloudAwardCandidateScopedAuthority>[
+        scoped(matched: true),
+      ],
+    ))
+        .single;
+
+    expect(
+      officialMatch.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.matchedEligible,
+    );
+    expect(officialMatch.selectedTierCode, 'cloud-500');
+    expect(officialMatch.grossAmount, 500);
+  });
+
+  test('multiple tier hits select highest amount and force anomaly review',
+      () async {
+    await addAllTiers(
+      million: 'AB12345678',
+      fiveHundred: 'AB12345678',
+    );
+
+    final result = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[candidate()],
+    ))
+        .single;
+
+    expect(
+      result.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.anomalyReviewRequired,
+    );
+    expect(result.selectedTierCode, 'cloud-1000000');
+    expect(result.grossAmount, 1000000);
+    expect(result.matchedTierCodes, hasLength(2));
+  });
+
+  test('award period is isolated and invalid end-month fails closed', () async {
+    await addAllTiers(eightHundred: 'AB12345678');
+
+    final wrongPeriod = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[
+        candidate(awardPeriod: '115/06'),
+      ],
+    ))
+        .single;
+    expect(
+      wrongPeriod.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.authorityIncomplete,
+    );
+    expect(wrongPeriod.missingTierCodes, hasLength(4));
+
+    final invalidPeriod = (await matcher().evaluate(
+      candidates: <ExistingInvoiceAwardCandidate>[
+        candidate(awardPeriod: '115/07'),
+      ],
+    ))
+        .single;
+    expect(
+      invalidPeriod.status,
+      ExistingInvoiceAwardCloudEvaluationStatus.invalidPeriod,
+    );
+  });
+}
+
+String _shaChar(String tier, String fallback) {
+  final digit = tier.codeUnits.fold<int>(0, (value, item) => value + item) % 16;
+  return digit.toRadixString(16).isEmpty ? fallback : digit.toRadixString(16);
+}

@@ -1,0 +1,37 @@
+name: Issue #13 Signed Canary Dispatch Bridge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    if: ${{ github.event.pull_request.head.ref == 'issue-13-invoice-award-official-data' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Issue #13 signed canary for exact PR head branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_sha="$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/$HEAD_REF" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])')"
+          test "$current_sha" = "$EXPECTED_SHA"
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/issue_13_invoice_award_mvp_signed_canary.yml/dispatches" \
+            -d "{\"ref\":\"$HEAD_REF\"}"
+          printf 'ISSUE_13_SIGNED_CANARY_DISPATCH=PASS HEAD=%s\n' "$EXPECTED_SHA"

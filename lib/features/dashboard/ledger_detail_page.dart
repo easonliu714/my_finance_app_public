@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../invoice/invoice_award_check_entry_button.dart';
 import '../transaction/transaction_entry_page.dart';
 import '../transaction/transaction_providers.dart';
 import '../transaction/transaction_record.dart';
@@ -34,6 +35,7 @@ class _LedgerDetailPageState extends ConsumerState<LedgerDetailPage> {
       appBar: AppBar(
         title: const Text('帳單明細'),
         actions: [
+          const InvoiceAwardCheckEntryButton(),
           IconButton(tooltip: '搜尋', onPressed: () {}, icon: const Icon(Icons.search)),
           IconButton(tooltip: '篩選', onPressed: () {}, icon: const Icon(Icons.filter_alt_outlined)),
         ],
@@ -308,7 +310,14 @@ class _TransactionTile extends StatelessWidget {
     final isExpense = record.type == TransactionType.expense;
     final sign = isIncome ? '+' : isExpense ? '-' : '';
     final time = DateFormat('HH:mm').format(record.occurredAt);
-    final accountText = record.type == TransactionType.transfer ? '${record.fromAccountName ?? record.accountName} → ${record.toAccountName ?? ''}' : record.accountName;
+    final accountText = record.type == TransactionType.transfer
+        ? '${record.fromAccountName ?? record.accountName} → ${record.toAccountName ?? ''}'
+        : record.accountName;
+    final subtitleParts = <String>[time, accountText, record.memberName];
+    final merchant = record.merchantName.trim();
+    if (merchant.isNotEmpty && merchant != '不使用商家') {
+      subtitleParts.add(merchant);
+    }
     return ListTile(
       contentPadding: EdgeInsets.zero,
       onTap: () => context.pushNamed(
@@ -317,7 +326,11 @@ class _TransactionTile extends StatelessWidget {
       ),
       leading: CircleAvatar(child: Icon(_iconFor(record.type))),
       title: Text(record.category),
-      subtitle: Text('$time · $accountText · ${record.memberName} · ${record.merchantName}${record.note.isEmpty ? '' : ' · ${record.note}'}'),
+      subtitle: Text(
+        subtitleParts.join(' · '),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
       trailing: Text('$sign${currency.format(record.amount)}', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
     );
   }

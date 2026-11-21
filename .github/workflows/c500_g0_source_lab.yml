@@ -1,0 +1,533 @@
+name: C500 G0 Official PDF Source Lab
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tool/c500_g0_acquire.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart'
+      - 'tool/c500_g0_android_renderer_lab.sh'
+      - 'tool/c500_g0_android_renderer_lab_contract_test.sh'
+      - 'tool/c500_g0_workflow_gate_contract_test.sh'
+      - 'tool/c500_g0_bounded_xref.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart'
+      - 'tool/c500_g0_content_glyph_probe.dart'
+      - 'test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart'
+      - 'tool/c500_g0_qpdf_preflight.sh'
+      - 'tool/c500_g0_qpdf_preflight_contract_test.sh'
+      - 'tool/c500_g0_mutool_spread_page_probe.sh'
+      - 'tool/c500_g0_mutool_spread_page_probe_contract_test.sh'
+      - 'tool/c500_g0_mutool_vm_recovery_probe.sh'
+      - 'tool/c500_g0_mutool_window_replay_probe.sh'
+      - 'tool/c500_g0_mutool_window_replay_contract_test.sh'
+      - 'tool/c500_g0_mutool_vm_recovery_contract_test.sh'
+      - 'tool/c500_g0_qpdf_resource_ladder.sh'
+      - 'tool/c500_g0_qpdf_resource_ladder_contract_test.sh'
+      - 'tool/c500_g0_object_boundary_probe.sh'
+      - 'tool/c500_g0_object_boundary_contract_test.sh'
+      - 'tool/c500_g0_recovery_isolation.sh'
+      - 'tool/c500_g0_recovery_isolation_contract_test.sh'
+      - 'tool/c500_g0_page_tree_stage_probe.sh'
+      - 'tool/c500_g0_page_tree_stage_contract_test.sh'
+      - 'tool/c500_g0_page_identity_stream.py'
+      - 'tool/c500_g0_page_identity_4g_probe.sh'
+      - 'tool/c500_g0_page_identity_4g_contract_test.sh'
+      - 'tool/c500_g0_page_content_graph_stream.py'
+      - 'tool/c500_g0_page_content_graph_4g_probe.sh'
+      - 'tool/c500_g0_page_content_graph_4g_contract_test.sh'
+      - 'tool/c500_g0_decoded_text_window_audit.py'
+      - 'tool/c500_g0_decoded_text_window_probe.sh'
+      - 'tool/c500_g0_decoded_text_window_contract_test.sh'
+      - 'tool/c500_g0_full_text_stream.py'
+      - 'tool/c500_g0_lexical_shape.py'
+      - 'tool/c500_g0_full_text_stream_contract_test.sh'
+      - '.github/workflows/c500_g0_source_lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# G0j: source-backed SHA-pinned labs must survive a later unrelated PR
+# commit. A later source-disabled mock run must not cancel in-flight evidence.
+concurrency:
+  group: c500-g0-source-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  official-source-only-lab:
+    name: Pinned MOF binary acquisition and bounded structure (NOT G0 PASS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact PR source HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Gate one-shot PR diagnostic or explicit manual dispatch
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_lab=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            run_lab=true
+          elif [[ "${{ github.event_name }}" == "pull_request" ]] && \
+               [[ "$(git log -1 --format=%s)" == *"[G0-SOURCE-LAB]"* ]]; then
+            run_lab=true
+          fi
+          echo "run_lab=$run_lab" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)"
+          echo "LAB_ENABLED=$run_lab"
+          if [[ "$run_lab" != "true" ]]; then
+            echo "One-shot G0 source lab not requested on this commit; no binary fetch." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Setup Flutter/Dart (lab only)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve existing dependencies (lab only)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        run: flutter pub get
+
+      - name: G0a synthetic source/timeout regressions (not official evidence)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        run: flutter test test/features/invoice/invoice_award_cloud_g0_acquire_contract_test.dart
+
+      - name: G0i per-case crash classifier and long-ring regression (synthetic only)
+        if: ${{ github.event_name == 'pull_request' || steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: |
+          bash tool/c500_g0_android_renderer_lab_contract_test.sh
+          bash tool/c500_g0_workflow_gate_contract_test.sh
+          bash tool/c500_g0_qpdf_resource_ladder_contract_test.sh
+          bash tool/c500_g0_object_boundary_contract_test.sh
+          bash tool/c500_g0_recovery_isolation_contract_test.sh
+          bash tool/c500_g0_page_tree_stage_contract_test.sh
+          bash tool/c500_g0_page_identity_4g_contract_test.sh
+          bash tool/c500_g0_page_content_graph_4g_contract_test.sh
+          bash tool/c500_g0_decoded_text_window_contract_test.sh
+          bash tool/c500_g0_full_text_stream_contract_test.sh
+          bash tool/c500_g0_mutool_first_page_probe_contract_test.sh
+          bash tool/c500_g0_mutool_spread_page_probe_contract_test.sh
+          bash tool/c500_g0_mutool_vm_recovery_contract_test.sh
+          bash tool/c500_g0_mutool_window_replay_contract_test.sh
+
+      - name: G0l bounded XRef synthetic positive/negative contract
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: |
+          flutter test test/features/invoice/invoice_award_cloud_g0_bounded_xref_test.dart --reporter expanded
+          flutter test test/features/invoice/invoice_award_cloud_g0_glyph_probe_test.dart --reporter expanded
+          flutter test test/features/invoice/invoice_award_cloud_g0_midpoint_path_test.dart --reporter expanded
+
+      - name: G0k synthetic qpdf and pinned-source fail-closed contract
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        run: bash tool/c500_g0_qpdf_preflight_contract_test.sh
+
+      - name: Attempt BOTH exact MOF PDFs with bounded stream and structure probe
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          echo "G0_SOURCE_LAB_HEAD=$(git rev-parse HEAD)"
+          echo "No official PDFs are uploaded, committed, signed or promoted."
+          set +e
+          dart run tool/c500_g0_acquire.dart 2>&1 | tee c500-g0-source-lab.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if (( rc != 0 )); then
+            echo "C500-G0: HOLD — source binary unavailable or pin/probe mismatch. Inspect exact error in job log." >> "$GITHUB_STEP_SUMMARY"
+            echo "Native engines, Android PSS, root cause and global negative proof: NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+            exit "$rc"
+          fi
+          # G0c: promote only validated ephemeral paths into a same-run
+          # structure regression; never upload/commit either official PDF.
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = Path('c500-g0-source-lab.log').read_text(encoding='utf-8')
+          marker = '{"gate":"C500_G0A_SOURCE_ACQUIRED_STRUCTURE_ONLY"'
+          pos = raw.find(marker)
+          if pos < 0:
+              raise SystemExit('G0C_VERIFIED_SOURCE_REPORT_MISSING')
+          report = json.loads(raw[pos:].splitlines()[0])
+          if report.get('failures') or len(report.get('sources', [])) != 2:
+              raise SystemExit('G0C_OFFICIAL_PAIR_NOT_VERIFIED')
+          expected = {
+              '115-05-06': (119769589, '1efe4dcc5af410c9b5cfaf3ca605c2b8aea1e9259a4f16ebd8f8b9ea7110d0fe', 'G0_OLD_PDF'),
+              '115-07-08': (135200798, 'f50d0dcebc7497c51ce2eea9da9525232e638fdc4103decc6a8e0a1c1dac5571', 'G0_NEW_PDF'),
+          }
+          observed = set()
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              for source in report['sources']:
+                  period = source['period']
+                  if period not in expected or period in observed:
+                      raise SystemExit('G0C_PERIOD_DUPLICATE_OR_UNKNOWN')
+                  observed.add(period)
+                  size, digest, name = expected[period]
+                  path = Path(source['lab_file'])
+                  if (source['bytes'] != size or source['sha256'] != digest or
+                      not path.is_absolute() or path.is_symlink() or
+                      not path.is_file() or
+                      not path.resolve().parent.name.startswith('c500_g0_lab_')):
+                      raise SystemExit('G0C_SOURCE_IDENTITY_OR_PATH_INVALID')
+                  env.write(f'{name}={path}\n')
+          if observed != set(expected):
+              raise SystemExit('G0C_OFFICIAL_PERIOD_MISSING')
+          print('G0C_OFFICIAL_PAIR_PINNED_AND_MOUNTED_EPHEMERALLY')
+          PY
+          echo "C500-G0a: both binaries acquired and bounded structure inspected ONLY." >> "$GITHUB_STEP_SUMMARY"
+          echo "G0 root cause, Android engine/PSS and global negative proof: NOT_PROVEN/NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: G0c actual official pair same-probe regression (NOT Android OOM proof)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          : "${G0_OLD_PDF:?G0C_OLD_OFFICIAL_BINARY_MISSING}"
+          : "${G0_NEW_PDF:?G0C_NEW_OFFICIAL_BINARY_MISSING}"
+          timeout 300s flutter test test/features/invoice/invoice_award_cloud_g0_lab_test.dart --reporter expanded
+          echo "G0c: real official source hashes and same bounded structure probe PASS only; Android PDF engines, PSS and original OOM root cause NOT_RUN." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: G0k bounded independent qpdf structural crosscheck (NOT Android proof)
+        if: ${{ steps.gate.outputs.run_lab == 'true' }}
+        shell: bash
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qpdf mupdf-tools
+          bash tool/c500_g0_qpdf_preflight.sh
+
+      # G0l runs even after qpdf fails: independent bounded object-access
+      # evidence must not mask qpdf's original failed status or promote LKG.
+      # G0x: independent source-backed first-failure resource experiment.
+      # Previous qpdf failure remains RED; this does not mask or bypass it.
+      # Both pinned files must be present; only isolated, capped qpdf children.
+      - name: G0x pinned dual-PDF qpdf virtual-memory failure threshold (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 9
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_qpdf_resource_ladder.sh
+
+      # G0ac: source-backed qpdf first-error object vs independent MuPDF.
+      - name: G0ac pinned first qpdf error object and MuPDF bounded recovery
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_object_boundary_probe.sh
+
+      # G0ad: distinguish qpdf recovery-path allocation from full graph traversal.
+      # Run BOTH modes against each exact source in independent 3-GiB/65-s children.
+      # A difference is a root-cause hypothesis, never a global parser proof.
+      - name: G0ad pinned qpdf recovery-disabled vs default full-check isolation
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_recovery_isolation.sh
+
+      # G0ae: qpdf root-count versus streaming full page-dictionary enumeration.
+      # This isolates the first allocation stage after G0ad ruled out recovery.
+      # Count-only does not verify Unicode, contents, sortedness or NOT_WIN.
+      - name: G0ae pinned qpdf root-count vs page-dictionary enumeration
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_page_tree_stage_probe.sh
+
+      # G0af: 3-GiB 87K qpdf enumeration failed at G0ae; test whether 4 GiB
+      # allows complete UNIQUE page-object references. This is not content,
+      # Android feasibility, sortedness or NOT_WIN proof.
+      - name: G0af pinned 4-GiB qpdf full page reference identity
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_page_identity_4g_probe.sh
+
+      # G0ag: source-pinned all-page content reference custody, not text or NOT_WIN.
+      - name: G0ag pinned 4-GiB full page-to-content reference graph
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_page_content_graph_4g_probe.sh
+
+      # G0y: source-backed alternative renderer root-feasibility; never a global proof.
+      - name: G0y independent pinned MuPDF first-page engine feasibility (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_mutool_first_page_probe.sh
+
+      # G0z: genuinely distinct midpoint/last pages, not first-page replay.
+      # This independent step executes after prior failures, with 3 GiB/90s/page.
+      - name: G0z pinned MuPDF middle and last random-page feasibility (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_mutool_spread_page_probe.sh
+
+      # G0aa: controlled failure and independent recovery on BOTH SHA-pinned
+      # official middle pages. Never infer PDFBox/PDFium root cause.
+      - name: G0aa pinned MuPDF controlled VM failure and stable recovery (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_mutool_vm_recovery_probe.sh
+
+      # G0ab: contiguous 64-page extraction per genuine period, independent
+      # deterministic replay with per-page manifest, VM/time/output caps.
+      # Resource feasibility only; no full Unicode, sorting or NOT_WIN proof.
+      - name: G0ab pinned MuPDF 64-page contiguous window replay (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_mutool_window_replay_probe.sh
+
+      # G0ah: actual MuPDF-decoded text on 3072 DISTINCT official pages,
+      # not global page coverage, verified award records or NOT_WIN.
+      - name: G0ah pinned MuPDF decoded UTF8 3072-page lexical quality
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 21
+        run: |
+          set -euo pipefail
+          bash tool/c500_g0_decoded_text_window_probe.sh
+
+      # G0ai/G0aj: one source-backed full-text scan plus bounded lexical-position
+      # audit. Counts/repeat/drop indices are NOT verified award records or NOT_WIN.
+      # G0ai: full 77K+87K genuine pages, 512/page bounded MuPDF windows.
+      # Fail-closed UTF-8 and source SHA; NOT Android or award-semantic proof.
+      - name: G0ai pinned full 164000-page UTF8 lexical coverage (NOT G0 PASS)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 24
+        run: |
+          set -euo pipefail
+          python3 tool/c500_g0_full_text_stream.py
+
+      - name: G0l pinned official XRef-stream bounded access (NOT page proof)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart
+
+      # G0j: second root subtree only, separate pinned-source failure domain.
+      # This does NOT prove the second document page or any global NOT_WIN.
+      - name: G0j pinned second root-child leftmost leaf Unicode coverage
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --second-root-child
+
+      # G0m: new far-tail root subtree (not the last page). One SHA-pinned
+      # bounded leaf per period; independent of qpdf/Android failures.
+      - name: G0m pinned last root-child leftmost leaf Unicode coverage
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --last-root-child
+
+      # G0n: one distinct interior subtree leaf, not the middle document page.
+      # Reuse exact ephemeral SHA-pinned MOF binaries; bounded Unicode only.
+      - name: G0n pinned middle root-child leftmost leaf Unicode coverage
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --middle-root-child
+
+      # G0o: audit only immediate root /Kids parent and declared /Count
+      # sum. No descendant traversal, sorting or global NOT_WIN claim.
+      - name: G0o pinned root child count consistency (not page proof)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --audit-root-children
+
+      # G0o.1: first root subtree's immediate children only; no global proof.
+      - name: G0o.1 pinned first root subtree two-level count custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --audit-first-root-subtree
+
+      # G0o.2: distinct second root subtree, exact same pinned pair and
+      # 64-reference per-level bound. Never infer deeper page completeness.
+      - name: G0o.2 pinned second root subtree two-level count custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --audit-second-root-subtree
+
+      # G0o.3: one deeper first branch, 64 references per level.
+      - name: G0o.3 pinned first branch third-level count custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          timeout 240s dart run tool/c500_g0_bounded_xref.dart --audit-first-grandchild
+
+      # G0o.4: two independent official periods, each with the SAME
+      # 300s per-period bound; never mask one source behind a combined timeout.
+      # Both steps must succeed to claim both periods verified on this HEAD.
+      - name: G0o.4 old pinned all root subtrees two-level count custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        env:
+          G0_SOURCE_PERIOD: '115-05-06'
+        run: |
+          set -euo pipefail
+          timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-all-root-subtrees
+
+      - name: G0o.4 new pinned all root subtrees two-level count custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        env:
+          G0_SOURCE_PERIOD: '115-07-08'
+        run: |
+          set -euo pipefail
+          timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-all-root-subtrees
+
+      # G0o.5: first root branch's ALL grandchildren, third-level only.
+      - name: G0o.5 pinned first branch all-grandchildren third-level custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-first-branch-all-grandchildren
+
+      # G0o.6: second root branch, bounded 16/256 refs; leaves UNKNOWN.
+      - name: G0o.6 pinned second branch all-grandchildren third-level custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-second-branch-all-grandchildren
+
+      # G0o.11: third distinct root subtree; same pinned official pair,
+      # bounded 16 grandchildren/256 great-grandchildren, leaves UNKNOWN.
+      - name: G0o.11 pinned third branch all-grandchildren third-level custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          timeout 300s dart run tool/c500_g0_bounded_xref.dart --audit-third-branch-all-grandchildren
+
+      # G0r: SHA-pinned midpoint ordinal-to-leaf ancestry, 8-level/512-object cap.
+      # One selected path is NOT full leaf, glyph, sorting or NOT_WIN proof.
+      - name: G0r pinned official midpoint page leaf ancestry (NOT global proof)
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          timeout 420s dart run tool/c500_g0_bounded_xref.dart --audit-midpoint-page
+
+      # G0s: first/middle/last official XRef leaf paths; NOT global proof.
+      - name: G0s pinned official first-middle-last ordinal leaf custody
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          timeout 660s dart run tool/c500_g0_bounded_xref.dart --audit-spread-pages
+          # G0u includes G0t header verification then bounded zlib/Adler32.
+          # Same pinned official pair; no Unicode or global NOT_WIN proof.
+          timeout 660s dart run tool/c500_g0_bounded_xref.dart --audit-spread-decode
+
+      # G0w: first/middle/last source-backed lexical text-show only.
+      # No Unicode, sorting, full-page or global NOT_WIN proof.
+      - name: G0w pinned first-middle-last lexical glyph feasibility
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          timeout 660s dart run tool/c500_g0_bounded_xref.dart --audit-spread-glyph
+
+      # G0d/e/f: independent failure domain. qpdf bad_alloc and bounded-XRef
+      # failures must remain FAIL, but must NOT implicitly skip the pinned
+      # source-backed Android first-failure experiment. Only the verified
+      # ephemeral pair and successful isolated-host preparation authorize it.
+      # Separate API35 emulator; official binaries never leave runner.
+      # PdfRenderer samples 3 pages; PDFium/PDFBox OPEN ONLY in independent PIDs.
+      # Native crash/failure is evidence, never a safe NOT_WIN or G0 PASS.
+      - name: Setup Java 17 for G0d Android renderer lab
+        id: g0d_java
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare isolated Android test host
+        id: g0d_host
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' && steps.g0d_java.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android .
+          flutter pub get
+          test -c /dev/kvm || { echo 'G0D_ANDROID_KVM_UNAVAILABLE' >&2; exit 60; }
+          sudo chmod a+rw /dev/kvm
+
+      - name: G0g Android API35 official pair three-engine OOM and crash attribution lab
+        if: ${{ !cancelled() && steps.gate.outputs.run_lab == 'true' && env.G0_OLD_PDF != '' && env.G0_NEW_PDF != '' && steps.g0d_host.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          working-directory: ./android
+          script: bash ../tool/c500_g0_android_renderer_lab.sh

@@ -75,7 +75,8 @@ class OfficialInvoiceDetailEnrichmentReviewPage extends StatelessWidget {
             const SizedBox(height: 4),
             const Text(
               '請展開每一筆，核對官方頁面的發票號碼、精確時間、賣方、總額、官方稅額與消費明細。'
-              '若官方頁面未明示稅額，但官方總額與品項小計均已確認，下一頁可由使用者逐筆確認差額作為「推算稅額」；系統不推算稅率。',
+              '若官方頁面未明示稅額，但官方總額與品項小計均已確認，下一頁可由使用者逐筆確認差額作為「推算稅額」；系統不推算稅率。'
+              '若差額無法安全視為稅額，也可明確確認後先建立「差額待覆核」草稿，再自行調整記帳。',
             ),
             const SizedBox(height: 12),
             for (
@@ -190,6 +191,34 @@ class OfficialInvoiceDetailEnrichmentReviewPage extends StatelessWidget {
             Text('已取得內容結果：${batchResult.results.length}'),
             Text('成功：${batchResult.successCount}'),
             Text('失敗／需覆核：${batchResult.failedCount}'),
+            Text(
+              '可進入正式交易：'
+              '${batchResult.results.where(isOfficialInvoiceDetailEligibleForFormalImportV2).length}',
+            ),
+            Text(
+              '目前不可進入正式交易：'
+              '${batchResult.results.where((item) => !isOfficialInvoiceDetailEligibleForFormalImportV2(item)).length}',
+            ),
+            if (batchResult.results.any(
+              (item) => !isOfficialInvoiceDetailEligibleForFormalImportV2(item),
+            )) ...[
+              const SizedBox(height: 8),
+              const Text(
+                '目前不可進入正式交易的項目',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              ...batchResult.results
+                  .where(
+                    (item) =>
+                        !isOfficialInvoiceDetailEligibleForFormalImportV2(item),
+                  )
+                  .map(
+                    (item) => Text(
+                      '• ${item.invoiceNumber.isEmpty ? item.requestedInvoiceNumber : item.invoiceNumber}｜'
+                      '${officialInvoiceDetailFailureLabel(item.errorCode ?? 'OFFICIAL_DETAIL_NOT_ELIGIBLE')}',
+                    ),
+                  ),
+            ],
             if (batchResult.truncatedCount > 0)
               Text(
                 '超過 100 項提示：${batchResult.truncatedCount} 筆；可繼續建立草稿與正式交易',

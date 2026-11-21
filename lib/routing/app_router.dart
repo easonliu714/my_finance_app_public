@@ -13,6 +13,8 @@ import '../features/invoice/cloud_invoice_inbox_page.dart';
 import '../features/invoice/cloud_invoice_review_page.dart';
 import '../features/invoice/draft_storage_hidden_route_page.dart';
 import '../features/invoice/gemini/gemini_invoice_validation_page.dart';
+import '../features/invoice/invoice_award_check_page.dart';
+import '../features/invoice/invoice_award_production_page.dart';
 import '../features/invoice/invoice_capture_entry_page.dart';
 import '../features/invoice/invoice_capture_page.dart';
 import '../features/invoice/invoice_field_first_review_flow.dart';
@@ -28,6 +30,7 @@ import '../features/plan/credit_card_installment_preview_page.dart';
 import '../features/plan/repayment_plan_page.dart';
 import '../features/product/product_capture_page.dart';
 import '../features/profile/my_page.dart';
+import '../features/transaction/taiwan_business_calendar_status_page.dart';
 import '../features/transaction/transaction_entry_page.dart';
 import '../features/transaction/transaction_record.dart';
 import '../features/voice/voice_transaction_entry_page.dart';
@@ -40,12 +43,18 @@ final appRouter = GoRouter(
 
 List<RouteBase> buildAppRoutes({
   bool privateCloudInvoiceLabEnabled = PrivateCloudInvoiceLabConfig.enabled,
+  DateTime Function()? invoiceAwardClock,
 }) {
   return <RouteBase>[
     GoRoute(
       path: '/',
       name: DashboardPage.routeName,
       builder: (context, state) => const DashboardInvoiceEntryShell(),
+    ),
+    GoRoute(
+      path: TaiwanBusinessCalendarStatusPage.routePath,
+      name: TaiwanBusinessCalendarStatusPage.routeName,
+      builder: (context, state) => const TaiwanBusinessCalendarStatusPage(),
     ),
     GoRoute(
       path: AccountPage.routePath,
@@ -87,7 +96,8 @@ List<RouteBase> buildAppRoutes({
     GoRoute(
       path: RepaymentPlanPage.routePath,
       name: RepaymentPlanPage.routeName,
-      builder: (context, state) => const RepaymentPlanPage(),
+      builder: (context, state) =>
+          const RootRouteBackGuard(child: RepaymentPlanPage()),
     ),
     GoRoute(
       path: CreditCardInstallmentPreviewPage.routePath,
@@ -97,7 +107,8 @@ List<RouteBase> buildAppRoutes({
     GoRoute(
       path: LedgerDetailPage.routePath,
       name: LedgerDetailPage.routeName,
-      builder: (context, state) => const LedgerDetailPage(),
+      builder: (context, state) =>
+          const RootRouteBackGuard(child: LedgerDetailPage()),
     ),
     GoRoute(
       path: ManualInvoiceEntryPage.routePath,
@@ -145,6 +156,12 @@ List<RouteBase> buildAppRoutes({
       path: GeminiInvoiceValidationPage.routePath,
       name: GeminiInvoiceValidationPage.routeName,
       builder: (context, state) => const GeminiInvoiceValidationPage(),
+    ),
+    GoRoute(
+      path: InvoiceAwardCheckPage.routePath,
+      name: InvoiceAwardCheckPage.routeName,
+      builder: (context, state) =>
+          InvoiceAwardProductionPage(clock: invoiceAwardClock),
     ),
     GoRoute(
       path: ProductCapturePage.routePath,
