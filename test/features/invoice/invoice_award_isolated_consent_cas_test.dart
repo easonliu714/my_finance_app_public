@@ -107,6 +107,58 @@ void main() {
     }
   });
 
+  test('TEMP trigger on main consent table rejects writes until removed', () async {
+    final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
+    const table = InvoiceAwardIsolatedConsentCas.table;
+    try {
+      await cas.initialize(db);
+      await cas.seed(db, 'temp-trigger-guard');
+
+      // SQLite stores TEMP triggers in temp.sqlite_master, even when they
+      // execute BEFORE UPDATE on a durable main table.
+      await db.execute('''
+        CREATE TEMP TRIGGER malicious_temp_consent_hook
+        BEFORE UPDATE ON main.$table
+        BEGIN SELECT RAISE(ABORT, 'TEMP_TRIGGER_MUST_NOT_EXECUTE'); END
+      ''');
+      expect(await db.rawQuery(
+        "SELECT name FROM main.sqlite_master WHERE type = 'trigger' AND tbl_name = ?",
+        <Object>[table],
+      ), isEmpty);
+      expect(await db.rawQuery(
+        "SELECT name FROM temp.sqlite_master WHERE type = 'trigger' AND tbl_name = ?",
+        <Object>[table],
+      ), hasLength(1));
+
+      // Negative: detect the hidden trigger before its body can execute.
+      await expectLater(cas.initialize(db), throwsStateError);
+      await expectLater(cas.seed(db, 'must-not-insert'), throwsStateError);
+      expect(await cas.claim(db, 'temp-trigger-guard', 1), isFalse);
+      expect(await cas.revoke(db, 'temp-trigger-guard', 1), isFalse);
+      final blocked = await db.rawQuery(
+        'SELECT id, revision, state, posting_marker FROM main.$table',
+      );
+      expect(blocked, hasLength(1));
+      expect(blocked.single['id'], 'temp-trigger-guard');
+      expect(blocked.single['revision'], 1);
+      expect(blocked.single['state'], 'active');
+      expect(blocked.single['posting_marker'], 0);
+
+      // Positive: legitimate durable CAS resumes with no trigger.
+      await db.execute('DROP TRIGGER temp.malicious_temp_consent_hook');
+      await cas.initialize(db);
+      expect(await cas.claim(db, 'temp-trigger-guard', 1), isTrue);
+      final claimed = (await db.rawQuery(
+        'SELECT revision, state, posting_marker FROM main.$table',
+      )).single;
+      expect(claimed['revision'], 2);
+      expect(claimed['state'], 'claimed');
+      expect(claimed['posting_marker'], 1);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('TEMP table shadow cannot claim or seed against durable main authority', () async {
     final db = await openDatabase(inMemoryDatabasePath, singleInstance: false);
     const table = InvoiceAwardIsolatedConsentCas.table;

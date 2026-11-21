@@ -31,6 +31,15 @@ class InvoiceAwardIsolatedConsentCas {
       <Object>[table],
     );
     if (objects.length != 2) return false;
+    // A TEMP trigger can target main.$table without appearing in
+    // main.sqlite_master. Reject it before any seed/claim/revoke transaction:
+    // trigger code must never execute with the isolated consent authority.
+    final tempTriggers = await executor.rawQuery(
+      'SELECT name FROM temp.sqlite_master '
+      "WHERE type = 'trigger' AND tbl_name = ?",
+      <Object>[table],
+    );
+    if (tempTriggers.isNotEmpty) return false;
     final tables = objects.where((row) => row['type'] == 'table').toList();
     final indexes = objects.where((row) => row['type'] == 'index').toList();
     return tables.length == 1 &&
