@@ -206,12 +206,12 @@ void main() {
         BEGIN UPDATE synthetic_side_effect SET touched = touched + 1; END
       ''');
       expect(await db.rawQuery(
-        "SELECT name FROM main.sqlite_master "
+        'SELECT name FROM main.sqlite_master '
         "WHERE type = 'trigger' AND tbl_name = ?",
         <Object>[_table],
       ), isEmpty);
       expect(await db.rawQuery(
-        "SELECT name FROM temp.sqlite_master "
+        'SELECT name FROM temp.sqlite_master '
         "WHERE type = 'trigger' AND tbl_name = ?",
         <Object>[_table],
       ), hasLength(1));
