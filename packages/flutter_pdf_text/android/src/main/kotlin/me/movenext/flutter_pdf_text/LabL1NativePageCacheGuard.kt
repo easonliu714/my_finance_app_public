@@ -51,6 +51,20 @@ internal object LabL1NativePageCacheGuard {
     }
   }
 
+  /** Revalidate queued MethodChannel success at its actual delivery boundary. */
+  fun mayDeliver(
+    sessionId: String,
+    epoch: Long?,
+    verifiedRole: Boolean,
+    epochs: Map<String, Long>,
+    liveSessions: Set<String>,
+    liveRoles: Set<String>
+  ): Boolean = synchronized(epochs) {
+    liveSessions.contains(sessionId) &&
+      (!verifiedRole || liveRoles.contains(sessionId)) &&
+      (epoch == null || (epoch > 0L && epoch < Long.MAX_VALUE && epochs[sessionId] == epoch))
+  }
+
   fun retire(
     sessionId: String,
     cachedPages: MutableMap<String, Map<String, Any>>,

@@ -5,6 +5,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LabL1NativePageCacheGuardTest {
+  @Test fun queuedSuccessRejectedAfterCloseOrNewerPageRead() {
+    val cache = mutableMapOf<String, Map<String, Any>>()
+    val epochs = mutableMapOf<String, Long>()
+    val first = LabL1NativePageCacheGuard.beginVersionedRead("draw", cache, epochs)
+    assertTrue(LabL1NativePageCacheGuard.mayDeliver(
+      "draw", first, true, epochs, setOf("draw"), setOf("draw")
+    ))
+    LabL1NativePageCacheGuard.beginVersionedRead("draw", cache, epochs)
+    assertFalse(LabL1NativePageCacheGuard.mayDeliver(
+      "draw", first, true, epochs, setOf("draw"), setOf("draw")
+    ))
+    val current = epochs["draw"]!!
+    LabL1NativePageCacheGuard.retire("draw", cache, epochs)
+    assertFalse(LabL1NativePageCacheGuard.mayDeliver(
+      "draw", current, true, epochs, emptySet(), emptySet()
+    ))
+  }
+
+  @Test fun queuedDeliveryRejectsRevokedRoleButPreservesOtherSession() {
+    val epochs = mutableMapOf("draw" to 4L, "sorted" to 9L)
+    assertFalse(LabL1NativePageCacheGuard.mayDeliver(
+      "draw", 4L, true, epochs, setOf("draw", "sorted"), setOf("sorted")
+    ))
+    assertTrue(LabL1NativePageCacheGuard.mayDeliver(
+      "sorted", 9L, true, epochs, setOf("draw", "sorted"), setOf("sorted")
+    ))
+    assertFalse(LabL1NativePageCacheGuard.mayDeliver(
+      "draw", null, false, epochs, setOf("sorted"), setOf("sorted")
+    ))
+    assertTrue(LabL1NativePageCacheGuard.mayDeliver(
+      "sorted", null, false, epochs, setOf("sorted"), setOf("sorted")
+    ))
+  }
+
   @Test fun newReadDiscardsPriorSuccessfulProbe() {
     val pages = mutableMapOf<String, Map<String, Any>>(
       "draw" to mapOf("tokens" to listOf("AB12345678")),

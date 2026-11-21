@@ -613,9 +613,10 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
     // Admission owns epoch/session/page-count failure handling. Each reject
     // completes exactly one MethodChannel error instead of escaping the worker.
     // Verified role failures retire native custody before returning HOLD.
+    val roleBoundAtAdmission = labVerifiedRoles.containsKey(sessionId)
     val admitted = LabL1NativePageReadAdmission.admit(
       sessionId, pageNumber, structuredTokens,
-      labVerifiedRoles.containsKey(sessionId), pdfiumDocuments,
+      roleBoundAtAdmission, pdfiumDocuments,
       labNativePageTokens, labNativePageEpochs
     ) { it.getPageCount() }
     val ready = when (admitted) {
@@ -680,7 +681,14 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
                 labNativePageTokens, labNativePageEpochs, pdfiumDocuments.keys
               )) throw IllegalStateException("L1_STALE_NATIVE_PAGE_READ_HOLD")
           }
-          Handler(Looper.getMainLooper()).post { result.success(response) }
+          Handler(Looper.getMainLooper()).post {
+            // Fail closed if the queued response outlives its session or read epoch.
+            if (LabL1NativePageCacheGuard.mayDeliver(
+                sessionId, readEpoch, roleBoundAtAdmission,
+                labNativePageEpochs, pdfiumDocuments.keys, labVerifiedRoles.keys
+              )) result.success(response)
+            else result.error("L1_STALE_NATIVE_PAGE_READ_HOLD", "PDFium session changed before delivery", null)
+          }
         }
       }
     } catch (oom: OutOfMemoryError) {
