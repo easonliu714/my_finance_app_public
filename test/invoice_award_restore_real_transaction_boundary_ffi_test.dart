@@ -23,25 +23,46 @@ class _IsolatedBoundaryRestore extends FullRestoreService {
   final bool independentlyAttested;
 
   @override
-  Future<void> beforeDestructiveRestoreTransaction(
-    DatabaseExecutor txn,
+  Future<Future<void> Function()?> prepareRestoreCommitCheck(
     Map<String, Object?> envelope,
   ) async {
     final metadata = envelope['metadata'];
     final revision = metadata is Map<String, Object?>
         ? metadata[_isolatedRevisionKey]
         : null;
-    final accepted = await const InvoiceAwardRestoreFloorReadback()
-        .isCandidateCurrent(
-      store: floorStore,
-      independentlyAuthenticated: independentlyAttested,
-      restoredRevision: revision is int ? revision : null,
-    );
-    if (!accepted) {
-      throw const FullRestoreException(
-        '隔離測試：發票中獎獨立版本權威未通過，禁止破壞性還原',
+    // Capture the same revision for both checks. An intervening mutation of
+    // the caller's envelope must not refresh the original authorization.
+    final capturedRevision = revision is int ? revision : null;
+    Future<void> check() async {
+      final accepted = await const InvoiceAwardRestoreFloorReadback()
+          .isCandidateCurrent(
+        store: floorStore,
+        independentlyAuthenticated: independentlyAttested,
+        restoredRevision: capturedRevision,
       );
+      if (!accepted) {
+        throw const FullRestoreException(
+          '隔離測試：發票中獎版本權威失效，已取消還原交易',
+        );
+      }
     }
+
+    await check();
+    return check;
+  }
+}
+
+// Advance a separate on-disk authority after the real destructive writes.
+// No production ledger or trust provider is used by this test subclass.
+class _AdvancingFloorRestore extends _IsolatedBoundaryRestore {
+  const _AdvancingFloorRestore({
+    required InvoiceAwardIndependentRevisionStore floorStore,
+  }) : super(floorStore: floorStore, independentlyAttested: true);
+
+  @override
+  Future<void> afterManagedRestoreTransaction(DatabaseExecutor txn) async {
+    final store = floorStore!;
+    expect(await store.compareAndAdvance(80, 81), isTrue);
   }
 }
 
@@ -269,6 +290,50 @@ void main() {
     expect(await fixture.floorStore.readFloor(), 81);
     expect((await fixture.target.query('transactions')).single['amount'],
         300);
+  });
+
+  test('V25-H2 floor advances during REAL restore; rollback rows and DDL',
+      () async {
+    final fixture = await _newFixture();
+    fixture.setRestoredRevision(80);
+    await expectLater(
+      _AdvancingFloorRestore(floorStore: fixture.floorStore)
+          .restoreFromEnvelope(
+        fixture.target,
+        fixture.envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+      ),
+      throwsA(isA<FullRestoreException>()),
+    );
+    // The independent floor advanced, but the main restore transaction
+    // cannot commit data or lazy schema under the stale revision.
+    expect(await fixture.floorStore.readFloor(), 81);
+    expect((await fixture.target.query('accounts')).single['name'],
+        'preserved');
+    expect((await fixture.target.query('transactions')).single['amount'],
+        300);
+    expect(
+      await fixture.target.query(
+        'sqlite_master',
+        where: 'type = ? AND name = ?',
+        whereArgs: <Object>['table', 'expense_categories'],
+      ),
+      isEmpty,
+    );
+    // The old revision is now stale; current revision still works in the
+    // disposable same-source fixture, without rewriting the external floor.
+    fixture.setRestoredRevision(81);
+    final result = await _IsolatedBoundaryRestore(
+      floorStore: fixture.floorStore,
+      independentlyAttested: true,
+    ).restoreFromEnvelope(
+      fixture.target,
+      fixture.envelope,
+      confirmationText: FullRestoreService.destructiveConfirmationText,
+    );
+    expect(result.audit.passed, isTrue);
+    expect((await fixture.target.query('transactions')).single['amount'], 200);
+    expect(await fixture.floorStore.readFloor(), 81);
   });
 
   test('V25-I equal isolated floor permits REAL test-only restore, '

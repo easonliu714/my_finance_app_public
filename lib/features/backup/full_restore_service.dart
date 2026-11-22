@@ -88,6 +88,10 @@ class FullRestoreService {
       // The default hook is a no-op to preserve existing V7/V8 restores;
       // it is NOT a production invoice-award authority until custody exists.
       await beforeDestructiveRestoreTransaction(txn, envelope);
+      // V25-H2: capture a read-only recheck of the same isolated authority
+      // before destructive DDL/DML. The closure may bind immutable revision
+      // evidence; it is never itself a production authorization lease.
+      final recheckBeforeCommit = await prepareRestoreCommitCheck(envelope);
       // V25-J: an opt-in restore hook is external code inside this transaction.
       // Revalidate the captured ledger after it returns: a hook that changed
       // managed rows/schema must not silently inherit the earlier snapshot
@@ -156,6 +160,12 @@ class FullRestoreService {
           '完整還原 CURRENT 資料內容與備份不一致；已取消交易以保留原資料',
         );
       }
+      // Recheck after all destructive work, trigger reinstatement and row
+      // audits, while SQLite can still roll everything back. A rejection
+      // must escape this transaction rather than return a success result.
+      if (recheckBeforeCommit != null) {
+        await recheckBeforeCommit();
+      }
     });
 
     return FullRestoreResult(
@@ -180,6 +190,15 @@ class FullRestoreService {
     DatabaseExecutor txn,
     Map<String, Object?> envelope,
   ) async {}
+
+  /// Optional isolated read-only authority check prepared before destructive
+  /// restore and re-executed immediately before the SQLite transaction returns.
+  /// Capture immutable evidence in the closure, not a mutable live envelope.
+  /// Default null preserves existing production and legacy restore behavior.
+  /// A final observation is NOT an atomic lease across independent stores.
+  Future<Future<void> Function()?> prepareRestoreCommitCheck(
+    Map<String, Object?> envelope,
+  ) async => null;
 
   // Versioned restore services override these hooks to temporarily release
   // immutable-row triggers ONLY within the destructive SQLite transaction.
