@@ -52,6 +52,66 @@ class InvoiceAwardNoBackupFloorCandidateInstrumentedTest {
     } finally { path.delete() }
   }
 
+  @Test fun malformedSqliteStorageClassCannotAuthorizeRestoreOrCas() {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val store = InvoiceAwardNoBackupFloorCandidate(context)
+    val path = store.isolatedPathForTest()
+    path.delete()
+    try {
+      store.initializeForIsolatedTest(80)
+      assertEquals(80L, store.readFloor())
+      assertTrue(store.isRestoredSnapshotCurrentForIsolatedTest(80L, true))
+
+      // Exact same DDL accepts these values: INTEGER affinity is not STRICT.
+      // A coercing Cursor.getLong() must never attest a malformed revision.
+      for ((literal, storageClass) in listOf(
+        "80.75" to "real",
+        "'invalid'" to "text",
+        "X'3830'" to "blob"
+      )) {
+        SQLiteDatabase.openDatabase(path.path, null,
+          SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
+          db.execSQL("UPDATE floor SET revision=$literal WHERE id=1")
+          db.rawQuery("SELECT typeof(revision) FROM floor", null).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(storageClass, cursor.getString(0))
+          }
+        }
+        assertNull("Malformed $storageClass cannot become floor", store.readFloor())
+        for (candidate in listOf(0L, 80L, 81L)) {
+          assertFalse(store.isRestoredSnapshotCurrentForIsolatedTest(candidate, true))
+          assertFalse(store.compareAndAdvance(candidate, 82L))
+        }
+        try {
+          store.initializeForIsolatedTest(80)
+          fail("Reinitialization must reject malformed custody")
+        } catch (_: IllegalStateException) { }
+        SQLiteDatabase.openDatabase(path.path, null,
+          SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
+          db.rawQuery("SELECT typeof(revision), quote(revision) FROM floor", null).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(storageClass, cursor.getString(0))
+            assertEquals(literal, cursor.getString(1))
+            assertFalse(cursor.moveToNext())
+          }
+        }
+      }
+
+      // Only the disposable test fixture repairs its data. Valid INTEGER
+      // custody and monotonic CAS must remain functional afterward.
+      SQLiteDatabase.openDatabase(path.path, null,
+        SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
+        db.execSQL("UPDATE floor SET revision=80 WHERE id=1")
+      }
+      store.initializeForIsolatedTest(0)
+      assertEquals(80L, store.readFloor())
+      assertTrue(store.compareAndAdvance(80L, 81L))
+      assertFalse(store.isRestoredSnapshotCurrentForIsolatedTest(80L, true))
+      assertTrue(store.isRestoredSnapshotCurrentForIsolatedTest(81L, true))
+      assertFalse(store.canActivateProduction())
+    } finally { path.delete() }
+  }
+
   @Test fun noBackupDiskReopenAndIndependentConnectionsRace() {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val store = InvoiceAwardNoBackupFloorCandidate(context)

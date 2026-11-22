@@ -1,6 +1,7 @@
 package me.movenext.flutter_pdf_text
 
 import android.content.Context
+import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
 
@@ -36,6 +37,20 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
     return true
   }
 
+  /** INTEGER affinity and a nonnegative CHECK do not constrain SQLite storage
+   * classes: REAL, TEXT and BLOB values can satisfy the existing DDL.
+   * Cursor.getLong() may coerce them. Never treat that conversion as custody.
+   */
+  private fun readExactRevision(db: SQLiteDatabase): Long? =
+    db.rawQuery("SELECT id,revision FROM main.floor", null).use { cursor ->
+      if (!cursor.moveToFirst() ||
+          cursor.getType(0) != Cursor.FIELD_TYPE_INTEGER ||
+          cursor.getType(1) != Cursor.FIELD_TYPE_INTEGER ||
+          cursor.getLong(0) != 1L) return@use null
+      val revision = cursor.getLong(1)
+      if (revision < 0L || cursor.moveToNext()) null else revision
+    }
+
   fun initializeForIsolatedTest(initialRevision: Long = 0L) {
     require(initialRevision >= 0L)
     // Android normally creates android_metadata while registering locale collators.
@@ -53,7 +68,8 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
           db.execSQL("CREATE TABLE floor (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL CHECK(revision >= 0))")
         }
         check(hasExactSchema(db)) { "Untrusted floor schema" }
-        db.execSQL("INSERT OR IGNORE INTO floor(id,revision) VALUES(1,?)", arrayOf(initialRevision))
+        db.execSQL("INSERT OR IGNORE INTO main.floor(id,revision) VALUES(1,?)", arrayOf(initialRevision))
+        check(readExactRevision(db) != null) { "Untrusted floor revision storage class" }
         db.setTransactionSuccessful()
       } finally { db.endTransaction() }
     } finally { db.close() }
@@ -68,12 +84,7 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
       catch (_: Exception) { return null }
     try {
       if (!hasExactSchema(db)) return null
-      db.rawQuery("SELECT id,revision FROM floor", null).use { cursor ->
-        if (!cursor.moveToFirst() || cursor.getLong(0) != 1L) return null
-        val value = cursor.getLong(1)
-        if (value < 0L || cursor.moveToNext()) return null
-        return value
-      }
+      return readExactRevision(db)
     } catch (_: Exception) { return null }
     finally { db.close() }
   }
@@ -87,11 +98,8 @@ internal class InvoiceAwardNoBackupFloorCandidate(private val context: Context) 
       db.beginTransaction()
       try {
         if (!hasExactSchema(db)) return false
-        db.rawQuery("SELECT id,revision FROM floor", null).use { cursor ->
-          if (!cursor.moveToFirst() || cursor.getLong(0) != 1L ||
-              cursor.getLong(1) != expected || cursor.moveToNext()) return false
-        }
-        db.execSQL("UPDATE floor SET revision=? WHERE id=1 AND revision=?", arrayOf(next, expected))
+        if (readExactRevision(db) != expected) return false
+        db.execSQL("UPDATE main.floor SET revision=? WHERE id=1 AND revision=?", arrayOf(next, expected))
         val changed = db.rawQuery("SELECT changes()", null).use { cursor ->
           cursor.moveToFirst() && cursor.getLong(0) == 1L
         }
