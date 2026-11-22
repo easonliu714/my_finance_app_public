@@ -50,6 +50,11 @@ class PdfiumCandidateWorkerService : Service() {
   private val singleFlight = PdfiumWorkerSingleFlightAdmission()
   // onStartCommand and worker completion both update this on the main looper.
   private var latestStartId = 0
+  // The active worker has one serialized publication stream, including open heartbeats.
+  private val resultPublication = PdfiumWorkerResultPublication { json ->
+    PdfiumWorkerAtomicResult.write(File(activeResultPath), json)
+  }
+  @Volatile private var activeResultPath = ""
 
   override fun onCreate() {
     super.onCreate()
@@ -85,6 +90,9 @@ class PdfiumCandidateWorkerService : Service() {
       }
       return START_NOT_STICKY
     }
+    // A new worker is admitted only after the previous worker has finished.
+    activeResultPath = resultPath
+    resultPublication.reset()
     try {
       startForeground(
         NOTIFICATION_ID,
@@ -360,7 +368,7 @@ class PdfiumCandidateWorkerService : Service() {
           .put("candidate_universe_sha256", actualCandidateUniverseSha256)
           .put("matched", JSONArray(matched.toList()))
           .put("matched_pages", matchedPagesJson)
-        writeAtomic(resultPath, payload.toString())
+        resultPublication.publishTerminal(payload.toString())
       }
     } finally {
       opening.set(false)
@@ -414,7 +422,7 @@ class PdfiumCandidateWorkerService : Service() {
       .put("source_bytes_total", sourceBytesTotal)
       .put("stage_elapsed_ms", stageElapsedMs)
       .put("updated_at_ms", System.currentTimeMillis())
-    writeAtomic(resultPath, payload.toString())
+    resultPublication.publishRunning(payload.toString())
   }
 
   private fun sha256File(file: File, onProgress: (Long) -> Unit): String {
@@ -488,16 +496,16 @@ class PdfiumCandidateWorkerService : Service() {
         .put("status", "failed")
         .put("engine", "pdfium-random-access-candidate-search")
         .put("error", code)
-      writeAtomic(resultPath, payload.toString())
+      if (singleFlight.isActivePath(resultPath)) {
+        resultPublication.publishTerminal(payload.toString())
+      } else {
+        // Rejected requests have their own distinct output path.
+        PdfiumWorkerAtomicResult.write(File(resultPath), payload.toString())
+      }
     } catch (_: Throwable) {
       // A killed worker may leave only the last running heartbeat. The caller
       // treats that as interrupted and never promotes partial authority.
     }
   }
 
-  private fun writeAtomic(path: String, content: String) {
-    // Never fall back to truncating the published result on rename failure.
-    // The caller treats the prior heartbeat as interrupted, not completed.
-    PdfiumWorkerAtomicResult.write(File(path), content)
-  }
 }
