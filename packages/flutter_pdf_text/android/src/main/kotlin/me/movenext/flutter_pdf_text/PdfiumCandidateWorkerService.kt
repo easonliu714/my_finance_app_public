@@ -8,6 +8,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import io.legere.pdfiumandroid.PdfiumCore
 import org.json.JSONArray
@@ -44,6 +46,10 @@ class PdfiumCandidateWorkerService : Service() {
   }
 
   private lateinit var pdfiumCore: PdfiumCore
+  // One heavy native document per dedicated worker process, never per Intent.
+  private val singleFlight = PdfiumWorkerSingleFlightAdmission()
+  // onStartCommand and worker completion both update this on the main looper.
+  private var latestStartId = 0
 
   override fun onCreate() {
     super.onCreate()
@@ -54,14 +60,12 @@ class PdfiumCandidateWorkerService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    latestStartId = startId
     if (intent == null) {
-      stopSelf(startId)
+      // A null redelivery cannot kill a legitimate active native PDF read.
+      if (!singleFlight.isActive()) stopSelfResult(latestStartId)
       return START_NOT_STICKY
     }
-    startForeground(
-      NOTIFICATION_ID,
-      buildNotification("正在處理大型官方 PDF 候選比對")
-    )
 
     val pdfPath = intent.getStringExtra(EXTRA_PDF_PATH).orEmpty()
     val candidatesJson = intent.getStringExtra(EXTRA_CANDIDATES_JSON).orEmpty()
@@ -73,28 +77,55 @@ class PdfiumCandidateWorkerService : Service() {
       intent.getStringExtra(EXTRA_EXPECTED_CANDIDATE_UNIVERSE_SHA256).orEmpty()
     val resultPath = intent.getStringExtra(EXTRA_RESULT_PATH).orEmpty()
     val requestId = intent.getStringExtra(EXTRA_REQUEST_ID).orEmpty()
-    thread(start = true, name = "issue13-cloud500-worker") {
-      try {
-        runLookup(
-          pdfPath,
-          candidatesJson,
-          expectedSourceSha256,
-          expectedSourceBytes,
-          expectedCandidateUniverseSha256,
-          resultPath,
-          requestId
-        )
-      } catch (oom: OutOfMemoryError) {
-        writeFailure(resultPath, requestId, "PDFIUM_WORKER_OOM")
-      } catch (error: Throwable) {
-        writeFailure(
-          resultPath,
-          requestId,
-          "PDFIUM_WORKER_FAILED:${error.javaClass.simpleName}"
-        )
-      } finally {
+    if (!singleFlight.tryStart(requestId, resultPath)) {
+      // The plugin generates a distinct UUID result file for each request.
+      // Never overwrite the live worker's file if a malformed caller reuses it.
+      if (!singleFlight.isActivePath(resultPath)) {
+        writeFailure(resultPath, requestId, "PDFIUM_WORKER_CONCURRENT_REQUEST_HOLD")
+      }
+      return START_NOT_STICKY
+    }
+    try {
+      startForeground(
+        NOTIFICATION_ID,
+        buildNotification("正在處理大型官方 PDF 候選比對")
+      )
+      thread(start = true, name = "issue13-cloud500-worker") {
+        try {
+          runLookup(
+            pdfPath,
+            candidatesJson,
+            expectedSourceSha256,
+            expectedSourceBytes,
+            expectedCandidateUniverseSha256,
+            resultPath,
+            requestId
+          )
+        } catch (oom: OutOfMemoryError) {
+          writeFailure(resultPath, requestId, "PDFIUM_WORKER_OOM")
+        } catch (error: Throwable) {
+          writeFailure(
+            resultPath,
+            requestId,
+            "PDFIUM_WORKER_FAILED:${error.javaClass.simpleName}"
+          )
+        } finally {
+          // Serialize release and stop with onStartCommand on the main looper.
+          // A rejected newer startId must not strand the foreground service;
+          // an older worker must never stop a newly admitted request.
+          Handler(Looper.getMainLooper()).post {
+            if (singleFlight.finish(requestId)) {
+              stopForeground(true)
+              stopSelfResult(latestStartId)
+            }
+          }
+        }
+      }
+    } catch (error: Throwable) {
+      if (singleFlight.finish(requestId)) {
+        writeFailure(resultPath, requestId, "PDFIUM_WORKER_START_FAILED")
         stopForeground(true)
-        stopSelf(startId)
+        stopSelfResult(latestStartId)
       }
     }
     return START_NOT_STICKY
