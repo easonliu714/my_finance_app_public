@@ -241,12 +241,20 @@ class PdfiumCandidateWorkerService : Service() {
           pageCount = pageCount
         )
 
-        fun pageTokens(pageNumber: Int, candidateIndex: Int): List<String> {
+        fun pageTokens(
+          pageNumber: Int,
+          candidateIndex: Int,
+          fullCoverage: Boolean = false
+        ): List<String> {
           require(pageNumber in 1..pageCount)
-          writeRunning(
+          // A global fallback may visit 77k pages. Persist bounded progress
+          // rather than writing 154k JSON heartbeats to flash storage.
+          val report = !fullCoverage || pageNumber == 1 ||
+            pageNumber == pageCount || pageNumber % 128 == 0
+          if (report) writeRunning(
             resultPath = resultPath,
             requestId = requestId,
-            stage = "PDFIUM_PAGE_BEGIN",
+            stage = if (fullCoverage) "PDFIUM_FULL_COVERAGE" else "PDFIUM_PAGE_BEGIN",
             candidateIndex = candidateIndex,
             candidateCount = candidates.size,
             pageNumber = pageNumber,
@@ -264,10 +272,10 @@ class PdfiumCandidateWorkerService : Service() {
             }
           }
           pagesRead.add(pageNumber)
-          writeRunning(
+          if (report) writeRunning(
             resultPath = resultPath,
             requestId = requestId,
-            stage = "PDFIUM_CANDIDATE_SEARCH",
+            stage = if (fullCoverage) "PDFIUM_FULL_COVERAGE" else "PDFIUM_CANDIDATE_SEARCH",
             candidateIndex = candidateIndex,
             candidateCount = candidates.size,
             pageNumber = pageNumber,
@@ -277,49 +285,23 @@ class PdfiumCandidateWorkerService : Service() {
           return extractInvoiceNumbers(text)
         }
 
-        candidates.forEachIndexed { index, candidate ->
-          var low = 1
-          var high = pageCount
-          var found = false
-          while (low <= high) {
-            val middle = low + ((high - low) ushr 1)
-            val tokens = pageTokens(middle, index + 1)
-            require(tokens.isNotEmpty())
-            when {
-              candidate < tokens.first() -> high = middle - 1
-              candidate > tokens.last() -> low = middle + 1
-              else -> {
-                if (tokens.contains(candidate)) {
-                  matched.add(candidate)
-                  matchedPages[candidate] = middle
-                  found = true
-                } else {
-                  listOf(middle - 1, middle + 1)
-                    .filter { it in 1..pageCount }
-                    .forEach { neighbor ->
-                      if (!found && pageTokens(neighbor, index + 1).contains(candidate)) {
-                        matched.add(candidate)
-                        matchedPages[candidate] = neighbor
-                        found = true
-                      }
-                    }
-                }
-                break
-              }
-            }
-          }
-          if (!found && low > high) {
-            setOf(low, high)
-              .filter { it in 1..pageCount }
-              .forEach { boundary ->
-                if (!found && pageTokens(boundary, index + 1).contains(candidate)) {
-                  matched.add(candidate)
-                  matchedPages[candidate] = boundary
-                  found = true
-                }
-              }
-          }
+        // Native binary search is a positive-only acceleration. Without an
+        // independently established global page ordering it can skip a real
+        // match. One bounded-memory full-document fallback checks all pages
+        // for any unresolved candidate; incomplete/negative evidence stays HOLD.
+        val search = PdfiumCandidateCoverageSearch.search(
+          candidates, pageCount
+        ) { page, index, fullCoverage ->
+          pageTokens(page, index, fullCoverage)
         }
+        if (search.unresolved.isNotEmpty()) {
+          // One SHA-pinned PDF is still not an independently attested negative.
+          // No "complete" JSON or absent-result list may leave this worker.
+          writeFailure(resultPath, requestId, "PDFIUM_WORKER_NEGATIVE_UNATTESTED_HOLD")
+          return
+        }
+        val matchedPages = search.matchedPages
+        val matched = candidates.filter { matchedPages.containsKey(it) }
 
         val matchedPagesJson = JSONObject()
         matchedPages.forEach { (candidate, pageNumber) ->
@@ -333,6 +315,8 @@ class PdfiumCandidateWorkerService : Service() {
           .put("stage", "PDFIUM_COMPLETE")
           .put("page_count", pageCount)
           .put("pages_read", pagesRead.size)
+          .put("full_coverage_scan", search.fullCoverageScan)
+          .put("negative_authority", "HOLD")
           .put("candidate_count", candidates.size)
           .put("source_sha256", actualSourceSha256)
           .put("source_bytes", source.length())
