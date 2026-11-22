@@ -2,6 +2,7 @@ package me.movenext.flutter_pdf_text
 
 import java.io.File
 import java.security.MessageDigest
+import kotlin.io.path.createTempDirectory
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -10,7 +11,7 @@ class PdfiumWorkerVerifiedSnapshotTest {
     .digest(bytes).joinToString("") { (it.toInt() and 255).toString(16).padStart(2, '0') }
 
   @Test fun verifiedUnlinkedDescriptorSurvivesPathReplacement() {
-    val root = createTempDir(prefix = "worker-snapshot-")
+    val root = createTempDirectory("worker-snapshot-").toFile()
     try {
       val source = File(root, "official.pdf")
       val original = ByteArray(131073) { (it % 251).toByte() }
@@ -30,7 +31,7 @@ class PdfiumWorkerVerifiedSnapshotTest {
   }
 
   @Test fun mismatchedShaOrSizeNeverReturnsDescriptorAndCleansTemp() {
-    val root = createTempDir(prefix = "worker-snapshot-negative-")
+    val root = createTempDirectory("worker-snapshot-negative-").toFile()
     try {
       val source = File(root, "official.pdf")
       source.writeBytes(ByteArray(4096) { 7 })
@@ -53,7 +54,7 @@ class PdfiumWorkerVerifiedSnapshotTest {
   }
 
   @Test fun invalidExpectationFailsBeforeCopy() {
-    val root = createTempDir(prefix = "worker-snapshot-invalid-")
+    val root = createTempDirectory("worker-snapshot-invalid-").toFile()
     try {
       val source = File(root, "official.pdf")
       source.writeText("sample")
