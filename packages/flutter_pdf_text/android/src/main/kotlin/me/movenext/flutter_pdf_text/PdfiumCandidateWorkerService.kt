@@ -228,8 +228,8 @@ class PdfiumCandidateWorkerService : Service() {
       document.use {
         val pageCount = document.getPageCount()
         require(pageCount > 0)
-        val matched = linkedSetOf<String>()
-        val matchedPages = linkedMapOf<String, Int>()
+        // The coverage search owns match accumulation. The worker only
+        // retains the bounded set of visited page numbers for diagnostics.
         val pagesRead = linkedSetOf<Int>()
 
         writeRunning(
