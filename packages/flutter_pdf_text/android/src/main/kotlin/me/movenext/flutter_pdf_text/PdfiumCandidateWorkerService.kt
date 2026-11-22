@@ -373,6 +373,9 @@ class PdfiumCandidateWorkerService : Service() {
     } finally {
       opening.set(false)
       openHeartbeat.interrupt()
+      // The prior worker must have no surviving heartbeat before admission
+      // can reset the publication gate for a subsequent request.
+      openHeartbeat.join()
       try { descriptor?.close() } catch (_: Exception) {}
     }
     }
