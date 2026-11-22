@@ -496,13 +496,8 @@ class PdfiumCandidateWorkerService : Service() {
   }
 
   private fun writeAtomic(path: String, content: String) {
-    val target = File(path)
-    target.parentFile?.mkdirs()
-    val temp = File(target.parentFile, target.name + ".tmp")
-    temp.writeText(content)
-    if (!temp.renameTo(target)) {
-      target.writeText(content)
-      temp.delete()
-    }
+    // Never fall back to truncating the published result on rename failure.
+    // The caller treats the prior heartbeat as interrupted, not completed.
+    PdfiumWorkerAtomicResult.write(File(path), content)
   }
 }
