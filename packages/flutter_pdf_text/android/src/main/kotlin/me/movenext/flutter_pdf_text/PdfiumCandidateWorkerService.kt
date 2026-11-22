@@ -196,22 +196,28 @@ class PdfiumCandidateWorkerService : Service() {
       candidateCount = candidates.size,
       sourceBytesTotal = expectedSourceBytes
     )
-    val actualSourceSha256 = sha256File(source) { bytesRead ->
-      writeRunning(
-        resultPath = resultPath,
-        requestId = requestId,
-        stage = "PDFIUM_SOURCE_SHA256",
-        candidateIndex = 0,
-        candidateCount = candidates.size,
-        sourceBytesRead = bytesRead,
-        sourceBytesTotal = expectedSourceBytes
-      )
-    }
-    if (!actualSourceSha256.equals(expectedSourceSha256, ignoreCase = true)) {
-      writeFailure(resultPath, requestId, "PDFIUM_WORKER_SOURCE_SHA256_MISMATCH")
+    // Copy and SHA-verify one immutable app-private inode before PDFium opens it.
+    // The original pathname is never reopened after validation (TOCTOU closed).
+    val verified = try {
+      PdfiumWorkerVerifiedSnapshot.open(
+        source, cacheDir, expectedSourceBytes, expectedSourceSha256
+      ) { bytesRead ->
+        writeRunning(
+          resultPath = resultPath,
+          requestId = requestId,
+          stage = "PDFIUM_SOURCE_SHA256",
+          candidateIndex = 0,
+          candidateCount = candidates.size,
+          sourceBytesRead = bytesRead,
+          sourceBytesTotal = expectedSourceBytes
+        )
+      }
+    } catch (error: IllegalStateException) {
+      writeFailure(resultPath, requestId, error.message ?: "PDFIUM_WORKER_SNAPSHOT_FAILED")
       return
     }
-
+    val actualSourceSha256 = verified.sha256
+    verified.use { snapshot ->
     writeRunning(
       resultPath = resultPath,
       requestId = requestId,
@@ -251,7 +257,7 @@ class PdfiumCandidateWorkerService : Service() {
       }
     }
     try {
-      descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+      descriptor = ParcelFileDescriptor.dup(snapshot.file.fd)
       val document = pdfiumCore.newDocument(descriptor)
       opening.set(false)
       openHeartbeat.interrupt()
@@ -350,7 +356,7 @@ class PdfiumCandidateWorkerService : Service() {
           .put("negative_authority", "HOLD")
           .put("candidate_count", candidates.size)
           .put("source_sha256", actualSourceSha256)
-          .put("source_bytes", source.length())
+          .put("source_bytes", snapshot.bytes)
           .put("candidate_universe_sha256", actualCandidateUniverseSha256)
           .put("matched", JSONArray(matched.toList()))
           .put("matched_pages", matchedPagesJson)
@@ -360,6 +366,7 @@ class PdfiumCandidateWorkerService : Service() {
       opening.set(false)
       openHeartbeat.interrupt()
       try { descriptor?.close() } catch (_: Exception) {}
+    }
     }
   }
 
