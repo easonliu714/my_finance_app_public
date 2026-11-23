@@ -3567,3 +3567,9 @@ V25-G-52 (2026-11-17): Debug-only remote PlatformLeaseProbeService now supports 
 ### 2026-11-24 V25-U exact-head Analyze repair (synthetic only)
 - Parent 76065fc0725a01f37a4387bbc1d7fb7f227fc8bb; CI 45257652193 Analyze job 137983586348 flagged `curly_braces_in_flow_control_structures` at authority replay lab line 37.
 - Source: add braces to malformed checkpoint rejection; test: valid signed replay versus tampered timestamp fail-closed. No live authority, production data, signer, or rollback guarantee. `canActivateProduction=false`. Tests/CI pending exact new head.
+
+
+### 2026-11-24 V25-V synthetic authority fixture initialization race fix
+- Parent `8e15ed63a3ae63196416db41a2e3728249e01379`; #52 isolated test-only. `initializeEmptyFixture()` now uses the same exclusive OS file lock as `commit()`, rechecks checkpoint existence while locked and publishes an empty fixture through a temporary file rename.
+- Positive/negative tests: 12 concurrent initializers yield exactly one creator; committed and revoked revisions remain recoverable and subsequent initialization attempts are rejected. Tests not run locally; exact-head CI required.
+- No external provider, Owner data, signer, formal ledger, production activation, cross-PID proof or rollback-resistant remote anchor. `canActivateProduction=false`.

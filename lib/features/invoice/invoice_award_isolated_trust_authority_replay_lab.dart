@@ -71,10 +71,26 @@ class IsolatedTrustAuthorityReplayLab {
 
   /// A synthetic fixture creator; NEVER use as an automatic recovery fallback.
   Future<bool> initializeEmptyFixture() async {
-    if (await file.exists()) return false;
+    // Use the same OS lock as commit: an unlocked existence check can
+    // overwrite a committed checkpoint during concurrent fixture creation.
     await file.parent.create(recursive: true);
-    await file.writeAsString('[]', flush: true);
-    return recover();
+    final lock = File('${file.path}.lock');
+    final handle = await lock.open(mode: FileMode.append);
+    try {
+      await handle.lock(FileLock.exclusive);
+      // Recheck only after taking the cross-process lock.
+      if (await file.exists()) return false;
+      final temp = File('${file.path}.init.tmp');
+      await temp.writeAsString('[]', flush: true);
+      await temp.rename(file.path);
+      return recover();
+    } on FileSystemException {
+      _invalid = true;
+      return false;
+    } finally {
+      await handle.unlock();
+      await handle.close();
+    }
   }
 
   /// Replays only fully signed commits. A crash before checkpoint publication

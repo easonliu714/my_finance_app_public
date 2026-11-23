@@ -101,4 +101,49 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+
+  test('concurrent synthetic initializers elect exactly one creator', () async {
+    final dir = await Directory.systemTemp.createTemp('authority-init-race-');
+    try {
+      final file = File('${dir.path}/authority.json');
+      final key = List<int>.filled(32, 51);
+      final creators = List.generate(
+        12, (_) => IsolatedTrustAuthorityReplayLab(file, key),
+      );
+      final results = await Future.wait(
+        creators.map((creator) => creator.initializeEmptyFixture()),
+      );
+      expect(results.where((result) => result).length, 1);
+      final writer = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await writer.commit(claim, 1000), isNotNull);
+      final restarted = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await restarted.recover(), isTrue);
+      expect(restarted.reconcileCurrent(claim), isNotNull);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('reinitialization cannot erase committed or revoked authority', () async {
+    final dir = await Directory.systemTemp.createTemp('authority-init-race-');
+    try {
+      final file = File('${dir.path}/authority.json');
+      final key = List<int>.filled(32, 52);
+      final writer = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await writer.initializeEmptyFixture(), isTrue);
+      expect(await writer.commit(claim, 1000), isNotNull);
+      expect(await writer.commit(revoke, 1001), isNotNull);
+      final attempts = await Future.wait(List.generate(
+        12, (_) => IsolatedTrustAuthorityReplayLab(file, key)
+            .initializeEmptyFixture(),
+      ));
+      expect(attempts, everyElement(isFalse));
+      final restarted = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await restarted.recover(), isTrue);
+      expect(restarted.reconcileCurrent(claim), isNull);
+      expect(restarted.reconcileCurrent(revoke), isNotNull);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
 }
