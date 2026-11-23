@@ -155,6 +155,20 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
   IsolatedTrustReceipt? reconcile(String namespace, String idempotencyKey) =>
       _committed[_scopedKey(namespace, idempotencyKey)];
 
+  /// Authoritative synthetic reconciliation after a lost reply. A previously
+  /// committed claim becomes stale when a later revoke advances the floor.
+  /// Never authorize a local restore from an old signed receipt alone.
+  IsolatedTrustReceipt? reconcileCurrent(IsolatedTrustRequest request) {
+    final receipt = reconcile(request.namespace, request.idempotencyKey);
+    if (receipt == null ||
+        revision(request.namespace) != request.expectedRevision + 1 ||
+        (_revoked.contains(request.namespace) &&
+            request.operation != 'revoke')) {
+      return null;
+    }
+    return receipt;
+  }
+
   /// Synthetic-only receipt binding. A valid MAC from a different namespace
   /// or operation is not authorization for this request.
   Future<bool> verifyBoundReceipt(

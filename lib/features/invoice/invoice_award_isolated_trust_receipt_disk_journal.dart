@@ -59,7 +59,9 @@ class IsolatedTrustReceiptDiskJournal {
       final decoded = jsonDecode(await file.readAsString());
       if (decoded is! Map<String, dynamic> ||
           decoded['payload'] is! String ||
-          decoded['signature'] is! String) return null;
+          decoded['signature'] is! String) {
+        return null;
+      }
       final receipt = IsolatedTrustReceipt(
           decoded['payload'] as String, decoded['signature'] as String);
       return await verifier.verifyBoundReceipt(receipt, request)
@@ -69,6 +71,20 @@ class IsolatedTrustReceiptDiskJournal {
     } on FormatException {
       return null;
     }
+  }
+
+  /// Lost-reply recovery must consult the authoritative current revision.
+  /// A disk cache hit is not proof that a later revoke did not occur.
+  /// Synthetic fake only; never substitute this for a vetted remote provider.
+  Future<IsolatedTrustReceipt?> reconcileLostReply(
+      IsolatedTrustRequest request) async {
+    final current = verifier.reconcileCurrent(request);
+    if (current == null ||
+        !await verifier.verifyBoundReceipt(current, request)) {
+      return null;
+    }
+    if (!await record(request, current)) return null;
+    return current;
   }
 
   bool canActivateProduction() => false;

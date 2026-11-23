@@ -3554,3 +3554,7 @@ V25-G-52 (2026-11-17): Debug-only remote PlatformLeaseProbeService now supports 
 
 ### 2026-11-24 V25-R #52 synthetic lost-reply receipt disk journal (Writer)
 - Added isolated test-only file-backed signed receipt cache with namespace/idempotency tuple-derived hashed filenames, exclusive lock, temporary-write rename, exact bound-receipt verification, and fail-closed missing/corrupt/conflicting record recovery. Positive/negative temp-directory restart and tamper tests. This is NOT durable external authority, fsync-guaranteed persistence, cross-PID ACID, or production rollback prevention; crash between remote commit and local cache still requires authoritative remote reconcile. No live endpoint or owner data; canActivateProduction=false. Exact-head CI pending.
+
+
+### 2026-11-24 V25-S #52 synthetic authoritative lost-reply reconcile (Writer)
+- Fixed Flutter Analyze curly_braces_in_flow_control_structures in receipt journal and added FakeIsolatedTrustService.reconcileCurrent plus IsolatedTrustReceiptDiskJournal.reconcileLostReply. Remote synthetic committed receipt is recovered after a lost reply only if bound signature, current monotonic revision and terminal revoke precedence still hold; cache alone is never authority. Positive/negative tests cover empty-cache lost reply, restart/idempotency, pending refusal, revoked stale receipt refusal and wrong namespace. Test-only fake; no live provider, cross-PID durability, owner data or production activation. canActivateProduction=false; exact-head CI required.

@@ -63,4 +63,61 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+  test('lost remote reply reconciles authoritative commit into empty cache',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('synthetic-trust-');
+    try {
+      final authority = FakeIsolatedTrustService(List<int>.filled(32, 33));
+      final token = (await authority.reserve(request, 1000))!;
+      final committed = (await authority.commit(request, token, 1001))!;
+      final journal = IsolatedTrustReceiptDiskJournal(dir, authority);
+      expect(await journal.recover(request), isNull);
+      final reconciled = await journal.reconcileLostReply(request);
+      expect(reconciled?.signature, committed.signature);
+      expect((await journal.recover(request))?.signature, committed.signature);
+      expect((await IsolatedTrustReceiptDiskJournal(dir, authority)
+          .reconcileLostReply(request))?.signature, committed.signature);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('pending, stale after revoke, and forged cache fail closed',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('synthetic-trust-');
+    try {
+      final authority = FakeIsolatedTrustService(List<int>.filled(32, 34));
+      final journal = IsolatedTrustReceiptDiskJournal(dir, authority);
+      final token = (await authority.reserve(request, 1000))!;
+      expect(await journal.reconcileLostReply(request), isNull);
+      final receipt = (await authority.commit(request, token, 1001))!;
+      expect(await journal.record(request, receipt), isTrue);
+      const revoke = IsolatedTrustRequest(
+        namespace: 'synthetic-pseudonym',
+        nonce: 'nonce-revoke',
+        idempotencyKey: 'operation-revoke',
+        expectedRevision: 1,
+        expiresAtEpochMs: 3000,
+        operation: 'revoke',
+      );
+      final revokeToken = (await authority.reserve(revoke, 1002))!;
+      expect(await authority.commit(revoke, revokeToken, 1003), isNotNull);
+      // The old receipt still has a valid MAC and is on disk, but cannot
+      // authorize a claim after a terminal revoke.
+      expect(await journal.recover(request), isNotNull);
+      expect(await journal.reconcileLostReply(request), isNull);
+      expect(await journal.reconcileLostReply(revoke), isNotNull);
+      expect(await journal.reconcileLostReply(
+        const IsolatedTrustRequest(
+          namespace: 'other-pseudonym',
+          nonce: 'nonce-a',
+          idempotencyKey: 'operation-a',
+          expectedRevision: 0,
+          expiresAtEpochMs: 2000,
+          operation: 'claim',
+        )), isNull);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
 }
