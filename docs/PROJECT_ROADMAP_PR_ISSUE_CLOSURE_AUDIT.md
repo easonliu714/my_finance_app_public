@@ -3267,3 +3267,7 @@ V25-G-52 (2026-11-17): Debug-only remote PlatformLeaseProbeService now supports 
 
 ### 2026-11-23 V25-Q #52 synthetic signed receipt request binding (Writer)
 - Added FakeIsolatedTrustService.verifyBoundReceipt: verify synthetic MAC AND exact namespace, nonce, idempotency key, operation and monotonic revision against expected request; negative tests reject a valid receipt borrowed from another request/namespace and forged signature. This closes a synthetic receipt-confusion gap only. No durable journal, cross-PID authority, live provider, production SQLite or signer; canActivateProduction=false. Exact-head Flutter CI required; Signed/Owner Device/Merge HOLD.
+
+
+### 2026-11-24 V25-R #52 synthetic lost-reply receipt disk journal (Writer)
+- Added isolated test-only file-backed signed receipt cache with namespace/idempotency tuple-derived hashed filenames, exclusive lock, temporary-write rename, exact bound-receipt verification, and fail-closed missing/corrupt/conflicting record recovery. Positive/negative temp-directory restart and tamper tests. This is NOT durable external authority, fsync-guaranteed persistence, cross-PID ACID, or production rollback prevention; crash between remote commit and local cache still requires authoritative remote reconcile. No live endpoint or owner data; canActivateProduction=false. Exact-head CI pending.
