@@ -37,6 +37,16 @@ internal object PdfiumCandidateCoverageSearch {
       return tokens
     }
 
+    // Binary pivots and their adjacent/boundary probes are positive hints only.
+    // Unreadable speculative pages cannot suppress a later actual positive,
+    // but native failures other than extraction-unreadable must propagate.
+    fun binaryHint(page: Int, index: Int): List<String>? = try {
+      read(page, index, false)
+    } catch (error: IllegalStateException) {
+      if (error.message != "PDFIUM_COVERAGE_PAGE_UNREADABLE_HOLD") throw error
+      null
+    }
+
     val matched = linkedMapOf<String, Int>()
     candidates.forEachIndexed { index, candidate ->
       var low = 1
@@ -49,10 +59,8 @@ internal object PdfiumCandidateCoverageSearch {
         // A blank/unextractable pivot must not prevent a real positive on an
         // earlier page from being established by the global fallback. The
         // fallback still fails closed on unreadable pages before any proof.
-        val tokens = try {
-          read(middle, index + 1, false)
-        } catch (error: IllegalStateException) {
-          if (error.message != "PDFIUM_COVERAGE_PAGE_UNREADABLE_HOLD") throw error
+        val tokens = binaryHint(middle, index + 1)
+        if (tokens == null) {
           unreadablePivot = true
           break
         }
@@ -67,7 +75,7 @@ internal object PdfiumCandidateCoverageSearch {
               listOf(middle - 1, middle + 1)
                 .filter { it in 1..pageCount }
                 .forEach { neighbor ->
-                  if (!found && candidate in read(neighbor, index + 1, false)) {
+                  if (!found && binaryHint(neighbor, index + 1)?.contains(candidate) == true) {
                     matched[candidate] = neighbor
                     found = true
                   }
@@ -79,7 +87,7 @@ internal object PdfiumCandidateCoverageSearch {
       }
       if (!found && !unreadablePivot && low > high) {
         setOf(low, high).filter { it in 1..pageCount }.forEach { boundary ->
-          if (!found && candidate in read(boundary, index + 1, false)) {
+          if (!found && binaryHint(boundary, index + 1)?.contains(candidate) == true) {
             matched[candidate] = boundary
             found = true
           }
