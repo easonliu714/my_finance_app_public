@@ -95,5 +95,35 @@ class InvoiceAwardSqliteRevisionFloorCandidate
     }
   }
 
+  /// V25-L: isolated laboratory experiment only. A read/recheck pair cannot
+  /// fence an independent claim/revoke between the last read and ledger commit.
+  /// Hold an exclusive SQLite transaction on the SAME floor file throughout a
+  /// disposable full-restore callback. Cooperating floor CAS writers cannot
+  /// advance until that callback has committed or rolled back.
+  ///
+  /// This is neither anti-rollback custody nor independent authentication,
+  /// and cannot authorize production restore, consent or posting. The callback
+  /// MUST NOT call this same Database outside [txn] (sqflite deadlock).
+  Future<T> runIsolatedRestoreUnderFloorFence<T>({
+    required int restoredRevision,
+    required Future<T> Function() restoreAction,
+  }) async {
+    if (restoredRevision < 0) {
+      throw StateError('ISOLATED_RESTORE_REVISION_INVALID');
+    }
+    return _db.transaction<T>((txn) async {
+      if (await _readCandidate(txn) != restoredRevision) {
+        throw StateError('ISOLATED_RESTORE_FLOOR_STALE_HOLD');
+      }
+      final result = await restoreAction();
+      // Even our test-only exclusive transaction must not silently accept a
+      // malformed or missing authority table after the ledger action.
+      if (await _readCandidate(txn) != restoredRevision) {
+        throw StateError('ISOLATED_RESTORE_FLOOR_CHANGED_HOLD');
+      }
+      return result;
+    }, exclusive: true);
+  }
+
   bool canActivateProduction() => false;
 }

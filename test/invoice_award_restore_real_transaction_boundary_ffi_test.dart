@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -63,6 +64,20 @@ class _AdvancingFloorRestore extends _IsolatedBoundaryRestore {
   Future<void> afterManagedRestoreTransaction(DatabaseExecutor txn) async {
     final store = floorStore!;
     expect(await store.compareAndAdvance(80, 81), isTrue);
+  }
+}
+
+// V25-L: block a REAL disposable ledger restore transaction while a
+// separate SQLite floor connection attempts a competing revision CAS.
+class _PausedManagedRestore extends FullRestoreService {
+  _PausedManagedRestore(this.entered, this.release);
+  final Completer<void> entered;
+  final Future<void> release;
+
+  @override
+  Future<void> beforeManagedRestoreTransaction(DatabaseExecutor txn) async {
+    entered.complete();
+    await release;
   }
 }
 
@@ -360,6 +375,78 @@ void main() {
       isFalse,
     );
   });
+  test('V25-L floor-exclusive lease fences REAL restore vs competing CAS',
+      () async {
+    final fixture = await _newFixture();
+    final peer = await openDatabase(fixture.floor.path, singleInstance: false);
+    addTearDown(peer.close);
+    // A blocked independent connection must fail closed promptly, not make
+    // the test pass after the restore has already released its floor lock.
+    await peer.execute('PRAGMA busy_timeout = 0');
+    final gate = InvoiceAwardSqliteRevisionFloorCandidate.forIsolatedTest(
+      fixture.floor,
+    );
+    final competitor = InvoiceAwardSqliteRevisionFloorCandidate.forIsolatedTest(
+      peer,
+    );
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    final pendingRestore = gate.runIsolatedRestoreUnderFloorFence(
+      restoredRevision: 80,
+      restoreAction: () => _PausedManagedRestore(
+        entered,
+        release.future,
+      ).restoreFromEnvelope(
+        fixture.target,
+        fixture.envelope,
+        confirmationText: FullRestoreService.destructiveConfirmationText,
+      ),
+    );
+    await entered.future;
+    try {
+      // Two different database handles to one on-disk floor: CAS must NOT
+      // advance during a real SQLite ledger restore transaction.
+      expect(await competitor.compareAndAdvance(80, 81), isFalse);
+    } finally {
+      release.complete();
+    }
+    final result = await pendingRestore;
+    expect(result.audit.passed, isTrue);
+    expect((await fixture.target.query('transactions')).single['amount'], 200);
+    expect(await gate.readFloor(), 80);
+    // After the ledger commit the competing CAS can acquire its real lock.
+    expect(await competitor.compareAndAdvance(80, 81), isTrue);
+    expect(await gate.readFloor(), 81);
+    expect(gate.canActivateProduction(), isFalse);
+  });
+
+  test('V25-L stale floor refuses REAL restore before destructive entry',
+      () async {
+    final fixture = await _newFixture();
+    final gate = InvoiceAwardSqliteRevisionFloorCandidate.forIsolatedTest(
+      fixture.floor,
+    );
+    var entered = false;
+    await expectLater(
+      gate.runIsolatedRestoreUnderFloorFence(
+        restoredRevision: 79,
+        restoreAction: () async {
+          entered = true;
+          return const FullRestoreService().restoreFromEnvelope(
+            fixture.target,
+            fixture.envelope,
+            confirmationText: FullRestoreService.destructiveConfirmationText,
+          );
+        },
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(entered, isFalse);
+    expect((await fixture.target.query('accounts')).single['name'], 'preserved');
+    expect((await fixture.target.query('transactions')).single['amount'], 300);
+    expect(await gate.readFloor(), 80);
+  });
+
   test('V25-K closed independent SQLite custody fails closed on read and CAS',
       () async {
     final fixture = await _newFixture();
