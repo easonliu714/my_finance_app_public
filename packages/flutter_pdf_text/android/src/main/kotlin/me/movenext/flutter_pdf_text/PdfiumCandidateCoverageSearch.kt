@@ -12,7 +12,8 @@ internal object PdfiumCandidateCoverageSearch {
   data class Outcome(
     val matchedPages: Map<String, Int>,
     val unresolved: Set<String>,
-    val fullCoverageScan: Boolean
+    val fullCoverageScan: Boolean,
+    val positiveFallbackUsed: Boolean = false
   )
 
   private val full10 = Regex("[A-Z]{2}[0-9]{8}")
@@ -85,7 +86,13 @@ internal object PdfiumCandidateCoverageSearch {
       for (token in tokens) {
         if (unresolved.remove(token)) matched[token] = page
       }
+      // Once every requested token is positively established, reading the
+      // unrelated tail risks native OOM/page errors without adding authority.
+      // A truncated positive fallback must NOT report full page coverage.
+      if (unresolved.isEmpty()) {
+        return Outcome(matched, emptySet(), page == pageCount, true)
+      }
     }
-    return Outcome(matched, unresolved, true)
+    return Outcome(matched, unresolved, true, true)
   }
 }

@@ -20,6 +20,7 @@ class PdfiumCandidateCoverageSearchTest {
       pages[page - 1]
     }
     assertTrue(result.fullCoverageScan)
+    assertTrue(result.positiveFallbackUsed)
     assertEquals(listOf(1, 2, 3), scanned)
     assertEquals(3, result.matchedPages[later])
     assertTrue(result.unresolved.isEmpty())
@@ -35,7 +36,26 @@ class PdfiumCandidateCoverageSearchTest {
     }
     assertEquals(2, result.matchedPages[pivot])
     assertFalse(result.fullCoverageScan)
+    assertFalse(result.positiveFallbackUsed)
     assertEquals(0, fullReads)
+    assertTrue(result.unresolved.isEmpty())
+  }
+
+  @Test fun positiveFallbackStopsBeforeUnrelatedUnreadablePages() {
+    val pages = listOf(
+      listOf(first), listOf(pivot), listOf(later), listOf(pivot),
+      emptyList(), listOf(pivot), listOf(pivot)
+    )
+    val visitedInFallback = mutableListOf<Int>()
+    val result = PdfiumCandidateCoverageSearch.search(listOf(later), pages.size) {
+        page, _, full ->
+      if (full) visitedInFallback.add(page)
+      pages[page - 1]
+    }
+    assertEquals(3, result.matchedPages[later])
+    assertEquals(listOf(1, 2, 3), visitedInFallback)
+    assertTrue(result.positiveFallbackUsed)
+    assertFalse(result.fullCoverageScan)
     assertTrue(result.unresolved.isEmpty())
   }
 

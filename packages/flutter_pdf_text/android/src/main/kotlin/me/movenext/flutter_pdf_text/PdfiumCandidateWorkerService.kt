@@ -361,6 +361,7 @@ class PdfiumCandidateWorkerService : Service() {
           .put("page_count", pageCount)
           .put("pages_read", pagesRead.size)
           .put("full_coverage_scan", search.fullCoverageScan)
+          .put("positive_fallback_used", search.positiveFallbackUsed)
           .put("negative_authority", "HOLD")
           .put("candidate_count", candidates.size)
           .put("source_sha256", actualSourceSha256)
