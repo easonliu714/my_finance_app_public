@@ -117,6 +117,42 @@ class PdfiumCandidateCoverageSearchTest {
     assertTrue(rejected)
   }
 
+  @Test fun unreadableBinaryPivotFallsBackToEarlierVerifiedPositive() {
+    // Page 4 is an unrelated blank pivot; page 1 is an actual positive.
+    // A binary pivot failure alone must not suppress that positive proof.
+    val pages = listOf(listOf(later), listOf(first), listOf(first), emptyList(),
+      listOf(first), listOf(first), listOf(first))
+    val fallbackPages = mutableListOf<Int>()
+    val result = PdfiumCandidateCoverageSearch.search(listOf(later), pages.size) {
+        page, _, full ->
+      if (full) fallbackPages.add(page)
+      pages[page - 1]
+    }
+    assertEquals(1, result.matchedPages[later])
+    assertEquals(listOf(1), fallbackPages)
+    assertTrue(result.positiveFallbackUsed)
+    assertFalse(result.fullCoverageScan)
+    assertTrue(result.unresolved.isEmpty())
+  }
+
+  @Test fun unreadableBinaryPivotNeverCertifiesUnresolvedNegative() {
+    val pages = listOf(listOf(first), listOf(first), listOf(first), emptyList(),
+      listOf(first), listOf(first), listOf(first))
+    val fallbackPages = mutableListOf<Int>()
+    var rejected = false
+    try {
+      PdfiumCandidateCoverageSearch.search(listOf(later), pages.size) {
+          page, _, full ->
+        if (full) fallbackPages.add(page)
+        pages[page - 1]
+      }
+    } catch (error: IllegalStateException) {
+      rejected = error.message == "PDFIUM_COVERAGE_PAGE_UNREADABLE_HOLD"
+    }
+    assertTrue(rejected)
+    assertEquals(listOf(1, 2, 3, 4), fallbackPages)
+  }
+
   @Test fun malformedCandidateUniverseRejectedBeforeNativeRead() {
     var called = false
     var rejected = false

@@ -42,9 +42,20 @@ internal object PdfiumCandidateCoverageSearch {
       var low = 1
       var high = pageCount
       var found = false
+      var unreadablePivot = false
       while (low <= high) {
         val middle = low + ((high - low) ushr 1)
-        val tokens = read(middle, index + 1, false)
+        // A binary pivot is an optimization, never a negative authority.
+        // A blank/unextractable pivot must not prevent a real positive on an
+        // earlier page from being established by the global fallback. The
+        // fallback still fails closed on unreadable pages before any proof.
+        val tokens = try {
+          read(middle, index + 1, false)
+        } catch (error: IllegalStateException) {
+          if (error.message != "PDFIUM_COVERAGE_PAGE_UNREADABLE_HOLD") throw error
+          unreadablePivot = true
+          break
+        }
         when {
           candidate < tokens.first() -> high = middle - 1
           candidate > tokens.last() -> low = middle + 1
@@ -66,7 +77,7 @@ internal object PdfiumCandidateCoverageSearch {
           }
         }
       }
-      if (!found && low > high) {
+      if (!found && !unreadablePivot && low > high) {
         setOf(low, high).filter { it in 1..pageCount }.forEach { boundary ->
           if (!found && candidate in read(boundary, index + 1, false)) {
             matched[candidate] = boundary
