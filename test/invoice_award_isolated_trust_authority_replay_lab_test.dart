@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -49,6 +50,31 @@ void main() {
       expect(restarted.reconcileCurrent(claim), isNull);
       expect(restarted.reconcileCurrent(revoke), isNotNull);
       expect(await restarted.commit(claim, 1002), isNull);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('replay rejects tampered timestamp while preserving valid signed receipt',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('authority-replay-');
+    try {
+      final file = File('${dir.path}/authority.json');
+      final key = List<int>.filled(32, 48);
+      final writer = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await writer.initializeEmptyFixture(), isTrue);
+      final receipt = await writer.commit(claim, 1000);
+      expect(receipt, isNotNull);
+      final valid = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await valid.recover(), isTrue);
+      expect(valid.reconcileCurrent(claim)?.signature, receipt!.signature);
+      final events = jsonDecode(await file.readAsString()) as List<dynamic>;
+      (events.first as Map<String, dynamic>)['committedAt'] = 'not-an-int';
+      await file.writeAsString(jsonEncode(events), flush: true);
+      final corrupted = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await corrupted.recover(), isFalse);
+      expect(corrupted.reconcileCurrent(claim), isNull);
+      expect(await corrupted.commit(revoke, 1001), isNull);
     } finally {
       await dir.delete(recursive: true);
     }

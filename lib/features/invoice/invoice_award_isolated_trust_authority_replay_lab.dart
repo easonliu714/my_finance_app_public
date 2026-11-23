@@ -34,7 +34,9 @@ class IsolatedTrustAuthorityReplayLab {
         final payload = event['payload'];
         final committedAt = event['committedAt'];
         if (canonical is! String || signature is! String ||
-            payload is! String || committedAt is! int) return false;
+            payload is! String || committedAt is! int) {
+          return false;
+        }
         final data = jsonDecode(canonical);
         if (data is! Map<String, dynamic>) return false;
         final request = IsolatedTrustRequest(

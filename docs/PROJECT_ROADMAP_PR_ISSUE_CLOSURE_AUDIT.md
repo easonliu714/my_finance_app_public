@@ -3279,3 +3279,8 @@ V25-G-52 (2026-11-17): Debug-only remote PlatformLeaseProbeService now supports 
 
 ### 2026-11-24 V25-T #52 synthetic authority replay checkpoint (Writer)
 - Added test-only locked synthetic signed-commit transcript replay and restart recovery with idempotency, terminal revoke, wrong-key/corruption fail-closed tests. No external anchor, rollback resistance, fsync durability, real provider or production activation; pending/crash-before-checkpoint remains unknown. canActivateProduction=false. New exact-head CI required.
+
+
+### 2026-11-24 V25-U exact-head Analyze repair (synthetic only)
+- Parent 76065fc0725a01f37a4387bbc1d7fb7f227fc8bb; CI 45257652193 Analyze job 137983586348 flagged `curly_braces_in_flow_control_structures` at authority replay lab line 37.
+- Source: add braces to malformed checkpoint rejection; test: valid signed replay versus tampered timestamp fail-closed. No live authority, production data, signer, or rollback guarantee. `canActivateProduction=false`. Tests/CI pending exact new head.
