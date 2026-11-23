@@ -127,7 +127,17 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
       'operation': request.operation,
       'revision': next,
     });
-    final receipt = IsolatedTrustReceipt(payload, await _sign(payload));
+    final signature = await _sign(payload);
+    // The asynchronous signer yields to competing commits. Recheck the
+    // reservation and revision AFTER signing so only one caller can cross
+    // the commit linearization point, including a concurrent revoke.
+    if (_pending[request.namespace] != reservation ||
+        request.expectedRevision != revision(request.namespace) ||
+        (_revoked.contains(request.namespace) && request.operation != 'revoke') ||
+        request.expiresAtEpochMs <= nowEpochMs) {
+      return null;
+    }
+    final receipt = IsolatedTrustReceipt(payload, signature);
     _revisions[request.namespace] = next;
     if (request.operation == 'revoke') _revoked.add(request.namespace);
     _committed['${request.namespace}:${request.idempotencyKey}'] = receipt;

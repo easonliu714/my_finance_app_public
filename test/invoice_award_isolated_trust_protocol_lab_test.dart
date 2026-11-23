@@ -88,6 +88,34 @@ void main() {
     expect(service.reconcile(blocked.namespace, blocked.idempotencyKey), isNull);
   });
 
+  test('concurrent commits of one reservation produce exactly one receipt', () async {
+    final service = FakeIsolatedTrustService(List<int>.filled(32, 13));
+    final claim = request();
+    final token = (await service.reserve(claim, 1000))!;
+    final results = await Future.wait(<Future<IsolatedTrustReceipt?>>[
+      service.commit(claim, token, 1001),
+      service.commit(claim, token, 1001),
+    ]);
+    expect(results.where((receipt) => receipt != null).length, 1);
+    expect(service.revision(claim.namespace), 1);
+    expect(service.reconcile(claim.namespace, claim.idempotencyKey), isNotNull);
+    expect(await service.commit(claim, token, 1002), isNull);
+  });
+
+  test('concurrent stale claim cannot produce a second signed receipt', () async {
+    final service = FakeIsolatedTrustService(List<int>.filled(32, 14));
+    final claim = request();
+    final token = (await service.reserve(claim, 1000))!;
+    final outcomes = await Future.wait(<Future<IsolatedTrustReceipt?>>[
+      service.commit(claim, token, 1001),
+      service.commit(claim, token, 1001),
+      service.commit(claim, token, 1001),
+    ]);
+    expect(outcomes.where((receipt) => receipt != null).length, 1);
+    expect(service.revision(claim.namespace), 1);
+    expect(await service.reserve(request(nonce: 'stale', key: 'stale'), 1002), isNull);
+  });
+
   test('altered receipt signature is rejected', () async {
     final service = FakeIsolatedTrustService(List<int>.filled(32, 10));
     final first = request();
