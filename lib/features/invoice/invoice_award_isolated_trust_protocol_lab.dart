@@ -74,6 +74,11 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
     return difference == 0;
   }
 
+  // A delimiter-joined key is ambiguous when either component contains ':';
+  // use an unambiguous two-element JSON tuple for namespace-scoped indexes.
+  static String _scopedKey(String namespace, String value) =>
+      jsonEncode(<String>[namespace, value]);
+
   int revision(String namespace) => _revisions[namespace] ?? 0;
 
   /// Reservation is not authorization to mutate a local ledger.
@@ -87,7 +92,7 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
         !<String>{'claim', 'restore', 'revoke'}.contains(request.operation)) {
       return null;
     }
-    final key = '${request.namespace}:${request.idempotencyKey}';
+    final key = _scopedKey(request.namespace, request.idempotencyKey);
     if (_committed.containsKey(key)) return null;
     if (_revoked.contains(request.namespace) && request.operation != 'revoke') {
       return null;
@@ -97,7 +102,7 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
     // reservation is never a commit authority, including after retry.
     final pending = _pending[request.namespace];
     if (pending != null && request.operation != 'revoke') return null;
-    final nonceKey = '${request.namespace}:${request.nonce}';
+    final nonceKey = _scopedKey(request.namespace, request.nonce);
     if (_nonces.contains(nonceKey)) return null;
     _nonces.add(nonceKey);
     final reservation = request.canonical();
@@ -140,7 +145,7 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
     final receipt = IsolatedTrustReceipt(payload, signature);
     _revisions[request.namespace] = next;
     if (request.operation == 'revoke') _revoked.add(request.namespace);
-    _committed['${request.namespace}:${request.idempotencyKey}'] = receipt;
+    _committed[_scopedKey(request.namespace, request.idempotencyKey)] = receipt;
     _pending.remove(request.namespace);
     return receipt;
   }
@@ -148,7 +153,7 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
   /// Reconcile is read-only and returns only a committed signed receipt.
   /// Never infer success from a reservation or a network timeout.
   IsolatedTrustReceipt? reconcile(String namespace, String idempotencyKey) =>
-      _committed['$namespace:$idempotencyKey'];
+      _committed[_scopedKey(namespace, idempotencyKey)];
 
   bool canActivateProduction() => false;
 }

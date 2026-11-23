@@ -116,6 +116,73 @@ void main() {
     expect(await service.reserve(request(nonce: 'stale', key: 'stale'), 1002), isNull);
   });
 
+  test('delimiter collision cannot expose another namespace receipt', () async {
+    final service = FakeIsolatedTrustService(List<int>.filled(32, 15));
+    final first = IsolatedTrustRequest(
+      namespace: 'device:account',
+      nonce: 'first-nonce',
+      idempotencyKey: 'claim',
+      expectedRevision: 0,
+      expiresAtEpochMs: 2000,
+      operation: 'claim',
+    );
+    final token = (await service.reserve(first, 1000))!;
+    final receipt = (await service.commit(first, token, 1001))!;
+    expect(await service.verify(receipt), isTrue);
+    expect(service.reconcile('device:account', 'claim'), same(receipt));
+    // The old "namespace:key" index would return first's receipt here.
+    expect(service.reconcile('device', 'account:claim'), isNull);
+    expect(service.revision('device'), 0);
+    expect(service.revision('device:account'), 1);
+    expect(service.canActivateProduction(), isFalse);
+  });
+
+  test('namespace-scoped nonce tuples do not collide on delimiter', () async {
+    final service = FakeIsolatedTrustService(List<int>.filled(32, 16));
+    final first = IsolatedTrustRequest(
+      namespace: 'device:account',
+      nonce: 'challenge',
+      idempotencyKey: 'operation-one',
+      expectedRevision: 0,
+      expiresAtEpochMs: 2000,
+      operation: 'claim',
+    );
+    final second = IsolatedTrustRequest(
+      namespace: 'device',
+      nonce: 'account:challenge',
+      idempotencyKey: 'operation-two',
+      expectedRevision: 0,
+      expiresAtEpochMs: 2000,
+      operation: 'claim',
+    );
+    final firstToken = await service.reserve(first, 1000);
+    final secondToken = await service.reserve(second, 1000);
+    // Both are independent namespace challenges; old joined keys falsely
+    // treated the second one as a replay of the first.
+    expect(firstToken, isNotNull);
+    expect(secondToken, isNotNull);
+    expect(await service.commit(first, firstToken!, 1001), isNotNull);
+    expect(await service.commit(second, secondToken!, 1001), isNotNull);
+    expect(service.revision(first.namespace), 1);
+    expect(service.revision(second.namespace), 1);
+    expect(service.reconcile(first.namespace, first.idempotencyKey), isNotNull);
+    expect(service.reconcile(second.namespace, second.idempotencyKey), isNotNull);
+    expect(
+      await service.reserve(
+        IsolatedTrustRequest(
+          namespace: second.namespace,
+          nonce: second.nonce,
+          idempotencyKey: 'new-operation',
+          expectedRevision: 1,
+          expiresAtEpochMs: 3000,
+          operation: 'claim',
+        ),
+        1002,
+      ),
+      isNull,
+    );
+  });
+
   test('altered receipt signature is rejected', () async {
     final service = FakeIsolatedTrustService(List<int>.filled(32, 10));
     final first = request();
