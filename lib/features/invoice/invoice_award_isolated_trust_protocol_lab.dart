@@ -133,7 +133,7 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
   /// Reconcile is read-only and returns only a committed signed receipt.
   /// Never infer success from a reservation or a network timeout.
   IsolatedTrustReceipt? reconcile(String namespace, String idempotencyKey) =>
-      _committed['\${namespace}:\${idempotencyKey}'];
+      _committed['${namespace}:${idempotencyKey}'];
 
   bool canActivateProduction() => false;
 }
