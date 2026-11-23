@@ -183,6 +183,42 @@ void main() {
     );
   });
 
+  test('signed receipt is bound to the exact synthetic request', () async {
+    final service = FakeIsolatedTrustService(List<int>.filled(32, 17));
+    final first = request();
+    final token = (await service.reserve(first, 1000))!;
+    final receipt = (await service.commit(first, token, 1001))!;
+    expect(await service.verifyBoundReceipt(receipt, first), isTrue);
+    expect(await service.verifyBoundReceipt(receipt,
+        request(nonce: 'other-nonce')), isFalse);
+    expect(await service.verifyBoundReceipt(receipt,
+        request(key: 'other-key')), isFalse);
+    expect(await service.verifyBoundReceipt(receipt,
+        request(operation: 'restore')), isFalse);
+    expect(await service.verifyBoundReceipt(receipt,
+        request(revision: 1)), isFalse);
+    expect(await service.verifyBoundReceipt(receipt,
+        IsolatedTrustRequest(
+          namespace: 'different-pseudonym',
+          nonce: first.nonce,
+          idempotencyKey: first.idempotencyKey,
+          expectedRevision: first.expectedRevision,
+          expiresAtEpochMs: first.expiresAtEpochMs,
+          operation: first.operation,
+        )), isFalse);
+  });
+
+  test('malformed or forged synthetic receipt fails binding', () async {
+    final service = FakeIsolatedTrustService(List<int>.filled(32, 18));
+    final first = request();
+    expect(await service.verifyBoundReceipt(
+        const IsolatedTrustReceipt('not-json', 'invalid'), first), isFalse);
+    final token = (await service.reserve(first, 1000))!;
+    final receipt = (await service.commit(first, token, 1001))!;
+    expect(await service.verifyBoundReceipt(
+        IsolatedTrustReceipt(receipt.payload, 'forged'), first), isFalse);
+  });
+
   test('altered receipt signature is rejected', () async {
     final service = FakeIsolatedTrustService(List<int>.filled(32, 10));
     final first = request();

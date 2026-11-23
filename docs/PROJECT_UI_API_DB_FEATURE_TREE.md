@@ -3546,3 +3546,7 @@ V25-G-52 (2026-11-17): Debug-only remote PlatformLeaseProbeService now supports 
 
 ### 2026-11-23 V25-O #52 synthetic concurrent commit linearization
 - Fix FakeIsolatedTrustService.commit asynchronous signing race: two callers previously passed pre-sign reservation/revision checks and could both return signed success receipts. Revalidate pending reservation, monotonic revision, revoke state and expiry after await and before synchronous state transition. Positive/negative concurrent Future.wait regression demands exactly one successful commit and rejects stale/replayed claims. Test-only synthetic authority; no durable restart, external provider, production DB, signed or Owner device authorization. canActivateProduction=false; exact-head CI pending.
+
+
+### 2026-11-23 V25-Q #52 synthetic signed receipt request binding (Writer)
+- Added FakeIsolatedTrustService.verifyBoundReceipt: verify synthetic MAC AND exact namespace, nonce, idempotency key, operation and monotonic revision against expected request; negative tests reject a valid receipt borrowed from another request/namespace and forged signature. This closes a synthetic receipt-confusion gap only. No durable journal, cross-PID authority, live provider, production SQLite or signer; canActivateProduction=false. Exact-head Flutter CI required; Signed/Owner Device/Merge HOLD.

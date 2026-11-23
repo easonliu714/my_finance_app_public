@@ -155,5 +155,24 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
   IsolatedTrustReceipt? reconcile(String namespace, String idempotencyKey) =>
       _committed[_scopedKey(namespace, idempotencyKey)];
 
+  /// Synthetic-only receipt binding. A valid MAC from a different namespace
+  /// or operation is not authorization for this request.
+  Future<bool> verifyBoundReceipt(
+      IsolatedTrustReceipt receipt, IsolatedTrustRequest request) async {
+    if (!await verify(receipt)) return false;
+    try {
+      final decoded = jsonDecode(receipt.payload);
+      if (decoded is! Map<String, dynamic>) return false;
+      return decoded['authority'] == 'SYNTHETIC_TEST_ONLY' &&
+          decoded['namespace'] == request.namespace &&
+          decoded['nonce'] == request.nonce &&
+          decoded['idempotencyKey'] == request.idempotencyKey &&
+          decoded['operation'] == request.operation &&
+          decoded['revision'] == request.expectedRevision + 1;
+    } on FormatException {
+      return false;
+    }
+  }
+
   bool canActivateProduction() => false;
 }
