@@ -54,6 +54,40 @@ void main() {
         revision: 1, operation: 'restore'), 1002), isNull);
   });
 
+  test('revoke preempts pending claim and stale claim cannot commit', () async {
+    final service = FakeIsolatedTrustService(List<int>.filled(32, 11));
+    final claim = request();
+    final claimToken = (await service.reserve(claim, 1000))!;
+    final revoke = request(nonce: 'revoke-nonce', key: 'revoke-key',
+        operation: 'revoke');
+    final revokeToken = await service.reserve(revoke, 1001);
+    expect(revokeToken, isNotNull);
+    expect(await service.commit(claim, claimToken, 1002), isNull);
+    final receipt = await service.commit(revoke, revokeToken!, 1003);
+    expect(receipt, isNotNull);
+    expect(await service.verify(receipt!), isTrue);
+    expect(service.revision(claim.namespace), 1);
+    expect(await service.reserve(request(nonce: 'fresh', key: 'fresh',
+        revision: 1), 1004), isNull);
+  });
+
+  test('blocked reservation does not burn nonce and can retry after expiry', () async {
+    final service = FakeIsolatedTrustService(List<int>.filled(32, 12));
+    final first = request();
+    final firstToken = (await service.reserve(first, 1000))!;
+    final blocked = request(nonce: 'retry-nonce', key: 'retry-key');
+    expect(await service.reserve(blocked, 1001), isNull);
+    expect(await service.commit(first, firstToken, 2000), isNull);
+    // Expired pending reservations must be resolved explicitly, not silently
+    // assumed committed; a terminal revoke can still supersede them.
+    final revoke = request(nonce: 'revoke', key: 'revoke',
+        operation: 'revoke', expiry: 3000);
+    final revokeToken = await service.reserve(revoke, 2001);
+    expect(revokeToken, isNotNull);
+    expect(await service.commit(revoke, revokeToken!, 2002), isNotNull);
+    expect(service.reconcile(blocked.namespace, blocked.idempotencyKey), isNull);
+  });
+
   test('altered receipt signature is rejected', () async {
     final service = FakeIsolatedTrustService(List<int>.filled(32, 10));
     final first = request();

@@ -93,8 +93,13 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
       return null;
     }
     if (request.expectedRevision != revision(request.namespace)) return null;
-    if (!_nonces.add('${request.namespace}:${request.nonce}')) return null;
-    if (_pending.containsKey(request.namespace)) return null;
+    // A revoke must supersede an uncommitted claim/restore. A superseded
+    // reservation is never a commit authority, including after retry.
+    final pending = _pending[request.namespace];
+    if (pending != null && request.operation != 'revoke') return null;
+    final nonceKey = '${request.namespace}:${request.nonce}';
+    if (_nonces.contains(nonceKey)) return null;
+    _nonces.add(nonceKey);
     final reservation = request.canonical();
     _pending[request.namespace] = reservation;
     return reservation;
@@ -133,7 +138,7 @@ class FakeIsolatedTrustService implements IsolatedTrustReceiptVerifier {
   /// Reconcile is read-only and returns only a committed signed receipt.
   /// Never infer success from a reservation or a network timeout.
   IsolatedTrustReceipt? reconcile(String namespace, String idempotencyKey) =>
-      _committed['${namespace}:${idempotencyKey}'];
+      _committed['$namespace:$idempotencyKey'];
 
   bool canActivateProduction() => false;
 }
