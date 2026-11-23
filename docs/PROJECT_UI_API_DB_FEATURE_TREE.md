@@ -3514,3 +3514,7 @@ V25-G-52 (2026-11-17): Debug-only remote PlatformLeaseProbeService now supports 
 
 ### 2026-11-19 V25-L-52 isolated SQLite namespace-shadow hardening (candidate, CI pending)
 - `InvoiceAwardSqliteRevisionFloorCandidate` qualifies schema introspection, floor read and CAS update to `main`, preventing a same-connection TEMP table from shadowing the independently stored candidate floor. Added real sqflite FFI negative regression with divergent TEMP/main revisions, rejected spoofed CAS, and verified main-only advancement. This is isolated test authority only, `canActivateProduction=false`; does not authenticate physical custody, permit restore/posting, or prove signed Owner UAT. PR45 exact-head CI/JUnit required; #50 official full10/global negative and main merge remain HOLD.
+
+
+### 2026-11-23 V25-M #52 provider-neutral synthetic trust protocol lab (candidate)
+- Adds isolated in-memory FakeIsolatedTrustService with canonical pseudonymous request, nonce/freshness, monotonic revision, idempotency, synthetic signed receipts, reservation/commit/reconcile, terminal revoke and fail-closed negative tests. No live endpoint, production DB/ledger, personal data, Owner backup or signer access. Synthetic HMAC is NOT production server attestation. Cross-store ACID, crash-persistent recovery, independently authenticated real provider, Android dual-PID and device/signed verification remain HOLD; canActivateProduction=false. Exact-head CI pending. #49 CLOSED, #50 runtime Full10/77k HOLD, PR45 DRAFT/Merge HOLD.
