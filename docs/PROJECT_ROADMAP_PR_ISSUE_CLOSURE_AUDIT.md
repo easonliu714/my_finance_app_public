@@ -3275,3 +3275,7 @@ V25-G-52 (2026-11-17): Debug-only remote PlatformLeaseProbeService now supports 
 
 ### 2026-11-24 V25-S #52 synthetic authoritative lost-reply reconcile (Writer)
 - Fixed Flutter Analyze curly_braces_in_flow_control_structures in receipt journal and added FakeIsolatedTrustService.reconcileCurrent plus IsolatedTrustReceiptDiskJournal.reconcileLostReply. Remote synthetic committed receipt is recovered after a lost reply only if bound signature, current monotonic revision and terminal revoke precedence still hold; cache alone is never authority. Positive/negative tests cover empty-cache lost reply, restart/idempotency, pending refusal, revoked stale receipt refusal and wrong namespace. Test-only fake; no live provider, cross-PID durability, owner data or production activation. canActivateProduction=false; exact-head CI required.
+
+
+### 2026-11-24 V25-T #52 synthetic authority replay checkpoint (Writer)
+- Added test-only locked synthetic signed-commit transcript replay and restart recovery with idempotency, terminal revoke, wrong-key/corruption fail-closed tests. No external anchor, rollback resistance, fsync durability, real provider or production activation; pending/crash-before-checkpoint remains unknown. canActivateProduction=false. New exact-head CI required.
