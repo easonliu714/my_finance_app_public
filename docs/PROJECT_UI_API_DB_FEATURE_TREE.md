@@ -1,4 +1,14 @@
-## CURRENT — 2026-11-23 22:49 Asia/Taipei | #52 V25-P namespace-scoped trust receipt and nonce crosswalk
+## CURRENT — 2026-11-23 22:56 Asia/Taipei | #52 V25-P1 analyzer repair and trust-index crosswalk
+
+**GitHub:** protected main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8`; A PR45 OPEN/DRAFT previous head `ff464f76e111082d0ef2eb1a1fa6adab82e05202`, new test-only analyzer repair commit fast-forward expected-SHA to be read back; B Lab unchanged `a1e7ab3f982b71f5900303ebab5bd736c1bc821b`. No new route, UI widget, real service HTTP endpoint, production SQLite schema, financial posting, backup or consent API changes.
+
+**Existing Source unchanged from V25-P:** `lib/features/invoice/invoice_award_isolated_trust_protocol_lab.dart`, `FakeIsolatedTrustService.reserve/commit/reconcile` use a JSON two-element string tuple via `_scopedKey(namespace,value)` for `_nonces`/`_committed`, closing the delimiter-collision identity bug. Source/test were committed on previous V25-P `ff464f76` and are not re-committed as a new fix here.
+
+**Actual V25-P1 changed file/test:** `test/invoice_award_isolated_trust_protocol_lab_test.dart` V25-P synthetic receipt isolation and nonce anti-replay regression; exact #1540 Analyze job ID137777301242 fails on only three `prefer_const_constructors` issues lines 121/142/150. Replace two `final first = IsolatedTrustRequest` and one `final second = IsolatedTrustRequest` with compile-time `const first/second = IsolatedTrustRequest`. Keep all assert expectations, fake signer, cross-namespace isolation, same-namespace replay negative; no tests omitted. Test-only build repair, not a new external service or production-grade authority. New exact-head CI pending.
+
+**Remaining:** #52 Owner allowed evaluating security-reviewed external antirollback; real provider/trust chain, durable signed receipts, crash/restart/reconcile, two Android PID, scoped device proof, revoke/restore vs ledger atomic recovery HOLD. `canActivateProduction=false`. Previous #1539 Flutter 3/3 PASS old `f8ca6bee`, #1540 failed Analyze on `ff464f76`. B #111 Native synthetic PASS not official dual PDF Android; #49 official source accepted CLOSED, #50 two PDF Full10/77k negative and Owner device HOLD. Trusted Signed versionCode 495 <= installed495 remains FAIL; PR draft and main unchanged. NEXT fixed-head CI first-failure, then durable synthetic restart/reconcile Source+Test gate.
+
+## HISTORICAL — 2026-11-23 22:49 Asia/Taipei | #52 V25-P namespace-scoped trust receipt and nonce crosswalk
 
 **GitHub authority:** main `a8f1ad67671b93d9bbe52d5cf7599e2f308474b8` unchanged; A PR #45 OPEN/DRAFT baseline SHA `f8ca6bee52e900a0040a96d608b195a80cf8390a`; B #50 isolated Lab `a1e7ab3f982b71f5900303ebab5bd736c1bc821b`. New V25-P SHA requires postcommit GitHub readback and exact CI.
 

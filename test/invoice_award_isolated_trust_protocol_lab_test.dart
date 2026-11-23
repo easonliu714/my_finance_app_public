@@ -118,7 +118,7 @@ void main() {
 
   test('delimiter collision cannot expose another namespace receipt', () async {
     final service = FakeIsolatedTrustService(List<int>.filled(32, 15));
-    final first = IsolatedTrustRequest(
+    const first = IsolatedTrustRequest(
       namespace: 'device:account',
       nonce: 'first-nonce',
       idempotencyKey: 'claim',
@@ -139,7 +139,7 @@ void main() {
 
   test('namespace-scoped nonce tuples do not collide on delimiter', () async {
     final service = FakeIsolatedTrustService(List<int>.filled(32, 16));
-    final first = IsolatedTrustRequest(
+    const first = IsolatedTrustRequest(
       namespace: 'device:account',
       nonce: 'challenge',
       idempotencyKey: 'operation-one',
@@ -147,7 +147,7 @@ void main() {
       expiresAtEpochMs: 2000,
       operation: 'claim',
     );
-    final second = IsolatedTrustRequest(
+    const second = IsolatedTrustRequest(
       namespace: 'device',
       nonce: 'account:challenge',
       idempotencyKey: 'operation-two',
