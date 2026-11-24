@@ -70,7 +70,7 @@ class InvoiceAwardPostedLedgerAudit {
         InvoiceAwardPostedLedgerAuditStatus.transactionTypeMismatch,
       );
     }
-    if (ledgerRecord.amount != proposal.grossAmount.toDouble()) {
+    if (ledgerRecord.amount != receipt.actualReceivedAmount.toDouble()) {
       return const InvoiceAwardPostedLedgerAuditResult(
         InvoiceAwardPostedLedgerAuditStatus.amountMismatch,
       );

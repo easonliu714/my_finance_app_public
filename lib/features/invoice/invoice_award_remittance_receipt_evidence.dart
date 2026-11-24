@@ -17,6 +17,7 @@ class InvoiceAwardRemittanceReceiptEvidence {
     required this.receivedAtUtc,
     required this.confirmedAtUtc,
     this.observationRevision,
+    this.confirmedAmount,
   });
 
   static const contractVersion = 'issue13-remittance-observation-v1';
@@ -25,6 +26,12 @@ class InvoiceAwardRemittanceReceiptEvidence {
   final String localAccountId;
   final String prizeTier;
   final int grossAmount;
+  // Null preserves legacy observations; new explicit amounts are local facts.
+  final int? confirmedAmount;
+  int get actualReceivedAmount => confirmedAmount ?? grossAmount;
+
+  static bool isValidReceivedAmount(int amount, int gross) =>
+      amount > 0 && amount <= gross;
   final String officialFingerprint;
   final DateTime receivedAtUtc;
   final DateTime confirmedAtUtc;
@@ -38,6 +45,7 @@ class InvoiceAwardRemittanceReceiptEvidence {
       localAccountId == proposal.localAccountId &&
       prizeTier == proposal.prizeTier &&
       grossAmount == proposal.grossAmount &&
+      isValidReceivedAmount(actualReceivedAmount, grossAmount) &&
       officialFingerprint.toLowerCase() ==
           proposal.officialDatasetFingerprint.toLowerCase() &&
       receivedAtUtc.isUtc &&
@@ -54,6 +62,7 @@ class InvoiceAwardRemittanceReceiptEvidence {
       localAccountId == other.localAccountId &&
       prizeTier == other.prizeTier &&
       grossAmount == other.grossAmount &&
+      confirmedAmount == other.confirmedAmount &&
       officialFingerprint == other.officialFingerprint &&
       receivedAtUtc == other.receivedAtUtc &&
       confirmedAtUtc == other.confirmedAtUtc &&
@@ -66,6 +75,7 @@ class InvoiceAwardRemittanceReceiptEvidence {
         'account': localAccountId,
         'tier': prizeTier,
         'amount': grossAmount,
+        if (confirmedAmount != null) 'confirmed_amount': confirmedAmount!,
         'fingerprint': officialFingerprint,
         'received_utc': receivedAtUtc.toIso8601String(),
         'confirmed_utc': confirmedAtUtc.toIso8601String(),
@@ -78,6 +88,12 @@ class InvoiceAwardRemittanceReceiptEvidence {
       return null;
     }
     final amount = raw['amount'];
+    final actual = raw['confirmed_amount'];
+    if (raw.containsKey('confirmed_amount') &&
+        (actual is! int || amount is! int ||
+            !isValidReceivedAmount(actual, amount))) {
+      return null;
+    }
     final received = DateTime.tryParse(raw['received_utc']?.toString() ?? '');
     final confirmed = DateTime.tryParse(raw['confirmed_utc']?.toString() ?? '');
     final fingerprint = raw['fingerprint']?.toString() ?? '';
@@ -100,6 +116,7 @@ class InvoiceAwardRemittanceReceiptEvidence {
       localAccountId: raw['account']?.toString() ?? '',
       prizeTier: raw['tier']?.toString() ?? '',
       grossAmount: amount,
+      confirmedAmount: actual as int?,
       officialFingerprint: fingerprint,
       receivedAtUtc: received,
       confirmedAtUtc: confirmed,
@@ -238,6 +255,7 @@ class InvoiceAwardRemittanceReceiptRepository {
     required InvoiceAwardPayoutBookkeepingProposal proposal,
     required DateTime receivedAtUtc,
     required DateTime confirmedAtUtc,
+    int? confirmedAmount,
   }) {
     return _serializeMutation<InvoiceAwardRemittanceReceiptEvidence>(() async {
     // Owner option C: block new cloud-500 receipt writes at the repository
@@ -246,7 +264,10 @@ class InvoiceAwardRemittanceReceiptRepository {
     if (proposal.isDeferredCloud500Prize) {
       throw StateError(Cloud500ProductionPolicy.deferredCode);
     }
-    if (!proposal.hasValidProvenance || !receivedAtUtc.isUtc ||
+    if (!proposal.hasValidProvenance ||
+        !InvoiceAwardRemittanceReceiptEvidence.isValidReceivedAmount(
+            confirmedAmount ?? proposal.grossAmount, proposal.grossAmount) ||
+        !receivedAtUtc.isUtc ||
         !confirmedAtUtc.isUtc ||
         receivedAtUtc.isBefore(proposal.externalRemittanceEligibleAt) ||
         receivedAtUtc.isAfter(confirmedAtUtc)) {
@@ -263,6 +284,10 @@ class InvoiceAwardRemittanceReceiptRepository {
         if (!item.matches(proposal)) {
           throw StateError('REMITTANCE_OBSERVATION_IDENTITY_CONFLICT');
         }
+        if (confirmedAmount != null &&
+            item.actualReceivedAmount != confirmedAmount) {
+          throw StateError('REMITTANCE_OBSERVATION_AMOUNT_CONFLICT');
+        }
         return item;
       }
     }
@@ -272,6 +297,7 @@ class InvoiceAwardRemittanceReceiptRepository {
       localAccountId: proposal.localAccountId,
       prizeTier: proposal.prizeTier,
       grossAmount: proposal.grossAmount,
+      confirmedAmount: confirmedAmount,
       officialFingerprint: proposal.officialDatasetFingerprint,
       receivedAtUtc: receivedAtUtc,
       confirmedAtUtc: confirmedAtUtc,

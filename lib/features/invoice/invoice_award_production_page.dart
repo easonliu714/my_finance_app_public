@@ -929,28 +929,59 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       helpText: '選擇銀行實際收到獎金的日期',
     );
     if (chosen == null || !mounted) return;
-    final accepted = await showDialog<bool>(
+    // Confirm the actual local receipt separately from the official prize.
+    var amountText = proposal.grossAmount.toString();
+    final confirmedAmount = await showDialog<int>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('確認銀行已實際收到獎金'),
-        content: Text(
-          '請核對指定帳戶確實收到此筆 NT\$${proposal.grossAmount} 獎金。'
-          '本紀錄只代表你的確認，並非銀行或財政部驗證；'
-          '此次僅記錄收款確認，不會新增交易或修改餘額；正式入帳需要再次明確授權。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('已收到，記錄日期'),
-          ),
-        ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final amount = int.tryParse(amountText);
+          final valid = amount != null &&
+              InvoiceAwardRemittanceReceiptEvidence.isValidReceivedAmount(
+                  amount, proposal.grossAmount);
+          return AlertDialog(
+            title: const Text('確認銀行已實際收到獎金'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('官方獎額 NT\$${proposal.grossAmount}，請確認實際收到的金額。'
+                      '本紀錄並非銀行或財政部驗證；此次不會新增交易或修改餘額。'
+                      '正式入帳需要再次明確授權。'),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const Key('invoice_award_actual_received_amount'),
+                    initialValue: amountText,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      labelText: '實際收到金額（NT\$）',
+                      errorText: valid ? null : '請輸入大於零且不超過官方獎額的整數',
+                    ),
+                    onChanged: (value) =>
+                        setDialogState(() => amountText = value),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: valid
+                    ? () => Navigator.of(dialogContext).pop(amount)
+                    : null,
+                child: const Text('已收到，記錄日期'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    if (accepted != true || !mounted) return;
+    if (confirmedAmount == null || !mounted) return;
     setState(() => _savingReceiptEvidence = true);
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -959,6 +990,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
         proposal: proposal,
         receivedAtUtc: DateTime(chosen.year, chosen.month, chosen.day).toUtc(),
         confirmedAtUtc: _now().toUtc(),
+        confirmedAmount: confirmedAmount,
       );
       if (!mounted) return;
       setState(() => _remittanceEvidence = repository.loadAll());
@@ -1020,7 +1052,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(wasInserted
-            ? '已新增發票兌獎收入 NT\$${proposal.grossAmount}'
+            ? '已新增發票兌獎收入 NT\${receipt.actualReceivedAmount}'
             : '這筆發票兌獎收入已存在，沒有重複入帳'),
       ));
     } catch (error) {
@@ -1369,7 +1401,7 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                                 ? '此筆獎金已存在正式帳本；不可再次新增或撤銷收款依據。'
                                 : _receiptFor(readiness) == null
                                 ? '銀行實際入帳：尚未由你確認。獎金 READY 不代表款項已收到。'
-                                : '銀行實際入帳：已由你確認（不是銀行官方驗證）。'
+                                : '銀行實際入帳：已由你確認 NT\${_receiptFor(readiness)!.actualReceivedAmount}（不是銀行官方驗證）。'
                                   '既有確認不會自動補登；請明確點選新增正式收入。',
                             key: ValueKey<String>(
                               'invoice_award_receipt_status_${readiness.invoiceIdentity}',

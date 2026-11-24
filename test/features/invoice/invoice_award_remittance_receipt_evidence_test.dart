@@ -131,6 +131,45 @@ void main() {
       );
 
 
+  test('actual received amount round-trips without changing official identity',
+      () async {
+    final proposal = candidate();
+    final preferences = await SharedPreferences.getInstance();
+    final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+    final received = DateTime.utc(2026, 10, 7);
+    final confirmed = DateTime.utc(2026, 10, 8);
+    final receipt = await repository.confirmObservedCredit(
+      proposal: proposal,
+      receivedAtUtc: received,
+      confirmedAtUtc: confirmed,
+      confirmedAmount: 180,
+    );
+    expect(receipt.grossAmount, 200);
+    expect(receipt.actualReceivedAmount, 180);
+    expect(receipt.matches(proposal), isTrue);
+    final reloaded = InvoiceAwardRemittanceReceiptRepository(preferences)
+        .readForProposal(proposal)!;
+    expect(reloaded.sameObservationAs(receipt), isTrue);
+    expect(reloaded.actualReceivedAmount, 180);
+    final legacyJson = receipt.toJson()..remove('confirmed_amount');
+    final legacy = InvoiceAwardRemittanceReceiptEvidence.fromJson(legacyJson)!;
+    expect(legacy.actualReceivedAmount, 200);
+    expect(legacy.sameObservationAs(receipt), isFalse);
+    for (final invalid in <Object?>[null, 0, -1, 201, 180.5, '180']) {
+      final json = <String, dynamic>{...receipt.toJson(), 'confirmed_amount': invalid};
+      expect(InvoiceAwardRemittanceReceiptEvidence.fromJson(json), isNull);
+    }
+    for (final invalid in <int>[0, -1, 201, 190]) {
+      await expectLater(repository.confirmObservedCredit(
+        proposal: proposal,
+        receivedAtUtc: received,
+        confirmedAtUtc: confirmed,
+        confirmedAmount: invalid,
+      ), throwsA(isA<StateError>()));
+    }
+    expect(repository.readForProposal(proposal)!.sameObservationAs(receipt), isTrue);
+  });
+
   test('same-isolate concurrent confirms keep one durable revision', () async {
     final proposal = candidate();
     final preferences = _BarrierPreferences(null);

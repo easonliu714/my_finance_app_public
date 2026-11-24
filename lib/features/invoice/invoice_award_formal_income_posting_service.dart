@@ -126,7 +126,8 @@ class InvoiceAwardFormalIncomePostingService {
         final record = TransactionRecord(
           id: stableRecordId(proposal),
           type: TransactionType.income,
-          amount: proposal.grossAmount.toDouble(),
+          // Record the confirmed receipt, not the official gross prize.
+          amount: receipt.actualReceivedAmount.toDouble(),
           category: '發票兌獎',
           occurredAt: receipt.receivedAtUtc.toLocal(),
           accountName: account.displayName,
@@ -137,6 +138,8 @@ class InvoiceAwardFormalIncomePostingService {
               '獎別=${proposal.prizeTier}；'
               '來源SHA256=${proposal.officialDatasetFingerprint}；'
               '候選=${proposal.invoiceIdentity}；'
+              '官方獎額=${proposal.grossAmount}；'
+              '確認實收=${receipt.actualReceivedAmount}；'
               '手動銀行收款確認（非銀行API驗證）',
           currency: CurrencyCode.twd,
           exchangeRateToBase: 1,

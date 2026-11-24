@@ -111,6 +111,7 @@ void main() {
         proposal: general,
         receivedAtUtc: receipt.receivedAtUtc,
         confirmedAtUtc: receipt.confirmedAtUtc,
+        confirmedAmount: 180,
       );
       var authorized = true;
       var started = 0;
@@ -151,6 +152,8 @@ void main() {
       await tester.tap(find.byKey(const Key('launch_formal_post')));
       await tester.pumpAndSettle();
       expect(find.text('確認新增正式發票兌獎收入'), findsOneWidget);
+      expect(find.textContaining('實際收到 NT\$180'), findsOneWidget);
+      expect(find.textContaining('官方獎額為 NT\$200'), findsOneWidget);
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
       expect(await pending, isNull);
@@ -203,6 +206,7 @@ void main() {
         proposal: general,
         receivedAtUtc: receipt.receivedAtUtc,
         confirmedAtUtc: receipt.confirmedAtUtc,
+        confirmedAmount: 180,
       );
       await tester.tap(find.byKey(const Key('launch_formal_post')));
       await tester.pumpAndSettle();
@@ -221,7 +225,7 @@ void main() {
           initialChanges);
       expect(signals, isEmpty);
 
-      // Only fresh explicit consent for the replacement may post NT$200.
+      // Only fresh explicit consent may post the confirmed NT$180, not NT$200.
       receipt = repository.readForProposal(general)!;
       final receiptBytesAfterReplacement =
           preferences.getString('issue13_remittance_observations_v1');
@@ -235,8 +239,11 @@ void main() {
       expect(signals, hasLength(1));
       final generalId =
           InvoiceAwardFormalIncomePostingService.stableRecordId(general);
-      expect(await db.query('transactions',
-          where: 'id = ?', whereArgs: <Object>[generalId]), hasLength(1));
+      final posted = await db.query('transactions',
+          where: 'id = ?', whereArgs: <Object>[generalId]);
+      expect(posted, hasLength(1));
+      expect(posted.single['amount'], 180.0);
+      expect(posted.single['note'], contains('官方獎額=200；確認實收=180；'));
 
       // Repeated explicit UI confirmation is still idempotent.
       await tester.tap(find.byKey(const Key('launch_formal_post')));

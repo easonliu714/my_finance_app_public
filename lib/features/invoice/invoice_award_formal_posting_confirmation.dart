@@ -37,7 +37,8 @@ class InvoiceAwardFormalPostingConfirmation {
       builder: (dialogContext) => AlertDialog(
         title: const Text('確認新增正式發票兌獎收入'),
         content: Text(
-          '你已確認指定銀行帳戶實際收到 NT\$${proposal.grossAmount}。'
+          '你已確認指定銀行帳戶實際收到 NT\${receipt.actualReceivedAmount}。'
+          '官方獎額為 NT\${proposal.grossAmount}。'
           '按下新增後，將在日常帳本建立正式收入並影響該帳戶餘額。'
           '這是新的、明確的記帳授權；歷史版本的收款測試紀錄'
           '不會自動補登。',

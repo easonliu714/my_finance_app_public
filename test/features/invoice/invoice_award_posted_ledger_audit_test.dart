@@ -164,6 +164,24 @@ void main() {
     );
   });
 
+  test('audit compares actual confirmed receipt, not official gross', () {
+    final actual = InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: receipt.proposalKey,
+      awardPeriodId: receipt.awardPeriodId,
+      localAccountId: receipt.localAccountId,
+      prizeTier: receipt.prizeTier,
+      grossAmount: receipt.grossAmount,
+      officialFingerprint: receipt.officialFingerprint,
+      receivedAtUtc: credited,
+      confirmedAtUtc: confirmed,
+      confirmedAmount: 450,
+    );
+    expect(status(posted().copyWith(amount: 450), evidence: actual),
+        InvoiceAwardPostedLedgerAuditStatus.postedLocalOnly);
+    expect(status(posted(), evidence: actual),
+        InvoiceAwardPostedLedgerAuditStatus.amountMismatch);
+  });
+
   test('receipt date mismatch remains evidence, never a ledger edit', () {
     expect(
       status(posted().copyWith(occurredAt: DateTime.utc(2026, 10, 10))),
