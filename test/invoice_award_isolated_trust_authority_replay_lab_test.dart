@@ -284,9 +284,10 @@ class _TrackingFixtureLock implements RandomAccessFile {
 }
 
 class _RecoveryProbeLab extends IsolatedTrustAuthorityReplayLab {
-  _RecoveryProbeLab(File file, List<int> key, this.events,
+  // Forward the fixture file and key without changing lock-test behavior.
+  _RecoveryProbeLab(super.file, super.syntheticKey, this.events,
       {this.failRecovery = false})
-      : super(file, key, fixtureLockOpener: (lock) async =>
+      : super(fixtureLockOpener: (lock) async =>
             _TrackingFixtureLock(await lock.open(mode: FileMode.append), events));
 
   final List<String> events;
