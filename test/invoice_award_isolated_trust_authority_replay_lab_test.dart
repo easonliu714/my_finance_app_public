@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -146,4 +147,162 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+
+  test('fixture recovery completes before exclusive lock release', () async {
+    final dir = await Directory.systemTemp.createTemp('authority-lock-life-');
+    try {
+      final file = File('${dir.path}/authority.json');
+      final key = List<int>.filled(32, 53);
+      final events = <String>[];
+      final lab = _RecoveryProbeLab(file, key, events);
+      final initialization = lab.initializeEmptyFixture();
+      await lab.entered.future;
+      expect(events, ['lock']);
+      lab.proceed.complete();
+      expect(await initialization, isTrue);
+      expect(events, ['lock', 'recover', 'unlock', 'close']);
+      expect(lab.authority, isNotNull);
+      final writer = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await writer.commit(claim, 1000), isNotNull);
+      expect(writer.reconcileCurrent(claim), isNotNull);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('recovery I/O failure invalidates authority and releases fixture lock',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('authority-lock-fail-');
+    try {
+      final file = File('${dir.path}/authority.json');
+      final key = List<int>.filled(32, 54);
+      final events = <String>[];
+      final lab = _RecoveryProbeLab(file, key, events, failRecovery: true);
+      final initialization = lab.initializeEmptyFixture();
+      await lab.entered.future;
+      expect(events, ['lock']);
+      lab.proceed.complete();
+      expect(await initialization, isFalse);
+      expect(events, ['lock', 'recover', 'unlock', 'close']);
+      expect(lab.authority, isNull);
+      expect(lab.reconcileCurrent(claim), isNull);
+      // Recovery failed after publication; do not reset the checkpoint.
+      expect(await file.readAsString(), '[]');
+      final retry = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await retry.initializeEmptyFixture(), isFalse);
+      expect(await retry.commit(claim, 1000), isNotNull);
+      expect(await retry.commit(revoke, 1001), isNotNull);
+      expect(retry.reconcileCurrent(claim), isNull);
+      expect(retry.reconcileCurrent(revoke), isNotNull);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('lock acquisition failure closes handle and permits legal retry',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('authority-lock-deny-');
+    try {
+      final file = File('${dir.path}/authority.json');
+      final key = List<int>.filled(32, 55);
+      final events = <String>[];
+      final lab = IsolatedTrustAuthorityReplayLab(
+        file, key,
+        fixtureLockOpener: (lock) async => _TrackingFixtureLock(
+          await lock.open(mode: FileMode.append), events, failLock: true,
+        ),
+      );
+      expect(await lab.initializeEmptyFixture(), isFalse);
+      expect(events, ['lock', 'close']);
+      expect(lab.authority, isNull);
+      expect(await file.exists(), isFalse);
+      final retry = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await retry.initializeEmptyFixture(), isTrue);
+      expect(await retry.commit(claim, 1000), isNotNull);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('lock open I/O failure stays closed without publishing checkpoint',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('authority-open-deny-');
+    try {
+      final file = File('${dir.path}/authority.json');
+      final key = List<int>.filled(32, 56);
+      final lockDirectory = Directory('${file.path}.lock');
+      await lockDirectory.create();
+      final lab = IsolatedTrustAuthorityReplayLab(file, key);
+      expect(await lab.initializeEmptyFixture(), isFalse);
+      expect(lab.authority, isNull);
+      expect(await file.exists(), isFalse);
+      await lockDirectory.delete();
+      expect(await lab.initializeEmptyFixture(), isTrue);
+      expect(await lab.commit(claim, 1000), isNotNull);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+}
+
+
+// Real file handle with deterministic lifecycle observations; no remote trust.
+class _TrackingFixtureLock implements RandomAccessFile {
+  _TrackingFixtureLock(this.delegate, this.events, {this.failLock = false});
+
+  final RandomAccessFile delegate;
+  final List<String> events;
+  final bool failLock;
+
+  @override
+  Future<RandomAccessFile> lock([
+    FileLock mode = FileLock.exclusive, int start = 0, int end = -1,
+  ]) async {
+    events.add('lock');
+    if (failLock) {
+      throw const FileSystemException('synthetic lock acquisition failure');
+    }
+    await delegate.lock(mode, start, end);
+    return this;
+  }
+
+  @override
+  Future<RandomAccessFile> unlock([int start = 0, int end = -1]) async {
+    events.add('unlock');
+    await delegate.unlock(start, end);
+    return this;
+  }
+
+  @override
+  Future<void> close() async {
+    events.add('close');
+    await delegate.close();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _RecoveryProbeLab extends IsolatedTrustAuthorityReplayLab {
+  _RecoveryProbeLab(File file, List<int> key, this.events,
+      {this.failRecovery = false})
+      : super(file, key, fixtureLockOpener: (lock) async =>
+            _TrackingFixtureLock(await lock.open(mode: FileMode.append), events));
+
+  final List<String> events;
+  final bool failRecovery;
+  final entered = Completer<void>();
+  final proceed = Completer<void>();
+
+  @override
+  Future<bool> recover() async {
+    entered.complete();
+    await proceed.future;
+    final recovered = await super.recover();
+    events.add('recover');
+    if (failRecovery) {
+      throw const FileSystemException('synthetic recovery failure');
+    }
+    return recovered;
+  }
 }

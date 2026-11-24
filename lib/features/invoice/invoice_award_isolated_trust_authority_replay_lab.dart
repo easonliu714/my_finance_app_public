@@ -7,7 +7,14 @@ import 'invoice_award_isolated_trust_protocol_lab.dart';
 /// deletion/rollback of this file cannot be detected without a remote anchor.
 /// Only completed operations are replayed; pending operations fail closed.
 class IsolatedTrustAuthorityReplayLab {
-  IsolatedTrustAuthorityReplayLab(this.file, this.syntheticKey);
+  IsolatedTrustAuthorityReplayLab(
+    this.file,
+    this.syntheticKey, {
+    Future<RandomAccessFile> Function(File)? fixtureLockOpener,
+  }) : _fixtureLockOpener = fixtureLockOpener;
+
+  // Synthetic-only seam for deterministic lock lifecycle regression tests.
+  final Future<RandomAccessFile> Function(File)? _fixtureLockOpener;
 
   final File file;
   final List<int> syntheticKey;
@@ -71,26 +78,54 @@ class IsolatedTrustAuthorityReplayLab {
 
   /// A synthetic fixture creator; NEVER use as an automatic recovery fallback.
   Future<bool> initializeEmptyFixture() async {
-    // Use the same OS lock as commit: an unlocked existence check can
-    // overwrite a committed checkpoint during concurrent fixture creation.
-    await file.parent.create(recursive: true);
-    final lock = File('${file.path}.lock');
-    final handle = await lock.open(mode: FileMode.append);
+    RandomAccessFile? handle;
+    var locked = false;
+    var recovered = false;
+    // Fail closed on any unsuccessful initialization, including lock-open I/O.
+    _authority = null;
+    _invalid = true;
     try {
+      await file.parent.create(recursive: true);
+      final lock = File('${file.path}.lock');
+      final opener = _fixtureLockOpener;
+      handle = opener == null
+          ? await lock.open(mode: FileMode.append)
+          : await opener(lock);
       await handle.lock(FileLock.exclusive);
+      locked = true;
       // Recheck only after taking the cross-process lock.
-      if (await file.exists()) return false;
-      final temp = File('${file.path}.init.tmp');
-      await temp.writeAsString('[]', flush: true);
-      await temp.rename(file.path);
-      return recover();
+      if (!await file.exists()) {
+        final temp = File('${file.path}.init.tmp');
+        await temp.writeAsString('[]', flush: true);
+        await temp.rename(file.path);
+        // Await recovery while retaining exclusive custody.
+        recovered = await recover();
+      }
     } on FileSystemException {
-      _invalid = true;
-      return false;
+      recovered = false;
     } finally {
-      await handle.unlock();
-      await handle.close();
+      if (handle != null) {
+        try {
+          if (locked) {
+            await handle.unlock();
+          }
+        } on FileSystemException {
+          recovered = false;
+        } finally {
+          // Even failed lock acquisition or unlock must close the handle.
+          try {
+            await handle.close();
+          } on FileSystemException {
+            recovered = false;
+          }
+        }
+      }
+      if (!recovered) {
+        _authority = null;
+        _invalid = true;
+      }
     }
+    return recovered;
   }
 
   /// Replays only fully signed commits. A crash before checkpoint publication
