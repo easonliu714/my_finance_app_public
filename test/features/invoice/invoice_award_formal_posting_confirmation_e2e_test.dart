@@ -44,6 +44,7 @@ void main() {
       of: field,
       matching: find.byType(EditableText),
     );
+    expect(find.textContaining('官方獎額 NT\$200'), findsOneWidget);
     expect(tester.widget<EditableText>(editable).controller.text, '200');
     expect(tester.widget<FilledButton>(approve).onPressed, isNotNull);
     for (final invalid in <String>[

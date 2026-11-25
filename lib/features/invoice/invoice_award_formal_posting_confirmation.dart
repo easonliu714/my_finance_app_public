@@ -104,7 +104,7 @@ Future<int?> requestInvoiceAwardReceivedAmount({
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('官方獎額 NT\$${grossAmount}，請確認實際收到的金額。'
+                Text('官方獎額 NT\$$grossAmount，請確認實際收到的金額。'
                     '本紀錄並非銀行或財政部驗證；此次不會新增交易或修改餘額。'
                     '正式入帳需要再次明確授權。'),
                 const SizedBox(height: 12),
