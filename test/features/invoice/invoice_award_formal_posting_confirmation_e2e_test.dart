@@ -18,6 +18,58 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
+  testWidgets('receipt amount dialog preserves malformed input and blocks approval',
+      (tester) async {
+    Future<int?>? result;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(builder: (context) {
+          return FilledButton(
+            onPressed: () {
+              result = requestInvoiceAwardReceivedAmount(
+                context: context,
+                grossAmount: 200,
+              );
+            },
+            child: const Text('確認實收'),
+          );
+        }),
+      ),
+    ));
+    await tester.tap(find.text('確認實收'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('invoice_award_actual_received_amount'));
+    final approve = find.widgetWithText(FilledButton, '已收到，記錄日期');
+    final editable = find.descendant(
+      of: field,
+      matching: find.byType(EditableText),
+    );
+    expect(tester.widget<EditableText>(editable).controller.text, '200');
+    expect(tester.widget<FilledButton>(approve).onPressed, isNotNull);
+    for (final invalid in <String>[
+      '18.0', '-180', '+180', '1a80', '1,80', ' 180', '180 ',
+      '0xB4', '', '0', '201', '999999999999999999999999999999',
+    ]) {
+      await tester.enterText(field, invalid);
+      await tester.pumpAndSettle();
+      expect(tester.widget<EditableText>(editable).controller.text, invalid);
+      expect(tester.widget<FilledButton>(approve).onPressed, isNull,
+          reason: invalid);
+    }
+    await tester.enterText(field, '180');
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(approve).onPressed, isNotNull);
+    await tester.tap(approve);
+    await tester.pumpAndSettle();
+    expect(await result, 180);
+
+    await tester.tap(find.text('確認實收'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(await result, isNull);
+  });
+
   testWidgets('production confirmation UI -> formal service -> V24 SQLite: '
       'cancel/stale no-write, general posts once, history survives',
       (tester) async {

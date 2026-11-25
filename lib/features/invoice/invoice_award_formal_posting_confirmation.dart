@@ -77,3 +77,65 @@ class InvoiceAwardFormalPostingConfirmation {
     );
   }
 }
+
+/// Collect a user-confirmed receipt amount without changing pasted text.
+/// Returns null on cancel; does not write receipt evidence or the ledger.
+Future<int?> requestInvoiceAwardReceivedAmount({
+  required BuildContext context,
+  required int grossAmount,
+}) {
+  var amountText = grossAmount.toString();
+  return showDialog<int>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        // Validate the entire input. Never strip characters from a money value.
+        final amount = amountText.isEmpty ||
+                RegExp(r'[^0-9]').hasMatch(amountText)
+            ? null
+            : int.tryParse(amountText);
+        final valid = amount != null &&
+            InvoiceAwardRemittanceReceiptEvidence.isValidReceivedAmount(
+                amount, grossAmount);
+        return AlertDialog(
+          title: const Text('確認銀行已實際收到獎金'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('官方獎額 NT\$${grossAmount}，請確認實際收到的金額。'
+                    '本紀錄並非銀行或財政部驗證；此次不會新增交易或修改餘額。'
+                    '正式入帳需要再次明確授權。'),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('invoice_award_actual_received_amount'),
+                  initialValue: amountText,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: '實際收到金額（NT\$）',
+                    errorText: valid ? null : '請輸入大於零且不超過官方獎額的整數',
+                  ),
+                  onChanged: (value) =>
+                      setDialogState(() => amountText = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: valid
+                  ? () => Navigator.of(dialogContext).pop(amount)
+                  : null,
+              child: const Text('已收到，記錄日期'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}

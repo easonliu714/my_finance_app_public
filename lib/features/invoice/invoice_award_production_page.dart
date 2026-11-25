@@ -929,57 +929,9 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       helpText: '選擇銀行實際收到獎金的日期',
     );
     if (chosen == null || !mounted) return;
-    // Confirm the actual local receipt separately from the official prize.
-    var amountText = proposal.grossAmount.toString();
-    final confirmedAmount = await showDialog<int>(
+    final confirmedAmount = await requestInvoiceAwardReceivedAmount(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          final amount = int.tryParse(amountText);
-          final valid = amount != null &&
-              InvoiceAwardRemittanceReceiptEvidence.isValidReceivedAmount(
-                  amount, proposal.grossAmount);
-          return AlertDialog(
-            title: const Text('確認銀行已實際收到獎金'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('官方獎額 NT\$${proposal.grossAmount}，請確認實際收到的金額。'
-                      '本紀錄並非銀行或財政部驗證；此次不會新增交易或修改餘額。'
-                      '正式入帳需要再次明確授權。'),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('invoice_award_actual_received_amount'),
-                    initialValue: amountText,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: InputDecoration(
-                      labelText: '實際收到金額（NT\$）',
-                      errorText: valid ? null : '請輸入大於零且不超過官方獎額的整數',
-                    ),
-                    onChanged: (value) =>
-                        setDialogState(() => amountText = value),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: valid
-                    ? () => Navigator.of(dialogContext).pop(amount)
-                    : null,
-                child: const Text('已收到，記錄日期'),
-              ),
-            ],
-          );
-        },
-      ),
+      grossAmount: proposal.grossAmount,
     );
     if (confirmedAmount == null || !mounted) return;
     setState(() => _savingReceiptEvidence = true);
