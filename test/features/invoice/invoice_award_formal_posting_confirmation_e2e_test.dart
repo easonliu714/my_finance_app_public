@@ -45,6 +45,9 @@ void main() {
       matching: find.byType(EditableText),
     );
     expect(find.textContaining('官方獎額 NT\$200'), findsOneWidget);
+    expect(find.textContaining('正式入帳需要再次明確授權'), findsOneWidget);
+    expect(find.textContaining('此次不會新增交易或修改餘額'), findsOneWidget);
+    expect(find.text('確認新增正式收入'), findsNothing);
     expect(tester.widget<EditableText>(editable).controller.text, '200');
     expect(tester.widget<FilledButton>(approve).onPressed, isNotNull);
     for (final invalid in <String>[
