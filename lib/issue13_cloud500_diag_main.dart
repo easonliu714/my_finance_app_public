@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -92,6 +93,9 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   File? _pdfFile;
   File? _lastL1BatchFile;
   OfficialCloudAwardArtifactReference? _reference;
+  String? _mayJuneSortedPath;
+  String? _mayJuneDrawPath;
+  bool _mayJunePairVerified = false;
   bool _busy = false;
   bool _initialized = false;
   bool _initializationExpired = false;
@@ -955,9 +959,79 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     await _log('LOG_COPIED_TO_CLIPBOARD chars=${text.length}');
   }
 
+  // Separate May-June intake from the accepted July-August cursor and PDF.
+  Future<void> _pickMayJunePdf({required bool sorted}) async {
+    setState(() {
+      _mayJunePairVerified = false;
+      if (sorted) {
+        _mayJuneSortedPath = null;
+      } else {
+        _mayJuneDrawPath = null;
+      }
+    });
+    final selection = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const <String>['pdf'],
+      withData: false,
+    );
+    if (!mounted) return;
+    final path = selection?.files.single.path;
+    if (path == null) throw StateError('L1_OWNER_PAIR_SELECTION_CANCELLED');
+    setState(() {
+      if (sorted) {
+        _mayJuneSortedPath = path;
+      } else {
+        _mayJuneDrawPath = path;
+      }
+    });
+  }
+
+  Future<void> _verifyMayJunePair() async {
+    setState(() => _mayJunePairVerified = false);
+    final sorted = _mayJuneSortedPath;
+    final draw = _mayJuneDrawPath;
+    if (sorted == null || draw == null || sorted == draw) {
+      throw StateError('L1_OWNER_PAIR_DISTINCT_FILES_REQUIRED');
+    }
+    final result = await _channel.invokeMapMethod<String, Object?>(
+      'verifyLabOwnerPdfPair',
+      <String, Object?>{'sortedPath': sorted, 'drawPath': draw},
+    );
+    if (result?['authority'] != 'LAB_OWNER_ATTESTED_BYTES_ONLY') {
+      throw StateError('L1_OWNER_PAIR_HOLD');
+    }
+    await _log('L1_MAY_JUNE_PAIR_BYTES_VERIFIED '
+        'authority=LAB_OWNER_ATTESTED_BYTES_ONLY parser=NOT_OPENED '
+        'global_not_win=HOLD');
+    if (mounted) setState(() => _mayJunePairVerified = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final buttons = <Widget>[
+      const Text('115-05-06 官方雙 PDF（僅來源驗證，尚未對獎）'),
+      OutlinedButton(
+        onPressed: _actionsDisabled ? null : () => _run(
+          '選擇 5–6 月排序版 PDF', () => _pickMayJunePdf(sorted: true)),
+        child: Text(_mayJuneSortedPath == null
+            ? '選擇排序版 PDF' : '已選排序版 PDF（重新選擇）'),
+      ),
+      OutlinedButton(
+        onPressed: _actionsDisabled ? null : () => _run(
+          '選擇 5–6 月開獎順序版 PDF', () => _pickMayJunePdf(sorted: false)),
+        child: Text(_mayJuneDrawPath == null
+            ? '選擇開獎順序版 PDF' : '已選開獎順序版 PDF（重新選擇）'),
+      ),
+      FilledButton.tonal(
+        onPressed: _actionsDisabled ||
+                _mayJuneSortedPath == null || _mayJuneDrawPath == null
+            ? null : () => _run('驗證 5–6 月雙 PDF', _verifyMayJunePair),
+        child: const Text('驗證 5–6 月雙 PDF'),
+      ),
+      Text(_mayJunePairVerified
+          ? '來源位元組 PASS（Owner-attested）；對獎仍 HOLD'
+          : '雙 PDF 來源 HOLD；對獎仍 HOLD'),
+      const Divider(),
       FilledButton(
         onPressed: _actionsDisabled
             ? null

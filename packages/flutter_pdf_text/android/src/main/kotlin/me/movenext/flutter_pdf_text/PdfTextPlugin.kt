@@ -138,6 +138,29 @@ class PdfTextPlugin: FlutterPlugin, MethodCallHandler {
             val path = args["path"] as String
             openPdfiumSession(result, path)
           }
+          "verifyLabOwnerPdfPair" -> {
+            try {
+              val args = call.arguments as Map<*, *>
+              val verified = LabL1MayJuneOwnerAttestedBytePair.verifyOwnerPairFiles(
+                File(args["sortedPath"] as String),
+                File(args["drawPath"] as String),
+                listOf(applicationContext.filesDir, applicationContext.cacheDir)
+              )
+              Handler(Looper.getMainLooper()).post {
+                result.success(mapOf(
+                  "authority" to verified.authority,
+                  "sortedBytes" to verified.sortedBytes,
+                  "drawBytes" to verified.drawBytes,
+                  "sortedSha256" to verified.sortedSha256,
+                  "drawSha256" to verified.drawSha256
+                ))
+              }
+            } catch (error: Exception) {
+              Handler(Looper.getMainLooper()).post {
+                result.error("L1_OWNER_PAIR_HOLD", error.javaClass.simpleName, null)
+              }
+            }
+          }
           "openLabOwnerVerifiedPdfiumSession" -> {
             val args = call.arguments as Map<*, *>
             val path = args["path"] as String

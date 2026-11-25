@@ -1,6 +1,8 @@
 package me.movenext.flutter_pdf_text
 
 import java.io.ByteArrayInputStream
+import java.io.File
+import java.nio.file.Files
 import java.io.IOException
 import java.io.InputStream
 import java.security.MessageDigest
@@ -78,6 +80,27 @@ class LabL1MayJuneOwnerAttestedBytePairTest {
     }
     rejects("L1_OWNER_PAIR_STREAM_STALLED") {
       api.verifyAgainstManifest(zero, ByteArrayInputStream(draw), manifest())
+    }
+  }
+
+  @Test fun filePickerCopiesRequireDistinctPrivatePathsAndPinnedBytes() {
+    val root = Files.createTempDirectory("l1-owner-pair").toFile()
+    val outside = Files.createTempFile("l1-outside", ".pdf").toFile()
+    try {
+      val s = File(root, "sorted.pdf").apply { writeBytes(sorted) }
+      val d = File(root, "draw.pdf").apply { writeBytes(draw) }
+      rejects("L1_OWNER_PAIR_FILE_ROLE_DUPLICATE") {
+        api.verifyOwnerPairFiles(s, s, listOf(root))
+      }
+      rejects("L1_OWNER_PAIR_FILE_OUTSIDE_APP_STORAGE") {
+        api.verifyOwnerPairFiles(s, outside, listOf(root))
+      }
+      rejects("L1_OWNER_PAIR_BYTES_MISMATCH") {
+        api.verifyOwnerPairFiles(s, d, listOf(root))
+      }
+    } finally {
+      root.deleteRecursively()
+      outside.delete()
     }
   }
 

@@ -1,5 +1,6 @@
 package me.movenext.flutter_pdf_text
 
+import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 
@@ -55,6 +56,30 @@ internal object LabL1MayJuneOwnerAttestedBytePair {
   /** Always verify the actual streams; caller declarations are not trusted. */
   fun verifyOwnerPair(sorted: InputStream, drawOrder: InputStream): VerifiedPair =
     verifyAgainstManifest(sorted, drawOrder, ownerManifest)
+
+  /** Only app-private file-picker copies are accepted; no parser is opened. */
+  fun verifyOwnerPairFiles(sorted: File, draw: File, roots: List<File>): VerifiedPair {
+    val allowed = roots.map { it.canonicalFile }
+    fun checked(file: File): File {
+      val resolved = file.canonicalFile
+      if (!resolved.isFile || allowed.none {
+          resolved.path.startsWith(it.path + File.separator)
+        }) {
+        throw IllegalStateException("L1_OWNER_PAIR_FILE_OUTSIDE_APP_STORAGE")
+      }
+      return resolved
+    }
+    val sortedFile = checked(sorted)
+    val drawFile = checked(draw)
+    if (sortedFile == drawFile) {
+      throw IllegalStateException("L1_OWNER_PAIR_FILE_ROLE_DUPLICATE")
+    }
+    return sortedFile.inputStream().use { sortedStream ->
+      drawFile.inputStream().use { drawStream ->
+        verifyOwnerPair(sortedStream, drawStream)
+      }
+    }
+  }
 
   /** Synthetic fixtures exercise the stream contract without 266 MB in Git. */
   internal fun verifyAgainstManifest(
