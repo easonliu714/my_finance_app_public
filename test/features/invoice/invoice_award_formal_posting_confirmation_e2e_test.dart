@@ -210,6 +210,9 @@ void main() {
       expect(find.text('確認新增正式發票兌獎收入'), findsOneWidget);
       expect(find.textContaining('實際收到 NT\$180'), findsOneWidget);
       expect(find.textContaining('官方獎額為 NT\$200'), findsOneWidget);
+      final expectedDate = receipt.receivedAtUtc.toLocal().toIso8601String();
+      expect(find.textContaining('入帳日期: ${expectedDate.split('T').first}'), findsNothing);
+      expect(find.textContaining('入帳日期：${expectedDate.split('T').first}'), findsOneWidget);
       // Literal interpolation placeholders must not reach a financial confirmation.
       expect(find.textContaining(r'${receipt.actualReceivedAmount}'), findsNothing);
       expect(find.textContaining(r'${proposal.grossAmount}'), findsNothing);
@@ -302,6 +305,7 @@ void main() {
           where: 'id = ?', whereArgs: <Object>[generalId]);
       expect(posted, hasLength(1));
       expect(posted.single['amount'], 180.0);
+      expect(posted.single['occurred_at'], expectedDate);
       expect(posted.single['note'], contains('官方獎額=200；確認實收=180；'));
 
       // Repeated explicit UI confirmation is still idempotent.

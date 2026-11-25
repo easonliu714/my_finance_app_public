@@ -32,6 +32,8 @@ class InvoiceAwardFormalPostingConfirmation {
     if (!receipt.matches(proposal)) {
       throw StateError('INVOICE_AWARD_POSTING_EVIDENCE_INVALID');
     }
+    // Use the same local receipt timestamp as the formal ledger service.
+    final receiptDate = receipt.receivedAtUtc.toLocal().toIso8601String().split('T').first;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -41,6 +43,7 @@ class InvoiceAwardFormalPostingConfirmation {
             '${receipt.actualReceivedAmount}。'
           '官方獎額為 NT\$'
             '${proposal.grossAmount}。'
+          '入帳日期：$receiptDate。'
           '按下新增後，將在日常帳本建立正式收入並影響該帳戶餘額。'
           '這是新的、明確的記帳授權；歷史版本的收款測試紀錄'
           '不會自動補登。',
