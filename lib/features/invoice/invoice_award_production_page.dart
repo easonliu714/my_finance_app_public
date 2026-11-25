@@ -1052,7 +1052,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(wasInserted
-            ? '已新增發票兌獎收入 NT\${receipt.actualReceivedAmount}'
+            ? '已新增發票兌獎收入 NT\$'
+              '${receipt.actualReceivedAmount}'
             : '這筆發票兌獎收入已存在，沒有重複入帳'),
       ));
     } catch (error) {
@@ -1401,7 +1402,8 @@ class _InvoiceAwardProductionPageState extends State<InvoiceAwardProductionPage>
                                 ? '此筆獎金已存在正式帳本；不可再次新增或撤銷收款依據。'
                                 : _receiptFor(readiness) == null
                                 ? '銀行實際入帳：尚未由你確認。獎金 READY 不代表款項已收到。'
-                                : '銀行實際入帳：已由你確認 NT\${_receiptFor(readiness)!.actualReceivedAmount}（不是銀行官方驗證）。'
+                                : '銀行實際入帳：已由你確認 NT\$'
+                                  '${_receiptFor(readiness)!.actualReceivedAmount}（不是銀行官方驗證）。'
                                   '既有確認不會自動補登；請明確點選新增正式收入。',
                             key: ValueKey<String>(
                               'invoice_award_receipt_status_${readiness.invoiceIdentity}',

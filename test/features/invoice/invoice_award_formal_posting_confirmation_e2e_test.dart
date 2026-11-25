@@ -154,6 +154,9 @@ void main() {
       expect(find.text('確認新增正式發票兌獎收入'), findsOneWidget);
       expect(find.textContaining('實際收到 NT\$180'), findsOneWidget);
       expect(find.textContaining('官方獎額為 NT\$200'), findsOneWidget);
+      // Literal interpolation placeholders must not reach a financial confirmation.
+      expect(find.textContaining(r'${receipt.actualReceivedAmount}'), findsNothing);
+      expect(find.textContaining(r'${proposal.grossAmount}'), findsNothing);
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
       expect(await pending, isNull);
