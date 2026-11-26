@@ -192,7 +192,7 @@ class PlatformPdfProbeService : Service() {
         sha
       } else null
       val ownerRole = LabL1MayJuneOwnerAttestedBytePair.rendererOpenRole(candidate)
-      if (ownerRole != null) {
+      descriptor = if (ownerRole != null) {
         if (!Regex("^[0-9]{1,24}$").matches(requestId)) {
           throw IllegalStateException("L1_REQUEST_ID_INVALID")
         }
@@ -203,16 +203,16 @@ class PlatformPdfProbeService : Service() {
           cache else applicationContext.filesDir
         // The isolated renderer receives the same read-only verified inode.
         LabL1VerifiedPdfSnapshot.openOwner(source, root, cache, ownerRole).use {
-          descriptor = ParcelFileDescriptor.dup(it.readOnlyFile.fd)
+          ParcelFileDescriptor.dup(it.readOnlyFile.fd)
         }
       } else {
-        descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+        ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
       }
       stage.set("PLATFORM_RENDERER_CONSTRUCT_BEGIN")
       snapshot("running")
       appendLog("PLATFORM_RENDERER_CONSTRUCT_BEGIN", source, "request=$requestId")
 
-      renderer = PdfRenderer(descriptor ?: throw IllegalStateException("PLATFORM_DESCRIPTOR_MISSING"))
+      renderer = PdfRenderer(descriptor)
       descriptor = null
       val pageCount = renderer.pageCount
 
