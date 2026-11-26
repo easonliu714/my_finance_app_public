@@ -32,13 +32,56 @@ class LabL1DispatchFence {
         !_shaPattern.hasMatch(pdfSha256)) {
       throw ArgumentError('L1_NATIVE_DISPATCH_ID_INVALID');
     }
-    await requireClear();
     final record = <String, Object>{
       'version': 1,
       'first_page': firstPage,
       'request_id': requestId,
       'pdf_sha256': pdfSha256,
     };
+    await _beginRecord(record);
+  }
+
+  // Same durable marker as July/August export: neither operation may
+  // dispatch over an unresolved worker from the other period.
+  static Map<String, Object> _ownerOpenRecord(String role, String requestId) {
+    if ((role != 'sorted' && role != 'draw_order') ||
+        !_requestPattern.hasMatch(requestId)) {
+      throw ArgumentError('L1_NATIVE_DISPATCH_ID_INVALID');
+    }
+    return <String, Object>{
+      'version': 2,
+      'operation': 'may_june_owner_open',
+      'role': role,
+      'request_id': requestId,
+    };
+  }
+
+  Future<void> beginOwnerOpen({
+    required String role,
+    required String requestId,
+  }) => _beginRecord(_ownerOpenRecord(role, requestId));
+
+  // Only a matching renderer-closed terminal envelope can clear the marker.
+  Future<void> completeOwnerOpen({
+    required String role,
+    required String requestId,
+    required Map<String, dynamic> result,
+  }) async {
+    final record = _ownerOpenRecord(role, requestId);
+    if (result['request_id'] != requestId ||
+        result['status'] != 'complete' ||
+        result['stage'] != 'L1_OWNER_RENDERER_OPEN_COMPLETE' ||
+        result['role'] != role ||
+        result['page_count'] != 77000 ||
+        result['authority'] != 'LAB_OWNER_ATTESTED_BYTES_ONLY' ||
+        result['global_not_win'] != 'HOLD') {
+      throw StateError(unresolved);
+    }
+    await _completeRecord(record);
+  }
+
+  Future<void> _beginRecord(Map<String, Object> record) async {
+    await requireClear();
     RandomAccessFile? handle;
     try {
       // FileMode has no exclusive-open variant. Reserve the marker path
@@ -58,7 +101,7 @@ class LabL1DispatchFence {
     } finally {
       await handle?.close();
     }
-    await _verify(firstPage, requestId, pdfSha256);
+    await _verifyRecord(record);
   }
 
   /// Call only after terminal native success and strict JSONL verification.
@@ -67,7 +110,16 @@ class LabL1DispatchFence {
     required String requestId,
     required String pdfSha256,
   }) async {
-    await _verify(firstPage, requestId, pdfSha256);
+    await _completeRecord(<String, Object>{
+      'version': 1,
+      'first_page': firstPage,
+      'request_id': requestId,
+      'pdf_sha256': pdfSha256,
+    });
+  }
+
+  Future<void> _completeRecord(Map<String, Object> record) async {
+    await _verifyRecord(record);
     try {
       await _file.delete();
     } on FileSystemException {
@@ -75,7 +127,7 @@ class LabL1DispatchFence {
     }
   }
 
-  Future<void> _verify(int firstPage, String requestId, String sha) async {
+  Future<void> _verifyRecord(Map<String, Object> record) async {
     try {
       if (await FileSystemEntity.type(_file.path, followLinks: false) !=
           FileSystemEntityType.file) {
@@ -85,11 +137,8 @@ class LabL1DispatchFence {
       if (size <= 0 || size > 512) throw StateError(unresolved);
       final decoded = jsonDecode(await _file.readAsString());
       if (decoded is! Map<String, dynamic> ||
-          decoded.length != 4 ||
-          decoded['version'] != 1 ||
-          decoded['first_page'] != firstPage ||
-          decoded['request_id'] != requestId ||
-          decoded['pdf_sha256'] != sha) {
+          decoded.length != record.length ||
+          record.entries.any((entry) => decoded[entry.key] != entry.value)) {
         throw StateError(unresolved);
       }
     } catch (_) {

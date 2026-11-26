@@ -135,6 +135,71 @@ void main() {
     expect(await target.readAsString(), 'preserve');
   });
 
+  Map<String, dynamic> ownerTerminal(String role, String id) => <String, dynamic>{
+        'request_id': id,
+        'status': 'complete',
+        'stage': 'L1_OWNER_RENDERER_OPEN_COMPLETE',
+        'role': role,
+        'page_count': 77000,
+        'authority': 'LAB_OWNER_ATTESTED_BYTES_ONLY',
+        'global_not_win': 'HOLD',
+      };
+
+  test('owner-open marker survives restart and blocks other period export',
+      () async {
+    await LabL1DispatchFence(directory).beginOwnerOpen(
+      role: 'sorted', requestId: request,
+    );
+    final restarted = LabL1DispatchFence(directory);
+    await expectLater(restarted.requireClear(), throwsA(unresolved()));
+    await expectLater(
+      restarted.begin(firstPage: 1, requestId: request, pdfSha256: sha),
+      throwsA(unresolved()),
+    );
+    await expectLater(
+      restarted.beginOwnerOpen(role: 'draw_order', requestId: request),
+      throwsA(unresolved()),
+    );
+  });
+
+  test('only matching role and closed terminal can clear owner-open marker',
+      () async {
+    final fence = LabL1DispatchFence(directory);
+    await fence.beginOwnerOpen(role: 'sorted', requestId: request);
+    final restarted = LabL1DispatchFence(directory);
+    for (final invalid in <Map<String, dynamic>>[
+      {...ownerTerminal('sorted', request), 'status': 'process_exit'},
+      {...ownerTerminal('sorted', request), 'status': 'failure'},
+      {...ownerTerminal('sorted', request), 'page_count': 76999},
+      {...ownerTerminal('sorted', request), 'stage': 'PLATFORM_RENDERER_OPEN_OK'},
+      {...ownerTerminal('sorted', request), 'global_not_win': 'PASS'},
+      {...ownerTerminal('sorted', request), 'authority': 'unknown'},
+      ownerTerminal('draw_order', request),
+      ownerTerminal('sorted', '999'),
+    ]) {
+      await expectLater(
+        restarted.completeOwnerOpen(role: 'sorted', requestId: request,
+          result: invalid),
+        throwsA(unresolved()),
+      );
+      await expectLater(restarted.requireClear(), throwsA(unresolved()));
+    }
+    await expectLater(
+      restarted.completeOwnerOpen(role: 'draw_order', requestId: request,
+        result: ownerTerminal('draw_order', request)),
+      throwsA(unresolved()),
+    );
+    await expectLater(
+      restarted.complete(firstPage: 1, requestId: request, pdfSha256: sha),
+      throwsA(unresolved()),
+    );
+    await restarted.completeOwnerOpen(role: 'sorted', requestId: request,
+      result: ownerTerminal('sorted', request));
+    await restarted.requireClear();
+    await restarted.beginOwnerOpen(role: 'draw_order', requestId: '999');
+    await expectLater(restarted.requireClear(), throwsA(unresolved()));
+  });
+
   test('terminal verified completion permits later dispatch', () async {
     final fence = LabL1DispatchFence(directory);
     await fence.requireClear();

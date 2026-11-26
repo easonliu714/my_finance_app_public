@@ -455,6 +455,9 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     final file = ownerVerifiedSource ?? await _ensureExactPdf();
     final lab = _labDirectory;
     if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    // An unresolved durable export or owner-open marker blocks every
+    // platform-renderer dispatch, even after the UI process restarts.
+    await LabL1DispatchFence(lab).requireClear();
     final requestId = requestIdOverride ??
         DateTime.now().microsecondsSinceEpoch.toString();
     final resultFile = File(
@@ -1025,25 +1028,31 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         sorted == null || draw == null) {
       throw StateError('L1_OWNER_RENDERER_SOURCE_HOLD');
     }
+    final lab = _labDirectory;
+    if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
+    final fence = LabL1DispatchFence(lab);
+    await fence.requireClear();
+    if (!mounted) return;
     setState(() {
       _mayJuneOpenVerified = false;
       _mayJuneProbeUnresolved = true;
     });
     // Both roles are independently rehashed inside the isolated process.
-    // A timeout/failure leaves this session locked; do not dispatch again.
+    // Persist a role-bound marker before each native dispatch. Timeout,
+    // malformed terminal evidence or process death cannot clear it.
     for (final entry in <String, String>{'sorted': sorted, 'draw_order': draw}.entries) {
+      final requestId = DateTime.now().microsecondsSinceEpoch.toString();
       final result = await _runPlatformProbe(
         candidate: 'LAB_MAY_JUNE_OPEN:${entry.key}',
         ownerVerifiedSource: File(entry.value),
+        requestIdOverride: requestId,
+        beforeDispatch: () => fence.beginOwnerOpen(
+          role: entry.key, requestId: requestId,
+        ),
       );
-      if (result['status'] != 'complete' ||
-          result['stage'] != 'L1_OWNER_RENDERER_OPEN_COMPLETE' ||
-          result['role'] != entry.key ||
-          result['page_count'] != 77000 ||
-          result['authority'] != 'LAB_OWNER_ATTESTED_BYTES_ONLY' ||
-          result['global_not_win'] != 'HOLD') {
-        throw StateError('L1_OWNER_RENDERER_OPEN_HOLD');
-      }
+      await fence.completeOwnerOpen(
+        role: entry.key, requestId: requestId, result: result,
+      );
     }
     if (mounted) {
       setState(() {
