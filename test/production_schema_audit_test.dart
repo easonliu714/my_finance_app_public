@@ -98,4 +98,100 @@ void main() {
 
     await db.close();
   });
+
+  // B3 #18: metadata-only audit on an isolated in-memory fixture.
+  // Preserve composite FK ordering, partial uniqueness, and row privacy.
+  test('B3 isolated schema audit preserves composite FK and partial uniqueness',
+      () async {
+    final db = await databaseFactoryFfi.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onConfigure: (database) async {
+          await database.execute('PRAGMA foreign_keys = ON');
+        },
+        onCreate: (database, version) async {
+          await database.execute('''
+            CREATE TABLE b3_accounts (
+              account_id TEXT NOT NULL,
+              currency_code TEXT NOT NULL,
+              PRIMARY KEY (account_id, currency_code)
+            )
+          ''');
+          await database.execute('''
+            CREATE TABLE b3_transactions (
+              id TEXT PRIMARY KEY,
+              account_id TEXT NOT NULL,
+              currency_code TEXT NOT NULL,
+              note TEXT,
+              FOREIGN KEY (account_id, currency_code)
+                REFERENCES b3_accounts(account_id, currency_code)
+            )
+          ''');
+          await database.execute(
+            'CREATE UNIQUE INDEX b3_unique_live_account '
+            'ON b3_transactions(account_id, currency_code) '
+            'WHERE note IS NOT NULL',
+          );
+        },
+      ),
+    );
+    addTearDown(db.close);
+    await db.insert('b3_accounts', <String, Object?>{
+      'account_id': 'synthetic-private-account',
+      'currency_code': 'TWD',
+    });
+    await db.insert('b3_transactions', <String, Object?>{
+      'id': 'synthetic-private-transaction',
+      'account_id': 'synthetic-private-account',
+      'currency_code': 'TWD',
+      'note': 'synthetic-private-note',
+    });
+    final changesBefore = (await db.rawQuery(
+      'SELECT total_changes() AS n',
+    )).single['n'];
+
+    const audit = ProductionSchemaAuditService();
+    final first = await audit.inspect(db);
+    final second = await audit.inspect(db);
+    expect(jsonEncode(first.toJson()), jsonEncode(second.toJson()));
+    expect(first.userVersion, 1);
+    final transactions = first.tables['b3_transactions']!;
+    expect(
+      transactions.foreignKeys.map((fk) => fk['sequence']).toList(),
+      <int>[0, 1],
+    );
+    expect(
+      transactions.foreignKeys.map((fk) => fk['from_column']).toList(),
+      <String>['account_id', 'currency_code'],
+    );
+    expect(
+      transactions.foreignKeys.map((fk) => fk['to_column']).toList(),
+      <String>['account_id', 'currency_code'],
+    );
+    expect(
+      transactions.foreignKeys.every(
+        (fk) => fk['parent_table'] == 'b3_accounts',
+      ),
+      isTrue,
+    );
+    final uniqueIndex = transactions.indexes.singleWhere(
+      (index) => index['name'] == 'b3_unique_live_account',
+    );
+    expect(uniqueIndex['unique'], isTrue);
+    expect(uniqueIndex['partial'], isTrue);
+    final columns = uniqueIndex['columns']! as List<Map<String, Object?>>;
+    expect(
+      columns.map((column) => column['name']).toList(),
+      <String>['account_id', 'currency_code'],
+    );
+    final reportJson = jsonEncode(first.toJson());
+    expect(reportJson, isNot(contains('synthetic-private-account')));
+    expect(reportJson, isNot(contains('synthetic-private-transaction')));
+    expect(reportJson, isNot(contains('synthetic-private-note')));
+    expect(
+      (await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+      changesBefore,
+    );
+  });
 }

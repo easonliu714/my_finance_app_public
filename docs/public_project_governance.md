@@ -2,6 +2,12 @@
 
 Migrated and updated from legacy private issue #412 on 2026-08-18.
 
+## Long-term product architecture decision (Owner approved 2026-11-24, Asia/Taipei)
+
+> 記帳軟體應忠實記錄使用者確認的財務事實，而不是代替使用者執行金融交易。附加功能應服務於記帳目的，不應反過來增加核心記帳功能的架構複雜度、外部依賴及維護成本。
+
+Binding across all future design, implementation, reviews, Roadmap gates, new chats and scheduled workers. The canonical SQLite ledger records explicitly confirmed financial facts. Adjunct features produce information, reminders or editable candidates, not unattended financial operations or formal ledger writes. Preserve user-confirmed actual amount, account/date and source linkage, local atomicity/idempotency, correction and backup/restore integrity, official data provenance, privacy and existing accepted behavior. Reuse existing components and avoid unnecessary services, dependencies, costs and complexity. New external financial execution, external trust authority, paid service or material data transfer is outside current scope; require a documented genuine product need and explicit Owner approval before scope changes. This principle does not waive CI, data integrity, security, signing, device or merge gates. See the two canonical Roadmap/feature documents for the current execution order.
+
 ## Branch and merge safety
 
 - Never push product changes directly to `main`.

@@ -254,6 +254,8 @@ class FullRestorePreviewService {
       4 => FullBackupScope.legacyScopeV4TableNames,
       5 => FullBackupScope.legacyScopeV5TableNames,
       6 => FullBackupScope.legacyScopeV6TableNames,
+      7 => FullBackupScope.legacyScopeV7TableNames,
+      8 => FullBackupScope.legacyScopeV8TableNames,
       _ => FullBackupService.backupTableNames,
     };
     if (!included.whereType<String>().toSet().containsAll(expected)) {

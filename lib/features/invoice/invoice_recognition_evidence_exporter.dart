@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
+// Only ZIP archive APIs are imported; cryptography owns Sha256.
+import 'package:archive/archive.dart' show Archive, ArchiveFile, ZipEncoder;
 import 'package:cryptography/cryptography.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';

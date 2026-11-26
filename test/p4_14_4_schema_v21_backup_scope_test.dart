@@ -65,10 +65,10 @@ void main() {
 
   test('legacy Backup Scope V7 adds only the execution ledger after Scope V6', () {
     expect(canonicalProductionSchemaVersion, 21);
-    expect(FullBackupScope.backupScopeVersion, 8);
+    expect(FullBackupScope.backupScopeVersion, 9);
     expect(
       FullBackupScope.supportedBackupScopeVersions,
-      containsAll(<int>{2, 3, 4, 5, 6, 7, 8}),
+      containsAll(<int>{2, 3, 4, 5, 6, 7, 8, 9}),
     );
     expect(
       FullBackupScope.legacyScopeV7TableNames,
@@ -86,6 +86,7 @@ void main() {
       <String>[
         ...FullBackupScope.legacyScopeV7TableNames,
         ...FullBackupScope.merchantIdentityUserTableNames,
+        ...FullBackupScope.scopeV9UserTableNames,
       ],
     );
   });

@@ -1,0 +1,102 @@
+"""Positive and negative tests for the CI-only release-AOT signer witness."""
+
+import hashlib
+import unittest
+
+from c500_witness_signer_verify import (
+    WitnessSignerError,
+    verify_disposable_debug_signer,
+)
+
+
+class C500WitnessSignerVerifyTest(unittest.TestCase):
+    def setUp(self):
+        self.cert = bytes(range(256)) * 3
+        self.digest = hashlib.sha256(self.cert).hexdigest()
+        self.report = f"Signer #1 certificate SHA-256 digest: {self.digest}\n"
+
+    def test_exact_single_debug_certificate_matches(self):
+        verify_disposable_debug_signer(self.report, self.cert)
+
+    def test_actual_android_v2_signer_output_matches_debug_der(self):
+        # Exact observed #1393 apksigner output shape.
+        report = (
+            "V2 Signer: certificate DN: C=US, O=Android, CN=Android Debug\n"
+            f"V2 Signer: certificate SHA-256 digest: {self.digest}\n"
+            "V2 Signer: certificate SHA-1 digest: 0123456789\n"
+            "V2 Signer: certificate MD5 digest: 0123456789\n"
+        )
+        verify_disposable_debug_signer(report, self.cert)
+
+    def test_v2_signer_mismatched_der_fails_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "SIGNER_MISMATCH"):
+            verify_disposable_debug_signer(
+                f"V2 Signer: certificate SHA-256 digest: {self.digest}\n",
+                self.cert + b"x",
+            )
+
+    def test_two_v2_signer_digests_fail_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer(
+                f"V2 Signer: certificate SHA-256 digest: {self.digest}\n" * 2,
+                self.cert,
+            )
+
+    def test_mixed_legacy_and_v2_signer_lines_fail_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer(
+                self.report + f"V2 Signer: certificate SHA-256 digest: {self.digest}\n",
+                self.cert,
+            )
+
+    def test_foreign_signer_without_sha256_digest_fails_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer(
+                self.report + "Signer #2 certificate DN: CN=Unexpected\n",
+                self.cert,
+            )
+
+    def test_sha256_label_variant_is_accepted(self):
+        verify_disposable_debug_signer(
+            f"Signer #1 certificate SHA256 digest: {self.digest.upper()}\n",
+            self.cert,
+        )
+
+    def test_mismatch_fails_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "SIGNER_MISMATCH"):
+            verify_disposable_debug_signer(self.report, self.cert + b"x")
+
+    def test_missing_certificate_line_fails_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer("Signer #1 certificate SHA-1 digest: ab\n", self.cert)
+
+    def test_multiple_signers_fail_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer(
+                self.report + f"Signer #2 certificate SHA-256 digest: {self.digest}\n",
+                self.cert,
+            )
+
+    def test_wrong_signer_number_fails_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "PARSE_OR_CARDINALITY"):
+            verify_disposable_debug_signer(
+                f"Signer #2 certificate SHA-256 digest: {self.digest}\n", self.cert
+            )
+
+    def test_unknown_apksigner_line_reports_shape_without_digest(self):
+        report = f"Signer #1 certificate SHA-256 digest: 0x{self.digest}\n"
+        with self.assertRaisesRegex(
+            WitnessSignerError, "PARSE_OR_CARDINALITY"
+        ) as failure:
+            verify_disposable_debug_signer(report, self.cert)
+        self.assertIn("signer_lines=1", str(failure.exception))
+        self.assertIn("<digest-redacted>", str(failure.exception))
+        self.assertNotIn(self.digest, str(failure.exception))
+
+    def test_missing_debug_certificate_fails_closed(self):
+        with self.assertRaisesRegex(WitnessSignerError, "DER_MISSING"):
+            verify_disposable_debug_signer(self.report, b"")
+
+
+if __name__ == "__main__":
+    unittest.main()

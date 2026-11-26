@@ -52,26 +52,34 @@ class FullRestoreServiceV8 extends FullRestoreServiceV7 {
         persistPreRestoreBackup,
   }) async {
     final normalized = _normalizeToScopeV8(envelope);
-    final hasObservationTable = await _tableExists(
+    return super.restoreFromEnvelope(
       db,
-      'merchant_identity_observations',
+      normalized,
+      confirmationText: confirmationText,
+      preRestoreBackupCreatedAt: preRestoreBackupCreatedAt,
+      sourcePlatform: sourcePlatform,
+      persistPreRestoreBackup: persistPreRestoreBackup,
     );
-    if (hasObservationTable) {
-      await _dropObservationImmutabilityTriggers(db);
+  }
+
+  // Observation UPDATE/DELETE guards remain active throughout custody I/O;
+  // release and restore them only within the atomic managed-row transaction.
+  @override
+  Future<void> beforeManagedRestoreTransaction(DatabaseExecutor txn) async {
+    await super.beforeManagedRestoreTransaction(txn);
+    if (await _tableExists(txn, 'merchant_identity_observations')) {
+      await _dropObservationImmutabilityTriggers(txn);
     }
+  }
+
+  @override
+  Future<void> afterManagedRestoreTransaction(DatabaseExecutor txn) async {
     try {
-      return await super.restoreFromEnvelope(
-        db,
-        normalized,
-        confirmationText: confirmationText,
-        preRestoreBackupCreatedAt: preRestoreBackupCreatedAt,
-        sourcePlatform: sourcePlatform,
-        persistPreRestoreBackup: persistPreRestoreBackup,
-      );
-    } finally {
-      if (hasObservationTable) {
-        await _createObservationImmutabilityTriggers(db);
+      if (await _tableExists(txn, 'merchant_identity_observations')) {
+        await _createObservationImmutabilityTriggers(txn);
       }
+    } finally {
+      await super.afterManagedRestoreTransaction(txn);
     }
   }
 
@@ -89,17 +97,17 @@ class FullRestoreServiceV8 extends FullRestoreServiceV7 {
     final exportFormat = metadata['export_format_version'];
     final isLegacyV1 = exportFormat == 1;
 
-    if (scopeVersion >= FullBackupScope.backupScopeVersion && !isLegacyV1) {
+    if (scopeVersion >= 8 && !isLegacyV1) {
       return envelope;
     }
 
-    for (final tableName in FullBackupScope.backupTableNames) {
+    for (final tableName in FullBackupScope.legacyScopeV8TableNames) {
       data.putIfAbsent(tableName, () => const <Object?>[]);
     }
     _populateLegacyMerchantIdentityRows(data);
 
-    metadata['backup_scope_version'] = FullBackupScope.backupScopeVersion;
-    metadata['included_tables'] = FullBackupScope.backupTableNames;
+    metadata['backup_scope_version'] = 8;
+    metadata['included_tables'] = FullBackupScope.legacyScopeV8TableNames;
     metadata['unknown_tables'] = const <Object?>[];
     metadata['missing_required_tables'] = const <Object?>[];
     metadata['coverage_complete'] = true;

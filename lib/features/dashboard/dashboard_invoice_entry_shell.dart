@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../account/wallet_top_up_hub_page.dart';
 import '../invoice/cloud_invoice_review_page.dart';
 import '../invoice/lab/private_cloud_invoice_lab_webview_page.dart';
+import '../transaction/taiwan_business_calendar_foreground_notice.dart';
 import '../voice/voice_transaction_entry_page.dart';
 import 'dashboard_page.dart';
 
@@ -24,6 +25,15 @@ class DashboardInvoiceEntryShell extends StatelessWidget {
     return Stack(
       children: [
         const DashboardPage(),
+        // B2.14a: no network or automatic SQLite calendar installation.
+        const Positioned(
+          top: 8,
+          left: 12,
+          right: 12,
+          child: SafeArea(
+            child: TaiwanBusinessCalendarForegroundNotice(),
+          ),
+        ),
         Positioned(
           right: 16,
           bottom: 96,

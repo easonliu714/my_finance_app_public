@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_finance_app/features/invoice/lab/official_query_page_preparation.dart';
 
@@ -11,6 +13,9 @@ void main() {
     expect(script, contains('RESULT_TABLE_RELOADING'));
     expect(script, contains('getBoundingClientRect'));
     expect(script, contains('consistentClusters'));
+    expect(script, contains('donationStatusLayout'));
+    expect(script, contains("includes('捐贈')"));
+    expect(script, contains('tableRect.width * 0.65'));
     expect(script, contains('CSV_EXPORT_CHECKBOX_ROLE_AMBIGUOUS'));
     expect(script, contains('CSV_EXPORT_SELECTION_INCOMPLETE'));
     expect(script, contains('CSV_EXPORT_BUTTON_STILL_DISABLED'));
@@ -20,6 +25,16 @@ void main() {
     expect(script, isNot(contains('XMLHttpRequest')));
     expect(script, isNot(contains('innerHTML')));
     expect(script, isNot(contains('outerHTML')));
+  });
+
+  test('runtime has no obsolete desktop-only pre-gate before export mapping', () {
+    final source = File(
+      'lib/features/invoice/lab/flutter_landing_webview_session_runtime.dart',
+    ).readAsStringSync();
+
+    expect(source, isNot(contains('DESKTOP_RESULT_LAYOUT_NOT_READY')));
+    expect(source, isNot(contains('_buildDesktopResultStructureGateScript')));
+    expect(source, contains('buildOfficialQueryPagePreparationScript'));
   });
 
   test('detail preparation requests 100 rows and returns before export mutation',

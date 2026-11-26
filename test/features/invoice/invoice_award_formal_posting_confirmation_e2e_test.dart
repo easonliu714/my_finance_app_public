@@ -1,0 +1,390 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:my_finance_app/database/production_schema_v24.dart';
+import 'package:my_finance_app/features/account/account_record.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_formal_income_posting_service.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_formal_posting_confirmation.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_payout_bookkeeping_contract.dart';
+import 'package:my_finance_app/features/invoice/invoice_award_remittance_receipt_evidence.dart';
+import 'package:my_finance_app/features/transaction/transaction_ledger_refresh_signal.dart';
+import 'package:my_finance_app/features/transaction/transaction_record.dart';
+import 'package:my_finance_app/features/transaction/transaction_type.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+void main() {
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
+  testWidgets('receipt amount dialog preserves malformed input and blocks approval',
+      (tester) async {
+    Future<int?>? result;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(builder: (context) {
+          return FilledButton(
+            onPressed: () {
+              result = requestInvoiceAwardReceivedAmount(
+                context: context,
+                grossAmount: 200,
+              );
+            },
+            child: const Text('確認實收'),
+          );
+        }),
+      ),
+    ));
+    await tester.tap(find.text('確認實收'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('invoice_award_actual_received_amount'));
+    final approve = find.widgetWithText(FilledButton, '已收到，記錄日期');
+    final editable = find.descendant(
+      of: field,
+      matching: find.byType(EditableText),
+    );
+    expect(find.textContaining('官方獎額 NT\$200'), findsOneWidget);
+    expect(find.textContaining('正式入帳需要再次明確授權'), findsOneWidget);
+    expect(find.textContaining('此次不會新增交易或修改餘額'), findsOneWidget);
+    expect(find.text('確認新增正式收入'), findsNothing);
+    expect(tester.widget<EditableText>(editable).controller.text, '200');
+    expect(tester.widget<FilledButton>(approve).onPressed, isNotNull);
+    for (final invalid in <String>[
+      '18.0', '-180', '+180', '1a80', '1,80', ' 180', '180 ',
+      '0xB4', '', '0', '201', '999999999999999999999999999999',
+    ]) {
+      await tester.enterText(field, invalid);
+      await tester.pumpAndSettle();
+      expect(tester.widget<EditableText>(editable).controller.text, invalid);
+      expect(tester.widget<FilledButton>(approve).onPressed, isNull,
+          reason: invalid);
+    }
+    await tester.enterText(field, '180');
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(approve).onPressed, isNotNull);
+    await tester.tap(approve);
+    await tester.pumpAndSettle();
+    expect(await result, 180);
+
+    await tester.tap(find.text('確認實收'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(await result, isNull);
+  });
+
+  testWidgets('production confirmation UI -> formal service -> V24 SQLite: '
+      'cancel/stale no-write, general posts once, history survives',
+      (tester) async {
+    // SQLite FFI uses real isolate/IO futures. testWidgets runs in FakeAsync;
+    // execute the full UI-to-ledger regression in one real-async zone so
+    // modal callbacks and database operations share the same async authority.
+    await tester.runAsync(() async {
+      const lkgKey = 'invoice_award.general_lkg.v1.115-05-06';
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        lkgKey: 'protected-lkg',
+        'issue13_remittance_observations_v1': '[]',
+      });
+      final preferences = await SharedPreferences.getInstance();
+      final db = await openDatabase(
+        inMemoryDatabasePath,
+        singleInstance: false,
+        version: canonicalProductionSchemaVersion,
+        onConfigure: (database) async {
+          await database.execute('PRAGMA foreign_keys = ON');
+        },
+        onCreate: (database, _) async {
+          // Same transaction-core fixture and canonical V24 extension as the
+          // service E2E. NOT the Owner's installed database or production main().
+          await database.execute('''
+            CREATE TABLE transactions (
+              id TEXT PRIMARY KEY,
+              type TEXT NOT NULL,
+              amount REAL NOT NULL,
+              category TEXT NOT NULL,
+              occurred_at TEXT NOT NULL,
+              account_name TEXT NOT NULL,
+              member_name TEXT NOT NULL,
+              merchant_name TEXT NOT NULL,
+              tag_name TEXT NOT NULL,
+              note TEXT NOT NULL,
+              currency_code TEXT NOT NULL DEFAULT 'TWD',
+              exchange_rate_to_base REAL NOT NULL DEFAULT 1,
+              base_amount REAL NOT NULL DEFAULT 0,
+              from_account_name TEXT,
+              to_account_name TEXT,
+              repayment_group_id TEXT,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+          await database.execute('''
+            CREATE TABLE accounts (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL,
+              is_archived INTEGER NOT NULL DEFAULT 0
+            )
+          ''');
+          await createCanonicalProductionV24Tables(database);
+        },
+      );
+      addTearDown(db.close);
+      final signals = <int>[];
+      final subscription =
+          TransactionLedgerRefreshSignal.instance.stream.listen((_) {
+        signals.add(1);
+      });
+      addTearDown(subscription.cancel);
+
+      final legacy = _proposal('historical-cloud500', 'cloud-500', 500);
+      final historicalId =
+          InvoiceAwardFormalIncomePostingService.stableRecordId(legacy);
+      await db.insert('transactions', _record(historicalId, 500).toMap());
+      await db.insert('transactions', _record('historical-nt700', 700).toMap());
+      final historicalRows = await db.query(
+        'transactions',
+        where: 'id IN (?, ?)',
+        whereArgs: <Object>[historicalId, 'historical-nt700'],
+        orderBy: 'id',
+      );
+      var accountName = '測試銀行';
+      final service = InvoiceAwardFormalIncomePostingService.forIsolatedTest(
+        databaseProvider: () async => db,
+        accountsProvider: () async => <AccountRecord>[
+          AccountRecord(
+            id: 'bank-1',
+            name: accountName,
+            type: AccountType.bank,
+            initialBalance: 0,
+            sortOrder: 0,
+          ),
+        ],
+      );
+      final flow =
+          InvoiceAwardFormalPostingConfirmation(postingService: service);
+      final general = _proposal('general-ui-200', 'general-sixth', 200);
+      var receipt = _receipt(general);
+      final repository = InvoiceAwardRemittanceReceiptRepository(preferences);
+      receipt = await repository.confirmObservedCredit(
+        proposal: general,
+        receivedAtUtc: receipt.receivedAtUtc,
+        confirmedAtUtc: receipt.confirmedAtUtc,
+        confirmedAmount: 180,
+      );
+      var authorized = true;
+      var started = 0;
+      Future<bool?>? pending;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(builder: (context) {
+            return FilledButton(
+              key: const Key('launch_formal_post'),
+              onPressed: () {
+                pending = flow.requestAndPost(
+                  context: context,
+                  proposal: general,
+                  receipt: receipt,
+                  nowUtc: () => DateTime.utc(2026, 10, 9, 3),
+                  authorizationStillValid: () async {
+                    // Mirror the production post-consent durable read.
+                    await Future<void>.delayed(Duration.zero);
+                    return authorized &&
+                        repository.isCurrentObservation(
+                          proposal: general,
+                          observation: receipt,
+                        );
+                  },
+                  onPostingStarted: () => started++,
+                );
+              },
+              child: const Text('開啟正式入帳確認'),
+            );
+          }),
+        ),
+      ));
+      final initialChanges =
+          (await db.rawQuery('SELECT total_changes() AS n')).single['n'];
+      final initialRows = await db.query('transactions', orderBy: 'id');
+
+      // Cancel is a real modal dismissal, not a mocked posting callback.
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      expect(find.text('確認新增正式發票兌獎收入'), findsOneWidget);
+      expect(find.textContaining('實際收到 NT\$180'), findsOneWidget);
+      expect(find.textContaining('官方獎額為 NT\$200'), findsOneWidget);
+      expect(find.textContaining('入帳帳戶：測試銀行'), findsOneWidget);
+      final expectedDate = receipt.receivedAtUtc.toLocal().toIso8601String();
+      expect(find.textContaining('入帳日期: ${expectedDate.split('T').first}'), findsNothing);
+      expect(find.textContaining('入帳日期：${expectedDate.split('T').first}'), findsOneWidget);
+      // Literal interpolation placeholders must not reach a financial confirmation.
+      expect(find.textContaining(r'${receipt.actualReceivedAmount}'), findsNothing);
+      expect(find.textContaining(r'${proposal.grossAmount}'), findsNothing);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(await pending, isNull);
+      expect(started, 0);
+      expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+          initialChanges);
+
+      // The live UI authority can change after the dialog opens.
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      authorized = false;
+      final stale = expectLater(
+        pending!,
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'stale UI', contains('UI_AUTHORITY_STALE'))),
+      );
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      await stale;
+      expect(started, 0);
+      expect(await db.query('transactions', orderBy: 'id'), initialRows);
+      expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+          initialChanges);
+      expect(signals, isEmpty);
+
+      // A renamed target is not covered by the old displayed consent.
+      authorized = true;
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      accountName = '已變更銀行';
+      final renamed = expectLater(
+        pending!,
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'account changed', contains('ACCOUNT_CHANGED'))),
+      );
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      await renamed;
+      expect(started, 0);
+      expect(await db.query('transactions', orderBy: 'id'), initialRows);
+      expect(signals, isEmpty);
+      accountName = '測試銀行';
+
+      // Revocation during an open modal must not touch SQLite.
+      authorized = true;
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      await repository.revokeForProposal(
+        general, expectedObservation: receipt);
+      final revoked = expectLater(
+        pending!,
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'revoked receipt',
+          contains('UI_AUTHORITY_STALE'))),
+      );
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      await revoked;
+      expect(started, 0);
+      expect(await db.query('transactions', orderBy: 'id'), initialRows);
+      expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+          initialChanges);
+      expect(signals, isEmpty);
+
+      // Same proposal and identical timestamps: only the durable revision
+      // distinguishes the replacement from the old modal's consent.
+      await repository.confirmObservedCredit(
+        proposal: general,
+        receivedAtUtc: receipt.receivedAtUtc,
+        confirmedAtUtc: receipt.confirmedAtUtc,
+        confirmedAmount: 180,
+      );
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      final replaced = expectLater(
+        pending!,
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'replaced receipt',
+          contains('UI_AUTHORITY_STALE'))),
+      );
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      await replaced;
+      expect(started, 0);
+      expect(await db.query('transactions', orderBy: 'id'), initialRows);
+      expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
+          initialChanges);
+      expect(signals, isEmpty);
+
+      // Only fresh explicit consent may post the confirmed NT$180, not NT$200.
+      receipt = repository.readForProposal(general)!;
+      final receiptBytesAfterReplacement =
+          preferences.getString('issue13_remittance_observations_v1');
+      authorized = true;
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      expect(await pending, isTrue);
+      expect(started, 1);
+      expect(signals, hasLength(1));
+      final generalId =
+          InvoiceAwardFormalIncomePostingService.stableRecordId(general);
+      final posted = await db.query('transactions',
+          where: 'id = ?', whereArgs: <Object>[generalId]);
+      expect(posted, hasLength(1));
+      expect(posted.single['amount'], 180.0);
+      expect(posted.single['occurred_at'], expectedDate);
+      expect(posted.single['account_name'], '測試銀行');
+      expect(posted.single['note'], contains('官方獎額=200；確認實收=180；'));
+
+      // Repeated explicit UI confirmation is still idempotent.
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      expect(await pending, isFalse);
+      expect(signals, hasLength(1));
+      expect(started, 2);
+      expect(await db.query('transactions',
+          where: 'id IN (?, ?)',
+          whereArgs: <Object>[historicalId, 'historical-nt700'],
+          orderBy: 'id'), historicalRows);
+      expect(preferences.getString(lkgKey), 'protected-lkg');
+      expect(preferences.getString('issue13_remittance_observations_v1'),
+          receiptBytesAfterReplacement);
+      expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+    });
+  });
+}
+
+InvoiceAwardPayoutBookkeepingProposal _proposal(
+    String invoice, String tier, int amount) =>
+    InvoiceAwardPayoutBookkeepingProposal(
+      invoiceIdentity: invoice,
+      awardPeriodId: '115-05-06',
+      prizeTier: tier,
+      grossAmount: amount,
+      localAccountId: 'bank-1',
+      externalRemittanceEligibleAt: DateTime.utc(2026, 8, 5, 16),
+      officialDatasetFingerprint: 'a' * 64,
+      parserRuleVersion: 'ui-v24-e2e',
+    );
+
+InvoiceAwardRemittanceReceiptEvidence _receipt(
+    InvoiceAwardPayoutBookkeepingProposal proposal) =>
+    InvoiceAwardRemittanceReceiptEvidence(
+      proposalKey: proposal.idempotencyKey,
+      awardPeriodId: proposal.awardPeriodId,
+      localAccountId: proposal.localAccountId,
+      prizeTier: proposal.prizeTier,
+      grossAmount: proposal.grossAmount,
+      officialFingerprint: proposal.officialDatasetFingerprint,
+      receivedAtUtc: DateTime.utc(2026, 10, 9),
+      confirmedAtUtc: DateTime.utc(2026, 10, 9, 1),
+    );
+
+TransactionRecord _record(String id, double amount) => TransactionRecord(
+      id: id,
+      type: TransactionType.income,
+      amount: amount,
+      category: '發票兌獎',
+      occurredAt: DateTime.utc(2026, 10, 9),
+      accountName: '測試銀行',
+      memberName: '自己',
+      merchantName: '',
+      tagName: '',
+      note: 'historical posted row',
+      currency: CurrencyCode.twd,
+    );

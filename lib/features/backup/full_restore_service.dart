@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../../database/production_schema_v20_wallet_top_up_tables.dart';
+import '../category/expense_category_schema.dart';
 
 import 'full_backup_scope.dart';
 import 'full_backup_service.dart';
@@ -54,6 +55,11 @@ class FullRestoreService {
     final rawData = envelope['data']! as Map<String, Object?>;
     final data = _normalizedManagedData(metadata, rawData);
     final backupCounts = _managedBackupCounts(data);
+    // B3 V29: capture managed schema before external custody I/O. A newly
+    // installed private trigger/index or altered managed DDL must not inherit
+    // authority from the older pre-restore backup snapshot.
+    final preRestoreManagedSchema =
+        await backupService.captureManagedSchema(db);
     final preRestoreBackupEnvelope = await backupService.buildFullBackupEnvelope(
       db,
       createdAt: preRestoreBackupCreatedAt,
@@ -65,13 +71,59 @@ class FullRestoreService {
 
     ReferentialIntegrityAudit? audit;
     await db.transaction((txn) async {
+      // B3 V27: abort before ANY trigger drop or destructive DML if another
+      // writer changed managed data after the pre-restore custody snapshot.
+      if (!await backupService.managedSchemaMatches(
+            txn, preRestoreManagedSchema,
+          ) ||
+          !await backupService.managedSnapshotMatches(
+            txn, preRestoreBackupEnvelope,
+          )) {
+        throw const FullRestoreException(
+          '還原前備份快照與目前資料不一致；請重新確認備份後再還原',
+        );
+      }
+      // V25-I isolated boundary: a separately authenticated revision floor
+      // must be checked before any destructive DDL, trigger drop, or DML.
+      // The default hook is a no-op to preserve existing V7/V8 restores;
+      // it is NOT a production invoice-award authority until custody exists.
+      await beforeDestructiveRestoreTransaction(txn, envelope);
+      // V25-H2: capture a read-only recheck of the same isolated authority
+      // before destructive DDL/DML. The closure may bind immutable revision
+      // evidence; it is never itself a production authorization lease.
+      final recheckBeforeCommit = await prepareRestoreCommitCheck(envelope);
+      // V25-J: an opt-in restore hook is external code inside this transaction.
+      // Revalidate the captured ledger after it returns: a hook that changed
+      // managed rows/schema must not silently inherit the earlier snapshot
+      // authority, even when it later throws or a restore would overwrite it.
+      if (!await backupService.managedSchemaMatches(
+            txn, preRestoreManagedSchema,
+          ) ||
+          !await backupService.managedSnapshotMatches(
+            txn, preRestoreBackupEnvelope,
+          )) {
+        throw const FullRestoreException(
+          '還原前檢查期間資料或結構已變更；已取消交易以保留原資料',
+        );
+      }
       await _assertRequiredTablesExist(txn);
+      // The category table is lazy-created on some installations. Materialize
+      // it only inside the destructive restore transaction, so a V9 category
+      // payload can never be silently skipped and any failure rolls back DDL.
+      await ensureExpenseCategorySchema(txn);
+      // Current-scope backup rows must not lose unknown columns or entire
+      // populated tables during a destructive restore. Validate while the
+      // SQLite write transaction still protects the custody snapshot.
+      await _assertCurrentScopeColumnCustody(txn, metadata, data);
       final hasWalletTopUpAudits =
           await _tableExists(txn, 'wallet_top_up_audits');
       if (hasWalletTopUpAudits) {
         await dropWalletTopUpAuditImmutabilityTriggers(txn);
       }
       try {
+        // Restore-only trigger changes must remain inside the same atomic
+        // transaction; never expose an unguarded pre-restore custody window.
+        await beforeManagedRestoreTransaction(txn);
         await _clearTables(txn);
         for (final tableName in FullBackupService.backupTableNames) {
           await _restoreTableRows(txn, tableName, data[tableName]);
@@ -86,9 +138,33 @@ class FullRestoreService {
         }
         audit = transactionAudit;
       } finally {
-        if (hasWalletTopUpAudits) {
-          await createWalletTopUpAuditImmutabilityTriggers(txn);
+        try {
+          await afterManagedRestoreTransaction(txn);
+        } finally {
+          if (hasWalletTopUpAudits) {
+            await createWalletTopUpAuditImmutabilityTriggers(txn);
+          }
         }
+      }
+      // B3 V31: hooks restore immutable-row guards inside this transaction.
+      // Audit exact CURRENT Scope9 cell fidelity only AFTER those hooks, so
+      // their late side effects cannot silently commit mutated managed rows.
+      // This relocates the existing scan; it does not add another full scan.
+      // Historical V2 Scope2..8 remains on its original compatibility path.
+      if (metadata['export_format_version'] ==
+              FullBackupService.exportFormatVersion &&
+          metadata['backup_scope_version'] ==
+              FullBackupScope.backupScopeVersion &&
+          !await backupService.managedRowsMatch(txn, data)) {
+        throw const FullRestoreException(
+          '完整還原 CURRENT 資料內容與備份不一致；已取消交易以保留原資料',
+        );
+      }
+      // Recheck after all destructive work, trigger reinstatement and row
+      // audits, while SQLite can still roll everything back. A rejection
+      // must escape this transaction rather than return a success result.
+      if (recheckBeforeCommit != null) {
+        await recheckBeforeCommit();
       }
     });
 
@@ -101,6 +177,35 @@ class FullRestoreService {
           ),
     );
   }
+
+  /// V25-I: isolated opt-in preflight extension point. Executes inside the
+  /// managed SQLite restore transaction AFTER current-ledger snapshot checks
+  /// and BEFORE any destructive schema or data change.
+  ///
+  /// Default remains no-op for legacy V7/V8 compatibility. A test subclass
+  /// may reject a restored revision using a separately stored floor. This
+  /// hook alone CANNOT attest the floor, prove rollback resistance, or grant
+  /// formal invoice-award posting/restore authority.
+  Future<void> beforeDestructiveRestoreTransaction(
+    DatabaseExecutor txn,
+    Map<String, Object?> envelope,
+  ) async {}
+
+  /// Optional isolated read-only authority check prepared before destructive
+  /// restore and re-executed immediately before the SQLite transaction returns.
+  /// Capture immutable evidence in the closure, not a mutable live envelope.
+  /// Default null preserves existing production and legacy restore behavior.
+  /// A final observation is NOT an atomic lease across independent stores.
+  Future<Future<void> Function()?> prepareRestoreCommitCheck(
+    Map<String, Object?> envelope,
+  ) async => null;
+
+  // Versioned restore services override these hooks to temporarily release
+  // immutable-row triggers ONLY within the destructive SQLite transaction.
+  // On rollback, SQLite restores the original trigger schema atomically.
+  Future<void> beforeManagedRestoreTransaction(DatabaseExecutor txn) async {}
+
+  Future<void> afterManagedRestoreTransaction(DatabaseExecutor txn) async {}
 
   Future<ReferentialIntegrityAudit> auditReferentialIntegrity(
     DatabaseExecutor db,
@@ -462,8 +567,33 @@ class FullRestoreService {
       3 => FullBackupScope.legacyScopeV3TableNames,
       4 => FullBackupScope.legacyScopeV4TableNames,
       5 => FullBackupScope.legacyScopeV5TableNames,
+      6 => FullBackupScope.legacyScopeV6TableNames,
+      7 => FullBackupScope.legacyScopeV7TableNames,
+      8 => FullBackupScope.legacyScopeV8TableNames,
       _ => FullBackupService.backupTableNames,
     };
+    // Current Scope9 must not silently discard a future/foreign managed
+    // table hidden in a nominally complete V2 envelope. A future Scope10
+    // requires an explicit migration and legacy custody policy instead.
+    // Do not tighten historical V2 scopes 2..8 in this compatibility guard.
+    if (scopeVersion == FullBackupScope.backupScopeVersion) {
+      final expectedNames = expectedTables.toSet();
+      final includedNames = includedTables.whereType<String>().toSet();
+      if (includedTables.length != expectedNames.length ||
+          includedNames.length != expectedNames.length ||
+          !includedNames.containsAll(expectedNames)) {
+        throw const FullRestoreException(
+          '完整備份 CURRENT 範圍包含未知、重複或缺少的受管資料表',
+        );
+      }
+      final dataNames = data.keys.toSet();
+      if (dataNames.length != expectedNames.length ||
+          !dataNames.containsAll(expectedNames)) {
+        throw const FullRestoreException(
+          '完整備份 CURRENT 資料包含未知或缺少的受管資料表',
+        );
+      }
+    }
     final includedNames = includedTables.whereType<String>().toSet();
     if (!includedNames.containsAll(expectedTables)) {
       throw const FullRestoreException('完整備份受管資料表清單不完整');
@@ -554,6 +684,60 @@ class FullRestoreService {
     for (final tableName in FullBackupScope.requiredTableNames) {
       if (!await _tableExists(db, tableName)) {
         throw FullRestoreException('目前資料庫缺少必要核心表 $tableName');
+      }
+    }
+  }
+
+  // Only the current V2 scope has a complete column-custody contract.
+  // Legacy scopes retain their explicitly supported compatibility behavior;
+  // future scopes must be reviewed before they can become current.
+  Future<void> _assertCurrentScopeColumnCustody(
+    DatabaseExecutor db,
+    Map<String, Object?> metadata,
+    Map<String, Object?> data,
+  ) async {
+    if (metadata['export_format_version'] !=
+            FullBackupService.exportFormatVersion ||
+        metadata['backup_scope_version'] !=
+            FullBackupScope.backupScopeVersion) {
+      return;
+    }
+    for (final tableName in FullBackupService.backupTableNames) {
+      final rows = data[tableName];
+      if (rows is! List) {
+        throw FullRestoreException('完整還原缺少受管資料表：$tableName');
+      }
+      if (!await _tableExists(db, tableName)) {
+        if (rows.isNotEmpty) {
+          throw FullRestoreException(
+            '完整還原目標缺少含資料的受管資料表：$tableName',
+          );
+        }
+        continue;
+      }
+      final columns = await _tableColumns(db, tableName);
+      for (final row in rows) {
+        if (row is! Map) {
+          throw FullRestoreException('完整還原 $tableName 包含非 object row');
+        }
+        // Current Scope9 backups must preserve every target column, including
+        // nullable/defaulted revision and digest fields. Otherwise SQLite may
+        // silently synthesize values while row-count parity still succeeds.
+        final rowColumns = <String>{};
+        for (final column in row.keys) {
+          if (column is! String || !columns.contains(column)) {
+            throw FullRestoreException(
+              '完整還原 $tableName 包含目標無法保存的欄位：$column',
+            );
+          }
+          rowColumns.add(column);
+        }
+        if (rowColumns.length != columns.length ||
+            !rowColumns.containsAll(columns)) {
+          throw FullRestoreException(
+            '完整還原 $tableName 缺少目標欄位；不得以預設值取代備份資料',
+          );
+        }
       }
     }
   }
