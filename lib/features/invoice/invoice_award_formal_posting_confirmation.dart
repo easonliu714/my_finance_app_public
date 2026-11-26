@@ -17,7 +17,8 @@ class InvoiceAwardFormalPostingConfirmation {
 
   /// null = canceled/unmounted; true = committed; false = already POSTED.
   /// Revalidate live UI authority after the modal closes, not only when it
-  /// opens. No account/SQLite access occurs before explicit confirmation.
+  /// opens. Only read-only account resolution occurs before confirmation;
+  /// no formal ledger access or write occurs before explicit consent.
   Future<bool?> requestAndPost({
     required BuildContext context,
     required InvoiceAwardPayoutBookkeepingProposal proposal,
@@ -32,6 +33,8 @@ class InvoiceAwardFormalPostingConfirmation {
     if (!receipt.matches(proposal)) {
       throw StateError('INVOICE_AWARD_POSTING_EVIDENCE_INVALID');
     }
+    final accountName = await postingService.readPostingAccountName(proposal);
+    if (!context.mounted) return null;
     // Use the same local receipt timestamp as the formal ledger service.
     final receiptDate = receipt.receivedAtUtc.toLocal().toIso8601String().split('T').first;
     final accepted = await showDialog<bool>(
@@ -43,6 +46,7 @@ class InvoiceAwardFormalPostingConfirmation {
             '${receipt.actualReceivedAmount}。'
           '官方獎額為 NT\$'
             '${proposal.grossAmount}。'
+          '入帳帳戶：$accountName。'
           '入帳日期：$receiptDate。'
           '按下新增後，將在日常帳本建立正式收入並影響該帳戶餘額。'
           '這是新的、明確的記帳授權；歷史版本的收款測試紀錄'
@@ -67,6 +71,10 @@ class InvoiceAwardFormalPostingConfirmation {
     if (!context.mounted || !stillAuthorized || !receipt.matches(proposal)) {
       throw StateError('INVOICE_AWARD_POSTING_UI_AUTHORITY_STALE');
     }
+    final currentAccountName = await postingService.readPostingAccountName(proposal);
+    if (!context.mounted || currentAccountName != accountName) {
+      throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_CHANGED');
+    }
     final authorizedAtUtc = nowUtc();
     if (!authorizedAtUtc.isUtc) {
       throw StateError('INVOICE_AWARD_POSTING_AUTHORIZATION_CLOCK_INVALID');
@@ -77,6 +85,7 @@ class InvoiceAwardFormalPostingConfirmation {
       proposal: proposal,
       receipt: receipt,
       authorizedAtUtc: authorizedAtUtc,
+      expectedAccountName: accountName,
     );
   }
 }

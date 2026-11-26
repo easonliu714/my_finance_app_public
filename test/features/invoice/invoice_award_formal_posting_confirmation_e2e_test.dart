@@ -146,12 +146,13 @@ void main() {
         whereArgs: <Object>[historicalId, 'historical-nt700'],
         orderBy: 'id',
       );
+      var accountName = '測試銀行';
       final service = InvoiceAwardFormalIncomePostingService.forIsolatedTest(
         databaseProvider: () async => db,
         accountsProvider: () async => <AccountRecord>[
-          const AccountRecord(
+          AccountRecord(
             id: 'bank-1',
-            name: '測試銀行',
+            name: accountName,
             type: AccountType.bank,
             initialBalance: 0,
             sortOrder: 0,
@@ -210,6 +211,7 @@ void main() {
       expect(find.text('確認新增正式發票兌獎收入'), findsOneWidget);
       expect(find.textContaining('實際收到 NT\$180'), findsOneWidget);
       expect(find.textContaining('官方獎額為 NT\$200'), findsOneWidget);
+      expect(find.textContaining('入帳帳戶：測試銀行'), findsOneWidget);
       final expectedDate = receipt.receivedAtUtc.toLocal().toIso8601String();
       expect(find.textContaining('入帳日期: ${expectedDate.split('T').first}'), findsNothing);
       expect(find.textContaining('入帳日期：${expectedDate.split('T').first}'), findsOneWidget);
@@ -240,6 +242,24 @@ void main() {
       expect((await db.rawQuery('SELECT total_changes() AS n')).single['n'],
           initialChanges);
       expect(signals, isEmpty);
+
+      // A renamed target is not covered by the old displayed consent.
+      authorized = true;
+      await tester.tap(find.byKey(const Key('launch_formal_post')));
+      await tester.pumpAndSettle();
+      accountName = '已變更銀行';
+      final renamed = expectLater(
+        pending!,
+        throwsA(isA<StateError>().having(
+          (e) => e.toString(), 'account changed', contains('ACCOUNT_CHANGED'))),
+      );
+      await tester.tap(find.text('確認新增正式收入'));
+      await tester.pumpAndSettle();
+      await renamed;
+      expect(started, 0);
+      expect(await db.query('transactions', orderBy: 'id'), initialRows);
+      expect(signals, isEmpty);
+      accountName = '測試銀行';
 
       // Revocation during an open modal must not touch SQLite.
       authorized = true;
@@ -306,6 +326,7 @@ void main() {
       expect(posted, hasLength(1));
       expect(posted.single['amount'], 180.0);
       expect(posted.single['occurred_at'], expectedDate);
+      expect(posted.single['account_name'], '測試銀行');
       expect(posted.single['note'], contains('官方獎額=200；確認實收=180；'));
 
       // Repeated explicit UI confirmation is still idempotent.

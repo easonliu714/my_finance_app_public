@@ -73,10 +73,40 @@ class InvoiceAwardFormalIncomePostingService {
     return posted;
   }
 
+  // Read-only resolution shared by the confirmation and the actual write.
+  Future<AccountRecord> _resolvePostingAccount(
+      InvoiceAwardPayoutBookkeepingProposal proposal) async {
+    if (proposal.isDeferredCloud500Prize || !proposal.hasValidProvenance) {
+      throw StateError('INVOICE_AWARD_POSTING_EVIDENCE_INVALID');
+    }
+    final accounts = await _accounts();
+    final matches = accounts.where((a) =>
+        a.id == proposal.localAccountId &&
+        !a.isArchived &&
+        a.currency == CurrencyCode.twd &&
+        (a.type == AccountType.bank || a.type == AccountType.debitCard))
+        .toList(growable: false);
+    if (matches.length != 1) {
+      throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_UNAVAILABLE');
+    }
+    final account = matches.single;
+    // The ledger uses displayName, so reject ambiguous account labels.
+    if (accounts.where((a) =>
+        !a.isArchived && a.displayName == account.displayName).length != 1) {
+      throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_NAME_AMBIGUOUS');
+    }
+    return account;
+  }
+
+  Future<String> readPostingAccountName(
+      InvoiceAwardPayoutBookkeepingProposal proposal) async =>
+      (await _resolvePostingAccount(proposal)).displayName;
+
   Future<bool> post({
     required InvoiceAwardPayoutBookkeepingProposal proposal,
     required InvoiceAwardRemittanceReceiptEvidence receipt,
     required DateTime authorizedAtUtc,
+    String? expectedAccountName,
   }) async {
     // Reject before any account/SQLite access; preserve historical POSTED rows.
     if (proposal.isDeferredCloud500Prize) {
@@ -107,21 +137,10 @@ class InvoiceAwardFormalIncomePostingService {
       proposal: proposal,
       observation: receipt,
       operation: () async {
-        final accounts = await _accounts();
-        final matches = accounts.where((a) =>
-            a.id == proposal.localAccountId &&
-            !a.isArchived &&
-            a.currency == CurrencyCode.twd &&
-            (a.type == AccountType.bank || a.type == AccountType.debitCard))
-            .toList(growable: false);
-        if (matches.length != 1) {
-          throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_UNAVAILABLE');
-        }
-        final account = matches.single;
-        // The ledger uses displayName, so reject ambiguous account labels.
-        if (accounts.where((a) =>
-            !a.isArchived && a.displayName == account.displayName).length != 1) {
-          throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_NAME_AMBIGUOUS');
+        final account = await _resolvePostingAccount(proposal);
+        if (expectedAccountName != null &&
+            account.displayName != expectedAccountName) {
+          throw StateError('INVOICE_AWARD_POSTING_ACCOUNT_CHANGED');
         }
         final record = TransactionRecord(
           id: stableRecordId(proposal),
