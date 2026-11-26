@@ -175,6 +175,16 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     await _log('LAB_DIR=${lab.path}');
     await _log('EXPECTED_SHA256=$_expectedSha256');
     await _log('EXPECTED_BYTES=$_expectedBytes');
+    // A prior UI may have died after the native renderer closed but before
+    // consuming its terminal receipt. Reconcile before enabling actions;
+    // never restore pair verification or automatically dispatch a new task.
+    try {
+      if (await LabL1DispatchFence(lab).recoverOwnerOpen()) {
+        await _log('L1_OWNER_OPEN_TERMINAL_RECOVERED global_not_win=HOLD');
+      }
+    } on StateError {
+      await _log('L1_OWNER_OPEN_RECOVERY_HOLD');
+    }
     if (await pdf.exists()) {
       await _log('LOCAL_PDF_PRESENT path=${pdf.path} bytes=${await pdf.length()}');
     }

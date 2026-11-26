@@ -80,6 +80,62 @@ class LabL1DispatchFence {
     await _completeRecord(record);
   }
 
+  /// Reconcile only an owner-open marker with its retained, closed-renderer
+  /// terminal result. No timeout, age or missing process implies success.
+  /// Called at startup before any UI dispatch is enabled.
+  Future<bool> recoverOwnerOpen() async {
+    final type = await FileSystemEntity.type(_file.path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return false;
+    final marker = await _readBoundedObject(_file, 512);
+    // The existing v1 export marker requires its own JSONL/cursor evidence.
+    if (marker['version'] == 1) return false;
+    final role = marker['role'];
+    final requestId = marker['request_id'];
+    if (marker['version'] != 2 ||
+        marker['operation'] != 'may_june_owner_open' ||
+        role is! String ||
+        requestId is! String ||
+        (role != 'sorted' && role != 'draw_order') ||
+        !_requestPattern.hasMatch(requestId)) {
+      throw StateError(unresolved);
+    }
+    final record = _ownerOpenRecord(role, requestId);
+    await _verifyRecord(record);
+    final terminal = File(
+      '${_file.parent.path}${Platform.pathSeparator}platform_probe_$requestId.json',
+    );
+    final result = await _readBoundedObject(terminal, 4096);
+    await completeOwnerOpen(role: role, requestId: requestId, result: result);
+    return true;
+  }
+
+  // Bound reads even if an unexpectedly large file replaces a prior result.
+  // Refuse links and non-object JSON; never delete either file on read error.
+  Future<Map<String, dynamic>> _readBoundedObject(File file, int limit) async {
+    try {
+      if (await FileSystemEntity.type(file.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        throw StateError(unresolved);
+      }
+      final handle = await file.open();
+      try {
+        final size = await handle.length();
+        if (size <= 0 || size > limit) throw StateError(unresolved);
+        final bytes = await handle.read(limit + 1);
+        if (bytes.length != size || bytes.length > limit) {
+          throw StateError(unresolved);
+        }
+        final decoded = jsonDecode(utf8.decode(bytes));
+        if (decoded is! Map<String, dynamic>) throw StateError(unresolved);
+        return decoded;
+      } finally {
+        await handle.close();
+      }
+    } catch (_) {
+      throw StateError(unresolved);
+    }
+  }
+
   Future<void> _beginRecord(Map<String, Object> record) async {
     await requireClear();
     RandomAccessFile? handle;
@@ -129,15 +185,8 @@ class LabL1DispatchFence {
 
   Future<void> _verifyRecord(Map<String, Object> record) async {
     try {
-      if (await FileSystemEntity.type(_file.path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        throw StateError(unresolved);
-      }
-      final size = await _file.length();
-      if (size <= 0 || size > 512) throw StateError(unresolved);
-      final decoded = jsonDecode(await _file.readAsString());
-      if (decoded is! Map<String, dynamic> ||
-          decoded.length != record.length ||
+      final decoded = await _readBoundedObject(_file, 512);
+      if (decoded.length != record.length ||
           record.entries.any((entry) => decoded[entry.key] != entry.value)) {
         throw StateError(unresolved);
       }

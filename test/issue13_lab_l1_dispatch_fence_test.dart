@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -198,6 +199,65 @@ void main() {
     await restarted.requireClear();
     await restarted.beginOwnerOpen(role: 'draw_order', requestId: '999');
     await expectLater(restarted.requireClear(), throwsA(unresolved()));
+  });
+
+  test('restart recovers only exact retained owner-open terminal', () async {
+    final fence = LabL1DispatchFence(directory);
+    expect(await fence.recoverOwnerOpen(), isFalse);
+    await fence.beginOwnerOpen(role: 'sorted', requestId: request);
+    final terminal = File('${directory.path}/platform_probe_$request.json');
+    final receipt = jsonEncode(ownerTerminal('sorted', request));
+    await terminal.writeAsString(receipt, flush: true);
+    final restarted = LabL1DispatchFence(directory);
+    expect(await restarted.recoverOwnerOpen(), isTrue);
+    expect(await terminal.readAsString(), receipt);
+    await restarted.requireClear();
+    expect(await restarted.recoverOwnerOpen(), isFalse);
+    await restarted.beginOwnerOpen(role: 'draw_order', requestId: '999');
+  });
+
+  test('restart retains owner marker for missing or untrusted terminal',
+      () async {
+    final fence = LabL1DispatchFence(directory);
+    await fence.beginOwnerOpen(role: 'sorted', requestId: request);
+    final marker = File('${directory.path}/l1-native-inflight.json');
+    final before = await marker.readAsBytes();
+    final terminal = File('${directory.path}/platform_probe_$request.json');
+    final restarted = LabL1DispatchFence(directory);
+    await expectLater(restarted.recoverOwnerOpen(), throwsA(unresolved()));
+    for (final invalid in <String>[
+      '{',
+      '[]',
+      List<String>.filled(4097, 'x').join(),
+      jsonEncode(ownerTerminal('draw_order', request)),
+      jsonEncode(ownerTerminal('sorted', '999')),
+      jsonEncode({...ownerTerminal('sorted', request), 'status': 'running'}),
+      jsonEncode({...ownerTerminal('sorted', request), 'status': 'failure'}),
+      jsonEncode({...ownerTerminal('sorted', request), 'status': 'process_exit'}),
+      jsonEncode({...ownerTerminal('sorted', request), 'stage': 'PLATFORM_RENDERER_OPEN_OK'}),
+    ]) {
+      await terminal.writeAsString(invalid, flush: true);
+      await expectLater(restarted.recoverOwnerOpen(), throwsA(unresolved()));
+      expect(await marker.readAsBytes(), before);
+    }
+    await terminal.delete();
+    final outside = File('${directory.path}/outside.json');
+    await outside.writeAsString(jsonEncode(ownerTerminal('sorted', request)));
+    await Link(terminal.path).create(outside.path);
+    await expectLater(restarted.recoverOwnerOpen(), throwsA(unresolved()));
+    expect(await marker.readAsBytes(), before);
+  });
+
+  test('restart recovery never consumes legacy export marker', () async {
+    final fence = LabL1DispatchFence(directory);
+    await fence.begin(firstPage: 1, requestId: request, pdfSha256: sha);
+    final marker = File('${directory.path}/l1-native-inflight.json');
+    final before = await marker.readAsBytes();
+    await File('${directory.path}/platform_probe_$request.json')
+        .writeAsString(jsonEncode(ownerTerminal('sorted', request)));
+    expect(await LabL1DispatchFence(directory).recoverOwnerOpen(), isFalse);
+    expect(await marker.readAsBytes(), before);
+    await expectLater(fence.requireClear(), throwsA(unresolved()));
   });
 
   test('terminal verified completion permits later dispatch', () async {
