@@ -191,13 +191,28 @@ class PlatformPdfProbeService : Service() {
           "request=$requestId sha256=$sha before_renderer=true")
         sha
       } else null
-      descriptor =
-        ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+      val ownerRole = LabL1MayJuneOwnerAttestedBytePair.rendererOpenRole(candidate)
+      if (ownerRole != null) {
+        if (!Regex("^[0-9]{1,24}$").matches(requestId)) {
+          throw IllegalStateException("L1_REQUEST_ID_INVALID")
+        }
+        stage.set("L1_OWNER_SNAPSHOT_BEFORE_RENDERER")
+        snapshot("running")
+        val cache = applicationContext.cacheDir.canonicalFile
+        val root = if (source.canonicalFile.path.startsWith(cache.path + File.separator))
+          cache else applicationContext.filesDir
+        // The isolated renderer receives the same read-only verified inode.
+        LabL1VerifiedPdfSnapshot.openOwner(source, root, cache, ownerRole).use {
+          descriptor = ParcelFileDescriptor.dup(it.readOnlyFile.fd)
+        }
+      } else {
+        descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+      }
       stage.set("PLATFORM_RENDERER_CONSTRUCT_BEGIN")
       snapshot("running")
       appendLog("PLATFORM_RENDERER_CONSTRUCT_BEGIN", source, "request=$requestId")
 
-      renderer = PdfRenderer(descriptor)
+      renderer = PdfRenderer(descriptor ?: throw IllegalStateException("PLATFORM_DESCRIPTOR_MISSING"))
       descriptor = null
       val pageCount = renderer.pageCount
 
@@ -210,6 +225,21 @@ class PlatformPdfProbeService : Service() {
           (SystemClock.elapsedRealtime() - startedAt)
       )
 
+
+      if (ownerRole != null) {
+        if (pageCount != LabL1MayJuneOwnerAttestedBytePair.expectedPageCount) {
+          throw IllegalStateException("L1_OWNER_RENDERER_PAGE_COUNT_MISMATCH_HOLD")
+        }
+        renderer.close()
+        renderer = null
+        stage.set("L1_OWNER_RENDERER_OPEN_COMPLETE")
+        snapshot("complete", JSONObject()
+          .put("page_count", pageCount)
+          .put("role", if (ownerRole == LabL1MayJuneDualPdfOracle.Role.SORTED) "sorted" else "draw_order")
+          .put("authority", "LAB_OWNER_ATTESTED_BYTES_ONLY")
+          .put("global_not_win", "HOLD"))
+        return
+      }
 
       // Lab L1: bounded native API35 extraction. No full-PDF or NOT_WIN
       // authority is inferred from a partial batch, even on a valid SHA.

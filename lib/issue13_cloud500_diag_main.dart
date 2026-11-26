@@ -96,6 +96,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   String? _mayJuneSortedPath;
   String? _mayJuneDrawPath;
   bool _mayJunePairVerified = false;
+  bool _mayJuneOpenVerified = false;
+  bool _mayJuneProbeUnresolved = false;
   bool _busy = false;
   bool _initialized = false;
   bool _initializationExpired = false;
@@ -448,8 +450,9 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     required String candidate,
     String? requestIdOverride,
     Future<void> Function()? beforeDispatch,
+    File? ownerVerifiedSource,
   }) async {
-    final file = await _ensureExactPdf();
+    final file = ownerVerifiedSource ?? await _ensureExactPdf();
     final lab = _labDirectory;
     if (lab == null) throw StateError('LAB_NOT_INITIALIZED');
     final requestId = requestIdOverride ??
@@ -479,7 +482,12 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     var lastPid = -1;
     var lastStage = 'DISPATCHED';
     var lastReportAt = DateTime.now();
+    final wait = Stopwatch()..start();
     while (true) {
+      // A missing result or a stalled process must not wait forever.
+      if (wait.elapsed > const Duration(minutes: 10)) {
+        throw StateError('PLATFORM_PROBE_TIMEOUT_HOLD');
+      }
       await Future<void>.delayed(const Duration(milliseconds: 500));
       if (!await resultFile.exists()) continue;
       Map<String, dynamic> decoded;
@@ -963,6 +971,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   Future<void> _pickMayJunePdf({required bool sorted}) async {
     setState(() {
       _mayJunePairVerified = false;
+      _mayJuneOpenVerified = false;
       if (sorted) {
         _mayJuneSortedPath = null;
       } else {
@@ -987,7 +996,10 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   }
 
   Future<void> _verifyMayJunePair() async {
-    setState(() => _mayJunePairVerified = false);
+    setState(() {
+      _mayJunePairVerified = false;
+      _mayJuneOpenVerified = false;
+    });
     final sorted = _mayJuneSortedPath;
     final draw = _mayJuneDrawPath;
     if (sorted == null || draw == null || sorted == draw) {
@@ -1004,6 +1016,39 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         'authority=LAB_OWNER_ATTESTED_BYTES_ONLY parser=NOT_OPENED '
         'global_not_win=HOLD');
     if (mounted) setState(() => _mayJunePairVerified = true);
+  }
+
+  Future<void> _openMayJunePairInWorker() async {
+    final sorted = _mayJuneSortedPath;
+    final draw = _mayJuneDrawPath;
+    if (!_mayJunePairVerified || _mayJuneProbeUnresolved ||
+        sorted == null || draw == null) {
+      throw StateError('L1_OWNER_RENDERER_SOURCE_HOLD');
+    }
+    setState(() {
+      _mayJuneOpenVerified = false;
+      _mayJuneProbeUnresolved = true;
+    });
+    // Both roles are independently rehashed inside the isolated process.
+    // A timeout/failure leaves this session locked; do not dispatch again.
+    for (final entry in <String, String>{'sorted': sorted, 'draw_order': draw}.entries) {
+      final result = await _runPlatformProbe(
+        candidate: 'LAB_MAY_JUNE_OPEN:${entry.key}',
+        ownerVerifiedSource: File(entry.value),
+      );
+      if (result['status'] != 'complete' ||
+          result['stage'] != 'L1_OWNER_RENDERER_OPEN_COMPLETE' ||
+          result['role'] != entry.key ||
+          result['page_count'] != 77000 ||
+          result['authority'] != 'LAB_OWNER_ATTESTED_BYTES_ONLY' ||
+          result['global_not_win'] != 'HOLD') {
+        throw StateError('L1_OWNER_RENDERER_OPEN_HOLD');
+      }
+    }
+    if (mounted) setState(() {
+      _mayJuneProbeUnresolved = false;
+      _mayJuneOpenVerified = true;
+    });
   }
 
   @override
@@ -1031,6 +1076,15 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       Text(_mayJunePairVerified
           ? '來源位元組 PASS（Owner-attested）；對獎仍 HOLD'
           : '雙 PDF 來源 HOLD；對獎仍 HOLD'),
+      FilledButton.tonal(
+        onPressed: _actionsDisabled || !_mayJunePairVerified ||
+                _mayJuneProbeUnresolved
+            ? null : () => _run('隔離解析雙 PDF 頁數', _openMayJunePairInWorker),
+        child: const Text('隔離解析雙 PDF 頁數'),
+      ),
+      Text(_mayJuneOpenVerified
+          ? '雙 PDF 隔離開啟 PASS（各 77000 頁）；對獎仍 HOLD'
+          : '隔離開啟 HOLD；對獎仍 HOLD'),
       const Divider(),
       FilledButton(
         onPressed: _actionsDisabled

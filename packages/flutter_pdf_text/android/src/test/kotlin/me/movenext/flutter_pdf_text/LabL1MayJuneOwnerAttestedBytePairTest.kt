@@ -35,6 +35,17 @@ class LabL1MayJuneOwnerAttestedBytePairTest {
     catch (error: IllegalStateException) { assertEquals(expected, error.message) }
   }
 
+  @Test fun rendererOpenProbeOnlyAdmitsExplicitRoles() {
+    assertEquals(LabL1MayJuneDualPdfOracle.Role.SORTED,
+      api.rendererOpenRole("LAB_MAY_JUNE_OPEN:sorted"))
+    assertEquals(LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER,
+      api.rendererOpenRole("LAB_MAY_JUNE_OPEN:draw_order"))
+    assertEquals(null, api.rendererOpenRole("LAB_L1_EXPORT:1"))
+    rejects("L1_OWNER_RENDERER_ROLE_INVALID") {
+      api.rendererOpenRole("LAB_MAY_JUNE_OPEN:other")
+    }
+  }
+
   @Test fun exactDistinctByteStreamsProduceDiagnosticOnlyCustody() {
     val checked = check()
     assertEquals(sha(sorted), checked.sortedSha256)

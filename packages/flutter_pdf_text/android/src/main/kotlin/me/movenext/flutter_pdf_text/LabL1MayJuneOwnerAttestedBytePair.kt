@@ -40,6 +40,19 @@ internal object LabL1MayJuneOwnerAttestedBytePair {
     }
   }
 
+  /** Only explicit role-bound open probes may use the May-June snapshot. */
+  fun rendererOpenRole(candidate: String): LabL1MayJuneDualPdfOracle.Role? =
+    when (candidate) {
+      "LAB_MAY_JUNE_OPEN:sorted" -> LabL1MayJuneDualPdfOracle.Role.SORTED
+      "LAB_MAY_JUNE_OPEN:draw_order" -> LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER
+      else -> {
+        if (candidate.startsWith("LAB_MAY_JUNE_OPEN")) {
+          throw IllegalStateException("L1_OWNER_RENDERER_ROLE_INVALID")
+        }
+        null
+      }
+    }
+
   /** Known Owner-attested pair only; this is not an independent MOF download. */
   internal fun pinnedRole(role: LabL1MayJuneDualPdfOracle.Role): Pair<Long, String> =
     when (role) {
