@@ -1,4 +1,8 @@
-## CURRENT — 2026-11-26 12:20 Asia/Taipei | #50 isolated renderer source-contract repair
+## CURRENT — 2026-11-26 20:03 Asia/Taipei | #50 Lab #114 analyzer repair
+
+Owner-direct source lint fix, parent d14c2364b50a58a68f4d1b6578d7a7cbb072b63d. Exact Lab #114 run45755120445 job139691827233 failed Analyze at lib/issue13_cloud500_diag_main.dart:1048:18 (curly_braces_in_flow_control_structures). Wrap the mounted setState guard in braces; both role/77000-page checks and unresolved lock semantics unchanged. No local Flutter test execution; successor exact CI required. No matching/UAT/production activation claim; independent negative and worker lease/timeout recovery remain HOLD. Owner action NONE. Scheduled Writer 19:15 completed with zero code/test delivery; do not credit this direct repair as autonomous progress.
+
+## HISTORICAL — 2026-11-26 12:20 Asia/Taipei | #50 isolated renderer source-contract repair
 
 Exact Lab #113 run45754877416 FAIL before Gradle in source preflight: Python substring lookup for renderer = PdfRenderer(descriptor) no longer matched after nullable guard rewrite. Restore existing constructor shape; assign descriptor from role-specific if expression, return dup from snapshot use, no captured mutable assignment. Static source-order assertions locally evaluated in connector script (old preflight, request guard and new snapshot before constructor), no test weakening; Gradle/Flutter/device not run locally. Parent cb1972c7fc655b653bb97445b3dd8c7e14646182. Preserve isolated role/77000 pages/byte-only HOLD, no direct PDFium activation, no UAT. New exact CI required. A canonical documents reflect preceding B source commit; synchronize this successor on next A source/test commit, do not supersede A CI #1559 for docs-only. Prior CURRENT historical.
 

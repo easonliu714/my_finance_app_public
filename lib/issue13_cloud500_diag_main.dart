@@ -1045,10 +1045,12 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
         throw StateError('L1_OWNER_RENDERER_OPEN_HOLD');
       }
     }
-    if (mounted) setState(() {
-      _mayJuneProbeUnresolved = false;
-      _mayJuneOpenVerified = true;
-    });
+    if (mounted) {
+      setState(() {
+        _mayJuneProbeUnresolved = false;
+        _mayJuneOpenVerified = true;
+      });
+    }
   }
 
   @override
