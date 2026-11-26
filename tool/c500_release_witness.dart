@@ -193,7 +193,8 @@ Future<void> _runProductionRouterWitness(SharedPreferences prefs) async {
   inspect(root!);
   _require(awardContext != null && awardContext!.mounted,
       'PRODUCTION_AWARD_ROUTE_NOT_RENDERED');
-  await _runProductionConsentNoWriteWitness(awardContext!, prefs);
+  await _runProductionConsentNoWriteWitness(
+      awardContext!, prefs, fixture.stale.localAccountId);
   _require(prefs.getString(receiptKey) == receiptBefore &&
       prefs.getString(lkgKey) == lkgBefore,
       'PRODUCTION_ROUTE_RECEIPT_OR_LKG_MUTATED');
@@ -209,7 +210,8 @@ Future<void> _runProductionRouterWitness(SharedPreferences prefs) async {
 // A positive NT$200 service/SQLite path is verified separately by the V24
 // witness. This does NOT claim the production page's readiness was seeded.
 Future<void> _runProductionConsentNoWriteWitness(
-    BuildContext awardContext, SharedPreferences prefs) async {
+    BuildContext awardContext, SharedPreferences prefs,
+    String seededAccountId) async {
   const receiptKey = 'issue13_remittance_observations_v1';
   const lkgKey = 'invoice_award.general_lkg.v1.115-05-06';
   final receiptBefore = prefs.getString(receiptKey);
@@ -218,8 +220,10 @@ Future<void> _runProductionConsentNoWriteWitness(
   await Future<void>.delayed(const Duration(milliseconds: 400));
   final databasesBefore = await _databaseFiles();
   const flow = InvoiceAwardFormalPostingConfirmation();
+  // The production resolver requires the real disposable account, not the
+  // isolated V24 service fixture's hard-coded release-bank identity.
   final general = _v24Proposal('router-consent-general-200',
-      'general-sixth', 200);
+      'general-sixth', 200, localAccountId: seededAccountId);
   final generalReceipt = _v24Receipt(general);
   var postingStarted = 0;
 
@@ -831,13 +835,14 @@ Future<void> _runV24LedgerWitness(
 }
 
 InvoiceAwardPayoutBookkeepingProposal _v24Proposal(
-    String invoice, String tier, int amount) =>
+    String invoice, String tier, int amount,
+    {String localAccountId = 'release-bank'}) =>
     InvoiceAwardPayoutBookkeepingProposal(
       invoiceIdentity: invoice,
       awardPeriodId: '115-05-06',
       prizeTier: tier,
       grossAmount: amount,
-      localAccountId: 'release-bank',
+      localAccountId: localAccountId,
       externalRemittanceEligibleAt: DateTime.utc(2026, 8, 5, 16),
       officialDatasetFingerprint: 'a' * 64,
       parserRuleVersion: 'release-v24',
