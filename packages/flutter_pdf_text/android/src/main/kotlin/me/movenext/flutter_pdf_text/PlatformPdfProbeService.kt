@@ -207,7 +207,18 @@ class PlatformPdfProbeService : Service() {
           "request=$requestId sha256=$sha before_renderer=true")
         sha
       } else null
-      val ownerRole = LabL1MayJuneOwnerAttestedBytePair.rendererOpenRole(candidate)
+      val drawPage = LabL1MayJuneDrawPage.requestedPage(candidate)
+      val ownerRole = if (drawPage != null) LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER
+        else LabL1MayJuneOwnerAttestedBytePair.rendererOpenRole(candidate)
+      if (drawPage != null) {
+        // Bind the new operation to its app-private request receipt.
+        val root = applicationContext.filesDir.canonicalFile
+        val receipt = File(resultPath).canonicalFile
+        if (!receipt.path.startsWith(root.path + File.separator) ||
+            receipt.name != "platform_probe_$requestId.json") {
+          throw IllegalStateException("L1_OWNER_DRAW_RESULT_PATH_INVALID")
+        }
+      }
       descriptor = if (ownerRole != null) {
         if (!Regex("^[0-9]{1,24}$").matches(requestId)) {
           throw IllegalStateException("L1_REQUEST_ID_INVALID")
@@ -245,6 +256,38 @@ class PlatformPdfProbeService : Service() {
       if (ownerRole != null) {
         if (pageCount != LabL1MayJuneOwnerAttestedBytePair.expectedPageCount) {
           throw IllegalStateException("L1_OWNER_RENDERER_PAGE_COUNT_MISMATCH_HOLD")
+        }
+        if (drawPage != null) {
+          // Read exactly one page from the role-pinned verified descriptor.
+          // No caller-provided tokens or generic PDFium route is accepted.
+          currentPage.set(drawPage)
+          stage.set("L1_OWNER_DRAW_PAGE_TEXT")
+          snapshot("running", JSONObject().put("page_count", pageCount))
+          val text = StringBuilder()
+          renderer.openPage(drawPage - 1).use { page ->
+            for (piece in page.textContents) {
+              val part = piece.text
+              if (part.length > LabL1MayJuneDrawPage.maxTextChars - text.length - 1) {
+                throw IllegalStateException("L1_OWNER_DRAW_TEXT_BUDGET_HOLD")
+              }
+              if (text.isNotEmpty()) text.append('\n')
+              text.append(part)
+            }
+          }
+          val tokens = LabL1MayJuneDrawPage.extract(text.toString())
+          pagesRead.incrementAndGet()
+          renderer.close()
+          renderer = null
+          stage.set("L1_OWNER_DRAW_PAGE_COMPLETE")
+          snapshot("complete", JSONObject()
+            .put("page_count", pageCount)
+            .put("page", drawPage)
+            .put("role", "draw_order")
+            .put("pdf_sha256", LabL1MayJuneOwnerAttestedBytePair.pinnedRole(ownerRole).second)
+            .put("tokens", org.json.JSONArray(tokens))
+            .put("authority", "LAB_OWNER_ATTESTED_BYTES_ONLY")
+            .put("global_not_win", "HOLD"))
+          return
         }
         renderer.close()
         renderer = null
