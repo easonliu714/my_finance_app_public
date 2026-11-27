@@ -22,7 +22,7 @@ class LabL1MayJuneDualPdfOracleTest {
     LabL1MayJuneDualPdfOracle.Probe(source, candidate, match, if (match) 7 else null,
       if (match) candidate else null,
       if (match) if (source.role == LabL1MayJuneDualPdfOracle.Role.SORTED) sortedPage else drawPage else emptyList(),
-      100, 7, valid)
+      LabL1MayJuneOwnerAttestedBytePair.expectedPageCount, 7, valid)
 
   private fun proof(candidate: String = token, source: LabL1MayJuneDualPdfOracle.Source = draw) =
     LabL1MayJuneDualPdfOracle.AbsenceProof(source, candidate, true, true, true, "c".repeat(64))
@@ -62,7 +62,7 @@ class LabL1MayJuneDualPdfOracleTest {
     hold("L1_DUAL_POSITIVE_PROBE_INVALID", api.positive(
       probe(draw, true), probe(sorted, true).copy(returnedToken = "BA12345677"), trusted))
     hold("L1_DUAL_POSITIVE_PROBE_INVALID", api.positive(
-      probe(draw, true), probe(sorted, true).copy(matchedPage = 101), trusted))
+      probe(draw, true), probe(sorted, true).copy(matchedPage = 77001), trusted))
     hold("L1_DUAL_POSITIVE_PROBE_INVALID", api.positive(
       probe(draw, true), probe(sorted, true).copy(candidate = "12345678"), trusted))
   }
@@ -74,6 +74,39 @@ class LabL1MayJuneDualPdfOracleTest {
       api.positive(probe(draw, true), probe(sorted, true).copy(pageTokens = tokens), trusted))
     hold("L1_DUAL_POSITIVE_PROBE_INVALID", api.positive(
       probe(draw, true), probe(sorted, true, valid = false), trusted))
+  }
+
+  @Test fun eitherRoleWithNonExactPageCountCannotClaimPositive() {
+    for (count in listOf(0, 1, 100, 76999, 77001, 100000)) {
+      hold("L1_DUAL_POSITIVE_PROBE_INVALID", api.positive(
+        probe(draw, true).copy(pageCount = count), probe(sorted, true), trusted))
+      hold("L1_DUAL_POSITIVE_PROBE_INVALID", api.positive(
+        probe(draw, true), probe(sorted, true).copy(pageCount = count), trusted))
+      hold("L1_DUAL_POSITIVE_PROBE_INVALID", api.positive(
+        probe(draw, true).copy(pageCount = count),
+        probe(sorted, true).copy(pageCount = count), trusted))
+    }
+  }
+
+  @Test fun exactPageCountDoesNotWaiveReadOrMatchBounds() {
+    val count = LabL1MayJuneOwnerAttestedBytePair.expectedPageCount
+    for (read in listOf(0, count + 1)) {
+      hold("L1_DUAL_POSITIVE_PROBE_INVALID", api.positive(
+        probe(draw, true).copy(pagesRead = read), probe(sorted, true), trusted))
+      hold("L1_DUAL_NEGATIVE_PROBE_INVALID", api.negative(
+        probe(sorted, false).copy(pagesRead = read), draw, proof(), trusted, verified))
+    }
+    val result = api.positive(
+      probe(draw, true).copy(matchedPage = count),
+      probe(sorted, true).copy(matchedPage = count), trusted)
+    assertTrue(result is LabL1MayJuneDualPdfOracle.Outcome.PositiveCandidate)
+  }
+
+  @Test fun wrongPageCountCannotClaimNegativeEvenWithIndependentProof() {
+    for (count in listOf(0, 100, 76999, 77001, 100000)) {
+      hold("L1_DUAL_NEGATIVE_PROBE_INVALID", api.negative(
+        probe(sorted, false).copy(pageCount = count), draw, proof(), trusted, verified))
+    }
   }
 
   @Test fun binaryMissWithoutIndependentAbsenceProofAlwaysHolds() {

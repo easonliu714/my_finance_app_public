@@ -80,8 +80,11 @@ internal object LabL1MayJuneDualPdfOracle {
   }
 
   private fun probeValid(probe: Probe, expected: Source, requireMatch: Boolean): Boolean {
+    // This oracle is specific to the accepted May-June pair, not an
+    // arbitrary partial PDF. Reuse the renderer's exact page-count contract.
     if (probe.source != expected || !invoice.matches(probe.candidate) ||
-        probe.pageCount !in 1..100_000 || probe.pagesRead !in 1..probe.pageCount ||
+        probe.pageCount != LabL1MayJuneOwnerAttestedBytePair.expectedPageCount ||
+        probe.pagesRead !in 1..probe.pageCount ||
         !probe.extractionComplete || probe.matched != requireMatch) return false
     if (!requireMatch) {
       // A sampled binary miss alone is NOT an independent absence oracle.
