@@ -12,9 +12,23 @@ internal class LabL1NativeProbeLease {
   private val active = AtomicBoolean(false)
   private val latestStartId = AtomicInteger(0)
 
-  fun noteStart(startId: Int) { latestStartId.set(startId) }
-  fun tryAcquire(): Boolean = active.compareAndSet(false, true)
-  fun isActive(): Boolean = active.get()
-  fun latestStartId(): Int = latestStartId.get()
-  fun release() { active.set(false) }
+  @Synchronized fun noteStart(startId: Int) { latestStartId.set(startId) }
+  @Synchronized fun tryAcquire(): Boolean = active.compareAndSet(false, true)
+  @Synchronized fun isActive(): Boolean = active.get()
+  @Synchronized fun latestStartId(): Int = latestStartId.get()
+  @Synchronized fun release() { active.set(false) }
+
+  // Called only after renderer and heartbeat cleanup. Keep admission
+  // excluded until the old lease is released and its receipt published.
+  // This is service-local custody, not proof of OS process exit.
+  @Synchronized
+  fun finish(stop: (Int) -> Unit, publishTerminal: () -> Unit) {
+    check(active.get()) { "L1_NATIVE_LEASE_NOT_ACTIVE" }
+    try {
+      stop(latestStartId.get())
+    } finally {
+      active.set(false)
+    }
+    publishTerminal()
+  }
 }

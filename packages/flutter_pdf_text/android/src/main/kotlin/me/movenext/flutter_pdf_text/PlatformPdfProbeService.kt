@@ -55,15 +55,24 @@ class PlatformPdfProbeService : Service() {
     }
     try {
       thread(start = true, name = "platform-pdf-probe") {
+        var terminal: (() -> Unit)? = null
+        var cleanedUp = false
         try {
-          runProbe(pdfPath, resultPath, requestId, candidate)
-        } finally {
-          synchronized(probeLease) {
-            // Rejected starts advance Android's startId. Stop the latest
-            // start before releasing the single-flight worker lease.
-            stopSelf(probeLease.latestStartId())
-            probeLease.release()
+          runProbe(pdfPath, resultPath, requestId, candidate) { publish ->
+            terminal = publish
           }
+          cleanedUp = true
+        } catch (error: Throwable) {
+          // Cleanup failure must not publish a previously staged success.
+          appendLog("PLATFORM_PROBE_CLEANUP_HOLD", File(pdfPath),
+            "request=$requestId error=${error.javaClass.name}")
+        } finally {
+          // The same monitor used by admission covers stop, lease release
+          // and terminal publication. A receipt cannot race the next start.
+          probeLease.finish(
+            stop = { stopSelf(it) },
+            publishTerminal = { if (cleanedUp) terminal?.invoke() }
+          )
         }
       }
     } catch (error: Throwable) {
@@ -80,7 +89,8 @@ class PlatformPdfProbeService : Service() {
     pdfPath: String,
     resultPath: String,
     requestId: String,
-    candidate: String
+    candidate: String,
+    deferTerminal: (() -> Unit) -> Unit
   ) {
     val source = File(pdfPath)
     val pid = Process.myPid()
@@ -104,7 +114,13 @@ class PlatformPdfProbeService : Service() {
         .put("current_page", currentPage.get())
         .put("pages_read", pagesRead.get())
         .put("updated_at_ms", System.currentTimeMillis())
-      writeResult(resultPath, status, extra, resultCustody)
+      if (status == "running") {
+        writeResult(resultPath, status, extra, resultCustody)
+      } else {
+        // Stage the immutable terminal payload until runProbe has returned
+        // after cleanup, and the admission monitor has released the lease.
+        deferTerminal { writeResult(resultPath, status, extra, resultCustody) }
+      }
     }
 
     appendLog(
@@ -343,7 +359,8 @@ class PlatformPdfProbeService : Service() {
         return
       }
 
-      // The search keeps its renderer alive until runProbe's finally block.
+      // The search keeps its renderer alive until runProbe's finally block;
+      // its terminal receipt stays staged until cleanup and lease handoff.
       // Capture a stable non-null handle for the nested invoiceTokens closure.
       val searchRenderer = renderer
         ?: throw IllegalStateException("PLATFORM_RENDERER_MISSING_FOR_SEARCH")
@@ -451,8 +468,18 @@ class PlatformPdfProbeService : Service() {
     } finally {
       alive.set(false)
       heartbeat.interrupt()
-      try { renderer?.close() } catch (_: Throwable) {}
-      try { descriptor?.close() } catch (_: Throwable) {}
+      // Do not publish terminal success if a heartbeat or native handle
+      // is still live. Always attempt both handle closures on failure.
+      try {
+        heartbeat.join(1000)
+        check(!heartbeat.isAlive) { "L1_HEARTBEAT_CLEANUP_HOLD" }
+      } finally {
+        try {
+          renderer?.close()
+        } finally {
+          descriptor?.close()
+        }
+      }
     }
   }
 
