@@ -273,4 +273,41 @@ void main() {
     );
     await expectLater(fence.requireClear(), throwsA(unresolved()));
   });
+
+  test('draw page recovery rejects mismatched or incomplete terminal', () async {
+    final fence = LabL1DispatchFence(directory);
+    await fence.beginDrawPage(page: 77000, requestId: request, pdfSha256: sha);
+    final restarted = LabL1DispatchFence(directory);
+    final terminal = File('${directory.path}/platform_probe_$request.json');
+    await expectLater(restarted.recoverOwnerOpen(), throwsA(unresolved()));
+    final receipt = <String, dynamic>{
+      'request_id': request,
+      'status': 'complete',
+      'stage': 'L1_OWNER_DRAW_PAGE_COMPLETE',
+      'role': 'draw_order',
+      'page': 77000,
+      'page_count': 77000,
+      'pages_read': 1,
+      'pdf_sha256': sha,
+      'authority': 'LAB_OWNER_ATTESTED_BYTES_ONLY',
+      'global_not_win': 'HOLD',
+      'tokens': List.generate(50, (i) => 'AB${i.toString().padLeft(8, '0')}'),
+    };
+    for (final invalid in <String, dynamic>{
+      'status': 'running',
+      'page': 1,
+      'role': 'sorted',
+      'pdf_sha256': 'wrong',
+      'global_not_win': 'PASS',
+      'pages_read': 0,
+      'tokens': List.filled(50, 'AB00000000'),
+    }.entries) {
+      await terminal.writeAsString(jsonEncode({...receipt, invalid.key: invalid.value}));
+      await expectLater(restarted.recoverOwnerOpen(), throwsA(unresolved()));
+      await expectLater(restarted.requireClear(), throwsA(unresolved()));
+    }
+    await terminal.writeAsString(jsonEncode(receipt));
+    expect(await restarted.recoverOwnerOpen(), isTrue);
+    await restarted.requireClear();
+  });
 }

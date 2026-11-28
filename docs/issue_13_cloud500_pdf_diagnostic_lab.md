@@ -506,3 +506,8 @@ proof, and not proof of full 87,000-page extraction or global NOT_WIN.
 Exact-head Lab CI, Android Owner memory samples and independently confirmed
 process exit remain pending. Production PR45, signing authority, Owner data,
 formal app version, and canonical project governance are unchanged.
+
+
+### V3 draw-page dispatch custody
+
+Shared exclusive marker binds operation, role, page, request and source SHA. Recovery requires matching closed-worker terminal, exactly 50 distinct full10 tokens and global HOLD. Negative regression covers missing/mismatched terminal. UI dispatch wiring and physical PDF validation remain separate HOLD gates; CI pending.
