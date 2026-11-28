@@ -313,4 +313,68 @@ void main() {
     expect(await restarted.recoverOwnerOpen(), isTrue);
     await restarted.requireClear();
   });
+  Map<String, dynamic> pinnedDrawReceipt(int page) => <String, dynamic>{
+    'request_id': request,
+    'status': 'complete',
+    'stage': 'L1_OWNER_DRAW_PAGE_COMPLETE',
+    'role': 'draw_order',
+    'page': page,
+    'page_count': 77000,
+    'pages_read': 1,
+    'pdf_sha256': LabL1DispatchFence.mayJuneDrawSha256,
+    'authority': 'LAB_OWNER_ATTESTED_BYTES_ONLY',
+    'global_not_win': 'HOLD',
+    'tokens': List.generate(50, (i) => 'AB${i.toString().padLeft(8, '0')}'),
+  };
+
+  test('draw UI boundary reserves pinned marker before exposing tokens', () async {
+    final fence = LabL1DispatchFence(directory);
+    final tokens = await fence.runDrawPage(
+      page: 77000, requestId: request, dispatch: (reserve) async {
+        await reserve();
+        await expectLater(fence.requireClear(), throwsA(unresolved()));
+        final marker = jsonDecode(await File(
+          '${directory.path}/l1-native-inflight.json').readAsString()) as Map;
+        expect(marker['pdf_sha256'], LabL1DispatchFence.mayJuneDrawSha256);
+        expect(marker['page'], 77000);
+        return pinnedDrawReceipt(77000);
+      },
+    );
+    expect(tokens.length, 50);
+    expect(tokens.first, 'AB00000000');
+    await fence.requireClear();
+  });
+
+  test('draw UI boundary rejects missing reservation or wrong receipt', () async {
+    final fence = LabL1DispatchFence(directory);
+    await expectLater(fence.runDrawPage(
+      page: 1, requestId: request,
+      dispatch: (_) async => pinnedDrawReceipt(1),
+    ), throwsA(unresolved()));
+    await expectLater(fence.runDrawPage(
+      page: 1, requestId: request, dispatch: (reserve) async {
+        await reserve();
+        return {...pinnedDrawReceipt(1), 'pdf_sha256': sha};
+      },
+    ), throwsA(unresolved()));
+    await expectLater(fence.requireClear(), throwsA(unresolved()));
+  });
+
+  test('draw UI boundary never dispatches invalid page or unresolved marker', () async {
+    final fence = LabL1DispatchFence(directory);
+    var calls = 0;
+    Future<Map<String, dynamic>> dispatch(Future<void> Function() reserve) async {
+      calls++;
+      return pinnedDrawReceipt(1);
+    }
+    await expectLater(fence.runDrawPage(
+      page: 77001, requestId: request, dispatch: dispatch,
+    ), throwsArgumentError);
+    await fence.beginOwnerOpen(role: 'sorted', requestId: request);
+    await expectLater(fence.runDrawPage(
+      page: 1, requestId: request, dispatch: dispatch,
+    ), throwsA(unresolved()));
+    expect(calls, 0);
+  });
+
 }

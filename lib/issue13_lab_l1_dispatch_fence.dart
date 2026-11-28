@@ -81,6 +81,28 @@ class LabL1DispatchFence {
   }
 
 
+  static const mayJuneDrawSha256 =
+      'bd80ee884233f7f38ad9004622d2bb004204f2dca50de373788e022c7018dba6';
+
+  /// Expose tokens only after the pinned V3 marker and terminal verify.
+  Future<List<String>> runDrawPage({
+    required int page,
+    required String requestId,
+    required Future<Map<String, dynamic>> Function(
+        Future<void> Function() reserve) dispatch,
+  }) async {
+    _drawRecord(page, requestId, mayJuneDrawSha256);
+    await requireClear();
+    final result = await dispatch(() => beginDrawPage(
+          page: page, requestId: requestId, pdfSha256: mayJuneDrawSha256,
+        ));
+    await completeDrawPage(
+      page: page, requestId: requestId, pdfSha256: mayJuneDrawSha256,
+      result: result,
+    );
+    return List<String>.unmodifiable((result['tokens'] as List).cast<String>());
+  }
+
   // V3 shares the exclusive marker with both older operations.
   static Map<String, Object> _drawRecord(
       int page, String requestId, String pdfSha256) {

@@ -84,6 +84,9 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   );
 
   final _candidateController = TextEditingController();
+  final _mayJunePageController = TextEditingController(text: '1');
+  List<String> _mayJuneDrawTokens = const <String>[];
+  int? _mayJuneDrawResultPage;
   final _evidenceWindowController = TextEditingController(text: '1');
   final _scrollController = ScrollController();
   final _logLines = <String>[];
@@ -118,6 +121,7 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
   @override
   void dispose() {
     _candidateController.dispose();
+    _mayJunePageController.dispose();
     _evidenceWindowController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -473,7 +477,14 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     final resultFile = File(
       '${lab.path}${Platform.pathSeparator}platform_probe_$requestId.json',
     );
-    if (await resultFile.exists()) await resultFile.delete();
+    if (candidate.startsWith('LAB_MAY_JUNE_DRAW_PAGE:')) {
+      if (await FileSystemEntity.type(resultFile.path, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw StateError('L1_OWNER_DRAW_RESULT_PATH_INVALID');
+      }
+    } else if (await resultFile.exists()) {
+      await resultFile.delete();
+    }
 
     await _log(
       'PLATFORM_PROBE_DISPATCH request=$requestId candidate=$candidate '
@@ -985,6 +996,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     setState(() {
       _mayJunePairVerified = false;
       _mayJuneOpenVerified = false;
+      _mayJuneDrawTokens = const <String>[];
+      _mayJuneDrawResultPage = null;
       if (sorted) {
         _mayJuneSortedPath = null;
       } else {
@@ -1012,6 +1025,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     setState(() {
       _mayJunePairVerified = false;
       _mayJuneOpenVerified = false;
+      _mayJuneDrawTokens = const <String>[];
+      _mayJuneDrawResultPage = null;
     });
     final sorted = _mayJuneSortedPath;
     final draw = _mayJuneDrawPath;
@@ -1022,7 +1037,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       'verifyLabOwnerPdfPair',
       <String, Object?>{'sortedPath': sorted, 'drawPath': draw},
     );
-    if (result?['authority'] != 'LAB_OWNER_ATTESTED_BYTES_ONLY') {
+    if (result?['authority'] != 'LAB_OWNER_ATTESTED_BYTES_ONLY' ||
+        result?['drawSha256'] != LabL1DispatchFence.mayJuneDrawSha256) {
       throw StateError('L1_OWNER_PAIR_HOLD');
     }
     await _log('L1_MAY_JUNE_PAIR_BYTES_VERIFIED '
@@ -1046,6 +1062,8 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
     setState(() {
       _mayJuneOpenVerified = false;
       _mayJuneProbeUnresolved = true;
+      _mayJuneDrawTokens = const <String>[];
+      _mayJuneDrawResultPage = null;
     });
     // Both roles are independently rehashed inside the isolated process.
     // Persist a role-bound marker before each native dispatch. Timeout,
@@ -1068,6 +1086,46 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       setState(() {
         _mayJuneProbeUnresolved = false;
         _mayJuneOpenVerified = true;
+      });
+    }
+  }
+
+  Future<void> _extractMayJuneDrawPage() async {
+    final draw = _mayJuneDrawPath;
+    final lab = _labDirectory;
+    if (!_mayJunePairVerified || !_mayJuneOpenVerified ||
+        _mayJuneProbeUnresolved || draw == null || lab == null) {
+      throw StateError('L1_OWNER_DRAW_SOURCE_HOLD');
+    }
+    setState(() {
+      _mayJuneDrawTokens = const <String>[];
+      _mayJuneDrawResultPage = null;
+    });
+    final raw = _mayJunePageController.text.trim();
+    final page = int.tryParse(raw);
+    if (page == null || page < 1 || page > 77000 || raw != page.toString()) {
+      throw StateError('L1_OWNER_DRAW_PAGE_INVALID');
+    }
+    final fence = LabL1DispatchFence(lab);
+    await fence.requireClear();
+    if (!mounted) return;
+    setState(() => _mayJuneProbeUnresolved = true);
+    final requestId = DateTime.now().microsecondsSinceEpoch.toString();
+    final tokens = await fence.runDrawPage(
+      page: page,
+      requestId: requestId,
+      dispatch: (reserve) => _runPlatformProbe(
+        candidate: 'LAB_MAY_JUNE_DRAW_PAGE:$page',
+        ownerVerifiedSource: File(draw),
+        requestIdOverride: requestId,
+        beforeDispatch: reserve,
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _mayJuneProbeUnresolved = false;
+        _mayJuneDrawResultPage = page;
+        _mayJuneDrawTokens = tokens;
       });
     }
   }
@@ -1106,6 +1164,28 @@ class _Cloud500DiagnosticPageState extends State<Cloud500DiagnosticPage> {
       Text(_mayJuneOpenVerified
           ? '雙 PDF 隔離開啟 PASS（各 77000 頁）；對獎仍 HOLD'
           : '隔離開啟 HOLD；對獎仍 HOLD'),
+      TextField(
+        controller: _mayJunePageController,
+        enabled: !_actionsDisabled && _mayJuneOpenVerified &&
+            !_mayJuneProbeUnresolved,
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(
+          labelText: '開獎順序版指定頁（1–77000）',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      FilledButton.tonal(
+        onPressed: _actionsDisabled || !_mayJunePairVerified ||
+                !_mayJuneOpenVerified || _mayJuneProbeUnresolved
+            ? null : () => _run('擷取開獎順序版指定頁', _extractMayJuneDrawPage),
+        child: const Text('擷取開獎順序版指定頁完整10碼'),
+      ),
+      if (_mayJuneDrawResultPage != null)
+        SelectableText(
+          '診斷頁 $_mayJuneDrawResultPage：${_mayJuneDrawTokens.length} 組；'
+          '尚非中獎判定／global NOT_WIN HOLD\n'
+          '${_mayJuneDrawTokens.join('、')}',
+        ),
       const Divider(),
       FilledButton(
         onPressed: _actionsDisabled
