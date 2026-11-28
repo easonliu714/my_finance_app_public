@@ -301,6 +301,9 @@ void main() {
       'global_not_win': 'PASS',
       'pages_read': 0,
       'tokens': List.filled(50, 'AB00000000'),
+      'stage': 'PLATFORM_RENDERER_OPEN_OK',
+      'request_id': '999',
+      'authority': 'unknown',
     }.entries) {
       await terminal.writeAsString(jsonEncode({...receipt, invalid.key: invalid.value}));
       await expectLater(restarted.recoverOwnerOpen(), throwsA(unresolved()));
