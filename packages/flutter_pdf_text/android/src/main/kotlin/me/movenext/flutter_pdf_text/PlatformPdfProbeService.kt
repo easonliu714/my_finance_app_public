@@ -92,6 +92,12 @@ class PlatformPdfProbeService : Service() {
     candidate: String,
     deferTerminal: (() -> Unit) -> Unit
   ) {
+    // Validate the draw command and receipt path before any running or
+    // failure snapshot can create/replace a file. Invalid input leaves HOLD.
+    val drawPage = LabL1MayJuneDrawPage.requestedPage(candidate)
+    val safeResultPath = if (drawPage != null)
+      LabL1DrawResultPath.requireNew(applicationContext.filesDir, resultPath, requestId).path
+    else resultPath
     val source = File(pdfPath)
     val pid = Process.myPid()
     val startedAt = SystemClock.elapsedRealtime()
@@ -115,11 +121,11 @@ class PlatformPdfProbeService : Service() {
         .put("pages_read", pagesRead.get())
         .put("updated_at_ms", System.currentTimeMillis())
       if (status == "running") {
-        writeResult(resultPath, status, extra, resultCustody)
+        writeResult(safeResultPath, status, extra, resultCustody)
       } else {
         // Stage the immutable terminal payload until runProbe has returned
         // after cleanup, and the admission monitor has released the lease.
-        deferTerminal { writeResult(resultPath, status, extra, resultCustody) }
+        deferTerminal { writeResult(safeResultPath, status, extra, resultCustody) }
       }
     }
 
@@ -207,18 +213,8 @@ class PlatformPdfProbeService : Service() {
           "request=$requestId sha256=$sha before_renderer=true")
         sha
       } else null
-      val drawPage = LabL1MayJuneDrawPage.requestedPage(candidate)
       val ownerRole = if (drawPage != null) LabL1MayJuneDualPdfOracle.Role.DRAW_ORDER
         else LabL1MayJuneOwnerAttestedBytePair.rendererOpenRole(candidate)
-      if (drawPage != null) {
-        // Bind the new operation to its app-private request receipt.
-        val root = applicationContext.filesDir.canonicalFile
-        val receipt = File(resultPath).canonicalFile
-        if (!receipt.path.startsWith(root.path + File.separator) ||
-            receipt.name != "platform_probe_$requestId.json") {
-          throw IllegalStateException("L1_OWNER_DRAW_RESULT_PATH_INVALID")
-        }
-      }
       descriptor = if (ownerRole != null) {
         if (!Regex("^[0-9]{1,24}$").matches(requestId)) {
           throw IllegalStateException("L1_REQUEST_ID_INVALID")
